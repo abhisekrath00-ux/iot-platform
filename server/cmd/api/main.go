@@ -19,6 +19,8 @@ import (
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 	"github.com/golang-jwt/jwt/v5"
@@ -103,6 +105,9 @@ func main() {
 	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
 	api.HandleFunc("GET /v1/profiles", s.listProfiles)
 	api.HandleFunc("POST /v1/profiles", s.createProfile)
+	api.HandleFunc("GET /v1/reports", s.listReports)
+	api.HandleFunc("POST /v1/reports", s.createReport)
+	api.HandleFunc("POST /v1/reports/{id}/run", s.runReport)
 
 	// Bootstrap path: the gateway holds only its one-time claim code, no JWT yet.
 	// Rate limited: 5/min per IP, burst 5 - brute-forcing 160-bit codes is
@@ -119,6 +124,7 @@ func main() {
 
 	mux.Handle("/v1/", auth.Middleware(s.secret)(api))
 
+	go s.reportScheduler(ctx)
 	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: auth.SecurityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		log.Printf("api listening on %s", srv.Addr)
@@ -688,6 +694,212 @@ func (s *server) createProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "profile.create", id, map[string]any{"name": name, "driver_profile": in.DriverProfile})
 	writeJSON(w, 201, map[string]any{"id": id})
+}
+
+// --- report builder ---
+
+func (s *server) listReports(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT id, name, definition, schedule_cron, channel_id, last_run_at, created_at
+		 FROM reports WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, name string
+		var def []byte
+		var cron, channelID *string
+		var lastRun *time.Time
+		var createdAt time.Time
+		rows.Scan(&id, &name, &def, &cron, &channelID, &lastRun, &createdAt)
+		out = append(out, map[string]any{"id": id, "name": name, "definition": json.RawMessage(def),
+			"schedule_cron": cron, "channel_id": channelID, "last_run_at": lastRun, "created_at": createdAt})
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *server) createReport(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		Name         string            `json:"name"`
+		Definition   report.Definition `json:"definition"`
+		ScheduleCron string            `json:"schedule_cron"`
+		ChannelID    string            `json:"channel_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" || len(name) > 128 || strings.ContainsAny(name, "<>\x00") {
+		http.Error(w, "name invalid", 400)
+		return
+	}
+	if err := report.Validate(in.Definition); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	var cron *string
+	if in.ScheduleCron != "" {
+		if _, err := report.NextRun(in.ScheduleCron, time.Now()); err != nil {
+			http.Error(w, "schedule_cron: "+err.Error(), 400)
+			return
+		}
+		cron = &in.ScheduleCron
+	}
+	var channelID *string
+	if in.ChannelID != "" {
+		channelID = &in.ChannelID
+	}
+	def, _ := json.Marshal(in.Definition)
+	id := uuid.NewString()
+	_, err := s.st.Pool.Exec(r.Context(),
+		`INSERT INTO reports(id,tenant_id,name,definition,schedule_cron,channel_id,created_by)
+		 SELECT $1,$2,$3,$4,$5,$6,$7 WHERE $6::text IS NULL OR EXISTS
+		   (SELECT 1 FROM notification_channels WHERE id=$6 AND tenant_id=$2)`,
+		id, auth.Tenant(r), name, def, cron, channelID, auth.User(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.audit(r, "report.create", id, map[string]any{"name": name})
+	writeJSON(w, 201, map[string]any{"id": id})
+}
+
+// runReport aggregates the report's metrics over its window, renders a
+// standalone HTML document, delivers it to the configured channel, and
+// records the run. Also called by the scheduler for cron-due reports.
+func (s *server) runReport(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.executeReport(r.Context(), id, auth.Tenant(r)); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"report_id": id, "status": "ok"})
+}
+
+func (s *server) executeReport(ctx context.Context, id, tenant string) error {
+	var name string
+	var defBytes []byte
+	var channelID *string
+	err := s.st.Pool.QueryRow(ctx,
+		`SELECT name, definition, channel_id FROM reports WHERE id=$1 AND tenant_id=$2`, id, tenant).
+		Scan(&name, &defBytes, &channelID)
+	if err != nil {
+		return fmt.Errorf("report lookup: %w", err)
+	}
+	var def report.Definition
+	if err := json.Unmarshal(defBytes, &def); err != nil {
+		return err
+	}
+	runID := uuid.NewString()
+	if _, err := s.st.Pool.Exec(ctx,
+		`INSERT INTO report_runs(id,report_id) VALUES($1,$2)`, runID, id); err != nil {
+		return err
+	}
+	fail := func(err error) error {
+		s.st.Pool.Exec(ctx, `UPDATE report_runs SET finished_at=now(), status='failed', error=$2 WHERE id=$1`, runID, err.Error())
+		return err
+	}
+	trunc := "hour"
+	if def.GroupBy == "day" {
+		trunc = "day"
+	}
+	series := map[report.Metric][]report.Bucket{}
+	total := 0
+	for _, m := range def.Metrics {
+		rows, err := s.st.Pool.Query(ctx,
+			`SELECT date_trunc($1, observed_at) AS bucket,
+			        avg(value), min(value), max(value), count(*)
+			 FROM telemetry
+			 WHERE tenant_id=$2 AND device_id=$3 AND point_id=$4
+			   AND observed_at > now() - ($5 || ' hours')::interval
+			 GROUP BY bucket ORDER BY bucket`,
+			trunc, tenant, m.DeviceID, m.PointID, fmt.Sprint(def.WindowHours))
+		if err != nil {
+			return fail(err)
+		}
+		for rows.Next() {
+			var b report.Bucket
+			rows.Scan(&b.Start, &b.Avg, &b.Min, &b.Max, &b.Count)
+			series[m] = append(series[m], b)
+			total++
+		}
+		rows.Close()
+	}
+	htmlDoc := report.Render(name, def, series, time.Now())
+	if channelID != nil {
+		var ctype, target string
+		var enabled bool
+		err := s.st.Pool.QueryRow(ctx,
+			`SELECT type, target, enabled FROM notification_channels WHERE id=$1 AND tenant_id=$2`,
+			*channelID, tenant).Scan(&ctype, &target, &enabled)
+		if err != nil || !enabled {
+			return fail(fmt.Errorf("channel unavailable"))
+		}
+		n := notify.FromEnv()
+		switch ctype {
+		case "email":
+			if err := n.Email(ctx, []string{target}, "Report: "+name, htmlDoc); err != nil {
+				return fail(err)
+			}
+		case "slack":
+			if err := n.Slack(ctx, target, "Report ready: "+name+" ("+fmt.Sprint(total)+" rows)"); err != nil {
+				return fail(err)
+			}
+		}
+	}
+	if _, err := s.st.Pool.Exec(ctx,
+		`UPDATE report_runs SET finished_at=now(), status='ok', row_count=$2 WHERE id=$1`, runID, total); err != nil {
+		return err
+	}
+	_, err = s.st.Pool.Exec(ctx, `UPDATE reports SET last_run_at=now() WHERE id=$1`, id)
+	return err
+}
+
+// reportScheduler fires cron-due reports once per minute. Multi-replica
+// deployments need a lease here (see docs/deployment.md HA notes).
+func (s *server) reportScheduler(ctx context.Context) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			rows, err := s.st.Pool.Query(ctx,
+				`SELECT id, tenant_id, schedule_cron, coalesce(last_run_at, created_at)
+				 FROM reports WHERE schedule_cron IS NOT NULL`)
+			if err != nil {
+				continue
+			}
+			type due struct{ id, tenant string }
+			var dues []due
+			for rows.Next() {
+				var id, tenant, cron string
+				var anchor time.Time
+				rows.Scan(&id, &tenant, &cron, &anchor)
+				next, err := report.NextRun(cron, anchor)
+				if err == nil && !next.After(now) {
+					dues = append(dues, due{id, tenant})
+				}
+			}
+			rows.Close()
+			for _, d := range dues {
+				if err := s.executeReport(ctx, d.id, d.tenant); err != nil {
+					log.Printf("report %s: %v", d.id, err)
+				}
+			}
+		}
+	}
 }
 
 func (s *server) audit(r *http.Request, action, target string, detail map[string]any) {
