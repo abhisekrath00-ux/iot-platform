@@ -334,3 +334,21 @@ func (s *server) publishMQTT(topic string, payload []byte) error {
 	tok.Wait()
 	return tok.Error()
 }
+
+// listSites feeds the commissioning wizard's site picker.
+func (s *server) listSites(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT id, name FROM sites WHERE tenant_id=$1 ORDER BY name`, auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, name string
+		rows.Scan(&id, &name)
+		out = append(out, map[string]any{"id": id, "name": name})
+	}
+	writeJSON(w, 200, out)
+}

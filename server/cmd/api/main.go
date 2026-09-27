@@ -135,6 +135,7 @@ func main() {
 	api.HandleFunc("POST /v1/fleet/campaigns/{id}/abort", s.abortCampaign)
 	api.HandleFunc("POST /v1/fleet/campaigns/{id}/rollback", s.rollbackCampaign)
 	api.HandleFunc("POST /v1/fleet/ack", s.ackAssignment)
+	api.HandleFunc("GET /v1/sites", s.listSites)
 	api.HandleFunc("POST /v1/commissioning/sessions", s.createCommissionSession)
 	api.HandleFunc("GET /v1/commissioning/sessions/{id}", s.getCommissionSession)
 	api.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
