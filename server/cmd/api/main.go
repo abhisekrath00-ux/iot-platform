@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 	"github.com/google/uuid"
 )
@@ -23,6 +24,7 @@ import (
 type server struct {
 	st     *store.Store
 	secret []byte
+	es     *search.Client
 }
 
 func main() {
@@ -49,7 +51,7 @@ func main() {
 		return
 	}
 
-	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET"))}
+	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET")), es: search.New(os.Getenv("ELASTICSEARCH_URL"))}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool.Ping(r.Context()); err != nil {
@@ -74,6 +76,7 @@ func main() {
 	api.HandleFunc("GET /v1/audit", s.listAudit)
 	api.HandleFunc("GET /v1/rules", s.listRules)
 	api.HandleFunc("POST /v1/rules", s.createRule)
+	api.HandleFunc("GET /v1/search", s.searchAll)
 	api.HandleFunc("GET /v1/notifications/channels", s.listChannels)
 	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
 	api.HandleFunc("POST /v1/dashboards", s.saveDashboard)
@@ -178,6 +181,8 @@ func (s *server) createDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "device.create", id, map[string]any{"profile": in.Profile, "name": in.Name})
+	s.es.Index(r.Context(), "devices", id, map[string]any{
+		"id": id, "tenant_id": auth.Tenant(r), "name": in.Name, "profile": in.Profile, "gateway_id": in.GatewayID})
 	writeJSON(w, 201, map[string]any{"id": id})
 }
 
@@ -538,4 +543,20 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "channel.create", id, map[string]any{"type": in.Type})
 	writeJSON(w, 201, map[string]any{"id": id})
+}
+
+// --- search (Elasticsearch; tenant-scoped) ---
+func (s *server) searchAll(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		http.Error(w, "q required", 400)
+		return
+	}
+	hits, err := s.es.Query(r.Context(), []string{"devices", "alerts"}, auth.Tenant(r), q)
+	if err != nil {
+		http.Error(w, "search backend unavailable: "+err.Error(), 503)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(hits)
 }
