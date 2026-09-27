@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
@@ -27,6 +28,14 @@ type server struct {
 	st     *store.Store
 	secret []byte
 	es     *search.Client
+	oidc   *auth.OIDCProvider
+	oidcMu sync.Mutex
+	states map[string]oidcState // state -> nonce, for the OIDC callback
+}
+
+type oidcState struct {
+	nonce   string
+	expires time.Time
 }
 
 func main() {
@@ -53,7 +62,15 @@ func main() {
 		return
 	}
 
-	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET")), es: search.New(os.Getenv("ELASTICSEARCH_URL"))}
+	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET")), es: search.New(os.Getenv("ELASTICSEARCH_URL")), states: map[string]oidcState{}}
+	if iss := os.Getenv("OIDC_ISSUER"); iss != "" {
+		p, err := auth.NewOIDCProvider(context.Background(), iss, os.Getenv("OIDC_CLIENT_ID"), os.Getenv("OIDC_CLIENT_SECRET"), os.Getenv("OIDC_REDIRECT_URL"))
+		if err != nil {
+			log.Fatalf("oidc: %v", err)
+		}
+		s.oidc = p
+		log.Printf("oidc sso enabled for issuer %s", iss)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool.Ping(r.Context()); err != nil {
@@ -86,6 +103,10 @@ func main() {
 
 	// Bootstrap path: the gateway holds only its one-time claim code, no JWT yet.
 	mux.HandleFunc("POST /v1/enrollment/claim", s.claimEnrollment)
+
+	// SSO: unauthenticated by design; the callback issues the platform JWT.
+	mux.HandleFunc("GET /auth/oidc/login", s.oidcLogin)
+	mux.HandleFunc("GET /auth/oidc/callback", s.oidcCallback)
 
 	mux.Handle("/v1/", auth.Middleware(s.secret)(api))
 
@@ -489,6 +510,81 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"gateway_id": gwID, "ingest_token": signed, "status": "active"})
+}
+
+// --- OIDC SSO ---
+
+// oidcLogin redirects to the provider with a fresh state + nonce pair.
+func (s *server) oidcLogin(w http.ResponseWriter, r *http.Request) {
+	if s.oidc == nil {
+		http.NotFound(w, r)
+		return
+	}
+	state, err := auth.RandomToken()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	nonce, err := auth.RandomToken()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.oidcMu.Lock()
+	for k, v := range s.states { // sweep expired
+		if time.Now().After(v.expires) {
+			delete(s.states, k)
+		}
+	}
+	s.states[state] = oidcState{nonce: nonce, expires: time.Now().Add(10 * time.Minute)}
+	s.oidcMu.Unlock()
+	http.Redirect(w, r, s.oidc.AuthURL(state, nonce), http.StatusFound)
+}
+
+// oidcCallback verifies the code exchange, maps email to a platform user,
+// and issues the platform JWT. Unknown emails are rejected: SSO authenticates
+// identity, it does not create tenants or users.
+func (s *server) oidcCallback(w http.ResponseWriter, r *http.Request) {
+	if s.oidc == nil {
+		http.NotFound(w, r)
+		return
+	}
+	q := r.URL.Query()
+	state, code := q.Get("state"), q.Get("code")
+	s.oidcMu.Lock()
+	st, ok := s.states[state]
+	if ok {
+		delete(s.states, state) // single use
+	}
+	s.oidcMu.Unlock()
+	if !ok || time.Now().After(st.expires) || code == "" {
+		http.Error(w, "invalid or expired state", 403)
+		return
+	}
+	ident, err := s.oidc.Exchange(r.Context(), code, st.nonce)
+	if err != nil {
+		http.Error(w, "oidc exchange failed", 403)
+		return
+	}
+	var userID, tenantID, role string
+	err = s.st.Pool.QueryRow(r.Context(),
+		`SELECT id, tenant_id, role FROM users WHERE lower(email)=lower($1)`, ident.Email).
+		Scan(&userID, &tenantID, &role)
+	if err != nil {
+		http.Error(w, "no platform user for this account", 403)
+		return
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
+		TenantID: tenantID, Role: role,
+		RegisteredClaims: jwt.RegisteredClaims{Subject: userID, ExpiresAt: jwt.NewNumericDate(time.Now().Add(12 * time.Hour))},
+	})
+	signed, err := tok.SignedString(s.secret)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.audit(r, "auth.sso_login", userID, map[string]any{"email": ident.Email})
+	writeJSON(w, 200, map[string]any{"token": signed, "user_id": userID, "tenant_id": tenantID, "role": role})
 }
 
 func (s *server) audit(r *http.Request, action, target string, detail map[string]any) {
