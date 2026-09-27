@@ -109,6 +109,32 @@ func main() {
 	defer mc.Close()
 
 	telemetryTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/telemetry"
+	diagTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/diag"
+
+	// Commissioning probes: read-only port tests, answered on diag/result.
+	// Runs inline; a probe is a single register read with a bounded timeout.
+	if err := mc.Subscribe(diagTopic, func(_ mqtt.Client, m mqtt.Message) {
+		var req driver.ProbeRequest
+		if err := json.Unmarshal(m.Payload(), &req); err != nil {
+			log.Printf("diag: bad payload: %v", err)
+			return
+		}
+		timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+		if timeout <= 0 || timeout > 30*time.Second {
+			timeout = 3 * time.Second
+		}
+		pctx, cancel := context.WithTimeout(ctx, timeout)
+		res := driver.RunProbe(pctx, nil, req)
+		cancel()
+		b, _ := json.Marshal(res)
+		if err := mc.Publish(diagTopic+"/result", b); err != nil {
+			log.Printf("diag: result publish: %v", err)
+			return
+		}
+		log.Printf("diag: probe for session %s: ok=%v (%dms)", res.SessionID, res.OK, res.LatencyMs)
+	}); err != nil {
+		log.Fatalf("diag subscribe: %v", err)
+	}
 
 	// Poll loops, one per device.
 	for _, dev := range cfg.Devices {

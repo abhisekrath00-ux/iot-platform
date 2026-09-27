@@ -25,8 +25,16 @@ type Driver interface {
 	Close() error
 }
 
+// PortOpener opens a serial port; injectable for tests and one-off probes.
+type PortOpener func(name string, mode *serial.Mode) (serial.Port, error)
+
 // New returns the driver for the device profile.
 func New(d config.Device) (Driver, error) {
+	return NewWithOpener(serial.Open, d)
+}
+
+// NewWithOpener is New with the port opener injected.
+func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
 	mode := &serial.Mode{BaudRate: d.Baud, DataBits: d.DataBits, StopBits: serial.StopBits(d.StopBits)}
 	switch d.Parity {
 	case "none", "":
@@ -38,7 +46,7 @@ func New(d config.Device) (Driver, error) {
 	default:
 		return nil, fmt.Errorf("device %s: unknown parity %q", d.ID, d.Parity)
 	}
-	port, err := serial.Open(d.Port, mode)
+	port, err := open(d.Port, mode)
 	if err != nil {
 		return nil, fmt.Errorf("device %s: open %s: %w", d.ID, d.Port, err)
 	}

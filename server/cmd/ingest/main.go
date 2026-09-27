@@ -77,6 +77,48 @@ func main() {
 	if tok := c.Subscribe("t/+/g/+/telemetry", 1, handler); tok.Wait() && tok.Error() != nil {
 		log.Fatalf("subscribe: %v", tok.Error())
 	}
+
+	// Commissioning port-test results: the edge answers diag probes on
+	// t/<tenant>/g/<gateway>/diag/result. Topic identity is enforced the same
+	// way as telemetry: a result only lands on a session whose tenant and
+	// gateway match the broker-authenticated topic path.
+	diagHandler := func(_ mqtt.Client, m mqtt.Message) {
+		parts := strings.Split(m.Topic(), "/")
+		if len(parts) != 6 || parts[4] != "diag" || parts[5] != "result" || parts[1] == "" || parts[3] == "" {
+			log.Printf("diag drop: bad topic %q", m.Topic())
+			return
+		}
+		var res struct {
+			SessionID  string          `json:"session_id"`
+			OK         bool            `json:"ok"`
+			Error      string          `json:"error"`
+			Readings   json.RawMessage `json:"readings"`
+			LatencyMs  int64           `json:"latency_ms"`
+			FinishedAt time.Time       `json:"finished_at"`
+		}
+		if err := json.Unmarshal(m.Payload(), &res); err != nil || res.SessionID == "" {
+			log.Printf("diag drop: bad payload")
+			return
+		}
+		payload, _ := json.Marshal(res)
+		tag, err := st.Pool.Exec(ctx,
+			`UPDATE commissioning_sessions
+			 SET port_test = COALESCE(port_test,'{}'::jsonb) - 'result' || jsonb_build_object('result', $1::jsonb),
+			     state = CASE WHEN $2 THEN 'tested' ELSE 'failed' END,
+			     updated_at = now()
+			 WHERE id = $3 AND tenant_id = $4 AND gateway_id = $5`,
+			payload, res.OK, res.SessionID, parts[1], parts[3])
+		if err != nil {
+			log.Printf("diag update %s: %v", res.SessionID, err)
+			return
+		}
+		if tag.RowsAffected() == 0 {
+			log.Printf("diag drop: no session %s for topic identity %s/%s", res.SessionID, parts[1], parts[3])
+		}
+	}
+	if tok := c.Subscribe("t/+/g/+/diag/result", 1, diagHandler); tok.Wait() && tok.Error() != nil {
+		log.Fatalf("diag subscribe: %v", tok.Error())
+	}
 	log.Printf("ingest up")
 	<-ctx.Done()
 	c.Disconnect(250)

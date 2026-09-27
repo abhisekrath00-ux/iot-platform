@@ -135,6 +135,11 @@ func main() {
 	api.HandleFunc("POST /v1/fleet/campaigns/{id}/abort", s.abortCampaign)
 	api.HandleFunc("POST /v1/fleet/campaigns/{id}/rollback", s.rollbackCampaign)
 	api.HandleFunc("POST /v1/fleet/ack", s.ackAssignment)
+	api.HandleFunc("POST /v1/commissioning/sessions", s.createCommissionSession)
+	api.HandleFunc("GET /v1/commissioning/sessions/{id}", s.getCommissionSession)
+	api.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
+	api.HandleFunc("POST /v1/commissioning/sessions/{id}/port-test", s.requestPortTest)
+	api.HandleFunc("GET /v1/commissioning/sessions/{id}/preview", s.commissionPreview)
 
 	// Bootstrap path: the gateway holds only its one-time claim code, no JWT yet.
 	// Rate limited: 5/min per IP, burst 5 - brute-forcing 160-bit codes is

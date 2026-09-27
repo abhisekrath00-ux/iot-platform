@@ -42,6 +42,13 @@ func Connect(cfg *config.Config, onCommand mqtt.MessageHandler) (*Client, error)
 	return &Client{c: c}, nil
 }
 
+// Subscribe registers a handler on an additional topic at QoS 1.
+func (c *Client) Subscribe(topic string, handler mqtt.MessageHandler) error {
+	tok := c.c.Subscribe(topic, 1, handler)
+	tok.Wait()
+	return tok.Error()
+}
+
 func (c *Client) Publish(topic string, payload []byte) error {
 	tok := c.c.Publish(topic, 1, false, payload)
 	tok.Wait()
