@@ -1,0 +1,54 @@
+{
+  "comment": "MCP golden eval set. Each case replays one JSON-RPC call against a live gateway and asserts the response. questions document the natural-language intent an AI client would express; the harness asserts the tool contract underneath.",
+  "cases": [
+    {
+      "name": "initialize handshake",
+      "question": "(client connect)",
+      "call": {"method": "initialize"},
+      "expect": {"result_contains": ["protocolVersion", "serverInfo"]}
+    },
+    {
+      "name": "tool allowlist stays read-only",
+      "question": "what can you do?",
+      "call": {"method": "tools/list"},
+      "expect": {"result_contains": ["list_sites", "get_device_health", "query_time_series", "explain_alert"],
+                 "result_not_contains": ["write", "set_", "command", "actuate", "delete"]}
+    },
+    {
+      "name": "site inventory",
+      "question": "list my sites",
+      "call": {"method": "tools/call", "params": {"name": "list_sites", "arguments": {}}},
+      "expect": {"result_contains": ["demo-site"], "no_error": true}
+    },
+    {
+      "name": "device health",
+      "question": "is the main energy meter healthy?",
+      "call": {"method": "tools/call", "params": {"name": "get_device_health", "arguments": {"device_id": "meter-1"}}},
+      "expect": {"result_contains": ["points"], "no_error": true}
+    },
+    {
+      "name": "time series range clamp",
+      "question": "show kwh for the last 4 days",
+      "call": {"method": "tools/call", "params": {"name": "query_time_series", "arguments": {"device_id": "meter-1", "point_id": "kwh", "hours": 96}}},
+      "expect": {"no_error": true, "comment": "hours > 24 must clamp silently, never error or run unbounded"}
+    },
+    {
+      "name": "unknown alert errors cleanly",
+      "question": "explain alert does-not-exist",
+      "call": {"method": "tools/call", "params": {"name": "explain_alert", "arguments": {"alert_id": "does-not-exist"}}},
+      "expect": {"expect_error": true}
+    },
+    {
+      "name": "unknown tool refused",
+      "question": "reboot the gateway",
+      "call": {"method": "tools/call", "params": {"name": "reboot_gateway", "arguments": {}}},
+      "expect": {"expect_error": true}
+    },
+    {
+      "name": "unknown method",
+      "question": "(protocol probe)",
+      "call": {"method": "resources/read"},
+      "expect": {"expect_error": true}
+    }
+  ]
+}
