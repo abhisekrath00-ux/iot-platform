@@ -5,9 +5,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
@@ -54,25 +56,12 @@ func main() {
 	}
 
 	handler := func(_ mqtt.Client, m mqtt.Message) {
-		var e envelope
-		if err := json.Unmarshal(m.Payload(), &e); err != nil {
-			log.Printf("drop: bad envelope: %v", err)
+		e, err := resolveEnvelope(m.Topic(), m.Payload(), time.Now())
+		if err != nil {
+			log.Printf("drop: %v", err)
 			return
 		}
-		if e.SchemaVersion != 1 || e.EventID == "" || e.TenantID == "" || e.DeviceID == "" || e.PointID == "" {
-			log.Printf("drop: invalid envelope fields (event=%s)", e.EventID)
-			return
-		}
-		if e.ObservedAt.After(time.Now().Add(5*time.Minute)) || time.Since(e.ObservedAt) > 30*24*time.Hour {
-			log.Printf("drop: implausible observed_at %s (event=%s)", e.ObservedAt, e.EventID)
-			return
-		}
-		// TODO: enforce tenant from authenticated broker identity mapping
-		// (client cert CN -> tenant), never from payload alone.
-		if e.Quality == "" {
-			e.Quality = "measured"
-		}
-		err := st.InsertTelemetry(ctx, store.Telemetry{
+		err = st.InsertTelemetry(ctx, store.Telemetry{
 			EventID: e.EventID, TenantID: e.TenantID, GatewayID: e.GatewayID,
 			DeviceID: e.DeviceID, PointID: e.PointID, ObservedAt: e.ObservedAt,
 			Value: e.Value, Unit: e.Unit, Quality: e.Quality, SchemaVersion: e.SchemaVersion,
@@ -91,6 +80,45 @@ func main() {
 	log.Printf("ingest up")
 	<-ctx.Done()
 	c.Disconnect(250)
+}
+
+// resolveEnvelope validates a telemetry message and returns the envelope with
+// tenant and gateway identity taken from the broker-enforced topic path,
+// never from payload fields. Under the production broker (mTLS with
+// use_identity_as_username and per-gateway ACL subtrees, see
+// deploy/mosquitto-mtls.conf) a gateway can only publish inside
+// t/<tenant>/g/<serial>/..., so the topic carries the authenticated identity.
+// Payload identity fields may confirm the topic identity but never override
+// it; a mismatch means the payload is lying and the message is dropped.
+func resolveEnvelope(topic string, payload []byte, now time.Time) (envelope, error) {
+	parts := strings.Split(topic, "/")
+	if len(parts) != 5 || parts[0] != "t" || parts[2] != "g" || parts[4] != "telemetry" || parts[1] == "" || parts[3] == "" {
+		return envelope{}, fmt.Errorf("bad topic %q", topic)
+	}
+	topicTenant, topicGW := parts[1], parts[3]
+
+	var e envelope
+	if err := json.Unmarshal(payload, &e); err != nil {
+		return envelope{}, fmt.Errorf("bad envelope json: %w", err)
+	}
+	if e.TenantID != "" && e.TenantID != topicTenant {
+		return envelope{}, fmt.Errorf("payload tenant %q does not match topic tenant %q (spoof attempt, event=%s)", e.TenantID, topicTenant, e.EventID)
+	}
+	if e.GatewayID != "" && e.GatewayID != topicGW {
+		return envelope{}, fmt.Errorf("payload gateway %q does not match topic gateway %q (spoof attempt, event=%s)", e.GatewayID, topicGW, e.EventID)
+	}
+	e.TenantID, e.GatewayID = topicTenant, topicGW
+
+	if e.SchemaVersion != 1 || e.EventID == "" || e.DeviceID == "" || e.PointID == "" {
+		return envelope{}, fmt.Errorf("invalid envelope fields (event=%s)", e.EventID)
+	}
+	if e.ObservedAt.After(now.Add(5*time.Minute)) || now.Sub(e.ObservedAt) > 30*24*time.Hour {
+		return envelope{}, fmt.Errorf("implausible observed_at %s (event=%s)", e.ObservedAt, e.EventID)
+	}
+	if e.Quality == "" {
+		e.Quality = "measured"
+	}
+	return e, nil
 }
 
 func mustEnv(k string) string {

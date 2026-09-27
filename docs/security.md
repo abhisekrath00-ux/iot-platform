@@ -29,6 +29,44 @@ practices, TUF. These inform the backlog; nothing here is a certification claim.
    backup/restore, signed images, SBOM, patch windows, tenant-isolation tests,
    segmentation, incident runbook.
 
+## Threat model (STRIDE)
+
+Scope: the edge agent on gateway SBCs, the broker, ingest, API, web, MCP
+gateway, and the enrollment/SSO flows. Out of scope: physical site security
+and the customer's own network (both covered by site-survey requirements).
+
+Assets: telemetry (integrity, availability), tenant identity, device control,
+credentials (certs, claim codes, refresh tokens), audit history, customer PII
+in user accounts.
+
+Actors: internet opportunist, malicious or compromised gateway, rogue
+low-privilege tenant user, supply-chain attacker, insider with ops access.
+
+| STRIDE | Concrete threat | Mitigation | Status |
+|---|---|---|---|
+| Spoofing | Rogue device publishes as a real gateway | mTLS with per-gateway certs, CN bound to claimed serial at enrollment, broker `use_identity_as_username`, fingerprint revocation | Enforced |
+| Spoofing | Stolen claim code reused to enroll a second device | Single-use expiring codes, SHA-256 at rest, duplicate enrollment refused, bootstrap credential separate from operational cert | Enforced |
+| Spoofing | Session/token forgery on SSO | RS256 JWKS verification, issuer check, single-use state + nonce | Enforced |
+| Tampering | Payload lies about its tenant to corrupt another tenant's data | Ingest derives tenant from authenticated identity, never payload fields | Enforced |
+| Tampering | Command replayed or modified in flight | mTLS channel, short command TTL, `request_id` dedupe, policy version pinned | Enforced |
+| Tampering | Malicious config/profile injects SQL or driver ops | Allowlisted point ids/types/ops, parameterized SQL | Enforced |
+| Tampering | Update or config swapped in supply chain | Signed config/update metadata, staged cohorts, automatic rollback | Backlog (fleet rollout) |
+| Repudiation | Operator denies issuing a control command | Append-only audit from request to measured outcome, `approved_by` recorded | Enforced |
+| Repudiation | Enrollment or SSO event disputed | Audit log for creates, claims, SSO logins, approvals | Enforced |
+| Info disclosure | Cross-tenant read via API or MCP | Tenant scoping on every query, MCP carries delegated user identity + tenant authorization, red-team tests for cross-tenant queries | Enforced + recurring test |
+| Info disclosure | Secrets leak via reports, logs, or bundle | Escaped report HTML with no external assets, no secrets in logs, bundle ships an env template only | Enforced |
+| Info disclosure | Token or cert theft from a stolen gateway | Per-gateway keys (TPM where available), revocation, wipe on decommission | Partially (TPM is hardware-dependent) |
+| DoS | Credential-stuffing / claim guessing | Per-IP rate limits on unauthenticated paths, no enumeration oracle on claim errors | Enforced |
+| DoS | Gateway floods broker or ingest | Per-gateway ACLs and broker quotas, QoS 1 with app-level dedupe, backpressure to the offline queue | Partially (broker quotas per site survey) |
+| DoS | Expensive report/query exhausts the API | Capped query ranges, rate limits, scheduled reports run through the same guards | Enforced |
+| Elevation | Viewer role gains mutation rights | RBAC guards on every mutation path, four-eyes approval on control | Enforced |
+| Elevation | Compromised edge driver escapes to the host | Sandboxed drivers, least-privilege agent user, no inbound SSH | Enforced (deployment) |
+| Elevation | MCP write path actuates equipment | No write tools shipped; writes need separate safety + authorization review | Enforced by absence |
+
+Recurring duties: dependency scanning in CI (govulncheck, npm audit),
+quarterly threat-model review against shipped features, tenant-isolation
+tests before GA, independent penetration test before enterprise GA.
+
 ## Physical control gating (release gate)
 
 Monitoring and control are both in scope, but any code path that actuates
