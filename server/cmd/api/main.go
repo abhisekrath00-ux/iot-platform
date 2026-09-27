@@ -119,6 +119,11 @@ func main() {
 	api.HandleFunc("POST /v1/reports/{id}/run", s.runReport)
 	api.HandleFunc("GET /v1/flows", s.listFlows)
 	api.HandleFunc("POST /v1/flows", s.createFlow)
+	api.HandleFunc("GET /v1/flows/{id}/versions", s.listFlowVersions)
+	api.HandleFunc("POST /v1/flows/{id}/draft", s.createFlowDraft)
+	api.HandleFunc("POST /v1/flows/{id}/publish", s.publishFlow)
+	api.HandleFunc("POST /v1/flows/{id}/rollback", s.rollbackFlow)
+	api.HandleFunc("POST /v1/flows/simulate", s.simulateFlow)
 
 	// Bootstrap path: the gateway holds only its one-time claim code, no JWT yet.
 	// Rate limited: 5/min per IP, burst 5 - brute-forcing 160-bit codes is
@@ -934,7 +939,9 @@ func (s *server) reportScheduler(ctx context.Context) {
 
 func (s *server) listFlows(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, name, definition, enabled, created_at FROM flows WHERE tenant_id=$1 ORDER BY created_at DESC`,
+		`SELECT f.id, f.name, f.definition, f.enabled, f.created_at, v.version
+		 FROM flows f LEFT JOIN flow_versions v ON v.id = f.published_version_id
+		 WHERE f.tenant_id=$1 ORDER BY f.created_at DESC`,
 		auth.Tenant(r))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -947,9 +954,10 @@ func (s *server) listFlows(w http.ResponseWriter, r *http.Request) {
 		var def []byte
 		var enabled bool
 		var created time.Time
-		rows.Scan(&id, &name, &def, &enabled, &created)
+		var ver *int
+		rows.Scan(&id, &name, &def, &enabled, &created, &ver)
 		out = append(out, map[string]any{"id": id, "name": name, "definition": json.RawMessage(def),
-			"enabled": enabled, "created_at": created})
+			"enabled": enabled, "created_at": created, "published_version": ver})
 	}
 	writeJSON(w, 200, out)
 }
@@ -990,14 +998,37 @@ func (s *server) createFlow(w http.ResponseWriter, r *http.Request) {
 	}
 	def, _ := json.Marshal(in.Definition)
 	id := uuid.NewString()
-	if _, err := s.st.Pool.Exec(r.Context(),
+	verID := uuid.NewString()
+	tx, err := s.st.Pool.Begin(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(),
 		`INSERT INTO flows(id,tenant_id,name,definition,created_by) VALUES($1,$2,$3,$4,$5)`,
 		id, auth.Tenant(r), name, def, auth.User(r)); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	if _, err := tx.Exec(r.Context(),
+		`INSERT INTO flow_versions(id,flow_id,tenant_id,version,definition,status,created_by,published_at)
+		 VALUES($1,$2,$3,1,$4,'published',$5,now())`,
+		verID, id, auth.Tenant(r), def, auth.User(r)); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if _, err := tx.Exec(r.Context(),
+		`UPDATE flows SET published_version_id=$1 WHERE id=$2`, verID, id); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	s.audit(r, "flow.create", id, map[string]any{"name": name})
-	writeJSON(w, 201, map[string]any{"id": id})
+	writeJSON(w, 201, map[string]any{"id": id, "version": 1})
 }
 
 func (s *server) audit(r *http.Request, action, target string, detail map[string]any) {

@@ -16,11 +16,14 @@ type Notifier interface {
 }
 
 // Evaluate runs enabled flows whose trigger matches the incoming reading.
+// Only the PUBLISHED version of each flow executes; drafts never fire.
 // Delays execute in a goroutine so ingest never blocks; each dispatch is
 // recorded in flow_runs.
 func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, deviceID, pointID string, value float64) {
 	rows, err := pool.Query(ctx,
-		`SELECT id, name, definition FROM flows WHERE tenant_id=$1 AND enabled`, tenantID)
+		`SELECT f.id, f.name, v.definition
+		 FROM flows f JOIN flow_versions v ON v.id = f.published_version_id
+		 WHERE f.tenant_id=$1 AND f.enabled`, tenantID)
 	if err != nil {
 		log.Printf("flows: load: %v", err)
 		return

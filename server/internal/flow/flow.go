@@ -152,3 +152,36 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// Reading is one historical telemetry point for simulation.
+type Reading struct {
+	ObservedAt time.Time
+	Value      float64
+}
+
+// SimEvent is one simulated firing: what the flow would have sent, and when.
+type SimEvent struct {
+	ObservedAt   time.Time
+	Value        float64
+	Messages     []string
+	DelaySeconds int
+}
+
+// Simulate replays recorded readings through a definition and reports every
+// firing with the exact messages it would have produced. Pure: no dispatch,
+// no recording - the caller owns side effects (there are none for simulate).
+func Simulate(d Definition, readings []Reading) []SimEvent {
+	var out []SimEvent
+	for _, r := range readings {
+		acts, wait, ok := Run(d, r.Value)
+		if !ok || len(acts) == 0 {
+			continue
+		}
+		msgs := make([]string, 0, len(acts))
+		for _, a := range acts {
+			msgs = append(msgs, a.ChannelID+": "+a.Message)
+		}
+		out = append(out, SimEvent{ObservedAt: r.ObservedAt, Value: r.Value, Messages: msgs, DelaySeconds: int(wait / time.Second)})
+	}
+	return out
+}
