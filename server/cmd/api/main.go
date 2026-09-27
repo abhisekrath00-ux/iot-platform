@@ -14,13 +14,13 @@ import (
 	"os/signal"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/oidcstate"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/pki"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
@@ -34,13 +34,7 @@ type server struct {
 	secret []byte
 	es     *search.Client
 	oidc   *auth.OIDCProvider
-	oidcMu sync.Mutex
-	states map[string]oidcState // state -> nonce, for the OIDC callback
-}
-
-type oidcState struct {
-	nonce   string
-	expires time.Time
+	states oidcstate.Store // memory single-replica, Redis when REDIS_URL set
 }
 
 func main() {
@@ -67,7 +61,20 @@ func main() {
 		return
 	}
 
-	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET")), es: search.New(os.Getenv("ELASTICSEARCH_URL")), states: map[string]oidcState{}}
+	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET")), es: search.New(os.Getenv("ELASTICSEARCH_URL"))}
+	if ru := os.Getenv("REDIS_URL"); ru != "" {
+		// redis://[:password@]host:port - shared OIDC state for multi-replica HA
+		ru = strings.TrimPrefix(ru, "redis://")
+		pass := ""
+		if i := strings.Index(ru, "@"); i >= 0 {
+			pass = strings.TrimPrefix(ru[:i], ":")
+			ru = ru[i+1:]
+		}
+		s.states = oidcstate.NewRedis(ru, pass)
+		log.Printf("oidc state: redis at %s", ru)
+	} else {
+		s.states = oidcstate.NewMemory()
+	}
 	if iss := os.Getenv("OIDC_ISSUER"); iss != "" {
 		p, err := auth.NewOIDCProvider(context.Background(), iss, os.Getenv("OIDC_CLIENT_ID"), os.Getenv("OIDC_CLIENT_SECRET"), os.Getenv("OIDC_REDIRECT_URL"))
 		if err != nil {
@@ -575,14 +582,10 @@ func (s *server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.oidcMu.Lock()
-	for k, v := range s.states { // sweep expired
-		if time.Now().After(v.expires) {
-			delete(s.states, k)
-		}
+	if err := s.states.Put(state, nonce, 10*time.Minute); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
-	s.states[state] = oidcState{nonce: nonce, expires: time.Now().Add(10 * time.Minute)}
-	s.oidcMu.Unlock()
 	http.Redirect(w, r, s.oidc.AuthURL(state, nonce), http.StatusFound)
 }
 
@@ -596,17 +599,12 @@ func (s *server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	state, code := q.Get("state"), q.Get("code")
-	s.oidcMu.Lock()
-	st, ok := s.states[state]
-	if ok {
-		delete(s.states, state) // single use
-	}
-	s.oidcMu.Unlock()
-	if !ok || time.Now().After(st.expires) || code == "" {
+	nonce, ok := s.states.Take(state) // single use, TTL enforced by the store
+	if !ok || code == "" {
 		http.Error(w, "invalid or expired state", 403)
 		return
 	}
-	ident, err := s.oidc.Exchange(r.Context(), code, st.nonce)
+	ident, err := s.oidc.Exchange(r.Context(), code, nonce)
 	if err != nil {
 		http.Error(w, "oidc exchange failed", 403)
 		return

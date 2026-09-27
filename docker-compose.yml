@@ -81,6 +81,14 @@ services:
       postgres: {condition: service_healthy}
     ports: ["8100:8100"]
 
+  redis:
+    # Optional: set REDIS_URL=redis:6379 on the api service to share OIDC
+    # login state across replicas. Single-replica deployments can remove this.
+    image: redis:7-alpine
+    profiles: ["ha"]
+    volumes:
+      - redisdata:/data
+
   web:
     build: ./web
     ports: ["8080:80"]
@@ -89,3 +97,4 @@ services:
 volumes:
   pgdata:
   esdata:
+  redisdata:
