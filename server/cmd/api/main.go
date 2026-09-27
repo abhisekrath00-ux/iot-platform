@@ -16,8 +16,10 @@ import (
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
@@ -80,6 +82,10 @@ func main() {
 	api.HandleFunc("GET /v1/notifications/channels", s.listChannels)
 	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
 	api.HandleFunc("POST /v1/dashboards", s.saveDashboard)
+	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
+
+	// Bootstrap path: the gateway holds only its one-time claim code, no JWT yet.
+	mux.HandleFunc("POST /v1/enrollment/claim", s.claimEnrollment)
 
 	mux.Handle("/v1/", auth.Middleware(s.secret)(api))
 
@@ -362,6 +368,127 @@ func (s *server) saveDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]any{"id": id})
+}
+
+// --- gateway enrollment ---
+
+// mintEnrollmentToken issues a one-time claim code bound to tenant + serial.
+// The code is returned once; only its SHA-256 hash is stored. Admin/operator only.
+func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		SiteID   string `json:"site_id"`
+		Serial   string `json:"serial"`
+		TTLHours int    `json:"ttl_hours"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.SiteID == "" || in.Serial == "" {
+		http.Error(w, "site_id and serial required", 400)
+		return
+	}
+	if in.TTLHours <= 0 || in.TTLHours > 24*30 {
+		in.TTLHours = 72
+	}
+	code, err := enroll.NewCode()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	tenant := auth.Tenant(r)
+	gwID := uuid.NewString()
+	tx, err := s.st.Pool.Begin(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(),
+		`INSERT INTO gateways(id,tenant_id,site_id,serial,status)
+		 SELECT $1,$2,$3,$4,'pending' WHERE EXISTS (SELECT 1 FROM sites WHERE id=$3 AND tenant_id=$2)`,
+		gwID, tenant, in.SiteID, in.Serial); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	expires := time.Now().Add(time.Duration(in.TTLHours) * time.Hour)
+	if _, err := tx.Exec(r.Context(),
+		`INSERT INTO enrollment_tokens(id,tenant_id,site_id,gateway_id,serial,code_hash,expires_at,created_by)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		uuid.NewString(), tenant, in.SiteID, gwID, in.Serial, enroll.Hash(code), expires, auth.User(r)); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.audit(r, "enrollment.mint", gwID, map[string]any{"serial": in.Serial, "site_id": in.SiteID})
+	writeJSON(w, 201, map[string]any{
+		"gateway_id": gwID, "claim_code": code, "expires_at": expires,
+		"note": "show this code to the installer once; it is not stored",
+	})
+}
+
+// claimEnrollment redeems a one-time claim code + serial for a gateway
+// credential. Single-use, expiry-checked, constant-time code comparison.
+// Unauthenticated by design (bootstrap); the claim code is the secret.
+func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ClaimCode string `json:"claim_code"`
+		Serial    string `json:"serial"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.ClaimCode == "" || in.Serial == "" {
+		http.Error(w, "claim_code and serial required", 400)
+		return
+	}
+	var tokenID, tenantID, gwID, serial string
+	var codeHash []byte
+	var expires time.Time
+	var claimedAt *time.Time
+	err := s.st.Pool.QueryRow(r.Context(),
+		`SELECT id,tenant_id,gateway_id,serial,code_hash,expires_at,claimed_at
+		 FROM enrollment_tokens WHERE code_hash=$1`, enroll.Hash(in.ClaimCode)).
+		Scan(&tokenID, &tenantID, &gwID, &serial, &codeHash, &expires, &claimedAt)
+	if err != nil || serial != in.Serial {
+		// identical response for unknown code and serial mismatch: no oracle
+		http.Error(w, "invalid claim", 403)
+		return
+	}
+	if err := enroll.CheckRedeemable(expires, claimedAt, time.Now()); err != nil {
+		http.Error(w, err.Error(), 403)
+		return
+	}
+	tx, err := s.st.Pool.Begin(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	tag, err := tx.Exec(r.Context(),
+		`UPDATE enrollment_tokens SET claimed_at=now() WHERE id=$1 AND claimed_at IS NULL`, tokenID)
+	if err != nil || tag.RowsAffected() != 1 {
+		http.Error(w, enroll.ErrAlreadyUsed.Error(), 403)
+		return
+	}
+	if _, err := tx.Exec(r.Context(),
+		`UPDATE gateways SET status='active', last_seen_at=now() WHERE id=$1`, gwID); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
+		TenantID: tenantID, Role: "gateway",
+		RegisteredClaims: jwt.RegisteredClaims{Subject: gwID, ExpiresAt: jwt.NewNumericDate(time.Now().Add(365 * 24 * time.Hour))},
+	})
+	signed, err := tok.SignedString(s.secret)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"gateway_id": gwID, "ingest_token": signed, "status": "active"})
 }
 
 func (s *server) audit(r *http.Request, action, target string, detail map[string]any) {
