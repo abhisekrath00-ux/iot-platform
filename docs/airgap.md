@@ -23,10 +23,21 @@ bundled Postgres.
 
 ```sh
 ./scripts/airgap-bundle.sh
-# produces dist/airgap/: images.tar.gz, docker-compose.yml, env.template, SHA256SUMS
+# produces dist/airgap/: images.tar.gz, docker-compose.yml, env.template,
+# install.sh, SHA256SUMS
+# (every image is included, including optional-profile services such as Redis
+# for the HA deployment mode)
 ```
 
 ## Install (on the air-gapped host)
+
+```sh
+./install.sh   # verifies SHA256SUMS, loads images, creates .env on first run
+# edit .env with the site's secrets and internal endpoints, then:
+./install.sh   # brings the stack up and shows service health
+```
+
+The manual equivalent, if a site prefers its own runbook:
 
 ```sh
 sha256sum -c SHA256SUMS
