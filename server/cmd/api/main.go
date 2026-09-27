@@ -102,15 +102,21 @@ func main() {
 	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
 
 	// Bootstrap path: the gateway holds only its one-time claim code, no JWT yet.
-	mux.HandleFunc("POST /v1/enrollment/claim", s.claimEnrollment)
+	// Rate limited: 5/min per IP, burst 5 - brute-forcing 160-bit codes is
+	// already infeasible, this is defense in depth.
+	claimRL := auth.NewRateLimiter(5, 5)
+	defer claimRL.Close()
+	mux.Handle("POST /v1/enrollment/claim", claimRL.Middleware(http.HandlerFunc(s.claimEnrollment)))
 
 	// SSO: unauthenticated by design; the callback issues the platform JWT.
-	mux.HandleFunc("GET /auth/oidc/login", s.oidcLogin)
-	mux.HandleFunc("GET /auth/oidc/callback", s.oidcCallback)
+	ssoRL := auth.NewRateLimiter(20, 10)
+	defer ssoRL.Close()
+	mux.Handle("GET /auth/oidc/login", ssoRL.Middleware(http.HandlerFunc(s.oidcLogin)))
+	mux.Handle("GET /auth/oidc/callback", ssoRL.Middleware(http.HandlerFunc(s.oidcCallback)))
 
 	mux.Handle("/v1/", auth.Middleware(s.secret)(api))
 
-	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: auth.SecurityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		log.Printf("api listening on %s", srv.Addr)
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {

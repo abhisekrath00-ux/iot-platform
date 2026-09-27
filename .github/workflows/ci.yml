@@ -46,3 +46,26 @@ jobs:
           sleep 15
           curl -fsS http://localhost:8000/healthz
           docker compose down -v
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23' }
+      - name: gofmt check
+        run: |
+          unformatted=$(gofmt -l server edge)
+          if [ -n "$unformatted" ]; then echo "unformatted: $unformatted"; exit 1; fi
+      - name: govulncheck (server + edge)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          (cd server && govulncheck ./...)
+          (cd edge && govulncheck ./...)
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: npm audit (web)
+        working-directory: web
+        run: |
+          npm install
+          npm audit --audit-level=high
