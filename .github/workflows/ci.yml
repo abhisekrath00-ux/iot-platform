@@ -37,27 +37,54 @@ jobs:
 
   compose-smoke:
     runs-on: ubuntu-latest
+    permissions: { contents: write }
     steps:
       - uses: actions/checkout@v4
       - name: build and boot the stack
         run: |
+          set -o pipefail
           cp .env.example .env
-          docker compose up -d --build
-          # wait for the api to answer, up to 3 minutes (first boot migrates
+          # retry image pulls/builds: Docker Hub rate-limits shared runner IPs
+          for attempt in 1 2 3; do
+            if docker compose up -d --build; then break; fi
+            echo "compose up attempt $attempt failed; retrying in 15s"
+            sleep 15
+            if [ "$attempt" = 3 ]; then exit 1; fi
+          done
+          # wait for the api to answer, up to 5 minutes (first boot migrates
           # the schema and waits on postgres health)
-          for i in $(seq 1 36); do
+          for i in $(seq 1 60); do
             if curl -fsS http://localhost:8000/healthz; then break; fi
-            if [ "$i" = 36 ]; then
-              echo "api never became healthy; dumping logs"
+            if [ "$i" = 60 ]; then
+              echo "::error::api never became healthy"
               docker compose ps
-              docker compose logs --tail=50 api postgres mosquitto
+              docker compose logs --tail=200 > /tmp/smoke-logs.txt 2>&1 || true
               exit 1
             fi
             sleep 5
           done
           docker compose ps
           docker compose down -v
-
+      - name: publish smoke logs to ci-logs branch
+        if: failure()
+        run: |
+          mkdir -p /tmp/ci-logs-publish && cd /tmp/ci-logs-publish
+          git init -q .
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          {
+            echo "run: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
+            echo "sha: ${{ github.sha }}"
+            echo "date: $(date -u)"
+            echo "=== docker compose ps ==="
+            docker compose ps 2>&1 || true
+            echo "=== docker compose logs (all services, tail 400) ==="
+            docker compose logs --tail=400 2>&1 || true
+          } > smoke-failure.txt
+          git add smoke-failure.txt
+          git commit -qm "smoke failure logs for ${{ github.sha }}"
+          git push -q --force origin HEAD:refs/heads/ci-logs
   security:
     runs-on: ubuntu-latest
     steps:

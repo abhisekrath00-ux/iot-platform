@@ -9,3 +9,9 @@ __pycache__/
 .vscode/
 .idea/
 coverage.out
+# locally built binaries (never commit)
+server/api
+server/ingest
+server/mcp
+server/loadtest
+edge/edge
