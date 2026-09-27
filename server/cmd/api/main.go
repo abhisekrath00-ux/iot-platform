@@ -125,6 +125,16 @@ func main() {
 	api.HandleFunc("POST /v1/flows/{id}/publish", s.publishFlow)
 	api.HandleFunc("POST /v1/flows/{id}/rollback", s.rollbackFlow)
 	api.HandleFunc("POST /v1/flows/simulate", s.simulateFlow)
+	api.HandleFunc("GET /v1/fleet/releases", s.listReleases)
+	api.HandleFunc("POST /v1/fleet/releases", s.createRelease)
+	api.HandleFunc("GET /v1/fleet/campaigns", s.listCampaigns)
+	api.HandleFunc("POST /v1/fleet/campaigns", s.createCampaign)
+	api.HandleFunc("POST /v1/fleet/campaigns/{id}/start", s.startCampaign)
+	api.HandleFunc("POST /v1/fleet/campaigns/{id}/advance", s.advanceCampaign)
+	api.HandleFunc("POST /v1/fleet/campaigns/{id}/pause", s.pauseCampaign)
+	api.HandleFunc("POST /v1/fleet/campaigns/{id}/abort", s.abortCampaign)
+	api.HandleFunc("POST /v1/fleet/campaigns/{id}/rollback", s.rollbackCampaign)
+	api.HandleFunc("POST /v1/fleet/ack", s.ackAssignment)
 
 	// Bootstrap path: the gateway holds only its one-time claim code, no JWT yet.
 	// Rate limited: 5/min per IP, burst 5 - brute-forcing 160-bit codes is
