@@ -10,10 +10,11 @@ import (
 	"os/signal"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 type envelope struct {
@@ -43,7 +44,7 @@ func main() {
 	notifier := notify.FromEnv()
 
 	opts := mqtt.NewClientOptions().
-		AddBroker("tcp://"+mustEnv("MQTT_HOST")+":"+envOr("MQTT_PORT", "1883")).
+		AddBroker("tcp://" + mustEnv("MQTT_HOST") + ":" + envOr("MQTT_PORT", "1883")).
 		SetClientID("ingest-1").SetAutoReconnect(true).SetConnectRetry(true)
 	// TODO(production): TLS + broker auth from env; see docs/deployment.md.
 
@@ -81,6 +82,7 @@ func main() {
 			return
 		}
 		rules.Evaluate(ctx, st.Pool, notifier, e.TenantID, e.DeviceID, e.PointID, e.Value)
+		flow.Evaluate(ctx, st.Pool, notifier, e.TenantID, e.DeviceID, e.PointID, e.Value)
 	}
 
 	if tok := c.Subscribe("t/+/g/+/telemetry", 1, handler); tok.Wait() && tok.Error() != nil {

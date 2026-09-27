@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
 interface Rule { id: string; name: string; definition: any; version: number; enabled: boolean; }
+interface FlowDef { trigger: { device_id: string; point_id: string; op: string; value: number }; steps: any[]; }
+interface FlowRow { id: string; name: string; definition: FlowDef; enabled: boolean; }
+interface Channel { id: string; type: string; target: string; }
 
 // Threshold rules (v1) with the flow-builder UI coming next. Rules evaluate in
 // the ingest worker and dispatch to the tenant's email/Slack channels.
@@ -14,9 +17,46 @@ export default function Flows() {
   const [threshold, setThreshold] = useState('');
   const [severity, setSeverity] = useState('warning');
   const [msg, setMsg] = useState('');
+  const [flows, setFlows] = useState<FlowRow[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [fname, setFname] = useState('');
+  const [fdevice, setFdevice] = useState('');
+  const [fpoint, setFpoint] = useState('');
+  const [fop, setFop] = useState('>');
+  const [fvalue, setFvalue] = useState('');
+  const [steps, setSteps] = useState<any[]>([{ type: 'notify', channel_id: '', message: '' }]);
 
-  const load = () => api<Rule[]>('/v1/rules').then(setRules).catch(e => setMsg(String(e)));
+  const load = () => {
+    api<Rule[]>('/v1/rules').then(setRules).catch(e => setMsg(String(e)));
+    api<FlowRow[]>('/v1/flows').then(setFlows).catch(() => {});
+    api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
+  };
   useEffect(() => { load(); }, []);
+
+  function setStep(i: number, patch: any) {
+    setSteps(ss => ss.map((st, j) => (j === i ? { ...st, ...patch } : st)));
+  }
+
+  async function submitFlow(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg('');
+    try {
+      await api('/v1/flows', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: fname,
+          definition: {
+            trigger: { device_id: fdevice, point_id: fpoint, op: fop, value: parseFloat(fvalue) },
+            steps: steps.map(st => st.type === 'condition' ? { type: st.type, op: st.op, value: parseFloat(st.value) }
+              : st.type === 'delay' ? { type: st.type, seconds: +st.seconds }
+              : { type: st.type, channel_id: st.channel_id, message: st.message })
+          }
+        })
+      });
+      setFname(''); setSteps([{ type: 'notify', channel_id: '', message: '' }]);
+      load();
+    } catch (e2) { setMsg(String(e2)); }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -80,7 +120,60 @@ export default function Flows() {
           ))}
         </tbody>
       </table>
-      <p className="muted" style={{ marginTop: 14 }}>The visual drag-and-drop flow builder (trigger, condition, delay, notify blocks with simulation) builds on this same rules store.</p>
+      <h2 style={{ marginTop: 28 }}>Automation flows</h2>
+      <p className="muted">Trigger on a reading, optionally check a condition and wait, then notify. Flows evaluate in the ingest worker alongside rules.</p>
+      <div className="card" style={{ maxWidth: 640, marginBottom: 20 }}>
+        <b>New flow</b>
+        <form onSubmit={submitFlow}>
+          <label>Name</label>
+          <input value={fname} onChange={e => setFname(e.target.value)} placeholder="High usage alert" required />
+          <label>When device / point</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input value={fdevice} onChange={e => setFdevice(e.target.value)} placeholder="meter-1" required />
+            <input value={fpoint} onChange={e => setFpoint(e.target.value)} placeholder="kwh" required />
+          </div>
+          <label>Trigger</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select value={fop} onChange={e => setFop(e.target.value)} style={{ width: 80 }}>
+              {['>', '<', '>=', '<=', '==', '!='].map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+            <input value={fvalue} onChange={e => setFvalue(e.target.value)} type="number" step="any" required />
+          </div>
+          <label>Steps</label>
+          {steps.map((st, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
+              <select value={st.type} onChange={e => setStep(i, { type: e.target.value })} style={{ width: 110 }}>
+                <option value="condition">condition</option>
+                <option value="delay">delay</option>
+                <option value="notify">notify</option>
+              </select>
+              {st.type === 'condition' && <>
+                <select value={st.op ?? '<'} onChange={e => setStep(i, { op: e.target.value })} style={{ width: 70 }}>
+                  {['>', '<', '>=', '<=', '==', '!='].map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+                <input value={st.value ?? ''} onChange={e => setStep(i, { value: e.target.value })} type="number" step="any" required />
+              </>}
+              {st.type === 'delay' && <input value={st.seconds ?? ''} onChange={e => setStep(i, { seconds: e.target.value })} type="number" min={1} max={3600} placeholder="seconds" required />}
+              {st.type === 'notify' && <>
+                <select value={st.channel_id ?? ''} onChange={e => setStep(i, { channel_id: e.target.value })} required>
+                  <option value="">channel...</option>
+                  {channels.map(c => <option key={c.id} value={c.id}>{c.type}: {c.target}</option>)}
+                </select>
+                <input value={st.message ?? ''} onChange={e => setStep(i, { message: e.target.value })} placeholder="usage {value} kWh high" />
+              </>}
+              <button type="button" onClick={() => setSteps(ss => ss.filter((_, j) => j !== i))} disabled={steps.length === 1}>x</button>
+            </div>
+          ))}
+          <button type="button" onClick={() => setSteps(ss => [...ss, { type: 'condition', op: '<', value: '' }])}>+ step</button>
+          <div style={{ marginTop: 14 }}><button type="submit">Create flow</button></div>
+        </form>
+      </div>
+      {flows.map(f => (
+        <div key={f.id} className="card" style={{ marginBottom: 10 }}>
+          <b>{f.name}</b> <span className="muted">{f.definition.trigger.device_id}/{f.definition.trigger.point_id} {f.definition.trigger.op} {f.definition.trigger.value} - {f.definition.steps.length} steps</span>
+          <div className="muted">{f.enabled ? 'enabled' : 'disabled'}</div>
+        </div>
+      ))}
     </>
   );
 }

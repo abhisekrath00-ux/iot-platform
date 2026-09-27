@@ -19,6 +19,7 @@ import (
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
@@ -108,6 +109,8 @@ func main() {
 	api.HandleFunc("GET /v1/reports", s.listReports)
 	api.HandleFunc("POST /v1/reports", s.createReport)
 	api.HandleFunc("POST /v1/reports/{id}/run", s.runReport)
+	api.HandleFunc("GET /v1/flows", s.listFlows)
+	api.HandleFunc("POST /v1/flows", s.createFlow)
 
 	// Bootstrap path: the gateway holds only its one-time claim code, no JWT yet.
 	// Rate limited: 5/min per IP, burst 5 - brute-forcing 160-bit codes is
@@ -900,6 +903,76 @@ func (s *server) reportScheduler(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// --- flow builder ---
+
+func (s *server) listFlows(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT id, name, definition, enabled, created_at FROM flows WHERE tenant_id=$1 ORDER BY created_at DESC`,
+		auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, name string
+		var def []byte
+		var enabled bool
+		var created time.Time
+		rows.Scan(&id, &name, &def, &enabled, &created)
+		out = append(out, map[string]any{"id": id, "name": name, "definition": json.RawMessage(def),
+			"enabled": enabled, "created_at": created})
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *server) createFlow(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		Name       string          `json:"name"`
+		Definition flow.Definition `json:"definition"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" || len(name) > 128 || strings.ContainsAny(name, "<>\x00") {
+		http.Error(w, "name invalid", 400)
+		return
+	}
+	if err := flow.Validate(in.Definition); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	// referenced channels must belong to this tenant
+	for _, st := range in.Definition.Steps {
+		if st.Type != "notify" {
+			continue
+		}
+		var ok bool
+		if err := s.st.Pool.QueryRow(r.Context(),
+			`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=$1 AND tenant_id=$2)`,
+			st.ChannelID, auth.Tenant(r)).Scan(&ok); err != nil || !ok {
+			http.Error(w, "notify channel not found for this tenant", 400)
+			return
+		}
+	}
+	def, _ := json.Marshal(in.Definition)
+	id := uuid.NewString()
+	if _, err := s.st.Pool.Exec(r.Context(),
+		`INSERT INTO flows(id,tenant_id,name,definition,created_by) VALUES($1,$2,$3,$4,$5)`,
+		id, auth.Tenant(r), name, def, auth.User(r)); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.audit(r, "flow.create", id, map[string]any{"name": name})
+	writeJSON(w, 201, map[string]any{"id": id})
 }
 
 func (s *server) audit(r *http.Request, action, target string, detail map[string]any) {
