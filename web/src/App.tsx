@@ -8,6 +8,8 @@ import Flows from './pages/Flows';
 import Alerts from './pages/Alerts';
 import Commands from './pages/Commands';
 import Settings from './pages/Settings';
+import Reports from './pages/Reports';
+import Profiles from './pages/Profiles';
 
 export default function App() {
   return (
@@ -21,6 +23,8 @@ export default function App() {
         <NavLink to="/flows">Flows</NavLink>
         <NavLink to="/alerts">Alerts</NavLink>
         <NavLink to="/commands">Control</NavLink>
+        <NavLink to="/reports">Reports</NavLink>
+        <NavLink to="/profiles">Profiles</NavLink>
         <NavLink to="/settings">Settings</NavLink>
       </nav>
       <main>
@@ -33,6 +37,8 @@ export default function App() {
           <Route path="/flows" element={<Flows />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/commands" element={<Commands />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/profiles" element={<Profiles />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
