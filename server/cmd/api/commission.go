@@ -310,6 +310,12 @@ var (
 )
 
 func (s *server) publishMQTT(topic string, payload []byte) error {
+	return s.publishMQTTRetained(topic, payload, false)
+}
+
+// publishMQTTRetained publishes with the retained flag set - used for fleet
+// manifests, which a gateway must receive even while offline at fanout time.
+func (s *server) publishMQTTRetained(topic string, payload []byte, retained bool) error {
 	mqttOnce.Do(func() {
 		host, port := os.Getenv("MQTT_HOST"), os.Getenv("MQTT_PORT")
 		if host == "" {
@@ -330,7 +336,7 @@ func (s *server) publishMQTT(topic string, payload []byte) error {
 	if mqttErr != nil {
 		return mqttErr
 	}
-	tok := mqttClient.Publish(topic, 1, false, payload)
+	tok := mqttClient.Publish(topic, 1, retained, payload)
 	tok.Wait()
 	return tok.Error()
 }

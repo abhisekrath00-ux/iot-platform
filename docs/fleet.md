@@ -44,3 +44,23 @@ on-gateway apply) is scoped below.
 `GET/POST /v1/fleet/releases`, `GET/POST /v1/fleet/campaigns`,
 `POST /v1/fleet/campaigns/{id}/start|advance|pause|abort|rollback`,
 `POST /v1/fleet/ack` (operator or edge bridge).
+
+
+## Edge delivery slice (shipped)
+
+- **Fanout**: `enterStage` (start/advance) publishes each cohort gateway's
+  release manifest as a RETAINED message on `t/<tenant>/g/<gw>/fleet`, so
+  offline gateways pick up assignments on reconnect. Assignments move
+  `pending -> sent` on successful publish; failures stay pending.
+- **Edge verify**: the edge agent subscribes its fleet topic, validates the
+  manifest addressee, and verifies the artifact against the local digest
+  store (`artifact_dir`, default /var/lib/hexmon-edge/artifacts; air-gapped
+  bundles pre-stage artifacts by sha256). Config-only releases (no artifact)
+  ACK immediately. Digest strings are regex-validated before any filesystem
+  access, so a hostile manifest cannot traverse the store path.
+- **Auto-ACK**: the edge answers on `t/<tenant>/g/<gw>/fleet/ack`; ingest
+  routes it into the assignment row with topic-identity enforcement (a
+  gateway can only ack its own assignment). A `failed` ack auto-pauses the
+  campaign once failures reach its threshold.
+- Applying a verified artifact (swap + health-check + rollback) is the next
+  slice; the hazard-analysis interlock requirements apply before it merges.

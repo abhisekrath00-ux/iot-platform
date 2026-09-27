@@ -119,6 +119,58 @@ func main() {
 	if tok := c.Subscribe("t/+/g/+/diag/result", 1, diagHandler); tok.Wait() && tok.Error() != nil {
 		log.Fatalf("diag subscribe: %v", tok.Error())
 	}
+
+	// Fleet auto-ACK: the edge verifies the delivered artifact and answers on
+	// t/<tenant>/g/<gateway>/fleet/ack. Topic identity pins the ack to the
+	// gateway's own assignment - a gateway cannot ack for a neighbor. A
+	// failure trips the campaign halt threshold automatically.
+	ackHandler := func(_ mqtt.Client, m mqtt.Message) {
+		parts := strings.Split(m.Topic(), "/")
+		if len(parts) != 6 || parts[4] != "fleet" || parts[5] != "ack" || parts[1] == "" || parts[3] == "" {
+			log.Printf("fleet ack drop: bad topic %q", m.Topic())
+			return
+		}
+		var ack struct {
+			CampaignID string `json:"campaign_id"`
+			State      string `json:"state"`
+			Detail     string `json:"detail"`
+		}
+		if err := json.Unmarshal(m.Payload(), &ack); err != nil || ack.CampaignID == "" {
+			log.Printf("fleet ack drop: bad payload")
+			return
+		}
+		if ack.State != "acked" && ack.State != "failed" {
+			log.Printf("fleet ack drop: state %q", ack.State)
+			return
+		}
+		tag, err := st.Pool.Exec(ctx,
+			`UPDATE fleet_assignments fa SET state=$1, detail=$2, updated_at=now()
+			 FROM gateways g
+			 WHERE fa.campaign_id=$3 AND fa.gateway_serial=g.serial AND fa.tenant_id=$4
+			   AND g.id=$5 AND fa.state IN ('pending','sent')`,
+			ack.State, ack.Detail, ack.CampaignID, parts[1], parts[3])
+		if err != nil {
+			log.Printf("fleet ack update: %v", err)
+			return
+		}
+		if tag.RowsAffected() == 0 {
+			log.Printf("fleet ack drop: no open assignment for campaign %s gateway %s", ack.CampaignID, parts[3])
+			return
+		}
+		if ack.State == "failed" {
+			// Auto-halt: pause the campaign once failures hit its threshold.
+			if _, err := st.Pool.Exec(ctx,
+				`UPDATE fleet_campaigns SET state='paused'
+				 WHERE id=$1 AND state='running' AND
+				   (SELECT count(*) FROM fleet_assignments WHERE campaign_id=$1 AND state='failed') >= failure_threshold`,
+				ack.CampaignID); err != nil {
+				log.Printf("fleet halt check: %v", err)
+			}
+		}
+	}
+	if tok := c.Subscribe("t/+/g/+/fleet/ack", 1, ackHandler); tok.Wait() && tok.Error() != nil {
+		log.Fatalf("fleet ack subscribe: %v", tok.Error())
+	}
 	log.Printf("ingest up")
 	<-ctx.Done()
 	c.Disconnect(250)

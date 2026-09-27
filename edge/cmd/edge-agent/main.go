@@ -15,6 +15,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/claim"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/driver"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/fleetctl"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/mqttc"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/queue"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -110,6 +111,25 @@ func main() {
 
 	telemetryTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/telemetry"
 	diagTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/diag"
+
+	// Fleet manifests: retained release assignments. Verify the staged
+	// artifact, then ACK (or fail with the exact reason) on fleet/ack.
+	fleetTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/fleet"
+	artifactDir := cfg.ArtifactDir
+	if artifactDir == "" {
+		artifactDir = "/var/lib/hexmon-edge/artifacts"
+	}
+	if err := mc.Subscribe(fleetTopic, func(_ mqtt.Client, m mqtt.Message) {
+		ack := fleetctl.HandleManifest(m.Payload(), artifactDir, cfg.Serial)
+		b, _ := json.Marshal(ack)
+		if err := mc.Publish(fleetTopic+"/ack", b); err != nil {
+			log.Printf("fleet: ack publish: %v", err)
+			return
+		}
+		log.Printf("fleet: campaign %s -> %s (%s)", ack.CampaignID, ack.State, ack.Detail)
+	}); err != nil {
+		log.Fatalf("fleet subscribe: %v", err)
+	}
 
 	// Commissioning probes: read-only port tests, answered on diag/result.
 	// Runs inline; a probe is a single register read with a bounded timeout.

@@ -8,6 +8,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -165,7 +167,47 @@ func (s *server) enterStage(w http.ResponseWriter, r *http.Request, c *campaignR
 		http.Error(w, err.Error(), 500)
 		return false
 	}
+	s.fanoutStage(r, c, cohort)
 	return true
+}
+
+// fanoutStage delivers the release manifest to each cohort gateway as a
+// RETAINED broker message: a gateway that is offline at fanout time still
+// picks up its assignment on reconnect. Successfully published assignments
+// move pending -> sent; failures stay pending for the next regenerate/retry.
+func (s *server) fanoutStage(r *http.Request, c *campaignRow, cohort []string) {
+	var version string
+	var sha *string
+	if err := s.st.Pool.QueryRow(r.Context(),
+		`SELECT version, artifact_sha256 FROM fleet_releases WHERE id=$1`, c.ReleaseID).
+		Scan(&version, &sha); err != nil {
+		log.Printf("fleet fanout: release %s: %v", c.ReleaseID, err)
+		return
+	}
+	tenant := auth.Tenant(r)
+	for _, serial := range cohort {
+		var gwID string
+		if err := s.st.Pool.QueryRow(r.Context(),
+			`SELECT id FROM gateways WHERE tenant_id=$1 AND serial=$2`, tenant, serial).
+			Scan(&gwID); err != nil {
+			log.Printf("fleet fanout: unknown gateway %s: %v", serial, err)
+			continue
+		}
+		manifest, _ := json.Marshal(map[string]any{
+			"campaign_id": c.ID, "release_id": c.ReleaseID, "version": version,
+			"artifact_sha256": sha, "gateway_serial": serial,
+		})
+		topic := fmt.Sprintf("t/%s/g/%s/fleet", tenant, gwID)
+		if err := s.publishMQTTRetained(topic, manifest, true); err != nil {
+			log.Printf("fleet fanout: publish %s: %v", serial, err)
+			continue
+		}
+		if _, err := s.st.Pool.Exec(r.Context(),
+			`UPDATE fleet_assignments SET state='sent', detail='manifest delivered (retained)', updated_at=now()
+			 WHERE campaign_id=$1 AND gateway_serial=$2 AND state='pending'`, c.ID, serial); err != nil {
+			log.Printf("fleet fanout: mark sent %s: %v", serial, err)
+		}
+	}
 }
 
 func (s *server) setCampaignState(w http.ResponseWriter, r *http.Request, c *campaignRow, to string) bool {

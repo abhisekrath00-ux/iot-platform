@@ -12,6 +12,11 @@ import (
 type Config struct {
 	GatewayID string `yaml:"gateway_id"`
 	TenantID  string `yaml:"tenant_id"`
+	Serial    string `yaml:"serial"` // gateway serial; fleet manifests are address-checked against it
+
+	// ArtifactDir stages fleet release artifacts by digest (air-gapped
+	// bundles pre-seed it). Defaults to /var/lib/hexmon-edge/artifacts.
+	ArtifactDir string `yaml:"artifact_dir"`
 
 	MQTT struct {
 		Host     string `yaml:"host"`
