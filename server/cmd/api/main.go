@@ -97,6 +97,7 @@ func main() {
 	api.HandleFunc("GET /v1/devices", s.listDevices)
 	api.HandleFunc("POST /v1/devices", s.createDevice) // UI onboarding entry point
 	api.HandleFunc("GET /v1/telemetry/latest", s.latestTelemetry)
+	api.HandleFunc("GET /v1/telemetry/count", s.countTelemetry)
 	api.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
 	api.HandleFunc("POST /v1/commands", s.requestCommand)
 	api.HandleFunc("POST /v1/commands/{id}/approve", s.approveCommand)
@@ -266,6 +267,34 @@ func (s *server) latestTelemetry(w http.ResponseWriter, r *http.Request) {
 		out = append(out, map[string]any{"point_id": p, "value": v, "unit": u, "quality": q, "observed_at": t})
 	}
 	writeJSON(w, 200, out)
+}
+
+// countTelemetry reports rows ingested for a device since a timestamp.
+// Read-only; used by the load-test harness and ops checks.
+func (s *server) countTelemetry(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	dev := q.Get("device_id")
+	if dev == "" || len(dev) > 128 {
+		http.Error(w, "device_id required", 400)
+		return
+	}
+	since := time.Now().Add(-time.Hour)
+	if v := q.Get("since"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			http.Error(w, "since must be RFC3339", 400)
+			return
+		}
+		since = t
+	}
+	var n int
+	if err := s.st.Pool.QueryRow(r.Context(),
+		`SELECT count(*) FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND received_at > $3`,
+		auth.Tenant(r), dev, since).Scan(&n); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"device_id": dev, "since": since, "count": n})
 }
 
 func (s *server) seriesTelemetry(w http.ResponseWriter, r *http.Request) {
