@@ -7,10 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
@@ -68,6 +70,12 @@ func main() {
 	api.HandleFunc("GET /v1/commands", s.listCommands)
 	api.HandleFunc("GET /v1/alerts", s.listAlerts)
 	api.HandleFunc("GET /v1/dashboards", s.listDashboards)
+	api.HandleFunc("GET /v1/fleet", s.fleetStatus)
+	api.HandleFunc("GET /v1/audit", s.listAudit)
+	api.HandleFunc("GET /v1/rules", s.listRules)
+	api.HandleFunc("POST /v1/rules", s.createRule)
+	api.HandleFunc("GET /v1/notifications/channels", s.listChannels)
+	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
 	api.HandleFunc("POST /v1/dashboards", s.saveDashboard)
 
 	mux.Handle("/v1/", auth.Middleware(s.secret)(api))
@@ -86,12 +94,24 @@ func main() {
 }
 
 func migrate(ctx context.Context, st *store.Store) error {
-	b, err := os.ReadFile(envOr("MIGRATIONS_DIR", "/migrations") + "/0001_init.sql")
+	entries, err := os.ReadDir(envOr("MIGRATIONS_DIR", "/migrations"))
 	if err != nil {
 		return err
 	}
-	_, err = st.Pool.Exec(ctx, string(b))
-	return err
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		b, err := os.ReadFile(envOr("MIGRATIONS_DIR", "/migrations") + "/" + e.Name())
+		if err != nil {
+			return err
+		}
+		if _, err := st.Pool.Exec(ctx, string(b)); err != nil {
+			return fmt.Errorf("migration %s: %w", e.Name(), err)
+		}
+		log.Printf("migration applied: %s", e.Name())
+	}
+	return nil
 }
 
 func seedDemo(ctx context.Context, st *store.Store) error {
@@ -360,4 +380,162 @@ func envOr(k, d string) string {
 		return v
 	}
 	return d
+}
+
+// --- RBAC ---
+// requireRole rejects callers whose role is not in the allowed set.
+func requireRole(w http.ResponseWriter, r *http.Request, roles ...string) bool {
+	role := auth.Role(r)
+	for _, allowed := range roles {
+		if role == allowed {
+			return true
+		}
+	}
+	http.Error(w, "insufficient role", http.StatusForbidden)
+	return false
+}
+
+// --- fleet status ---
+func (s *server) fleetStatus(w http.ResponseWriter, r *http.Request) {
+	var out struct {
+		Gateways   int `json:"gateways"`
+		Active     int `json:"active_gateways"`
+		Devices    int `json:"devices"`
+		Stale      int `json:"stale_devices"`
+		OpenAlerts int `json:"open_alerts"`
+	}
+	t := auth.Tenant(r)
+	s.st.Pool.QueryRow(r.Context(), `SELECT count(*), count(*) FILTER (WHERE status='active') FROM gateways WHERE tenant_id=$1`, t).Scan(&out.Gateways, &out.Active)
+	s.st.Pool.QueryRow(r.Context(), `SELECT count(*) FROM devices WHERE tenant_id=$1`, t).Scan(&out.Devices)
+	// stale = no measured reading in 2x the device's slowest expected interval (floor 15m)
+	s.st.Pool.QueryRow(r.Context(), `SELECT count(*) FROM devices d WHERE d.tenant_id=$1 AND NOT EXISTS (
+		SELECT 1 FROM telemetry te WHERE te.device_id=d.id AND te.observed_at > now() - interval '15 minutes')`, t).Scan(&out.Stale)
+	s.st.Pool.QueryRow(r.Context(), `SELECT count(*) FROM alerts WHERE tenant_id=$1 AND status='open'`, t).Scan(&out.OpenAlerts)
+	writeJSON(w, 200, out)
+}
+
+// --- audit viewer (admin only) ---
+func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin") {
+		return
+	}
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT actor, action, target, detail, at FROM audit_log WHERE tenant_id=$1 ORDER BY at DESC LIMIT 200`, auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var actor, action string
+		var target *string
+		var detail json.RawMessage
+		var at time.Time
+		rows.Scan(&actor, &action, &target, &detail, &at)
+		out = append(out, map[string]any{"actor": actor, "action": action, "target": target, "detail": detail, "at": at})
+	}
+	writeJSON(w, 200, out)
+}
+
+// --- rules CRUD (flow definitions; evaluator runs in ingest) ---
+func (s *server) listRules(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT id, name, definition, version, enabled FROM rules WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, name string
+		var def json.RawMessage
+		var ver int
+		var en bool
+		rows.Scan(&id, &name, &def, &ver, &en)
+		out = append(out, map[string]any{"id": id, "name": name, "definition": def, "version": ver, "enabled": en})
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *server) createRule(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		Name       string          `json:"name"`
+		Definition json.RawMessage `json:"definition"`
+		Enabled    bool            `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" || len(in.Definition) == 0 {
+		http.Error(w, "name and definition required", 400)
+		return
+	}
+	// v1 rule shape: {"device_id":..,"point_id":..,"op":">","threshold":N,"severity":"warning","message":..}
+	var shape struct {
+		PointID   string  `json:"point_id"`
+		Op        string  `json:"op"`
+		Threshold float64 `json:"threshold"`
+		Severity  string  `json:"severity"`
+	}
+	if err := json.Unmarshal(in.Definition, &shape); err != nil || shape.PointID == "" ||
+		(shape.Op != ">" && shape.Op != "<") || (shape.Severity != "info" && shape.Severity != "warning" && shape.Severity != "critical") {
+		http.Error(w, "invalid rule definition (v1: point_id, op >|<, threshold, severity info|warning|critical)", 400)
+		return
+	}
+	id := uuid.NewString()
+	_, err := s.st.Pool.Exec(r.Context(),
+		`INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
+		id, auth.Tenant(r), in.Name, in.Definition, in.Enabled, auth.User(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.audit(r, "rule.create", id, map[string]any{"name": in.Name, "enabled": in.Enabled})
+	writeJSON(w, 201, map[string]any{"id": id})
+}
+
+// --- notification channels ---
+func (s *server) listChannels(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT id, type, target, enabled FROM notification_channels WHERE tenant_id=$1`, auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, typ, target string
+		var en bool
+		rows.Scan(&id, &typ, &target, &en)
+		out = append(out, map[string]any{"id": id, "type": typ, "target": target, "enabled": en})
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin") {
+		return
+	}
+	var in struct {
+		Type   string `json:"type"`
+		Target string `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Target == "" ||
+		(in.Type != "email" && in.Type != "slack") {
+		http.Error(w, "type (email|slack) and target required", 400)
+		return
+	}
+	id := uuid.NewString()
+	_, err := s.st.Pool.Exec(r.Context(),
+		`INSERT INTO notification_channels(id,tenant_id,type,target) VALUES($1,$2,$3,$4)`,
+		id, auth.Tenant(r), in.Type, in.Target)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.audit(r, "channel.create", id, map[string]any{"type": in.Type})
+	writeJSON(w, 201, map[string]any{"id": id})
 }

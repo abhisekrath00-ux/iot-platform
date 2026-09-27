@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, Device } from '../lib/api';
 
 export default function Devices() {
@@ -13,8 +14,11 @@ export default function Devices() {
         <thead><tr><th>Name</th><th>Profile</th><th>Gateway</th><th>Added</th></tr></thead>
         <tbody>
           {devices.map(d => (
-            <tr key={d.id}><td>{d.name}</td><td>{d.profile}</td><td>{d.gateway_id}</td>
-              <td className="muted">{new Date(d.created_at).toLocaleString()}</td></tr>
+            <tr key={d.id}>
+              <td><Link to={`/devices/${d.id}`} style={{ color: 'var(--accent)' }}>{d.name}</Link></td>
+              <td>{d.profile}</td><td>{d.gateway_id}</td>
+              <td className="muted">{new Date(d.created_at).toLocaleString()}</td>
+            </tr>
           ))}
         </tbody>
       </table>

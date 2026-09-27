@@ -11,6 +11,8 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 )
 
@@ -37,6 +39,8 @@ func main() {
 		log.Fatalf("store: %v", err)
 	}
 	defer st.Close()
+
+	notifier := notify.FromEnv()
 
 	opts := mqtt.NewClientOptions().
 		AddBroker("tcp://"+mustEnv("MQTT_HOST")+":"+envOr("MQTT_PORT", "1883")).
@@ -74,7 +78,9 @@ func main() {
 		})
 		if err != nil {
 			log.Printf("insert %s: %v", e.EventID, err)
+			return
 		}
+		rules.Evaluate(ctx, st.Pool, notifier, e.TenantID, e.DeviceID, e.PointID, e.Value)
 	}
 
 	if tok := c.Subscribe("t/+/g/+/telemetry", 1, handler); tok.Wait() && tok.Error() != nil {

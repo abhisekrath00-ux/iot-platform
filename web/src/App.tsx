@@ -1,6 +1,7 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
 import Fleet from './pages/Fleet';
 import Devices from './pages/Devices';
+import DeviceDetail from './pages/DeviceDetail';
 import Onboarding from './pages/Onboarding';
 import Dashboards from './pages/Dashboards';
 import Flows from './pages/Flows';
@@ -26,6 +27,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Fleet />} />
           <Route path="/devices" element={<Devices />} />
+          <Route path="/devices/:id" element={<DeviceDetail />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/dashboards" element={<Dashboards />} />
           <Route path="/flows" element={<Flows />} />
