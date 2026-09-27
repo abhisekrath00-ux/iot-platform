@@ -62,5 +62,11 @@ on-gateway apply) is scoped below.
   routes it into the assignment row with topic-identity enforcement (a
   gateway can only ack its own assignment). A `failed` ack auto-pauses the
   campaign once failures reach its threshold.
-- Applying a verified artifact (swap + health-check + rollback) is the next
-  slice; the hazard-analysis interlock requirements apply before it merges.
+- **Apply**: verified config artifacts install with backup + validation +
+  automatic rollback (`fleetctl.ApplyConfig`): the previous config is backed
+  up, the new one is atomic-written and re-validated from disk, and the poll
+  supervisor reloads in-process (no agent restart, no dropped MQTT
+  connection). Identity is pinned - a config naming another gateway or
+  tenant is refused. Health-check failure restores the backup byte-for-byte
+  and the ACK reports the rollback. Binary self-updates require signed
+  artifacts (lifecycle gate in docs/security.md) before they ship.

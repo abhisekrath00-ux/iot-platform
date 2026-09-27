@@ -7,9 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/claim"
@@ -112,6 +114,11 @@ func main() {
 	telemetryTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/telemetry"
 	diagTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/diag"
 
+	// Poll loops run under a supervisor so fleet config applies can reload
+	// them without restarting the agent (or dropping the MQTT connection).
+	sup := startSupervisor(cfg, q, telemetryTopic)
+	defer sup.stop()
+
 	// Fleet manifests: retained release assignments. Verify the staged
 	// artifact, then ACK (or fail with the exact reason) on fleet/ack.
 	fleetTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/fleet"
@@ -121,6 +128,15 @@ func main() {
 	}
 	if err := mc.Subscribe(fleetTopic, func(_ mqtt.Client, m mqtt.Message) {
 		ack := fleetctl.HandleManifest(m.Payload(), artifactDir, cfg.Serial)
+		if ack.State == "acked" {
+			// Verified: apply the config artifact with backup + health check +
+			// automatic rollback. The supervisor restarts poll loops on the
+			// new config; any failure restores the previous one.
+			var mfst fleetctl.Manifest
+			if json.Unmarshal(m.Payload(), &mfst) == nil && mfst.ArtifactSHA256 != nil {
+				ack = applyFleetConfig(mfst, artifactDir, *cfgPath, cfg, sup, q, telemetryTopic)
+			}
+		}
 		b, _ := json.Marshal(ack)
 		if err := mc.Publish(fleetTopic+"/ack", b); err != nil {
 			log.Printf("fleet: ack publish: %v", err)
@@ -156,45 +172,6 @@ func main() {
 		log.Fatalf("diag subscribe: %v", err)
 	}
 
-	// Poll loops, one per device.
-	for _, dev := range cfg.Devices {
-		dev := dev
-		d, err := driver.New(dev)
-		if err != nil {
-			log.Printf("device %s: %v (will retry next start)", dev.ID, err)
-			continue
-		}
-		defer d.Close()
-		go func() {
-			t := time.NewTicker(dev.Interval)
-			defer t.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-t.C:
-					readings, err := d.Poll(ctx)
-					if err != nil {
-						log.Printf("poll %s: %v", dev.ID, err)
-						continue
-					}
-					for _, r := range readings {
-						e := envelope{
-							EventID: uuid.NewString(), TenantID: cfg.TenantID,
-							GatewayID: cfg.GatewayID, DeviceID: r.DeviceID, PointID: r.PointID,
-							ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
-							Value:      r.Value, Unit: r.Unit, Quality: "measured", SchemaVersion: 1,
-						}
-						b, _ := json.Marshal(e)
-						if err := q.Put(ctx, telemetryTopic, b); err != nil {
-							log.Printf("queue put: %v", err)
-						}
-					}
-				}
-			}
-		}()
-	}
-
 	// Drain loop: publish buffered items, delete only after broker ACK.
 	go func() {
 		t := time.NewTicker(2 * time.Second)
@@ -225,4 +202,115 @@ func main() {
 	log.Printf("edge-agent up: gateway=%s tenant=%s devices=%d", cfg.GatewayID, cfg.TenantID, len(cfg.Devices))
 	<-ctx.Done()
 	log.Printf("shutting down")
+}
+
+// supervisor owns the per-device poll goroutines for one loaded config.
+type supervisor struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string) *supervisor {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &supervisor{cancel: cancel, done: make(chan struct{})}
+	go func() {
+		defer close(s.done)
+		var wg sync.WaitGroup
+		for _, dev := range cfg.Devices {
+			dev := dev
+			d, err := driver.New(dev)
+			if err != nil {
+				log.Printf("device %s: %v (will retry next reload)", dev.ID, err)
+				continue
+			}
+			defer d.Close()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				t := time.NewTicker(dev.Interval)
+				defer t.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+						readings, err := d.Poll(ctx)
+						if err != nil {
+							log.Printf("poll %s: %v", dev.ID, err)
+							continue
+						}
+						for _, r := range readings {
+							e := envelope{
+								EventID: uuid.NewString(), TenantID: cfg.TenantID,
+								GatewayID: cfg.GatewayID, DeviceID: r.DeviceID, PointID: r.PointID,
+								ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
+								Value:      r.Value, Unit: r.Unit, Quality: "measured", SchemaVersion: 1,
+							}
+							b, _ := json.Marshal(e)
+							if err := q.Put(ctx, telemetryTopic, b); err != nil {
+								log.Printf("queue put: %v", err)
+							}
+						}
+					}
+				}
+			}()
+		}
+		wg.Wait()
+	}()
+	log.Printf("supervisor up: %d devices", len(cfg.Devices))
+	return s
+}
+
+func (s *supervisor) stop() {
+	s.cancel()
+	<-s.done
+}
+
+// applyFleetConfig installs a verified config artifact and restarts the poll
+// supervisor on it. Identity is pinned: a config naming a different gateway
+// or tenant is refused. Any install/validation failure rolls back
+// byte-for-byte and restarts the old loops; the ACK reports the outcome.
+func applyFleetConfig(m fleetctl.Manifest, artifactDir, cfgPath string, cfg *config.Config, sup *supervisor, q *queue.Queue, telemetryTopic string) fleetctl.Ack {
+	ack := fleetctl.Ack{CampaignID: m.CampaignID}
+	artPath, err := fleetctl.ArtifactPath(artifactDir, *m.ArtifactSHA256)
+	if err != nil {
+		ack.State, ack.Detail = "failed", err.Error()
+		return ack
+	}
+	newCfg, err := config.Load(artPath)
+	if err != nil {
+		ack.State, ack.Detail = "failed", "new config invalid: "+err.Error()
+		return ack
+	}
+	if newCfg.GatewayID != cfg.GatewayID || newCfg.TenantID != cfg.TenantID {
+		ack.State = "failed"
+		ack.Detail = "config identity mismatch: refusing another gateway's config"
+		return ack
+	}
+
+	sup.stop()
+	res := fleetctl.ApplyConfig(artPath, cfgPath)
+	if !res.Applied {
+		// rollback supervisor to the (untouched) old config
+		*sup = *startSupervisor(cfg, q, telemetryTopic)
+		ack.State = "failed"
+		ack.Detail = fmt.Sprintf("release %s apply failed, rolled back: %v", m.Version, res.Err)
+		return ack
+	}
+	// health check: the installed config loads and its supervisor starts
+	installed, err := config.Load(cfgPath)
+	if err != nil || len(installed.Devices) != res.Devices {
+		if rbErr := fleetctl.Rollback(cfgPath, res.BackupPath); rbErr != nil {
+			log.Printf("fleet: ROLLBACK FAILED: %v", rbErr)
+		}
+		*sup = *startSupervisor(cfg, q, telemetryTopic)
+		ack.State = "failed"
+		ack.Detail = fmt.Sprintf("release %s failed health check, rolled back", m.Version)
+		return ack
+	}
+	*cfg = *installed
+	*sup = *startSupervisor(cfg, q, telemetryTopic)
+	ack.State = "acked"
+	ack.Detail = fmt.Sprintf("release %s applied: %d devices polling (backup %s)", m.Version, res.Devices, res.BackupPath)
+	return ack
 }
