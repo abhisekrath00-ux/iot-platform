@@ -14,13 +14,13 @@ type Config struct {
 	TenantID  string `yaml:"tenant_id"`
 
 	MQTT struct {
-		Host      string `yaml:"host"`
-		Port      int    `yaml:"port"`
-		TLS       bool   `yaml:"tls"`
-		CAFile    string `yaml:"ca_file"`
-		CertFile  string `yaml:"cert_file"`
-		KeyFile   string `yaml:"key_file"`
-		ClientID  string `yaml:"client_id"`
+		Host     string `yaml:"host"`
+		Port     int    `yaml:"port"`
+		TLS      bool   `yaml:"tls"`
+		CAFile   string `yaml:"ca_file"`
+		CertFile string `yaml:"cert_file"`
+		KeyFile  string `yaml:"key_file"`
+		ClientID string `yaml:"client_id"`
 	} `yaml:"mqtt"`
 
 	QueuePath string `yaml:"queue_path"` // SQLite file for store-and-forward
@@ -32,25 +32,28 @@ type Config struct {
 }
 
 type Device struct {
-	ID        string        `yaml:"id"`
-	Profile   string        `yaml:"profile"` // e.g. "modbus-energy-meter", "door-contact"
-	Port      string        `yaml:"port"`    // e.g. /dev/ttyUSB0 (pin via udev)
-	Baud      int           `yaml:"baud"`
-	DataBits  int           `yaml:"data_bits"`
-	StopBits  int           `yaml:"stop_bits"`
-	Parity    string        `yaml:"parity"` // none|odd|even
-	Address   int           `yaml:"address"`
-	Interval  time.Duration `yaml:"interval"`
-	Points    []Point       `yaml:"points"`
+	ID       string        `yaml:"id"`
+	Profile  string        `yaml:"profile"` // e.g. "modbus-energy-meter", "door-contact"
+	Port     string        `yaml:"port"`    // e.g. /dev/ttyUSB0 (pin via udev)
+	Baud     int           `yaml:"baud"`
+	DataBits int           `yaml:"data_bits"`
+	StopBits int           `yaml:"stop_bits"`
+	Parity   string        `yaml:"parity"` // none|odd|even
+	Address  int           `yaml:"address"`
+	Interval time.Duration `yaml:"interval"`
+	Points   []Point       `yaml:"points"`
 }
 
 type Point struct {
-	ID       string  `yaml:"id"`       // e.g. "kwh"
-	Register int     `yaml:"register"` // protocol register / coil
-	Scale    float64 `yaml:"scale"`
-	Unit     string  `yaml:"unit"`
-	Min      float64 `yaml:"min"` // validation range
-	Max      float64 `yaml:"max"`
+	ID        string  `yaml:"id"`         // e.g. "kwh"
+	Register  int     `yaml:"register"`   // protocol register / coil
+	Func      int     `yaml:"func"`       // modbus function: 1 coils, 2 discrete, 3 holding, 4 input (default 4)
+	Type      string  `yaml:"type"`       // u16|i16|u32|i32|f32|bool (default u16; bool for func 1/2)
+	WordOrder string  `yaml:"word_order"` // abcd|badc|cdab|dcba for 32-bit types (default abcd)
+	Scale     float64 `yaml:"scale"`
+	Unit      string  `yaml:"unit"`
+	Min       float64 `yaml:"min"` // validation range
+	Max       float64 `yaml:"max"`
 }
 
 func Load(path string) (*Config, error) {

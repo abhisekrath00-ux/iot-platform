@@ -43,6 +43,9 @@ func New(d config.Device) (Driver, error) {
 		return nil, fmt.Errorf("device %s: open %s: %w", d.ID, d.Port, err)
 	}
 	switch d.Profile {
+	case "modbus-generic":
+		// Fully config-driven: any Modbus RTU sensor model, no code change.
+		return newModbusGeneric(port, d), nil
 	case "modbus-energy-meter":
 		return newModbusMeter(port, d), nil
 	case "door-contact":
