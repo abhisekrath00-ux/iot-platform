@@ -14,7 +14,7 @@ import (
 
 type Notifier struct {
 	smtpHost, smtpPort, smtpUser, smtpPass, from string
-	slackToken                                   string
+	slackToken, slackBase                        string
 }
 
 func FromEnv() *Notifier {
@@ -23,6 +23,8 @@ func FromEnv() *Notifier {
 		smtpUser: os.Getenv("SMTP_USER"), smtpPass: os.Getenv("SMTP_PASS"),
 		from:       os.Getenv("ALERT_FROM_EMAIL"),
 		slackToken: os.Getenv("SLACK_BOT_TOKEN"),
+		// Overridable for air-gapped relays (e.g. Mattermost-compatible bridge).
+		slackBase: envOr("SLACK_API_BASE", "https://slack.com/api"),
 	}
 }
 
@@ -46,7 +48,7 @@ func (n *Notifier) Slack(ctx context.Context, channel, text string) error {
 		return fmt.Errorf("slack not configured")
 	}
 	payload, _ := json.Marshal(map[string]string{"channel": channel, "text": text})
-	req, _ := http.NewRequestWithContext(ctx, "POST", "https://slack.com/api/chat.postMessage", bytes.NewReader(payload))
+	req, _ := http.NewRequestWithContext(ctx, "POST", n.slackBase+"/chat.postMessage", bytes.NewReader(payload))
 	req.Header.Set("Authorization", "Bearer "+n.slackToken)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
