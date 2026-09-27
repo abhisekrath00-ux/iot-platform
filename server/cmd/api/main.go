@@ -136,6 +136,7 @@ func main() {
 	api.HandleFunc("POST /v1/fleet/campaigns/{id}/rollback", s.rollbackCampaign)
 	api.HandleFunc("POST /v1/fleet/ack", s.ackAssignment)
 	api.HandleFunc("GET /v1/sites", s.listSites)
+	api.HandleFunc("POST /v1/broker/acl/regenerate", s.regenerateBrokerACLHandler)
 	api.HandleFunc("POST /v1/commissioning/sessions", s.createCommissionSession)
 	api.HandleFunc("GET /v1/commissioning/sessions/{id}", s.getCommissionSession)
 	api.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
@@ -629,6 +630,7 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 		resp["ca_cert_pem"] = string(caCert)
 		resp["cert_fingerprint"] = fp
 	}
+	s.regenerateBrokerACL(r.Context())
 	writeJSON(w, 200, resp)
 }
 
