@@ -1,0 +1,82 @@
+// Package config loads edge-agent configuration from a YAML file.
+package config
+
+import (
+	"fmt"
+	"os"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+type Config struct {
+	GatewayID string `yaml:"gateway_id"`
+	TenantID  string `yaml:"tenant_id"`
+
+	MQTT struct {
+		Host      string `yaml:"host"`
+		Port      int    `yaml:"port"`
+		TLS       bool   `yaml:"tls"`
+		CAFile    string `yaml:"ca_file"`
+		CertFile  string `yaml:"cert_file"`
+		KeyFile   string `yaml:"key_file"`
+		ClientID  string `yaml:"client_id"`
+	} `yaml:"mqtt"`
+
+	QueuePath string `yaml:"queue_path"` // SQLite file for store-and-forward
+
+	Devices []Device `yaml:"devices"`
+
+	// Commands: only these actions may execute on this gateway.
+	AllowedCommands []string `yaml:"allowed_commands"`
+}
+
+type Device struct {
+	ID        string        `yaml:"id"`
+	Profile   string        `yaml:"profile"` // e.g. "modbus-energy-meter", "door-contact"
+	Port      string        `yaml:"port"`    // e.g. /dev/ttyUSB0 (pin via udev)
+	Baud      int           `yaml:"baud"`
+	DataBits  int           `yaml:"data_bits"`
+	StopBits  int           `yaml:"stop_bits"`
+	Parity    string        `yaml:"parity"` // none|odd|even
+	Address   int           `yaml:"address"`
+	Interval  time.Duration `yaml:"interval"`
+	Points    []Point       `yaml:"points"`
+}
+
+type Point struct {
+	ID       string  `yaml:"id"`       // e.g. "kwh"
+	Register int     `yaml:"register"` // protocol register / coil
+	Scale    float64 `yaml:"scale"`
+	Unit     string  `yaml:"unit"`
+	Min      float64 `yaml:"min"` // validation range
+	Max      float64 `yaml:"max"`
+}
+
+func Load(path string) (*Config, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	var c Config
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	if c.GatewayID == "" || c.TenantID == "" {
+		return nil, fmt.Errorf("gateway_id and tenant_id are required")
+	}
+	if c.QueuePath == "" {
+		c.QueuePath = "/var/lib/hexmon/queue.db"
+	}
+	for _, d := range c.Devices {
+		if d.Interval <= 0 {
+			return nil, fmt.Errorf("device %s: interval required", d.ID)
+		}
+		for _, p := range d.Points {
+			if p.Max <= p.Min {
+				return nil, fmt.Errorf("device %s point %s: validation range required", d.ID, p.ID)
+			}
+		}
+	}
+	return &c, nil
+}

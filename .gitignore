@@ -1,0 +1,11 @@
+.env
+*.local
+node_modules/
+dist/
+build/
+__pycache__/
+*.db
+*.db-journal
+.vscode/
+.idea/
+coverage.out

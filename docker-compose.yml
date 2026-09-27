@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    ports: ["5432:5432"]
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    volumes:
+      - ./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    ports:
+      - "1883:1883"   # lab only; production uses 8883 with mTLS
+
+  api:
+    build: ./server
+    command: ["/bin/api"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_TLS: "false"
+      API_PORT: "8000"
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      ALERT_FROM_EMAIL: ${ALERT_FROM_EMAIL}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      JWT_SIGNING_SECRET: ${JWT_SIGNING_SECRET}
+    depends_on:
+      postgres: {condition: service_healthy}
+      mosquitto: {condition: service_started}
+    ports: ["8000:8000"]
+
+  ingest:
+    build: ./server
+    command: ["/bin/ingest"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_TLS: "false"
+    depends_on:
+      postgres: {condition: service_healthy}
+      mosquitto: {condition: service_started}
+
+  web:
+    build: ./web
+    ports: ["8080:80"]
+    depends_on: [api]
+
+volumes:
+  pgdata:

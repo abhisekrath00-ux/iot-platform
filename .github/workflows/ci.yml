@@ -1,0 +1,48 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23' }
+      - name: vet + test server
+        working-directory: server
+        run: |
+          go vet ./...
+          go test ./...
+          go build ./...
+      - name: vet + test edge
+        working-directory: edge
+        run: |
+          go vet ./...
+          go test ./...
+          go build ./...
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - working-directory: web
+        run: |
+          npm install
+          npm run build
+          npm test --if-present
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build and boot the stack
+        run: |
+          cp .env.example .env
+          docker compose up -d --build
+          sleep 15
+          curl -fsS http://localhost:8000/healthz
+          docker compose down -v
