@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -100,6 +101,8 @@ func main() {
 	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
 	api.HandleFunc("POST /v1/dashboards", s.saveDashboard)
 	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
+	api.HandleFunc("GET /v1/profiles", s.listProfiles)
+	api.HandleFunc("POST /v1/profiles", s.createProfile)
 
 	// Bootstrap path: the gateway holds only its one-time claim code, no JWT yet.
 	// Rate limited: 5/min per IP, burst 5 - brute-forcing 160-bit codes is
@@ -591,6 +594,100 @@ func (s *server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "auth.sso_login", userID, map[string]any{"email": ident.Email})
 	writeJSON(w, 200, map[string]any{"token": signed, "user_id": userID, "tenant_id": tenantID, "role": role})
+}
+
+// --- device profiles (multi-sensor onboarding) ---
+
+var profilePointOK = regexp.MustCompile(`^[a-z0-9_-]{1,128}$`)
+
+func validProfilePoints(pts []map[string]any) error {
+	if len(pts) == 0 || len(pts) > 64 {
+		return fmt.Errorf("1-64 points required")
+	}
+	for _, p := range pts {
+		id, _ := p["id"].(string)
+		if !profilePointOK.MatchString(id) {
+			return fmt.Errorf("point id %q invalid", id)
+		}
+		if _, ok := p["register"].(float64); !ok {
+			return fmt.Errorf("point %s: register required", id)
+		}
+		if fn, ok := p["func"].(float64); ok && (fn < 1 || fn > 4) {
+			return fmt.Errorf("point %s: func must be 1-4", id)
+		}
+		switch t, _ := p["type"].(string); t {
+		case "", "u16", "i16", "u32", "i32", "f32", "bool":
+		default:
+			return fmt.Errorf("point %s: unknown type %q", id, t)
+		}
+		switch w, _ := p["word_order"].(string); w {
+		case "", "abcd", "badc", "cdab", "dcba":
+		default:
+			return fmt.Errorf("point %s: unknown word_order %q", id, w)
+		}
+	}
+	return nil
+}
+
+func (s *server) listProfiles(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT id, name, driver_profile, points, created_at FROM device_profiles WHERE tenant_id=$1 ORDER BY created_at DESC`,
+		auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, name, drv string
+		var pts []byte
+		var created time.Time
+		rows.Scan(&id, &name, &drv, &pts, &created)
+		out = append(out, map[string]any{"id": id, "name": name, "driver_profile": drv, "points": json.RawMessage(pts), "created_at": created})
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *server) createProfile(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		Name          string           `json:"name"`
+		DriverProfile string           `json:"driver_profile"`
+		Points        []map[string]any `json:"points"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" || len(name) > 128 || strings.ContainsAny(name, "<>\x00") {
+		http.Error(w, "name invalid", 400)
+		return
+	}
+	switch in.DriverProfile {
+	case "modbus-generic", "door-contact", "modbus-energy-meter":
+	default:
+		http.Error(w, "driver_profile must be a supported edge driver", 400)
+		return
+	}
+	if err := validProfilePoints(in.Points); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	pts, _ := json.Marshal(in.Points)
+	id := uuid.NewString()
+	_, err := s.st.Pool.Exec(r.Context(),
+		`INSERT INTO device_profiles(id,tenant_id,name,driver_profile,points,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
+		id, auth.Tenant(r), name, in.DriverProfile, pts, auth.User(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.audit(r, "profile.create", id, map[string]any{"name": name, "driver_profile": in.DriverProfile})
+	writeJSON(w, 201, map[string]any{"id": id})
 }
 
 func (s *server) audit(r *http.Request, action, target string, detail map[string]any) {
