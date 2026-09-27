@@ -6,7 +6,6 @@ package queue
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	_ "modernc.org/sqlite"
 )
@@ -72,4 +71,3 @@ func (q *Queue) Depth(ctx context.Context) (int, error) {
 
 func (q *Queue) Close() error { return q.db.Close() }
 
-var _ = fmt.Sprintf
