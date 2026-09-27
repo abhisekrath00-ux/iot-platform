@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/claim"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/driver"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/mqttc"
@@ -42,7 +43,27 @@ type command struct {
 
 func main() {
 	cfgPath := flag.String("config", "/etc/hexmon/edge-agent.yaml", "config file")
+	claimAPI := flag.String("claim-api", "", "control-plane API base URL for enrollment (e.g. https://api.hexmon.example)")
+	claimCode := flag.String("claim-code", "", "one-time enrollment claim code from the dashboard")
+	claimSerial := flag.String("claim-serial", "", "gateway serial to claim")
+	identityDir := flag.String("identity-dir", "/var/lib/hexmon-edge", "directory holding identity.json")
 	flag.Parse()
+
+	if *claimCode != "" {
+		// Enrollment mode: redeem the claim code, persist identity, exit.
+		if *claimAPI == "" || *claimSerial == "" {
+			log.Fatal("-claim-api and -claim-serial are required with -claim-code")
+		}
+		id, err := claim.Redeem(context.Background(), *claimAPI, *claimCode, *claimSerial)
+		if err != nil {
+			log.Fatalf("claim: %v", err)
+		}
+		if err := claim.SaveIdentity(*identityDir, id); err != nil {
+			log.Fatalf("claim: %v", err)
+		}
+		log.Printf("claimed: gateway %s enrolled; identity saved to %s/identity.json", id.GatewayID, *identityDir)
+		return
+	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -116,7 +137,7 @@ func main() {
 							EventID: uuid.NewString(), TenantID: cfg.TenantID,
 							GatewayID: cfg.GatewayID, DeviceID: r.DeviceID, PointID: r.PointID,
 							ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
-							Value: r.Value, Unit: r.Unit, Quality: "measured", SchemaVersion: 1,
+							Value:      r.Value, Unit: r.Unit, Quality: "measured", SchemaVersion: 1,
 						}
 						b, _ := json.Marshal(e)
 						if err := q.Put(ctx, telemetryTopic, b); err != nil {
