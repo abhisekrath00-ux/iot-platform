@@ -165,7 +165,25 @@ func main() {
 	srv.Shutdown(shutCtx)
 }
 
+// migrateAdvisoryLockID serializes schema migrations across every process
+// that boots against the same database (api replicas, and any sibling
+// containers). Without it, two fresh starters race on CREATE TABLE IF NOT
+// EXISTS and collide on the table's implicit pg_type row.
+const migrateAdvisoryLockID int64 = 0x4845584D4F4E // "HEXMON"
+
 func migrate(ctx context.Context, st *store.Store) error {
+	conn, err := st.Pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", migrateAdvisoryLockID); err != nil {
+		return err
+	}
+	defer func() {
+		// the boot context may already be cancelled; unlock on a fresh one
+		conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", migrateAdvisoryLockID) //nolint:errcheck
+	}()
 	entries, err := os.ReadDir(envOr("MIGRATIONS_DIR", "/migrations"))
 	if err != nil {
 		return err
@@ -178,7 +196,7 @@ func migrate(ctx context.Context, st *store.Store) error {
 		if err != nil {
 			return err
 		}
-		if _, err := st.Pool.Exec(ctx, string(b)); err != nil {
+		if _, err := conn.Exec(ctx, string(b)); err != nil {
 			return fmt.Errorf("migration %s: %w", e.Name(), err)
 		}
 		log.Printf("migration applied: %s", e.Name())

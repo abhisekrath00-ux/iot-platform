@@ -11,4 +11,5 @@ USER app
 COPY --from=build /bin/api /bin/ingest /bin/mcp /bin/
 COPY migrations /migrations
 WORKDIR /
-ENTRYPOINT ["/bin/api"]
+# compose overrides this with /bin/ingest or /bin/mcp per service
+CMD ["/bin/api"]
