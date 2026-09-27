@@ -46,8 +46,9 @@ jobs:
           cp .env.example .env
           # retry image pulls/builds: Docker Hub rate-limits shared runner IPs
           for attempt in 1 2 3; do
-            if docker compose up -d --build; then break; fi
+            if docker compose up -d --build > /tmp/compose-up.log 2>&1; then break; fi
             echo "compose up attempt $attempt failed; retrying in 15s"
+            tail -20 /tmp/compose-up.log
             sleep 15
             if [ "$attempt" = 3 ]; then exit 1; fi
           done
@@ -77,10 +78,12 @@ jobs:
             echo "run: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
             echo "sha: ${{ github.sha }}"
             echo "date: $(date -u)"
+            echo "=== compose up output ==="
+            cat /tmp/compose-up.log 2>/dev/null || echo "(no compose-up log)"
             echo "=== docker compose ps ==="
-            docker compose ps 2>&1 || true
+            docker compose -f "$GITHUB_WORKSPACE/docker-compose.yml" ps 2>&1 || true
             echo "=== docker compose logs (all services, tail 400) ==="
-            docker compose logs --tail=400 2>&1 || true
+            docker compose -f "$GITHUB_WORKSPACE/docker-compose.yml" logs --tail=400 2>&1 || true
           } > smoke-failure.txt
           git add smoke-failure.txt
           git commit -qm "smoke failure logs for ${{ github.sha }}"
