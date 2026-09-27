@@ -21,6 +21,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/pki"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
@@ -475,6 +476,7 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		ClaimCode string `json:"claim_code"`
 		Serial    string `json:"serial"`
+		CSRPEM    string `json:"csr_pem"` // optional: gateway requests a client certificate
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.ClaimCode == "" || in.Serial == "" {
 		http.Error(w, "claim_code and serial required", 400)
@@ -527,7 +529,32 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"gateway_id": gwID, "ingest_token": signed, "status": "active"})
+	resp := map[string]any{"gateway_id": gwID, "ingest_token": signed, "status": "active"}
+	if in.CSRPEM != "" {
+		// mTLS issuance: sign the gateway CSR with the deployment CA. CN is
+		// bound to the claimed serial, and the fingerprint lands on the
+		// gateway row for revocation and audit.
+		caCert, certErr1 := os.ReadFile(os.Getenv("MTLS_CA_CERT"))
+		caKey, certErr2 := os.ReadFile(os.Getenv("MTLS_CA_KEY"))
+		if certErr1 != nil || certErr2 != nil {
+			http.Error(w, "mtls CA not configured on server", 500)
+			return
+		}
+		certPEM, fp, err := pki.SignCSR(caCert, caKey, []byte(in.CSRPEM), in.Serial, 825)
+		if err != nil {
+			http.Error(w, "csr rejected: "+err.Error(), 400)
+			return
+		}
+		if _, err := s.st.Pool.Exec(r.Context(),
+			`UPDATE gateways SET cert_fingerprint=$1 WHERE id=$2`, fp, gwID); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		resp["client_cert_pem"] = string(certPEM)
+		resp["ca_cert_pem"] = string(caCert)
+		resp["cert_fingerprint"] = fp
+	}
+	writeJSON(w, 200, resp)
 }
 
 // --- OIDC SSO ---
