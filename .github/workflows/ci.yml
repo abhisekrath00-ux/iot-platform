@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.23' }
+        with: { go-version: '1.26' }
       - name: vet + test server
         working-directory: server
         run: |
@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with: { node-version: '22' }
       - working-directory: web
         run: |
           npm install
@@ -43,8 +43,19 @@ jobs:
         run: |
           cp .env.example .env
           docker compose up -d --build
-          sleep 15
-          curl -fsS http://localhost:8000/healthz
+          # wait for the api to answer, up to 3 minutes (first boot migrates
+          # the schema and waits on postgres health)
+          for i in $(seq 1 36); do
+            if curl -fsS http://localhost:8000/healthz; then break; fi
+            if [ "$i" = 36 ]; then
+              echo "api never became healthy; dumping logs"
+              docker compose ps
+              docker compose logs --tail=50 api postgres mosquitto
+              exit 1
+            fi
+            sleep 5
+          done
+          docker compose ps
           docker compose down -v
 
   security:
@@ -52,7 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.23' }
+        with: { go-version: '1.26' }
       - name: gofmt check
         run: |
           unformatted=$(gofmt -l server edge)
@@ -63,7 +74,7 @@ jobs:
           (cd server && govulncheck ./...)
           (cd edge && govulncheck ./...)
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with: { node-version: '22' }
       - name: npm audit (web)
         working-directory: web
         run: |

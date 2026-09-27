@@ -70,4 +70,3 @@ func (q *Queue) Depth(ctx context.Context) (int, error) {
 }
 
 func (q *Queue) Close() error { return q.db.Close() }
-

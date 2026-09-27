@@ -1,9 +1,9 @@
 # Edge agent image (for x86 test rigs; on Axon deploy the native ARM binary,
 # see docs/deployment.md).
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
-COPY go.mod ./
-RUN go mod download || true
+COPY go.mod go.sum ./
+RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /bin/edge-agent ./cmd/edge-agent
 

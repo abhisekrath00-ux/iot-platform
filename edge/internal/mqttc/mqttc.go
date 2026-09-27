@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"os"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 type Client struct{ c mqtt.Client }
