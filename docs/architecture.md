@@ -3,6 +3,20 @@
 Full rationale and sources live in the blueprint (Hexmon IoT platform blueprint,
 27 Sep 2026). This file is the working reference for the code in this repo.
 
+## Component status (what is implemented in this repo)
+
+| Component | State | Notes |
+|---|---|---|
+| Edge agent | Implemented | Modbus RTU drivers incl. config-driven `modbus-generic` (fn 1-4, u16..f32/bool, all word orders), SQLite store-and-forward, command allowlist + approval gating, one-time enrollment claim with on-device keygen |
+| Enrollment | Implemented | Claim codes (SHA-256 at rest, expiring, single-use, rate-limited), CSR signing to deployment CA, cert fingerprint per gateway |
+| Ingest | Implemented | MQTT consumer, idempotent insert, rules + flow evaluation per reading |
+| API | Implemented | Devices, telemetry, fleet, audit, rules, notification channels, profiles, reports, flows, enrollment, OIDC SSO, search; RBAC (admin/operator/viewer), security headers, rate limits |
+| Web dashboard | Implemented | Fleet, devices + 24h charts, onboarding, dashboards, flows+rules, reports, sensor profiles, commands with approval, settings |
+| MCP server | Implemented, read-only | list-sites, device-health, query-time-series, explain-alert (JWT-scoped) |
+| Search | Implemented | Elasticsearch, tenant-scoped /v1/search over devices + alerts |
+| HA | Partial | Redis-backed shared OIDC state; report scheduler and ingest need a lease/leader election before multi-replica |
+| Physical actuation | Gated | Command path exists with approval; actuation stays disabled until hazard analysis + interlock review (backlog P4) |
+
 ## Logical view
 
 ```

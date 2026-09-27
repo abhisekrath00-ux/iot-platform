@@ -3,6 +3,17 @@
 Basis: NIST SP 800-82r3 (OT), ISA/IEC 62443, OWASP ISVS, MCP security best
 practices, TUF. These inform the backlog; nothing here is a certification claim.
 
+## Enforced in code today
+
+- Rate limiting on unauthenticated paths (enrollment claim 5/min, SSO 20/min, per client IP, X-Forwarded-For not trusted).
+- Security headers on all API responses (nosniff, frame DENY, no-referrer, CSP `default-src 'none'`, no-store).
+- Enrollment claim codes: 160-bit, SHA-256 at rest, single-use, expiring, constant-time compare, identical error for unknown code vs serial mismatch (no oracle).
+- OIDC: discovery issuer check, RS256 JWKS signature verification, single-use state + nonce (10 min TTL), SSO never auto-creates users.
+- mTLS: CSR signature checked, cert CN bound to the claimed serial, client-auth EKU only, fingerprint stored for revocation.
+- RBAC guards on every mutation; audit log for creates, claims, SSO logins, approvals.
+- Input validation: allowlisted point ids / types / word orders / ops; parameterized SQL everywhere; escaped report HTML with no external assets.
+- CI: gofmt gate, govulncheck on both Go modules, npm audit (high) on web.
+
 ## Trust boundaries
 
 1. **Field -> edge.** Isolated serial adapters, surge/ESD protection per site
