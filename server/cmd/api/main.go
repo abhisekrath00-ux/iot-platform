@@ -112,6 +112,8 @@ func main() {
 	api.HandleFunc("GET /v1/notifications/channels", s.listChannels)
 	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
 	api.HandleFunc("POST /v1/dashboards", s.saveDashboard)
+	api.HandleFunc("PUT /v1/dashboards/{id}", s.updateDashboard)
+	api.HandleFunc("DELETE /v1/dashboards/{id}", s.deleteDashboard)
 	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
 	api.HandleFunc("GET /v1/profiles", s.listProfiles)
 	api.HandleFunc("POST /v1/profiles", s.createProfile)
@@ -467,6 +469,9 @@ func (s *server) listDashboards(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) saveDashboard(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
 	var in struct {
 		Name   string          `json:"name"`
 		Layout json.RawMessage `json:"layout"`
@@ -483,7 +488,57 @@ func (s *server) saveDashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	s.audit(r, "dashboard.create", id, map[string]any{"name": in.Name})
 	writeJSON(w, 201, map[string]any{"id": id})
+}
+
+// updateDashboard replaces name/layout of an existing dashboard. Admin/operator only.
+func (s *server) updateDashboard(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	id := r.PathValue("id")
+	var in struct {
+		Name   string          `json:"name"`
+		Layout json.RawMessage `json:"layout"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
+		http.Error(w, "name required", 400)
+		return
+	}
+	res, err := s.st.Pool.Exec(r.Context(),
+		`UPDATE dashboards SET name=$1, layout=$2 WHERE id=$3 AND tenant_id=$4`,
+		in.Name, in.Layout, id, auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if res.RowsAffected() == 0 {
+		http.Error(w, "not found", 404)
+		return
+	}
+	s.audit(r, "dashboard.update", id, map[string]any{"name": in.Name})
+	writeJSON(w, 200, map[string]any{"id": id})
+}
+
+// deleteDashboard removes a dashboard. Admin/operator only.
+func (s *server) deleteDashboard(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	id := r.PathValue("id")
+	res, err := s.st.Pool.Exec(r.Context(),
+		`DELETE FROM dashboards WHERE id=$1 AND tenant_id=$2`, id, auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if res.RowsAffected() == 0 {
+		http.Error(w, "not found", 404)
+		return
+	}
+	s.audit(r, "dashboard.delete", id, nil)
+	writeJSON(w, 200, map[string]any{"deleted": id})
 }
 
 // --- gateway enrollment ---

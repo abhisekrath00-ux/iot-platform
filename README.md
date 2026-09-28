@@ -1,44 +1,100 @@
 # Hexmon IoT Platform
 
 An enterprise IoT platform for energy meters, door sensors and other field devices.
-Sensors connect to a Vicharak Axon SBC (edge gateway) over UART/USB serial; the edge
-agent buffers and forwards telemetry over MQTT (mTLS) to the control plane, which
-serves a web dashboard, rules/flows, alerts, reports and (later) AI-assisted
-diagnosis via MCP. Deployable to cloud or customer premises with the same
-container stack.
+Sensors connect to a Vicharak Axon SBC (edge gateway) over UART/USB serial or Modbus;
+the edge agent buffers and forwards telemetry over MQTT (mTLS) to the control plane,
+which serves a web dashboard, rules/flows, alerts, reports, fleet rollout and
+AI-assisted diagnosis via MCP. The same container stack deploys to cloud, customer
+premises, or fully air-gapped sites.
+
+Project tracking: [Trello board](https://trello.com/b/ErbxnFXn/hexmon-iot-platform)
+
+## Feature checklist
+
+Status labels: **Verified** = exercised by automated tests / CI on this repo.
+**Pilot** = implemented end to end, but needs the first real hardware or site
+deployment to be called proven. **Config** = behavior driven by configuration,
+no code change needed.
+
+### Devices and data
+| Feature | What you get | Status |
+|---|---|---|
+| Live monitoring | Latest values, quality flags, 24h trends per device/point; KPI cards | Verified (simulated telemetry); real sensors are Pilot |
+| Multi-sensor onboarding | `modbus-generic` driver + device profiles; new sensor types added by config/UI, not code | Verified (Config) |
+| UI device onboarding | Add-device page, one-time enrollment tokens, commissioning wizard (API + edge claim + ingest validation) | Verified; wizard visual pass on a real deployment is Pilot |
+| Device profiles | Profile CRUD (`/v1/profiles`, Profiles page) mapping points, units, scaling | Verified |
+
+### Control and automation
+| Feature | What you get | Status |
+|---|---|---|
+| Physical control | Command requests with mandatory approval (four-eyes: requester != approver), edge executor allowlist | Verified; physical actuation is Pilot (needs hardware) |
+| Workflows (flows) | Flow definitions with draft/publish, version history, rollback, dry-run simulate | Verified |
+| Rules | Threshold/rule evaluation against live telemetry | Verified |
+| Alerts | Severity, acknowledge/resolve lifecycle, fan-out to notification channels | Verified |
+
+### Dashboards and reporting
+| Feature | What you get | Status |
+|---|---|---|
+| Custom dashboards | Dashboard builder page: KPI and 24h-trend widgets, per-device/point config, starter templates (blank / KPI grid / trends) | Verified |
+| Report builder | Report definitions, on-demand runs, scheduled cron runner | Verified |
+| Audit logs | Append-only audit trail (who/what/when), admin-only API + Audit page | Verified |
+
+### Platform and integration
+| Feature | What you get | Status |
+|---|---|---|
+| Notifications | SMTP email and Slack channels (`/v1/notifications/channels`) | Verified end to end with test servers; real deliverability is Pilot (needs site SMTP/Slack creds) |
+| RBAC + SSO | admin/operator/viewer roles on every write path, OIDC login, rate-limited auth | Verified |
+| MCP (AI integration) | MCP server exposing platform tools to AI assistants, plus `mcpeval` regression suite | Verified (eval suite) |
+| Search | Tenant-scoped Elasticsearch over devices and alerts | Verified in compose |
+| Fleet management | Releases and staged rollout campaigns (rings, pause/abort), edge `fleetctl` applier | API Verified; OTA on a live gateway is Pilot |
+| Broker security | Per-gateway Mosquitto ACLs generated from enrollment | Verified; production enablement documented |
+
+### Deployment and operations
+| Feature | What you get | Status |
+|---|---|---|
+| Containerized deploy | One `docker compose up` brings up Postgres, Mosquitto, API, ingest, Elasticsearch, MCP, web | Verified in CI compose smoke |
+| Air-gapped install | `scripts/airgap-bundle.sh` + `airgap-install.sh`, no internet needed at the site | Scripted and documented; full on-site rehearsal is Pilot |
+| Scale | Stateless API (horizontal scale), `cmd/loadtest` harness, runtime load stats, SLO doc | Harness verified; first live load test on pilot stack pending |
+| Backup/restore | `scripts/backup.sh` / `restore.sh` + runbook | Scripted and documented |
+| CA/PKI tooling | `scripts/gen-ca.sh` for site CA and mTLS certs | Verified |
 
 ## Repository layout
 
 | Path      | What it is |
 |-----------|------------|
-| `edge/`   | Go edge agent: serial drivers, local SQLite queue, MQTT publisher, command executor (allowlisted) |
-| `server/` | Go control plane: `cmd/api` (REST API, auth, commands, notifications) and `cmd/ingest` (MQTT -> Postgres), SQL migrations |
-| `web/`    | React + TypeScript dashboard: device onboarding, dashboards, report builder, flows, alerts, admin |
+| `edge/`   | Go edge agent: serial/Modbus drivers, local SQLite queue, mTLS MQTT publisher, claim/commissioning, command executor (allowlisted), fleet applier |
+| `server/` | Go control plane: `cmd/api` (REST, auth, commands, dashboards, reports, flows, fleet, notifications), `cmd/ingest` (MQTT -> Postgres), `cmd/mcp`, `cmd/loadtest`, `cmd/mcpeval`, SQL migrations |
+| `web/`    | React + TypeScript UI: fleet, devices, onboarding, dashboards, flows, alerts, control, reports, profiles, audit, settings |
 | `deploy/` | Mosquitto broker config and deployment assets |
-| `docs/`   | Architecture, setup, deployment, testing, security, contributing |
+| `scripts/`| Air-gap bundle/install, backup/restore, CA generation |
+| `docs/`   | Architecture, setup, deployment, testing, security, air-gap, commissioning, fleet, hazard analysis, SLOs |
 
 ## Quickstart (lab)
 
 ```bash
 cp .env.example .env          # adjust passwords
-docker compose up --build     # postgres, mosquitto, api, ingest, web
+docker compose up --build     # postgres, mosquitto, api, ingest, elasticsearch, mcp, web
 # web dashboard: http://localhost:8080  ·  API: http://localhost:8000
 ```
 
 The edge agent runs on the Axon gateway, not in the lab compose stack; see
-`edge/README` notes in `docs/setup.md`.
+`docs/setup.md`. For a site with no internet, build the bundle on a connected
+machine and install offline per `docs/airgap.md`.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Local setup](docs/setup.md)
-- [Deployment (cloud & on-prem)](docs/deployment.md)
-- [Testing](docs/testing.md)
-- [Security model](docs/security.md)
-- [Contributing](docs/contributing.md)
+- [Architecture](docs/architecture.md) — system design and component discussion
+- [Local setup](docs/setup.md) · [Deployment (cloud & on-prem)](docs/deployment.md) · [Air-gapped install](docs/airgap.md)
+- [Testing](docs/testing.md) — what CI runs and how to run it locally
+- [Security model](docs/security.md) — mTLS, RBAC, approval gating, hazard analysis
+- [Commissioning](docs/commissioning.md) · [Fleet rollout](docs/fleet.md) · [Backup/restore](docs/backup-restore.md)
+- [MCP evaluation](docs/mcp-eval.md) · [SLOs](docs/slo.md) · [Contributing](docs/contributing.md)
 
 ## Status
 
-Early scaffold. Telemetry path (edge -> MQTT -> ingest -> Postgres -> API -> web)
-is the first milestone. Physical control is gated behind the approval flow and
-policy checks described in `docs/security.md` — do not bypass.
+Working software, CI-green: the full telemetry path (edge -> MQTT -> ingest ->
+Postgres -> API -> web) plus control gating, dashboards, flows, reports, fleet
+rollout and MCP are implemented and covered by automated tests. Items labeled
+**Pilot** above need the first real gateway, meters and site rollout before they
+can be called proven in production. Physical control is gated behind the
+approval flow and policy checks described in `docs/security.md` — do not bypass.
