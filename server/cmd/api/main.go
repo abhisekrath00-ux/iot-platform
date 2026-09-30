@@ -26,6 +26,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/oidcstate"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/pki"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/respcache"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 	"github.com/golang-jwt/jwt/v5"
@@ -38,6 +39,7 @@ type server struct {
 	es     *search.Client
 	oidc   *auth.OIDCProvider
 	states oidcstate.Store // memory single-replica, Redis when REDIS_URL set
+	cache  *respcache.Cache
 }
 
 func main() {
@@ -97,9 +99,10 @@ func main() {
 
 	// Authenticated API (all tenant-scoped).
 	api := http.NewServeMux()
-	api.HandleFunc("GET /v1/devices", s.listDevices)
+	s.cache = newCache()
+	s.cached(api, "GET /v1/devices", s.listDevices)
 	api.HandleFunc("POST /v1/devices", s.createDevice) // UI onboarding entry point
-	api.HandleFunc("GET /v1/telemetry/latest", s.latestTelemetry)
+	s.cached(api, "GET /v1/telemetry/latest", s.latestTelemetry)
 	api.HandleFunc("GET /v1/telemetry/count", s.countTelemetry)
 	api.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
 	api.HandleFunc("POST /v1/commands", s.requestCommand)
@@ -107,7 +110,7 @@ func main() {
 	api.HandleFunc("GET /v1/commands", s.listCommands)
 	api.HandleFunc("GET /v1/alerts", s.listAlerts)
 	api.HandleFunc("GET /v1/dashboards", s.listDashboards)
-	api.HandleFunc("GET /v1/fleet", s.fleetStatus)
+	s.cached(api, "GET /v1/fleet", s.fleetStatus)
 	api.HandleFunc("GET /v1/audit", s.listAudit)
 	api.HandleFunc("GET /v1/rules", s.listRules)
 	api.HandleFunc("POST /v1/rules", s.createRule)
@@ -119,14 +122,14 @@ func main() {
 	api.HandleFunc("DELETE /v1/dashboards/{id}", s.deleteDashboard)
 	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
 	api.HandleFunc("GET /v1/gateways/{id}/edge-config", s.gatewayEdgeConfig)
-	api.HandleFunc("GET /v1/profiles", s.listProfiles)
+	s.cached(api, "GET /v1/profiles", s.listProfiles)
 	api.HandleFunc("POST /v1/profiles", s.createProfile)
 	api.HandleFunc("GET /v1/reports", s.listReports)
 	api.HandleFunc("POST /v1/reports", s.createReport)
 	api.HandleFunc("POST /v1/reports/{id}/run", s.runReport)
 	api.HandleFunc("POST /v1/reports/preview", s.previewReport)
 	api.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
-	api.HandleFunc("GET /v1/points", s.listPoints)
+	s.cached(api, "GET /v1/points", s.listPoints)
 	api.HandleFunc("GET /v1/export/telemetry.csv", s.exportTelemetryCSV)
 	api.HandleFunc("GET /v1/flows", s.listFlows)
 	api.HandleFunc("POST /v1/flows", s.createFlow)
@@ -145,7 +148,7 @@ func main() {
 	api.HandleFunc("POST /v1/fleet/campaigns/{id}/abort", s.abortCampaign)
 	api.HandleFunc("POST /v1/fleet/campaigns/{id}/rollback", s.rollbackCampaign)
 	api.HandleFunc("POST /v1/fleet/ack", s.ackAssignment)
-	api.HandleFunc("GET /v1/sites", s.listSites)
+	s.cached(api, "GET /v1/sites", s.listSites)
 	api.HandleFunc("POST /v1/broker/acl/regenerate", s.regenerateBrokerACLHandler)
 	api.HandleFunc("POST /v1/commissioning/sessions", s.createCommissionSession)
 	api.HandleFunc("GET /v1/commissioning/sessions/{id}", s.getCommissionSession)
@@ -166,7 +169,7 @@ func main() {
 	mux.Handle("GET /auth/oidc/login", ssoRL.Middleware(http.HandlerFunc(s.oidcLogin)))
 	mux.Handle("GET /auth/oidc/callback", ssoRL.Middleware(http.HandlerFunc(s.oidcCallback)))
 
-	mux.Handle("/v1/", auth.Middleware(s.secret)(api))
+	mux.Handle("/v1/", auth.Middleware(s.secret)(s.invalidateOnWrite(api)))
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).
 	go leader.Run(ctx, st.Pool, leaderReportScheduler, "report-scheduler", 10*time.Second, s.reportScheduler)

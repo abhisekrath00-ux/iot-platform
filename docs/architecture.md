@@ -165,3 +165,9 @@ and tracked on the Trello board.
 | Deploy | OCI containers; Compose for lab/small on-prem; Kubernetes later if ops capacity | same artifacts cloud, on-prem and air-gapped |
 
 Change any of these only with a written ADR in docs/adr/.
+
+## Read caching
+
+Hot read endpoints (`/v1/fleet`, `/v1/telemetry/latest`, `/v1/devices`, `/v1/points`, `/v1/sites`, `/v1/profiles`) sit behind a small in-process response cache (`server/internal/respcache`): tenant-scoped keys, per-endpoint TTL (2 s for live values, 10-30 s for configuration lists), single-flight on concurrent misses, a hard entry cap, and only `200` GET responses stored. Any successful non-GET request drops that tenant's entries. Responses carry `X-Cache: HIT|MISS`.
+
+Limits: the cache is per API replica, so with several replicas a read can be as old as its TTL from any replica (a write invalidates only the replica that served it). That is why TTLs are seconds. A shared cache (Redis is already optional for OIDC state) is the next step if replicas multiply; it is not built.
