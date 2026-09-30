@@ -1,5 +1,8 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
+import { useState } from 'react';
 import { useTheme } from './lib/theme';
+import Tour from './components/Tour';
+import { tourDone } from './lib/tour';
 import Fleet from './pages/Fleet';
 import Devices from './pages/Devices';
 import DeviceDetail from './pages/DeviceDetail';
@@ -31,14 +34,17 @@ const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/o
 
 export default function App() {
   const [theme, toggle] = useTheme();
+  const [tour, setTour] = useState(() => !tourDone(localStorage) && !!localStorage.getItem('iot.token'));
   return (
     <div className="shell">
+      {tour && <Tour onClose={() => setTour(false)} />}
       <nav>
         <div className="brand"><span className="logo">H</span>Hexmon IoT</div>
         {items.map(([to, label]) => (
           <NavLink key={to} to={to} end={to === '/'}>{icons[label]}{label}</NavLink>
         ))}
         <div className="spacer" />
+        <button className="theme" onClick={() => setTour(true)}>Take the tour</button>
         <button className="theme" onClick={toggle}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
       </nav>
       <main>

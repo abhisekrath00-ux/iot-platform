@@ -202,3 +202,7 @@ The device page shows a tilting twin of the device (SVG/CSS, no external assets,
 
 Dashboards use a 4-column grid (2 on narrow screens). In edit mode widgets can be dragged to reorder (native HTML5 drag and drop, no extra dependency) or moved with the arrow buttons, and resized 1-4 columns with the +/- buttons. The layout is stored in the dashboard JSON (`span` per widget, order = array order); `spanOf` and `moveItem` in `web/src/lib/widgets.ts` are unit tested.
 Wall mode hides navigation and editing chrome, uses larger values and frosted cards, requests browser fullscreen where allowed and exits on Esc. It does not rotate between dashboards yet. Touch drag-and-drop is not supported (the arrow buttons work on touch).
+
+## Product tour
+
+First sign-in shows an 8-step spotlight tour of the sidebar (Fleet to Settings). Skip or Esc ends it and it stays dismissed (`localStorage` key `hexmon-tour-done`); "Take the tour" in the sidebar restarts it. Steps and progress logic live in `web/src/lib/tour.ts` with unit tests. No external assets.
