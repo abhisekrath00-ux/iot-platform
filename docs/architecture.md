@@ -8,11 +8,11 @@ the discussion doc for why the system is shaped the way it is.
 
 | Component | State | Notes |
 |---|---|---|
-| Edge agent | Implemented | Modbus RTU drivers incl. config-driven `modbus-generic` (fn 1-4, u16..f32/bool, all word orders), SQLite store-and-forward, command allowlist + approval gating, one-time enrollment claim with on-device keygen, `fleetctl` update applier |
+| Edge agent | Implemented | Runs on Linux and Windows (x86_64, arm64; Windows service). Drivers: Modbus RTU, Modbus TCP, OPC UA (secure modes), STM32/Arduino/ESP32 serial lines (docs/connectors.md); Modbus RTU drivers incl. config-driven `modbus-generic` (fn 1-4, u16..f32/bool, all word orders), SQLite store-and-forward, command allowlist + approval gating, one-time enrollment claim with on-device keygen, `fleetctl` update applier |
 | Enrollment & commissioning | Implemented | Claim codes (SHA-256 at rest, expiring, single-use, rate-limited), CSR signing to deployment CA, cert fingerprint per gateway, commissioning wizard across API + edge + ingest (see docs/commissioning.md) |
 | Ingest | Implemented | MQTT consumer, idempotent insert, rules + flow evaluation per reading |
 | API | Implemented | Devices, telemetry, fleet, audit, rules, notification channels, profiles, reports, flows, dashboards, enrollment, OIDC SSO, search; RBAC (admin/operator/viewer), security headers, rate limits |
-| Web dashboard | Implemented | Fleet, devices + 24h charts, onboarding wizard, dashboard builder (KPI/trend widgets + templates), flows + rules, report builder, sensor profiles, commands with approval, audit log, settings |
+| Web dashboard | Implemented | Apple-style light/dark design system (self-hosted, air-gap safe), fleet overview, devices + 24h charts, onboarding wizard, dashboard builder (KPI/trend widgets + templates), flows + rules, report builder (point picker, live preview, presets, CSV/HTML export), protocol-aware sensor profiles, commands with approval, audit log, settings |
 | MCP server | Implemented, read-only | list-sites, device-health, query-time-series, explain-alert (JWT-scoped); regression suite in `cmd/mcpeval` (docs/mcp-eval.md) |
 | Search | Implemented | Elasticsearch, tenant-scoped /v1/search over devices + alerts |
 | Broker ACLs | Implemented | Per-gateway Mosquitto ACL file generated from enrollment (docs/broker-acl.md); enable in production via `BROKER_ACL_FILE` |
@@ -131,10 +131,20 @@ OIDC SSO with rate-limited auth, RBAC on every write path, append-only audit log
 secrets only via env/secret files, security headers on the API, dependency
 scanning (govulncheck + npm audit) in CI. Full model: docs/security.md.
 
+## Data path for a new device (config, not code)
+
+Profile (protocol + points) -> commissioning wizard stores the device with its connection
+settings (`devices.config.connection`, validated by a per-driver whitelist) -> `GET
+/v1/gateways/{id}/edge-config` renders the agent YAML (or push it as a fleet config release) ->
+agent polls with the matching driver -> telemetry over MQTT mTLS -> ingest -> API/UI/reports/exports.
+`points` are keyed per device (migration 0010); the same point name can exist on many devices.
+
 ## Verification status
 
 Everything above labeled Implemented is exercised by Go unit tests, web vitest
-suites, and the CI compose smoke that boots the full stack. What CI cannot prove
+suites, API integration tests on a real Postgres (tenant isolation, profile -> edge config,
+reports, export), driver tests against in-process Modbus TCP and OPC UA servers, and the CI
+compose smoke that boots the full stack. What CI cannot prove
 is hardware reality: real Modbus meters, UART timing, OTA on a live gateway, and
 SMTP/Slack deliverability with site credentials. Those are explicitly pilot-scope
 and tracked on the Trello board.

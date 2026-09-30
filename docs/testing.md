@@ -7,6 +7,12 @@
 cd server && go test ./...
 cd edge && go test ./...
 
+# API integration tests need a Postgres (skipped when TEST_DATABASE_URL is unset; CI runs them)
+TEST_DATABASE_URL='postgres://postgres:test@localhost:5432/hexmon_test?sslmode=disable' \
+  go -C server test ./cmd/api
+# Edge packages for linux/windows x amd64/arm64
+scripts/build-edge.sh v0.2.0    # output in dist/edge
+
 # Web
 cd web && npm test
 
