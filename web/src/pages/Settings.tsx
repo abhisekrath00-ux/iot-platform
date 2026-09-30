@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import ApiKeys from '../components/ApiKeys';
 
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
 
@@ -45,6 +46,7 @@ export default function Settings() {
           </tbody>
         </table>
       </div>
+      <ApiKeys />
       <div className="cards">
         <div className="card"><b>Users & roles</b><p className="muted">Admin, operator, installer, viewer. Tenant-scoped; SSO/OIDC before GA.</p></div>
         <div className="card"><b>Gateways</b><p className="muted">Enroll by one-time claim code, rotate certificates, revoke lost hardware.</p></div>

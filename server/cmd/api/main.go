@@ -109,6 +109,9 @@ func main() {
 	api.HandleFunc("POST /v1/commands/{id}/approve", s.approveCommand)
 	api.HandleFunc("GET /v1/commands", s.listCommands)
 	api.HandleFunc("PUT /v1/devices/{id}/tags", s.setDeviceTags)
+	api.HandleFunc("GET /v1/api-keys", s.listAPIKeys)
+	api.HandleFunc("POST /v1/api-keys", s.createAPIKey)
+	api.HandleFunc("DELETE /v1/api-keys/{id}", s.revokeAPIKey)
 	api.HandleFunc("GET /v1/alerts", s.listAlerts)
 	api.HandleFunc("GET /v1/alerts/{id}", s.getAlert)
 	api.HandleFunc("POST /v1/alerts/{id}/ack", s.ackAlert)
@@ -174,7 +177,7 @@ func main() {
 	mux.Handle("GET /auth/oidc/login", ssoRL.Middleware(http.HandlerFunc(s.oidcLogin)))
 	mux.Handle("GET /auth/oidc/callback", ssoRL.Middleware(http.HandlerFunc(s.oidcCallback)))
 
-	mux.Handle("/v1/", auth.Middleware(s.secret)(s.invalidateOnWrite(api)))
+	mux.Handle("/v1/", auth.Middleware(s.secret, s.resolveAPIKey)(s.invalidateOnWrite(api)))
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).
 	go leader.Run(ctx, st.Pool, leaderReportScheduler, "report-scheduler", 10*time.Second, s.reportScheduler)

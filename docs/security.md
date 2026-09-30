@@ -96,3 +96,12 @@ Enrollment by one-time claim bound to tenant + serial; bootstrap credential is
 separate from the operational certificate; duplicate enrollment refused.
 Signed config and update metadata, staged cohorts, automatic rollback on failed
 boot. Revoke and wipe keys on decommission. Document software support lifetime.
+
+## API keys
+
+Machine clients (SCADA, BI, scripts) use `Authorization: Bearer hxk_<id>.<secret>`.
+- Only `sha256(secret)` is stored; the token is shown once at creation (`Cache-Control: no-store`) and compared in constant time.
+- Keys are tenant scoped, limited to `viewer` or `operator` (never `admin`), must expire (max 365 days), and can be revoked immediately.
+- Keys cannot list, create or revoke keys; those calls need an admin session.
+- Create and revoke are audited; `last_used_at` is recorded. Key principals appear as `apikey:<id>` in audit and approval records.
+- Not yet built: per-key endpoint scopes and per-key rate limits (the global limiter applies).
