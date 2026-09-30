@@ -81,3 +81,14 @@ func ExampleresolveEnvelope() {
 	fmt.Println(e.TenantID, e.GatewayID, e.Quality)
 	// Output: acme gw1 measured
 }
+
+func TestSubTopicShared(t *testing.T) {
+	t.Setenv("INGEST_SHARED_GROUP", "")
+	if got := subTopic("t/+/g/+/telemetry"); got != "t/+/g/+/telemetry" {
+		t.Fatalf("default must be unchanged, got %s", got)
+	}
+	t.Setenv("INGEST_SHARED_GROUP", "ingest")
+	if got := subTopic("t/+/g/+/telemetry"); got != "$share/ingest/t/+/g/+/telemetry" {
+		t.Fatalf("shared topic wrong: %s", got)
+	}
+}

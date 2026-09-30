@@ -17,7 +17,7 @@ the discussion doc for why the system is shaped the way it is.
 | Search | Implemented | Elasticsearch, tenant-scoped /v1/search over devices + alerts |
 | Broker ACLs | Implemented | Per-gateway Mosquitto ACL file generated from enrollment (docs/broker-acl.md); enable in production via `BROKER_ACL_FILE` |
 | Fleet management | Implemented (API) | Releases + staged campaigns with rings, pause/abort, progress tracking (docs/fleet.md); live OTA on real gateways is pilot scope |
-| HA | Partial | Redis-backed shared OIDC state; report scheduler and ingest need a lease/leader election before multi-replica |
+| HA | Partial | Redis-backed shared OIDC state; report scheduler uses Postgres advisory-lock leader election (`internal/leader`, tested with competing contenders + failover); ingest can scale out via MQTT shared subscriptions (`INGEST_SHARED_GROUP`, opt-in, needs broker ACL for `$share/`), not load-tested multi-replica; broker and Postgres HA are deployment-level and not shipped |
 | Physical actuation | Gated | Hazard analysis done (docs/hazard-analysis.md); command path enforces approval gating; actuation stays disabled at sites until interlock review signs off |
 
 ## Logical view
@@ -117,8 +117,10 @@ One container stack, three shapes:
 
 ## Scale and performance
 
-The API is stateless (sessions in Redis) and scales horizontally; ingest and the
-report scheduler are single-leader today (lease election is the known follow-up).
+The API is stateless (sessions in Redis) and scales horizontally. The report scheduler runs on
+one replica at a time (Postgres advisory lock, automatic failover). Ingest replicas split the load
+with MQTT shared subscriptions when `INGEST_SHARED_GROUP` is set; that path has unit tests for topic
+wiring but has not been load-tested with several replicas.
 `cmd/loadtest` generates sustained telemetry load against the full path and
 `internal/loadstats` reports ingest/query rates; SLO targets live in docs/slo.md.
 First live load test runs on the pilot stack; targets are pre-committed so the

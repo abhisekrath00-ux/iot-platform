@@ -21,6 +21,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/leader"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/oidcstate"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/pki"
@@ -167,7 +168,8 @@ func main() {
 
 	mux.Handle("/v1/", auth.Middleware(s.secret)(api))
 
-	go s.reportScheduler(ctx)
+	// Only one replica runs the scheduler at a time (Postgres advisory lock).
+	go leader.Run(ctx, st.Pool, leaderReportScheduler, "report-scheduler", 10*time.Second, s.reportScheduler)
 	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: auth.SecurityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		log.Printf("api listening on %s", srv.Addr)
@@ -186,6 +188,9 @@ func main() {
 // containers). Without it, two fresh starters race on CREATE TABLE IF NOT
 // EXISTS and collide on the table's implicit pg_type row.
 const migrateAdvisoryLockID int64 = 0x4845584D4F4E // "HEXMON"
+
+// leaderReportScheduler is the advisory lock key for the report scheduler.
+const leaderReportScheduler int64 = 0x4845584D4F4F
 
 func migrate(ctx context.Context, st *store.Store) error {
 	conn, err := st.Pool.Acquire(ctx)

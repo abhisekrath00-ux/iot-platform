@@ -47,7 +47,7 @@ func main() {
 
 	opts := mqtt.NewClientOptions().
 		AddBroker("tcp://" + mustEnv("MQTT_HOST") + ":" + envOr("MQTT_PORT", "1883")).
-		SetClientID("ingest-1").SetAutoReconnect(true).SetConnectRetry(true)
+		SetClientID(clientID()).SetAutoReconnect(true).SetConnectRetry(true)
 	// TODO(production): TLS + broker auth from env; see docs/deployment.md.
 
 	c := mqtt.NewClient(opts)
@@ -74,7 +74,7 @@ func main() {
 		flow.Evaluate(ctx, st.Pool, notifier, e.TenantID, e.DeviceID, e.PointID, e.Value)
 	}
 
-	if tok := c.Subscribe("t/+/g/+/telemetry", 1, handler); tok.Wait() && tok.Error() != nil {
+	if tok := c.Subscribe(subTopic("t/+/g/+/telemetry"), 1, handler); tok.Wait() && tok.Error() != nil {
 		log.Fatalf("subscribe: %v", tok.Error())
 	}
 
@@ -116,7 +116,7 @@ func main() {
 			log.Printf("diag drop: no session %s for topic identity %s/%s", res.SessionID, parts[1], parts[3])
 		}
 	}
-	if tok := c.Subscribe("t/+/g/+/diag/result", 1, diagHandler); tok.Wait() && tok.Error() != nil {
+	if tok := c.Subscribe(subTopic("t/+/g/+/diag/result"), 1, diagHandler); tok.Wait() && tok.Error() != nil {
 		log.Fatalf("diag subscribe: %v", tok.Error())
 	}
 
@@ -168,7 +168,7 @@ func main() {
 			}
 		}
 	}
-	if tok := c.Subscribe("t/+/g/+/fleet/ack", 1, ackHandler); tok.Wait() && tok.Error() != nil {
+	if tok := c.Subscribe(subTopic("t/+/g/+/fleet/ack"), 1, ackHandler); tok.Wait() && tok.Error() != nil {
 		log.Fatalf("fleet ack subscribe: %v", tok.Error())
 	}
 	log.Printf("ingest up")
@@ -227,4 +227,24 @@ func envOr(k, d string) string {
 		return v
 	}
 	return d
+}
+
+// clientID is unique per replica (hostname) so several ingest replicas can
+// connect to one broker without kicking each other off.
+func clientID() string {
+	h, err := os.Hostname()
+	if err != nil || h == "" {
+		h = "1"
+	}
+	return "ingest-" + h
+}
+
+// subTopic wraps a topic in an MQTT shared subscription when INGEST_SHARED_GROUP
+// is set, so N ingest replicas split the load instead of each processing every
+// message. Off by default: the broker ACL must allow the $share/<group>/ prefix.
+func subTopic(topic string) string {
+	if g := os.Getenv("INGEST_SHARED_GROUP"); g != "" {
+		return "$share/" + g + "/" + topic
+	}
+	return topic
 }

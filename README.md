@@ -57,6 +57,7 @@ no code change needed.
 |---|---|---|
 | Containerized deploy | One `docker compose up` brings up Postgres, Mosquitto, API, ingest, Elasticsearch, MCP, web | Verified in CI compose smoke |
 | Air-gapped install | `scripts/airgap-bundle.sh` + `airgap-install.sh`, no internet needed at the site | Scripted and documented; full on-site rehearsal is Pilot |
+| HA | Report scheduler leader election (Postgres advisory lock, tested incl. failover); ingest scale-out via MQTT shared subscriptions (opt-in) | Leader election Verified; multi-replica ingest not load-tested |
 | Scale | Stateless API (horizontal scale), `cmd/loadtest` harness, runtime load stats, SLO doc | Harness verified; first live load test on pilot stack pending |
 | Backup/restore | `scripts/backup.sh` / `restore.sh` + runbook | Scripted and documented |
 | CA/PKI tooling | `scripts/gen-ca.sh` for site CA and mTLS certs | Verified |
@@ -65,7 +66,7 @@ no code change needed.
 
 | Path      | What it is |
 |-----------|------------|
-| `edge/`   | Go edge agent: serial/Modbus drivers, local SQLite queue, mTLS MQTT publisher, claim/commissioning, command executor (allowlisted), fleet applier |
+| `edge/`   | Go edge agent (Linux + Windows, x86_64 + arm64): Modbus RTU/TCP, OPC UA and serial drivers, local SQLite queue, mTLS MQTT publisher, claim/commissioning, command executor (allowlisted), fleet applier |
 | `server/` | Go control plane: `cmd/api` (REST, auth, commands, dashboards, reports, flows, fleet, notifications), `cmd/ingest` (MQTT -> Postgres), `cmd/mcp`, `cmd/loadtest`, `cmd/mcpeval`, SQL migrations |
 | `web/`    | React + TypeScript UI: fleet, devices, onboarding, dashboards, flows, alerts, control, reports, profiles, audit, settings |
 | `deploy/` | Mosquitto broker config and deployment assets |
@@ -90,6 +91,7 @@ machine and install offline per `docs/airgap.md`.
 - [Local setup](docs/setup.md) · [Deployment (cloud & on-prem)](docs/deployment.md) · [Air-gapped install](docs/airgap.md)
 - [Testing](docs/testing.md) — what CI runs and how to run it locally
 - [Security model](docs/security.md) — mTLS, RBAC, approval gating, hazard analysis
+- [Connectors (STM32, Modbus, OPC UA, SCADA)](docs/connectors.md) · [Edge install (Ubuntu/Windows)](docs/edge-install.md)
 - [Commissioning](docs/commissioning.md) · [Fleet rollout](docs/fleet.md) · [Backup/restore](docs/backup-restore.md)
 - [MCP evaluation](docs/mcp-eval.md) · [SLOs](docs/slo.md) · [Contributing](docs/contributing.md)
 
