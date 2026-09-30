@@ -38,3 +38,7 @@ step that is not done yet.
 Cross-compiled for all four targets in CI on every push, unit-tested on Linux x86_64. The Windows service
 wrapper and installer, and arm64 binaries, have not been run on real machines yet: do one pilot install per target
 before rollout.
+
+## Local status page
+
+The agent serves a read-only page at `http://127.0.0.1:8088` (broker connection, buffered message count, per-device last read, values and errors). It has no control or config-write paths and sends a strict CSP. Change or disable it with `ui.listen` (`off` disables). Binding to a non-loopback address exposes status to that network; firewall it. On a headless gateway use an SSH tunnel: `ssh -L 8088:127.0.0.1:8088 user@gateway`.

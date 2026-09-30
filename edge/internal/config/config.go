@@ -30,6 +30,12 @@ type Config struct {
 		ClientID string `yaml:"client_id"`
 	} `yaml:"mqtt"`
 
+	// UI is the read-only local status page. Empty means 127.0.0.1:8088;
+	// "off" disables it. Non-loopback binds are an explicit operator choice.
+	UI struct {
+		Listen string `yaml:"listen"`
+	} `yaml:"ui"`
+
 	QueuePath string `yaml:"queue_path"` // SQLite file for store-and-forward
 
 	Devices []Device `yaml:"devices"`

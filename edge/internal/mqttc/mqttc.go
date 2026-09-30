@@ -55,6 +55,9 @@ func (c *Client) Publish(topic string, payload []byte) error {
 	return tok.Error()
 }
 
+// Connected reports the live broker session state (for the local status page).
+func (c *Client) Connected() bool { return c.c.IsConnectionOpen() }
+
 func (c *Client) Close() { c.c.Disconnect(250) }
 
 func clientTLS(cfg *config.Config) (*tls.Config, error) {

@@ -16,6 +16,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/driver"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/fleetctl"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/localui"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/mqttc"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/paths"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/queue"
@@ -42,6 +43,8 @@ type command struct {
 	Params    json.RawMessage `json:"parameters"`
 	ExpiresAt time.Time       `json:"expires_at"`
 }
+
+var version = "dev"
 
 func main() {
 	cfgPath := flag.String("config", paths.Config(), "config file")
@@ -112,12 +115,15 @@ func main() {
 	}
 	defer mc.Close()
 
+	tracker := localui.NewTracker()
+	startLocalUI(ctx, cfg, q, mc, tracker)
+
 	telemetryTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/telemetry"
 	diagTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/diag"
 
 	// Poll loops run under a supervisor so fleet config applies can reload
 	// them without restarting the agent (or dropping the MQTT connection).
-	sup := startSupervisor(cfg, q, telemetryTopic)
+	sup := startSupervisor(cfg, q, telemetryTopic, tracker)
 	defer sup.stop()
 
 	// Fleet manifests: retained release assignments. Verify the staged
@@ -135,7 +141,7 @@ func main() {
 			// new config; any failure restores the previous one.
 			var mfst fleetctl.Manifest
 			if json.Unmarshal(m.Payload(), &mfst) == nil && mfst.ArtifactSHA256 != nil {
-				ack = applyFleetConfig(mfst, artifactDir, *cfgPath, cfg, sup, q, telemetryTopic)
+				ack = applyFleetConfig(mfst, artifactDir, *cfgPath, cfg, sup, q, telemetryTopic, tracker)
 			}
 		}
 		b, _ := json.Marshal(ack)
@@ -211,7 +217,8 @@ type supervisor struct {
 	done   chan struct{}
 }
 
-func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string) *supervisor {
+func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string, tr *localui.Tracker) *supervisor {
+	tr.Reset()
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &supervisor{cancel: cancel, done: make(chan struct{})}
 	go func() {
@@ -219,8 +226,10 @@ func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string) 
 		var wg sync.WaitGroup
 		for _, dev := range cfg.Devices {
 			dev := dev
+			tr.Register(dev.ID, dev.Profile)
 			d, err := driver.New(dev)
 			if err != nil {
+				tr.RecordError(dev.ID, dev.Profile, err)
 				log.Printf("device %s: %v (will retry next reload)", dev.ID, err)
 				continue
 			}
@@ -238,8 +247,14 @@ func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string) 
 						readings, err := d.Poll(ctx)
 						if err != nil {
 							log.Printf("poll %s: %v", dev.ID, err)
+							tr.RecordError(dev.ID, dev.Profile, err)
 							continue
 						}
+						vals := map[string]float64{}
+						for _, r := range readings {
+							vals[r.PointID] = r.Value
+						}
+						tr.RecordRead(dev.ID, dev.Profile, vals)
 						for _, r := range readings {
 							e := envelope{
 								EventID: uuid.NewString(), TenantID: cfg.TenantID,
@@ -271,7 +286,7 @@ func (s *supervisor) stop() {
 // supervisor on it. Identity is pinned: a config naming a different gateway
 // or tenant is refused. Any install/validation failure rolls back
 // byte-for-byte and restarts the old loops; the ACK reports the outcome.
-func applyFleetConfig(m fleetctl.Manifest, artifactDir, cfgPath string, cfg *config.Config, sup *supervisor, q *queue.Queue, telemetryTopic string) fleetctl.Ack {
+func applyFleetConfig(m fleetctl.Manifest, artifactDir, cfgPath string, cfg *config.Config, sup *supervisor, q *queue.Queue, telemetryTopic string, tracker *localui.Tracker) fleetctl.Ack {
 	ack := fleetctl.Ack{CampaignID: m.CampaignID}
 	artPath, err := fleetctl.ArtifactPath(artifactDir, *m.ArtifactSHA256)
 	if err != nil {
@@ -293,7 +308,7 @@ func applyFleetConfig(m fleetctl.Manifest, artifactDir, cfgPath string, cfg *con
 	res := fleetctl.ApplyConfig(artPath, cfgPath)
 	if !res.Applied {
 		// rollback supervisor to the (untouched) old config
-		*sup = *startSupervisor(cfg, q, telemetryTopic)
+		*sup = *startSupervisor(cfg, q, telemetryTopic, tracker)
 		ack.State = "failed"
 		ack.Detail = fmt.Sprintf("release %s apply failed, rolled back: %v", m.Version, res.Err)
 		return ack
@@ -304,14 +319,36 @@ func applyFleetConfig(m fleetctl.Manifest, artifactDir, cfgPath string, cfg *con
 		if rbErr := fleetctl.Rollback(cfgPath, res.BackupPath); rbErr != nil {
 			log.Printf("fleet: ROLLBACK FAILED: %v", rbErr)
 		}
-		*sup = *startSupervisor(cfg, q, telemetryTopic)
+		*sup = *startSupervisor(cfg, q, telemetryTopic, tracker)
 		ack.State = "failed"
 		ack.Detail = fmt.Sprintf("release %s failed health check, rolled back", m.Version)
 		return ack
 	}
 	*cfg = *installed
-	*sup = *startSupervisor(cfg, q, telemetryTopic)
+	*sup = *startSupervisor(cfg, q, telemetryTopic, tracker)
 	ack.State = "acked"
 	ack.Detail = fmt.Sprintf("release %s applied: %d devices polling (backup %s)", m.Version, res.Devices, res.BackupPath)
 	return ack
+}
+
+// startLocalUI serves the read-only status page unless disabled in config.
+func startLocalUI(ctx context.Context, cfg *config.Config, q *queue.Queue, mc *mqttc.Client, tr *localui.Tracker) {
+	addr := cfg.UI.Listen
+	if addr == "off" {
+		return
+	}
+	if addr == "" {
+		addr = "127.0.0.1:8088"
+	}
+	h := localui.Handler(localui.Info{
+		GatewayID: cfg.GatewayID, TenantID: cfg.TenantID, Version: version,
+		BrokerHost: fmt.Sprintf("%s:%d", cfg.MQTT.Host, cfg.MQTT.Port), BrokerTLS: cfg.MQTT.TLS,
+		Connected: mc.Connected, QueueDepth: q.Depth,
+	}, tr)
+	go func() {
+		if err := localui.Serve(ctx, addr, h); err != nil {
+			log.Printf("local ui: %v (status page disabled)", err)
+		}
+	}()
+	log.Printf("local status page on http://%s", addr)
 }

@@ -50,3 +50,9 @@ devices:
     interval: 10s
     points:
       - {id: kwh, register: 0, func: 4, type: f32, unit: kWh, min: 0, max: 1000000}
+
+# Read-only local status page (gateway health, devices, buffered messages).
+# Default is 127.0.0.1:8088; set "off" to disable. A non-loopback address
+# exposes status (not control) to that network, so firewall it.
+ui:
+  listen: 127.0.0.1:8088
