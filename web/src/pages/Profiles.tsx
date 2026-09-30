@@ -13,7 +13,7 @@ export default function Profiles() {
   const [points, setPoints] = useState<PointDef[]>([{ ...emptyPoint }]);
   const [msg, setMsg] = useState('');
   const isModbus = driver.startsWith('modbus');
-  const cols = isModbus ? '1.2fr .7fr .6fr .7fr .8fr .6fr .6fr .8fr .8fr 30px' : driver === 'opcua' ? '1fr 2fr .6fr .6fr .8fr .8fr 30px' : '1fr 1.4fr .6fr .6fr .8fr .8fr 30px';
+  const cols = isModbus ? 'minmax(0,1.2fr) minmax(0,.7fr) minmax(0,.6fr) minmax(0,.7fr) minmax(0,.8fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : driver === 'opcua' ? 'minmax(0,1fr) minmax(0,2fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : 'minmax(0,1fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px';
 
   const load = () => api<ProfileRow[]>('/v1/profiles').then(setProfiles).catch(e => setMsg(String(e)));
   useEffect(() => { load(); }, []);
@@ -59,6 +59,13 @@ export default function Profiles() {
             <option value="door-contact">Door contact (legacy)</option>
           </select>
           <label>Points</label>
+          <div className="muted" style={{ display: 'grid', gridTemplateColumns: cols, gap: 4, fontSize: 11, marginBottom: 2 }}>
+            <span>id</span>
+            {driver === 'opcua' && <span>node id</span>}
+            {driver === 'serial-json' && <span>field</span>}
+            {isModbus && <><span>register</span><span>function</span><span>type</span><span>word order</span></>}
+            <span>scale</span><span>unit</span><span>min</span><span>max</span><span />
+          </div>
           {points.map((p, i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: cols, gap: 4, marginBottom: 6 }}>
               <input value={p.id} onChange={e => setPoint(i, 'id', e.target.value)} placeholder="temp" required />
@@ -84,10 +91,10 @@ export default function Profiles() {
               <input value={p.unit ?? ''} onChange={e => setPoint(i, 'unit', e.target.value)} placeholder="unit" />
               <input type="number" step="any" value={p.min} onChange={e => setPoint(i, 'min', e.target.value)} title="min" />
               <input type="number" step="any" value={p.max} onChange={e => setPoint(i, 'max', e.target.value)} title="max" />
-              <button type="button" onClick={() => setPoints(ps => ps.filter((_, j) => j !== i))} disabled={points.length === 1}>x</button>
+              <button type="button" className="ghost" onClick={() => setPoints(ps => ps.filter((_, j) => j !== i))} disabled={points.length === 1}>x</button>
             </div>
           ))}
-          <button type="button" onClick={() => setPoints(ps => [...ps, { ...emptyPoint }])}>+ point</button>
+          <button type="button" className="ghost" onClick={() => setPoints(ps => [...ps, { ...emptyPoint }])}>+ point</button>
           <div style={{ marginTop: 14 }}><button type="submit">Create profile</button></div>
         </form>
         {msg && <p className="muted">{msg}</p>}

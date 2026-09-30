@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, Device } from '../lib/api';
+import Empty from '../components/Empty';
 
 export default function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -10,6 +11,7 @@ export default function Devices() {
     <>
       <h1>Devices</h1>
       {err && <p className="muted">{err}</p>}
+      {devices.length === 0 && !err ? <Empty title="No devices yet" hint="Add a device to start collecting data." action={<Link to="/onboarding"><button>Add a device</button></Link>} /> : (
       <table>
         <thead><tr><th>Name</th><th>Profile</th><th>Gateway</th><th>Added</th></tr></thead>
         <tbody>
@@ -21,7 +23,7 @@ export default function Devices() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table>)}
     </>
   );
 }

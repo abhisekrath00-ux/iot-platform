@@ -94,3 +94,5 @@ ol.steps li.done { background: var(--ok-bg); color: var(--ok); }
 form.grid2 { display: grid; grid-template-columns: 160px 240px; gap: 8px 12px; align-items: center; }
 .ok-box { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--ok-bg); color: var(--ok); }
 .err-box { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--bad-bg); color: var(--bad); }
+
+.card .kpi small { font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0; }

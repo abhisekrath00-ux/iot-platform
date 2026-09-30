@@ -1,4 +1,5 @@
 import { chart as ct } from '../lib/theme';
+import { formatValue } from '../lib/format';
 import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
@@ -37,7 +38,7 @@ function KpiWidget({ w }: { w: Widget }) {
       {err && <div className="muted" style={{ fontSize: 12 }}>{err}</div>}
       {pt ? (
         <>
-          <div className="kpi">{pt.value} <small>{pt.unit}</small></div>
+          <div className="kpi">{formatValue(pt.value)} <small>{pt.unit}</small></div>
           <span className={`pill ${pt.quality === 'measured' ? 'ok' : 'warn'}`}>{pt.quality}</span>
           <div className="muted" style={{ fontSize: 12 }}>{new Date(pt.observed_at).toLocaleString()}</div>
         </>
@@ -64,7 +65,7 @@ function SeriesWidget({ w }: { w: Widget }) {
           <LineChart data={series}>
             <CartesianGrid stroke={ct.grid} />
             <XAxis dataKey="t" stroke={ct.axis} fontSize={11} />
-            <YAxis stroke={ct.axis} fontSize={11} />
+            <YAxis stroke={ct.axis} fontSize={11} domain={['auto', 'auto']} tickFormatter={formatValue} width={56} />
             <Tooltip contentStyle={ct.tooltip} />
             <Line type="monotone" dataKey="v" stroke={ct.line} dot={false} strokeWidth={2} />
           </LineChart>

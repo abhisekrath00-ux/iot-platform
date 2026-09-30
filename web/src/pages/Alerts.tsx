@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, AlertRow } from '../lib/api';
+import Empty from '../components/Empty';
 
 export default function Alerts() {
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
@@ -9,6 +10,7 @@ export default function Alerts() {
     <>
       <h1>Alerts</h1>
       {err && <p className="muted">{err}</p>}
+      {alerts.length === 0 && !err ? <Empty title="All clear" hint="No alerts have fired. Create rules and flows to be notified when something drifts." /> : (
       <table>
         <thead><tr><th>Severity</th><th>Message</th><th>Status</th><th>When</th></tr></thead>
         <tbody>
@@ -20,7 +22,7 @@ export default function Alerts() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table>)}
     </>
   );
 }

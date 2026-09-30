@@ -1,4 +1,5 @@
 import { chart as ct } from '../lib/theme';
+import { formatValue } from '../lib/format';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -39,7 +40,7 @@ export default function DeviceDetail() {
         {latest.map(p => (
           <div className="card" key={p.point_id}>
             <div className="muted">{p.point_id}</div>
-            <div className="kpi">{p.value} <small>{p.unit}</small></div>
+            <div className="kpi">{formatValue(p.value)} <small>{p.unit}</small></div>
             <span className={`pill ${p.quality === 'measured' ? 'ok' : 'warn'}`}>{p.quality}</span>
             <div className="muted" style={{ fontSize: 12 }}>{new Date(p.observed_at).toLocaleString()}</div>
           </div>
@@ -58,7 +59,7 @@ export default function DeviceDetail() {
               <LineChart data={chart}>
                 <CartesianGrid stroke={ct.grid} />
                 <XAxis dataKey="t" stroke={ct.axis} fontSize={11} />
-                <YAxis stroke={ct.axis} fontSize={11} />
+                <YAxis stroke={ct.axis} fontSize={11} domain={['auto', 'auto']} tickFormatter={formatValue} width={56} />
                 <Tooltip contentStyle={ct.tooltip} />
                 <Line type="monotone" dataKey="v" stroke={ct.line} dot={false} strokeWidth={2} />
               </LineChart>
