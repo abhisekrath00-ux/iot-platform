@@ -179,3 +179,10 @@ Widgets are stored as JSON in the dashboard layout, so adding a type needs no mi
 ## Report aggregation
 
 Reports bucket telemetry by 15 minutes, hour, day or week (`report.BucketExpr`, a fixed whitelist spliced into SQL, never user text). Each bucket carries avg, min, max, sum and sample count; the HTML report adds an overall row per metric (count-weighted average, min, max, sum). CSV gains a trailing `sum` column. Covered by unit tests and a real-Postgres test of every bucket size.
+
+## Alert lifecycle
+
+Alerts move `open -> acknowledged -> resolved` (resolve is allowed from open or acknowledged; resolved is terminal).
+`POST /v1/alerts/{id}/ack` and `/resolve` require the operator role or above and record who and when.
+`POST /v1/alerts/{id}/comments` adds a note to the trail; `GET /v1/alerts/{id}` returns the alert with its notes.
+`GET /v1/alerts?status=open|acknowledged|resolved` filters the list. All queries are tenant scoped.

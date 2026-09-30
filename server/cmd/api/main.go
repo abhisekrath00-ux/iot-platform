@@ -109,6 +109,10 @@ func main() {
 	api.HandleFunc("POST /v1/commands/{id}/approve", s.approveCommand)
 	api.HandleFunc("GET /v1/commands", s.listCommands)
 	api.HandleFunc("GET /v1/alerts", s.listAlerts)
+	api.HandleFunc("GET /v1/alerts/{id}", s.getAlert)
+	api.HandleFunc("POST /v1/alerts/{id}/ack", s.ackAlert)
+	api.HandleFunc("POST /v1/alerts/{id}/resolve", s.resolveAlert)
+	api.HandleFunc("POST /v1/alerts/{id}/comments", s.commentAlert)
 	api.HandleFunc("GET /v1/dashboards", s.listDashboards)
 	s.cached(api, "GET /v1/fleet", s.fleetStatus)
 	api.HandleFunc("GET /v1/audit", s.listAudit)
@@ -448,8 +452,14 @@ func (s *server) listCommands(w http.ResponseWriter, r *http.Request) {
 // --- alerts & dashboards ---
 
 func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	if status != "" && status != "open" && status != "acknowledged" && status != "resolved" {
+		http.Error(w, "status must be open, acknowledged or resolved", 400)
+		return
+	}
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, severity, message, status, created_at FROM alerts WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r))
+		`SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by FROM alerts
+		 WHERE tenant_id=$1 AND ($2 = '' OR status=$2) ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -459,8 +469,10 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, sev, msg, stt string
 		var created time.Time
-		rows.Scan(&id, &sev, &msg, &stt, &created)
-		out = append(out, map[string]any{"id": id, "severity": sev, "message": msg, "status": stt, "created_at": created})
+		var ackBy, resBy *string
+		rows.Scan(&id, &sev, &msg, &stt, &created, &ackBy, &resBy)
+		out = append(out, map[string]any{"id": id, "severity": sev, "message": msg, "status": stt, "created_at": created,
+			"acknowledged_by": ackBy, "resolved_by": resBy})
 	}
 	writeJSON(w, 200, out)
 }
