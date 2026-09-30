@@ -1,0 +1,2 @@
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS devices_tags_gin ON devices USING GIN (tags);

@@ -108,6 +108,7 @@ func main() {
 	api.HandleFunc("POST /v1/commands", s.requestCommand)
 	api.HandleFunc("POST /v1/commands/{id}/approve", s.approveCommand)
 	api.HandleFunc("GET /v1/commands", s.listCommands)
+	api.HandleFunc("PUT /v1/devices/{id}/tags", s.setDeviceTags)
 	api.HandleFunc("GET /v1/alerts", s.listAlerts)
 	api.HandleFunc("GET /v1/alerts/{id}", s.getAlert)
 	api.HandleFunc("POST /v1/alerts/{id}/ack", s.ackAlert)
@@ -256,8 +257,17 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 // --- devices / onboarding ---
 
 func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
+	// Optional fleet filters: ?q= (substring of name/id/profile), ?tag= (exact), ?gateway_id=
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	tag := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("tag")))
+	gw := r.URL.Query().Get("gateway_id")
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, profile, name, gateway_id, created_at FROM devices WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
+		`SELECT id, profile, name, gateway_id, created_at, tags FROM devices
+		 WHERE tenant_id=$1
+		   AND ($2='' OR name ILIKE '%'||$2||'%' OR id ILIKE '%'||$2||'%' OR profile ILIKE '%'||$2||'%')
+		   AND ($3='' OR $3 = ANY(tags))
+		   AND ($4='' OR gateway_id=$4)
+		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -267,8 +277,9 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, profile, name, gw string
 		var created time.Time
-		rows.Scan(&id, &profile, &name, &gw, &created)
-		out = append(out, map[string]any{"id": id, "profile": profile, "name": name, "gateway_id": gw, "created_at": created})
+		var tags []string
+		rows.Scan(&id, &profile, &name, &gw, &created, &tags)
+		out = append(out, map[string]any{"id": id, "profile": profile, "name": name, "gateway_id": gw, "created_at": created, "tags": tags})
 	}
 	writeJSON(w, 200, out)
 }

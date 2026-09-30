@@ -186,3 +186,8 @@ Alerts move `open -> acknowledged -> resolved` (resolve is allowed from open or 
 `POST /v1/alerts/{id}/ack` and `/resolve` require the operator role or above and record who and when.
 `POST /v1/alerts/{id}/comments` adds a note to the trail; `GET /v1/alerts/{id}` returns the alert with its notes.
 `GET /v1/alerts?status=open|acknowledged|resolved` filters the list. All queries are tenant scoped.
+
+## Device tags and fleet search
+
+Devices carry up to 20 lowercase tags (`a-z 0-9 . _ : -`, max 32 chars). `PUT /v1/devices/{id}/tags` (operator+, audited, tenant scoped) replaces them.
+`GET /v1/devices?q=&tag=&gateway_id=` filters the fleet (substring on name/id/profile, exact tag, gateway); results are capped at 1000.
