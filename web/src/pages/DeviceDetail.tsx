@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, LatestPoint } from '../lib/api';
+import DeviceTwin, { Health } from '../components/DeviceTwin';
 
 interface SeriesPoint { t: string; v: number; quality: string; }
 
@@ -13,14 +14,18 @@ export default function DeviceDetail() {
   const [point, setPoint] = useState('');
   const [series, setSeries] = useState<SeriesPoint[]>([]);
   const [err, setErr] = useState('');
+  const [health, setHealth] = useState<Health | null>(null);
+  const [meta, setMeta] = useState<{ name: string; profile: string } | null>(null);
 
   useEffect(() => {
     if (!id) return;
     const load = () => api<LatestPoint[]>(`/v1/telemetry/latest?device_id=${id}`)
       .then(d => { setLatest(d); if (!point && d.length) setPoint(d[0].point_id); })
       .catch(e => setErr(String(e)));
-    load();
-    const t = setInterval(load, 10000);
+    const loadHealth = () => api<Health>(`/v1/devices/${id}/health`).then(setHealth).catch(() => undefined);
+    api<{ id: string; name: string; profile: string }[]>(`/v1/devices?q=${encodeURIComponent(id)}`).then(d => { const m = d.find(x => x.id === id); if (m) setMeta(m); }).catch(() => undefined);
+    load(); loadHealth();
+    const t = setInterval(() => { load(); loadHealth(); }, 10000);
     return () => clearInterval(t);
   }, [id]);
 
@@ -34,8 +39,9 @@ export default function DeviceDetail() {
 
   return (
     <>
-      <h1>Device {id}</h1>
+      <h1>{meta?.name ?? `Device ${id}`}</h1>
       {err && <p className="muted">{err}</p>}
+      <DeviceTwin name={meta?.name ?? String(id)} profile={meta?.profile} health={health} points={latest} />
       <div className="cards">
         {latest.map(p => (
           <div className="card" key={p.point_id}>

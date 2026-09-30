@@ -59,3 +59,19 @@ func TestIntegrationDeviceTagsAndSearch(t *testing.T) {
 		t.Fatalf("tenant leak: %s", w.Body.String())
 	}
 }
+
+func TestIntegrationDeviceHealth(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-hl1")
+	seed(t, s, "itest-hl2")
+	api := http.NewServeMux()
+	api.HandleFunc("GET /v1/devices/{id}/health", s.deviceHealth)
+	w := call(api, "itest-hl1", "viewer", "GET", "/v1/devices/itest-hl1-dev/health", "")
+	// seeded telemetry is 1-5 minutes old at a 5s interval: stale, but has a score and three factors
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"freshness"`) || !strings.Contains(w.Body.String(), `"status"`) {
+		t.Fatalf("health = %d %s", w.Code, w.Body.String())
+	}
+	if w := call(api, "itest-hl2", "viewer", "GET", "/v1/devices/itest-hl1-dev/health", ""); w.Code != 404 {
+		t.Fatalf("cross-tenant = %d", w.Code)
+	}
+}

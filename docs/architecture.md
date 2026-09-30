@@ -191,3 +191,9 @@ Alerts move `open -> acknowledged -> resolved` (resolve is allowed from open or 
 
 Devices carry up to 20 lowercase tags (`a-z 0-9 . _ : -`, max 32 chars). `PUT /v1/devices/{id}/tags` (operator+, audited, tenant scoped) replaces them.
 `GET /v1/devices?q=&tag=&gateway_id=` filters the fleet (substring on name/id/profile, exact tag, gateway); results are capped at 1000.
+
+## Device health and digital twin
+
+`GET /v1/devices/{id}/health` returns a 0-100 score, a status (healthy, degraded, critical, offline) and the factors behind it.
+Rules live in `server/internal/health` (pure, unit tested): freshness of the newest sample relative to the device's poll interval (weight 50), share of recent samples with `measured` quality (30), and gateway link (20). Stale data is never reported healthy.
+The device page shows a tilting twin of the device (SVG/CSS, no external assets, respects reduced motion) with live readouts and an animated health ring. This is a 2.5D card, not a 3D model of the real hardware.

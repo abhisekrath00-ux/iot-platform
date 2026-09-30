@@ -96,3 +96,26 @@ form.grid2 { display: grid; grid-template-columns: 160px 240px; gap: 8px 12px; a
 .err-box { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--bad-bg); color: var(--bad); }
 
 .card .kpi small { font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+
+/* digital twin */
+.twin { display: grid; grid-template-columns: minmax(280px, 1.3fr) minmax(260px, 1fr); gap: 20px; margin-bottom: 20px; }
+.twin-stage { perspective: 900px; background: radial-gradient(120% 120% at 20% 0%, var(--accent-bg), transparent 60%), var(--panel);
+  border-radius: var(--radius); padding: 28px; box-shadow: var(--shadow); display: grid; place-items: center; }
+.twin-device { width: 100%; max-width: 420px; padding: 18px; border-radius: 18px; transition: transform .15s ease-out; transform-style: preserve-3d;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--panel-2) 80%, transparent), var(--panel));
+  border: 1px solid var(--line); backdrop-filter: blur(14px) saturate(160%); -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: 0 24px 48px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.25); }
+.twin-head { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; transform: translateZ(24px); }
+.twin-led { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 10px currentColor; }
+.twin-led.healthy { animation: twin-pulse 2s ease-in-out infinite; }
+.twin-readouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; transform: translateZ(18px); }
+.twin-read { background: var(--panel-2); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.twin-read b { font-size: 20px; } .twin-read small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.twin-ports { display: flex; gap: 6px; margin-top: 16px; } .twin-ports i { flex: 1; height: 8px; border-radius: 3px; background: var(--line); }
+.twin-health { background: var(--panel); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.twin-arc { transition: stroke-dashoffset .9s cubic-bezier(.22,1,.36,1), stroke .3s; }
+.twin-factors { width: 100%; display: grid; gap: 10px; }
+.twin-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 4px 0; } .twin-bar > div { height: 100%; transition: width .9s cubic-bezier(.22,1,.36,1); }
+@keyframes twin-pulse { 50% { opacity: .45; } }
+@media (max-width: 800px) { .twin { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .twin-device, .twin-arc, .twin-bar > div { transition: none; } .twin-led { animation: none !important; } }
