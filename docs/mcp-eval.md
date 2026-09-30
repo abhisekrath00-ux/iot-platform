@@ -22,3 +22,17 @@ set doubles as client-integration documentation.
 
 Air-gap note: both layers run fully offline - no external model or network
 service is involved.
+
+## Tool catalog (all read-only, tenant-scoped, bounded)
+
+| Tool | Returns | Bounds |
+|------|---------|--------|
+| `list_sites` | sites with gateway/device counts | - |
+| `list_devices` | devices with profile and gateway | 200 rows |
+| `get_device_health` | latest reading and age per point | one device |
+| `query_time_series` | raw readings for a point | 24 h, 500 points |
+| `aggregate_time_series` | bucketed avg/min/max/sum/count | 7 days, 500 buckets (rejected beyond) |
+| `list_alerts` | recent alerts, optional status filter | 100 rows, status validated |
+| `explain_alert` | alert details | one alert |
+
+No tool can write or actuate. `cmd/mcp/db_test.go` checks tenant isolation, status validation and aggregation math against real Postgres (CI runs it with `TEST_DATABASE_URL`).

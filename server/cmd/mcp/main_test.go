@@ -36,8 +36,8 @@ func TestToolsListIsReadOnlyAllowlist(t *testing.T) {
 	r := call(t, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	res := r.Result.(map[string]any)
 	list, _ := res["tools"].([]any)
-	if len(list) != 4 {
-		t.Fatalf("want 4 tools, got %d", len(list))
+	if len(list) != 7 {
+		t.Fatalf("want 7 tools, got %d", len(list))
 	}
 	for _, tool := range list {
 		name := tool.(map[string]any)["name"].(string)
@@ -71,5 +71,17 @@ func TestNotificationAcked(t *testing.T) {
 	s.handle(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("notification status %d", rec.Code)
+	}
+}
+
+func TestClampInt(t *testing.T) {
+	cases := []struct {
+		in             any
+		def, lo, hi, w int
+	}{{nil, 5, 1, 10, 5}, {float64(99), 5, 1, 10, 10}, {float64(0), 5, 1, 10, 1}, {"x", 5, 1, 10, 5}, {float64(7), 5, 1, 10, 7}}
+	for _, c := range cases {
+		if g := clampInt(c.in, c.def, c.lo, c.hi); g != c.w {
+			t.Fatalf("clampInt(%v)=%d want %d", c.in, g, c.w)
+		}
 	}
 }

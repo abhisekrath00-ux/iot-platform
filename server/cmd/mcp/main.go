@@ -46,6 +46,19 @@ var tools = []map[string]any{
 				"device_id": map[string]any{"type": "string"},
 				"point_id":  map[string]any{"type": "string"},
 				"hours":     map[string]any{"type": "integer", "maximum": 24}}}},
+	{"name": "list_devices", "description": "List devices in the caller's tenant with profile and gateway (max 200).",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+	{"name": "list_alerts", "description": "Recent alerts, newest first (max 100). Optional status filter: open, acknowledged, resolved.",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"status": map[string]any{"type": "string", "enum": []string{"open", "acknowledged", "resolved"}},
+			"limit":  map[string]any{"type": "integer", "maximum": 100}}}},
+	{"name": "aggregate_time_series", "description": "Bucketed avg/min/max/sum for a device point (max 7 days, 500 buckets).",
+		"inputSchema": map[string]any{"type": "object", "required": []string{"device_id", "point_id"},
+			"properties": map[string]any{
+				"device_id":      map[string]any{"type": "string"},
+				"point_id":       map[string]any{"type": "string"},
+				"hours":          map[string]any{"type": "integer", "maximum": 168},
+				"bucket_minutes": map[string]any{"type": "integer", "minimum": 1, "maximum": 1440}}}},
 	{"name": "explain_alert", "description": "Alert details plus recent readings around it.",
 		"inputSchema": map[string]any{"type": "object", "required": []string{"alert_id"},
 			"properties": map[string]any{"alert_id": map[string]any{"type": "string"}}}},
@@ -189,6 +202,72 @@ func (s *server) callTool(r *http.Request, name string, args map[string]any) (an
 		}
 		return out, nil
 
+	case "list_devices":
+		rows, err := s.st.Pool.Query(ctx, `
+			SELECT id, name, profile, gateway_id FROM devices WHERE tenant_id=$1 ORDER BY name LIMIT 200`, t)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := []map[string]any{}
+		for rows.Next() {
+			var id, name, profile, gw string
+			rows.Scan(&id, &name, &profile, &gw)
+			out = append(out, map[string]any{"id": id, "name": name, "profile": profile, "gateway_id": gw})
+		}
+		return out, nil
+
+	case "list_alerts":
+		status, _ := args["status"].(string)
+		if status != "" && status != "open" && status != "acknowledged" && status != "resolved" {
+			return nil, &toolError{"invalid status"}
+		}
+		limit := clampInt(args["limit"], 25, 1, 100)
+		rows, err := s.st.Pool.Query(ctx, `
+			SELECT id, severity, message, status, created_at FROM alerts
+			WHERE tenant_id=$1 AND ($2 = '' OR status=$2) ORDER BY created_at DESC LIMIT $3`, t, status, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := []map[string]any{}
+		for rows.Next() {
+			var id, sev, msg, st string
+			var at time.Time
+			rows.Scan(&id, &sev, &msg, &st, &at)
+			out = append(out, map[string]any{"id": id, "severity": sev, "message": msg, "status": st, "created_at": at})
+		}
+		return out, nil
+
+	case "aggregate_time_series":
+		id, _ := args["device_id"].(string)
+		pt, _ := args["point_id"].(string)
+		hours := clampInt(args["hours"], 24, 1, 168)
+		bucket := clampInt(args["bucket_minutes"], 60, 1, 1440)
+		if hours*60/bucket > 500 {
+			return nil, &toolError{"too many buckets: raise bucket_minutes or lower hours (max 500 buckets)"}
+		}
+		rows, err := s.st.Pool.Query(ctx, `
+			SELECT to_timestamp(floor(extract(epoch FROM observed_at) / ($5::int*60)) * ($5::int*60)) AS b,
+			       avg(value), min(value), max(value), sum(value), count(*)
+			FROM telemetry
+			WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
+			  AND observed_at > now() - make_interval(hours => $4::int)
+			GROUP BY b ORDER BY b LIMIT 500`, t, id, pt, hours, bucket)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := []map[string]any{}
+		for rows.Next() {
+			var at time.Time
+			var avg, mn, mx, sum float64
+			var n int
+			rows.Scan(&at, &avg, &mn, &mx, &sum, &n)
+			out = append(out, map[string]any{"t": at, "avg": avg, "min": mn, "max": mx, "sum": sum, "count": n})
+		}
+		return out, nil
+
 	case "explain_alert":
 		id, _ := args["alert_id"].(string)
 		var sev, msg, status string
@@ -220,4 +299,20 @@ func envOr(k, d string) string {
 		return v
 	}
 	return d
+}
+
+// clampInt reads a JSON number argument with a default and hard bounds.
+func clampInt(v any, def, lo, hi int) int {
+	f, ok := v.(float64)
+	if !ok {
+		return def
+	}
+	n := int(f)
+	if n < lo {
+		return lo
+	}
+	if n > hi {
+		return hi
+	}
+	return n
 }
