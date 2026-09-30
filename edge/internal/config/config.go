@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/paths"
 	"os"
 	"time"
 
@@ -37,14 +38,18 @@ type Config struct {
 }
 
 type Device struct {
-	ID       string        `yaml:"id"`
-	Profile  string        `yaml:"profile"` // e.g. "modbus-energy-meter", "door-contact"
-	Port     string        `yaml:"port"`    // e.g. /dev/ttyUSB0 (pin via udev)
-	Baud     int           `yaml:"baud"`
-	DataBits int           `yaml:"data_bits"`
-	StopBits int           `yaml:"stop_bits"`
-	Parity   string        `yaml:"parity"` // none|odd|even
-	Address  int           `yaml:"address"`
+	ID       string `yaml:"id"`
+	Profile  string `yaml:"profile"` // e.g. "modbus-energy-meter", "door-contact"
+	Port     string `yaml:"port"`    // e.g. /dev/ttyUSB0 (pin via udev)
+	Baud     int    `yaml:"baud"`
+	DataBits int    `yaml:"data_bits"`
+	StopBits int    `yaml:"stop_bits"`
+	Parity   string `yaml:"parity"` // none|odd|even
+	Address  int    `yaml:"address"`
+	// Network transports (modbus-tcp, opcua): no serial port involved.
+	Host     string        `yaml:"host"`
+	NetPort  int           `yaml:"net_port"` // default 502 (modbus-tcp), 4840 (opcua)
+	Endpoint string        `yaml:"endpoint"` // opcua endpoint URL, e.g. opc.tcp://10.0.0.5:4840
 	Interval time.Duration `yaml:"interval"`
 	Points   []Point       `yaml:"points"`
 }
@@ -57,7 +62,9 @@ type Point struct {
 	WordOrder string  `yaml:"word_order"` // abcd|badc|cdab|dcba for 32-bit types (default abcd)
 	Scale     float64 `yaml:"scale"`
 	Unit      string  `yaml:"unit"`
-	Min       float64 `yaml:"min"` // validation range
+	Key       string  `yaml:"key"`     // serial-json: field name / key=value key / CSV column index
+	NodeID    string  `yaml:"node_id"` // opcua: e.g. ns=2;s=Boiler.Temp
+	Min       float64 `yaml:"min"`     // validation range
 	Max       float64 `yaml:"max"`
 }
 
@@ -74,7 +81,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("gateway_id and tenant_id are required")
 	}
 	if c.QueuePath == "" {
-		c.QueuePath = "/var/lib/hexmon/queue.db"
+		c.QueuePath = paths.Queue()
 	}
 	for _, d := range c.Devices {
 		if d.Interval <= 0 {

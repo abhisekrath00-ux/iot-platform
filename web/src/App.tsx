@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
+import { useTheme } from './lib/theme';
 import Fleet from './pages/Fleet';
 import Devices from './pages/Devices';
 import DeviceDetail from './pages/DeviceDetail';
@@ -12,22 +13,33 @@ import Audit from './pages/Audit';
 import Reports from './pages/Reports';
 import Profiles from './pages/Profiles';
 
+const icons: Record<string, JSX.Element> = {
+  'Fleet': <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>,
+  'Devices': <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/></svg>,
+  'Add device': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>,
+  'Dashboards': <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg>,
+  'Flows': <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H14a4 4 0 014 4v5.5"/></svg>,
+  'Alerts': <svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1112 0v5l2 2H4z"/><path d="M10 21h4"/></svg>,
+  'Control': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>,
+  'Reports': <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 13h7M9 17h7M9 9h3"/></svg>,
+  'Profiles': <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>,
+  'Audit': <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>,
+  'Settings': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 00-2.2-1.3L14 3h-4l-.4 2.5a7 7 0 00-2.2 1.3l-2.3-1-2 3.4 2 1.5a7 7 0 000 2.6l-2 1.5 2 3.4 2.3-1a7 7 0 002.2 1.3L10 21h4l.4-2.5a7 7 0 002.2-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3z"/></svg>,
+};
+
+const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/onboarding", "Add device"], ["/dashboards", "Dashboards"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
+
 export default function App() {
+  const [theme, toggle] = useTheme();
   return (
     <div className="shell">
       <nav>
-        <div className="brand">Hexmon IoT</div>
-        <NavLink to="/" end>Fleet</NavLink>
-        <NavLink to="/devices">Devices</NavLink>
-        <NavLink to="/onboarding">Add device</NavLink>
-        <NavLink to="/dashboards">Dashboards</NavLink>
-        <NavLink to="/flows">Flows</NavLink>
-        <NavLink to="/alerts">Alerts</NavLink>
-        <NavLink to="/commands">Control</NavLink>
-        <NavLink to="/reports">Reports</NavLink>
-        <NavLink to="/profiles">Profiles</NavLink>
-        <NavLink to="/audit">Audit</NavLink>
-        <NavLink to="/settings">Settings</NavLink>
+        <div className="brand"><span className="logo">H</span>Hexmon IoT</div>
+        {items.map(([to, label]) => (
+          <NavLink key={to} to={to} end={to === '/'}>{icons[label]}{label}</NavLink>
+        ))}
+        <div className="spacer" />
+        <button className="theme" onClick={toggle}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
       </nav>
       <main>
         <Routes>

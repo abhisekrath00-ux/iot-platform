@@ -9,8 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
 	"sync"
 	"time"
 
@@ -19,6 +17,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/driver"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/fleetctl"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/mqttc"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/paths"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/queue"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/google/uuid"
@@ -45,11 +44,11 @@ type command struct {
 }
 
 func main() {
-	cfgPath := flag.String("config", "/etc/hexmon/edge-agent.yaml", "config file")
+	cfgPath := flag.String("config", paths.Config(), "config file")
 	claimAPI := flag.String("claim-api", "", "control-plane API base URL for enrollment (e.g. https://api.hexmon.example)")
 	claimCode := flag.String("claim-code", "", "one-time enrollment claim code from the dashboard")
 	claimSerial := flag.String("claim-serial", "", "gateway serial to claim")
-	identityDir := flag.String("identity-dir", "/var/lib/hexmon-edge", "directory holding identity.json")
+	identityDir := flag.String("identity-dir", paths.Data(), "directory holding identity.json")
 	flag.Parse()
 
 	if *claimCode != "" {
@@ -78,7 +77,8 @@ func main() {
 	}
 	defer q.Close()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop, svcDone := rootContext()
+	defer svcDone()
 	defer stop()
 
 	allowed := map[string]bool{}
@@ -124,7 +124,7 @@ func main() {
 	fleetTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/fleet"
 	artifactDir := cfg.ArtifactDir
 	if artifactDir == "" {
-		artifactDir = "/var/lib/hexmon-edge/artifacts"
+		artifactDir = paths.Artifacts()
 	}
 	if err := mc.Subscribe(fleetTopic, func(_ mqtt.Client, m mqtt.Message) {
 		ack := fleetctl.HandleManifest(m.Payload(), artifactDir, cfg.Serial)

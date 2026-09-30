@@ -22,6 +22,10 @@ jobs:
           go vet ./...
           go test ./...
           go build ./...
+          # the agent must stay buildable for every shipped target
+          for t in linux/arm64 windows/amd64 windows/arm64; do
+            CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -o /dev/null ./cmd/edge-agent
+          done
 
   web:
     runs-on: ubuntu-latest

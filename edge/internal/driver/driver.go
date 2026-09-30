@@ -35,6 +35,13 @@ func New(d config.Device) (Driver, error) {
 
 // NewWithOpener is New with the port opener injected.
 func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
+	// Network profiles need no serial port.
+	switch d.Profile {
+	case "modbus-tcp":
+		return newModbusTCP(d)
+	case "opcua":
+		return newOPCUA(d)
+	}
 	mode := &serial.Mode{BaudRate: d.Baud, DataBits: d.DataBits, StopBits: serial.StopBits(d.StopBits)}
 	switch d.Parity {
 	case "none", "":
@@ -58,6 +65,10 @@ func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
 		return newModbusMeter(port, d), nil
 	case "door-contact":
 		return newDoorContact(port, d), nil
+	case "serial-json":
+		// STM32 / Arduino / ESP32 over UART or USB-CDC: newline-delimited
+		// JSON, key=value or CSV lines, mapped to points via config.
+		return newSerialLine(port, d), nil
 	default:
 		port.Close()
 		return nil, fmt.Errorf("device %s: unknown profile %q", d.ID, d.Profile)

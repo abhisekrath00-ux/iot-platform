@@ -15,12 +15,18 @@ import (
 // its function code, data type, word order and scale, so new sensor models
 // are onboarded from the dashboard/profile config without a code change.
 type modbusGeneric struct {
-	port serial.Port
+	port serial.Port // nil for Modbus TCP
 	dev  config.Device
+	// read performs one Modbus read; RTU-over-serial or TCP framing.
+	read  func(fn, reg, count int) ([]byte, error)
+	close func() error
 }
 
 func newModbusGeneric(port serial.Port, dev config.Device) *modbusGeneric {
-	return &modbusGeneric{port: port, dev: dev}
+	g := &modbusGeneric{port: port, dev: dev}
+	g.read = g.readRegisters
+	g.close = port.Close
+	return g
 }
 
 func pointFunc(p config.Point) int {
@@ -127,12 +133,15 @@ func (g *modbusGeneric) readRegisters(fn, reg, count int) ([]byte, error) {
 }
 
 func (g *modbusGeneric) Poll(ctx context.Context) ([]Reading, error) {
+	if g.read == nil {
+		g.read = g.readRegisters
+	}
 	out := make([]Reading, 0, len(g.dev.Points))
 	for _, p := range g.dev.Points {
 		fn, typ := pointFunc(p), pointType(p)
 		var v float64
 		if fn == 1 || fn == 2 {
-			data, err := g.readRegisters(fn, p.Register, 1)
+			data, err := g.read(fn, p.Register, 1)
 			if err != nil {
 				return out, fmt.Errorf("point %s: %w", p.ID, err)
 			}
@@ -144,7 +153,7 @@ func (g *modbusGeneric) Poll(ctx context.Context) ([]Reading, error) {
 			if err != nil {
 				return out, fmt.Errorf("point %s: %w", p.ID, err)
 			}
-			data, err := g.readRegisters(fn, p.Register, n)
+			data, err := g.read(fn, p.Register, n)
 			if err != nil {
 				return out, fmt.Errorf("point %s: %w", p.ID, err)
 			}
@@ -173,4 +182,9 @@ func (g *modbusGeneric) Poll(ctx context.Context) ([]Reading, error) {
 	return out, nil
 }
 
-func (g *modbusGeneric) Close() error { return g.port.Close() }
+func (g *modbusGeneric) Close() error {
+	if g.close == nil {
+		return g.port.Close()
+	}
+	return g.close()
+}

@@ -1,3 +1,4 @@
+import { chart as ct } from '../lib/theme';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -55,11 +56,11 @@ export default function DeviceDetail() {
           <div style={{ width: '100%', height: 300, background: 'var(--panel)', borderRadius: 12, padding: 12 }}>
             <ResponsiveContainer>
               <LineChart data={chart}>
-                <CartesianGrid stroke="#232b35" />
-                <XAxis dataKey="t" stroke="#9aa7b4" fontSize={11} />
-                <YAxis stroke="#9aa7b4" fontSize={11} />
-                <Tooltip contentStyle={{ background: '#171c23', border: '1px solid #2a3340' }} />
-                <Line type="monotone" dataKey="v" stroke="#3b82f6" dot={false} strokeWidth={2} />
+                <CartesianGrid stroke={ct.grid} />
+                <XAxis dataKey="t" stroke={ct.axis} fontSize={11} />
+                <YAxis stroke={ct.axis} fontSize={11} />
+                <Tooltip contentStyle={ct.tooltip} />
+                <Line type="monotone" dataKey="v" stroke={ct.line} dot={false} strokeWidth={2} />
               </LineChart>
             </ResponsiveContainer>
           </div>

@@ -1,0 +1,52 @@
+# Hexmon edge agent - example config. Normally delivered by enrollment
+# (claim code) and fleet config releases; edit by hand only for bench tests.
+gateway_id: gw-demo-001
+tenant_id: tenant-demo
+serial: HX-DEMO-001
+mqtt:
+  host: broker.example.internal
+  port: 8883
+  tls: true
+  ca_file: ca.pem
+  cert_file: client.pem
+  key_file: client.key
+allowed_commands: []   # empty = read-only gateway (no actuation)
+devices:
+  # Modbus TCP PLC / meter / SCADA RTU
+  - id: plc-1
+    profile: modbus-tcp
+    host: 192.168.1.50
+    address: 1
+    interval: 10s
+    points:
+      - {id: temperature, register: 100, func: 3, type: i16, scale: 0.1, unit: C, min: -40, max: 150}
+  # OPC UA server (Kepware, Ignition, Siemens S7-1500, Beckhoff ...)
+  - id: scada-1
+    profile: opcua
+    endpoint: opc.tcp://192.168.1.60:4840
+    interval: 10s
+    points:
+      - {id: boiler_temp, node_id: "ns=2;s=Boiler.Temp", unit: C, min: 0, max: 400}
+  # STM32 / Arduino / ESP32 printing lines over UART or USB-CDC
+  # (JSON {"temp":23.4}, key=value, or CSV). COM3 on Windows, /dev/ttyACM0 on Linux.
+  - id: stm32-1
+    profile: serial-json
+    port: /dev/ttyACM0
+    baud: 115200
+    data_bits: 8
+    stop_bits: 0
+    interval: 5s
+    points:
+      - {id: temp, key: temp, unit: C, min: -40, max: 125}
+  # Modbus RTU over RS-485
+  - id: meter-1
+    profile: modbus-generic
+    port: /dev/ttyUSB0
+    baud: 9600
+    data_bits: 8
+    stop_bits: 0
+    parity: none
+    address: 2
+    interval: 10s
+    points:
+      - {id: kwh, register: 0, func: 4, type: f32, unit: kWh, min: 0, max: 1000000}
