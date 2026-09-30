@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, CommandRow } from '../lib/api';
+import Empty from '../components/Empty';
 
 // Control center. Every actuation is request -> approve (four-eyes) -> send
 // -> ack -> measured outcome, all audited. See docs/security.md.
@@ -14,7 +15,10 @@ export default function Commands() {
     <>
       <h1>Control</h1>
       {err && <p className="muted">{err}</p>}
-      <table>
+      {rows.length === 0 && !err && (
+        <Empty title="No control requests" hint="Actuation requests appear here for four-eyes approval. Nothing can switch a physical output without an approved, audited request." />
+      )}
+      {rows.length > 0 && <table>
         <thead><tr><th>Device</th><th>Action</th><th>Status</th><th>Requested by</th><th></th></tr></thead>
         <tbody>
           {rows.map(c => (
@@ -26,7 +30,7 @@ export default function Commands() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table>}
     </>
   );
 }

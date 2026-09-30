@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import Empty from '../components/Empty';
 
 interface AuditRow { actor: string; action: string; target: string | null; detail: unknown; at: string; }
 
@@ -15,7 +16,7 @@ export default function Audit() {
     <>
       <h1>Audit log</h1>
       {err && <p className="muted">{err} (admin role required)</p>}
-      <table>
+      {rows.length > 0 && <table>
         <thead>
           <tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr>
         </thead>
@@ -32,8 +33,8 @@ export default function Audit() {
             </tr>
           ))}
         </tbody>
-      </table>
-      {rows.length === 0 && !err && <p className="muted">No audit events yet.</p>}
+      </table>}
+      {rows.length === 0 && !err && <Empty title="No audit events yet" hint="Sign-ins, approvals, exports and configuration changes are recorded here." />}
     </>
   );
 }

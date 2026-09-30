@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Empty from '../components/Empty';
 import { api } from '../lib/api';
 
 interface Rule { id: string; name: string; definition: any; version: number; enabled: boolean; }
@@ -107,7 +108,8 @@ export default function Flows() {
         </form>
         {msg && <p className="muted">{msg}</p>}
       </div>
-      <table>
+      {rules.length === 0 && <Empty title="No rules yet" hint="Create a threshold rule above to raise alerts when a point crosses a limit." />}
+      {rules.length > 0 && <table>
         <thead><tr><th>Name</th><th>Condition</th><th>Severity</th><th>Status</th></tr></thead>
         <tbody>
           {rules.map(r => (
@@ -119,7 +121,7 @@ export default function Flows() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table>}
       <h2 style={{ marginTop: 28 }}>Automation flows</h2>
       <p className="muted">Trigger on a reading, optionally check a condition and wait, then notify. Flows evaluate in the ingest worker alongside rules.</p>
       <div className="card" style={{ maxWidth: 640, marginBottom: 20 }}>
