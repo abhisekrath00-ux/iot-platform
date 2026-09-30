@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { api } from '../lib/api';
+import { api, download, NETWORK_DRIVERS } from '../lib/api';
 
 // Guided commissioning wizard: site+serial -> QR claim -> profile ->
 // read-only port test -> live preview. Each step polls the session, whose
@@ -33,8 +33,11 @@ export default function Onboarding() {
   const [profileId, setProfileId] = useState('');
   const [deviceName, setDeviceName] = useState('');
   const [probe, setProbe] = useState({ port: '/dev/ttyUSB0', baud: 9600, data_bits: 8, stop_bits: 1, parity: 'none', address: 1, func: 3, register: 0, count: 2, type: 'f32', word_order: 'abcd', timeout_ms: 3000 });
+  const [conn, setConn] = useState({ port: '/dev/ttyUSB0', baud: 9600, address: 1, host: '', net_port: 502, endpoint: 'opc.tcp://', interval_seconds: 10 });
   const [preview, setPreview] = useState<PreviewPoint[]>([]);
   const [msg, setMsg] = useState('');
+  const driver = profiles.find(p => p.id === profileId)?.driver_profile ?? '';
+  const isNet = NETWORK_DRIVERS.includes(driver);
   const qrRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => { api<Site[]>('/v1/sites').then(s => { setSites(s); if (s[0]) setSite(s[0].id); }).catch(e => setMsg(String(e))); }, []);
@@ -82,12 +85,21 @@ export default function Onboarding() {
     } catch (e2) { setMsg(String(e2)); }
   }
 
+  function connectionPayload() {
+    if (!driver) return undefined;
+    const base = { interval_seconds: +conn.interval_seconds };
+    if (driver === 'opcua') return { ...base, endpoint: conn.endpoint };
+    if (driver === 'modbus-tcp') return { ...base, host: conn.host, net_port: +conn.net_port, address: +conn.address };
+    return { ...base, port: conn.port, baud: +conn.baud, address: +conn.address };
+  }
+
   async function assignProfile(e: React.FormEvent) {
     e.preventDefault(); setMsg('');
     try {
       await api(`/v1/commissioning/sessions/${session!.session_id}/profile`, {
-        method: 'POST', body: JSON.stringify({ profile_id: profileId, device_name: deviceName })
+        method: 'POST', body: JSON.stringify({ profile_id: profileId, device_name: deviceName, connection: connectionPayload() })
       });
+      if (!isNet) setProbe(pr => ({ ...pr, port: conn.port, baud: +conn.baud, address: +conn.address }));
       setStep(3);
     } catch (e2) { setMsg(String(e2)); }
   }
@@ -141,6 +153,23 @@ export default function Onboarding() {
           </select>
           <label>Device name</label>
           <input value={deviceName} onChange={e => setDeviceName(e.target.value)} placeholder="Main energy meter" required />
+          {driver && (
+            <>
+              <h3 style={{ marginTop: 20 }}>Connection</h3>
+              {driver === 'opcua' && (<><label>OPC UA endpoint</label><input value={conn.endpoint} onChange={e => setConn({ ...conn, endpoint: e.target.value })} placeholder="opc.tcp://192.168.1.60:4840" required /></>)}
+              {driver === 'modbus-tcp' && (<>
+                <label>Host / IP</label><input value={conn.host} onChange={e => setConn({ ...conn, host: e.target.value })} placeholder="192.168.1.50" required />
+                <label>TCP port</label><input type="number" value={conn.net_port} onChange={e => setConn({ ...conn, net_port: +e.target.value })} />
+                <label>Unit / slave id</label><input type="number" min={0} max={255} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} />
+              </>)}
+              {!isNet && (<>
+                <label>Serial port (COM3 on Windows, /dev/ttyACM0 on Linux)</label><input value={conn.port} onChange={e => setConn({ ...conn, port: e.target.value })} required />
+                <label>Baud</label><input type="number" value={conn.baud} onChange={e => setConn({ ...conn, baud: +e.target.value })} />
+                {driver !== 'serial-json' && (<><label>Modbus address</label><input type="number" min={0} max={255} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} /></>)}
+              </>)}
+              <label>Poll interval (seconds)</label><input type="number" min={1} value={conn.interval_seconds} onChange={e => setConn({ ...conn, interval_seconds: +e.target.value })} />
+            </>
+          )}
           <div style={{ marginTop: 16 }}><button type="submit">Assign profile</button></div>
         </form>
       )}
@@ -148,6 +177,12 @@ export default function Onboarding() {
       {step === 3 && (
         <div>
           <h2>Port test (read-only)</h2>
+          {(isNet || driver === 'serial-json') && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <p className="muted">The read-only port test covers Modbus RTU registers. For {driver || 'this'} devices, skip to the live preview: the gateway starts polling as soon as it has the config below.</p>
+              <button onClick={() => setStep(4)}>Skip to live preview</button>
+            </div>
+          )}
           <form onSubmit={runProbe} className="grid2">
             <label>Port</label><input value={probe.port} onChange={e => setProbe({ ...probe, port: e.target.value })} />
             <label>Baud</label><input type="number" value={probe.baud} onChange={e => setProbe({ ...probe, baud: +e.target.value })} />
@@ -189,6 +224,11 @@ export default function Onboarding() {
       {step === 4 && (
         <div>
           <h2>Live preview</h2>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <b>Gateway config</b>
+            <p className="muted">Download the generated agent config and install it on the gateway (Ubuntu or Windows). Re-download after adding devices, or push it as a fleet config release.</p>
+            <button className="ghost" onClick={() => download(`/v1/gateways/${session!.gateway_id}/edge-config`, 'edge-agent.yaml').catch(e => setMsg(String(e)))}>Download edge-agent.yaml</button>
+          </div>
           {preview.length === 0
             ? <p className="muted">No readings yet. The gateway publishes on its poll interval; this refreshes every 5s.</p>
             : <table><thead><tr><th>Point</th><th>Value</th><th>Unit</th><th>Quality</th><th>Observed</th></tr></thead>

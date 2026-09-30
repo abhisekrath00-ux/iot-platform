@@ -115,6 +115,7 @@ func main() {
 	api.HandleFunc("PUT /v1/dashboards/{id}", s.updateDashboard)
 	api.HandleFunc("DELETE /v1/dashboards/{id}", s.deleteDashboard)
 	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
+	api.HandleFunc("GET /v1/gateways/{id}/edge-config", s.gatewayEdgeConfig)
 	api.HandleFunc("GET /v1/profiles", s.listProfiles)
 	api.HandleFunc("POST /v1/profiles", s.createProfile)
 	api.HandleFunc("GET /v1/reports", s.listReports)
@@ -826,13 +827,11 @@ func (s *server) createProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name invalid", 400)
 		return
 	}
-	switch in.DriverProfile {
-	case "modbus-generic", "door-contact", "modbus-energy-meter":
-	default:
+	if _, ok := driverKinds[in.DriverProfile]; !ok {
 		http.Error(w, "driver_profile must be a supported edge driver", 400)
 		return
 	}
-	if err := validProfilePoints(in.Points); err != nil {
+	if err := validateProfilePointsFor(in.DriverProfile, in.Points); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}

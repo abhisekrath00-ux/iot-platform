@@ -101,6 +101,18 @@ func SaveIdentity(dir string, id *Identity) error {
 			return err
 		}
 	}
+	// PEM files the MQTT client loads directly, so a freshly claimed gateway
+	// connects over mTLS with no hand-edited paths.
+	if id.ClientCertPEM != "" {
+		if err := os.WriteFile(filepath.Join(dir, "identity.crt"), []byte(id.ClientCertPEM), 0o644); err != nil {
+			return err
+		}
+	}
+	if id.CACertPEM != "" {
+		if err := os.WriteFile(filepath.Join(dir, "ca.pem"), []byte(id.CACertPEM), 0o644); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

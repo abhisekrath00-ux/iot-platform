@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/paths"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -94,4 +95,21 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	return &c, nil
+}
+
+// DefaultIdentityFiles fills blank mTLS paths from the directory that
+// claim.SaveIdentity wrote, when those files exist. Explicit config wins.
+func (c *Config) DefaultIdentityFiles(dir string) {
+	fill := func(dst *string, name string) {
+		if *dst != "" {
+			return
+		}
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			*dst = p
+		}
+	}
+	fill(&c.MQTT.CAFile, "ca.pem")
+	fill(&c.MQTT.CertFile, "identity.crt")
+	fill(&c.MQTT.KeyFile, "identity.key")
 }

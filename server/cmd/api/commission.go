@@ -145,6 +145,8 @@ func (s *server) assignCommissionProfile(w http.ResponseWriter, r *http.Request)
 	var in struct {
 		ProfileID  string `json:"profile_id"`
 		DeviceName string `json:"device_name"`
+		// Connection: port/baud/address (serial) or host/endpoint (network).
+		Connection map[string]any `json:"connection"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.ProfileID == "" || in.DeviceName == "" {
 		http.Error(w, "profile_id and device_name required", 400)
@@ -171,8 +173,14 @@ func (s *server) assignCommissionProfile(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "profile not found", 404)
 		return
 	}
+	if in.Connection != nil {
+		if err := validConnection(driverProfile, in.Connection); err != nil {
+			http.Error(w, "connection: "+err.Error(), 400)
+			return
+		}
+	}
 	devID := uuid.NewString()
-	cfg, _ := json.Marshal(map[string]any{"device_profile_id": in.ProfileID})
+	cfg, _ := json.Marshal(map[string]any{"device_profile_id": in.ProfileID, "connection": in.Connection})
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), 500)

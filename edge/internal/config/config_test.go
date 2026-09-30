@@ -41,3 +41,36 @@ tenant_id: t1`
 		t.Fatal("expected error for missing gateway_id")
 	}
 }
+
+func TestDefaultIdentityFiles(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"ca.pem", "identity.crt", "identity.key"} {
+		os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o600)
+	}
+	var c Config
+	c.MQTT.CertFile = "/explicit.crt"
+	c.DefaultIdentityFiles(dir)
+	if c.MQTT.CertFile != "/explicit.crt" {
+		t.Fatal("explicit path must win")
+	}
+	if c.MQTT.CAFile != filepath.Join(dir, "ca.pem") || c.MQTT.KeyFile != filepath.Join(dir, "identity.key") {
+		t.Fatalf("not defaulted: %+v", c.MQTT)
+	}
+}
+
+// The packaged example must always load: it is the first file users edit.
+func TestPackagedExampleLoads(t *testing.T) {
+	c, err := Load("../../packaging/edge-agent.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles := map[string]bool{}
+	for _, d := range c.Devices {
+		profiles[d.Profile] = true
+	}
+	for _, p := range []string{"modbus-tcp", "opcua", "serial-json", "modbus-generic"} {
+		if !profiles[p] {
+			t.Errorf("example missing %s", p)
+		}
+	}
+}

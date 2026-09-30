@@ -71,6 +71,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	cfg.DefaultIdentityFiles(*identityDir)
 	q, err := queue.Open(cfg.QueuePath)
 	if err != nil {
 		log.Fatalf("queue: %v", err)
