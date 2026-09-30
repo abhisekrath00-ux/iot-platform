@@ -48,11 +48,18 @@ type Device struct {
 	Parity   string `yaml:"parity"` // none|odd|even
 	Address  int    `yaml:"address"`
 	// Network transports (modbus-tcp, opcua): no serial port involved.
-	Host     string        `yaml:"host"`
-	NetPort  int           `yaml:"net_port"` // default 502 (modbus-tcp), 4840 (opcua)
-	Endpoint string        `yaml:"endpoint"` // opcua endpoint URL, e.g. opc.tcp://10.0.0.5:4840
-	Interval time.Duration `yaml:"interval"`
-	Points   []Point       `yaml:"points"`
+	Host     string `yaml:"host"`
+	NetPort  int    `yaml:"net_port"` // default 502 (modbus-tcp), 4840 (opcua)
+	Endpoint string `yaml:"endpoint"` // opcua endpoint URL, e.g. opc.tcp://10.0.0.5:4840
+	// OPC UA security. Secrets never live in the file: the password is read
+	// from the environment variable named by password_env.
+	Security    string        `yaml:"security"` // none (default) | sign | sign-and-encrypt
+	ClientCert  string        `yaml:"client_cert"`
+	ClientKey   string        `yaml:"client_key"`
+	Username    string        `yaml:"username"`
+	PasswordEnv string        `yaml:"password_env"`
+	Interval    time.Duration `yaml:"interval"`
+	Points      []Point       `yaml:"points"`
 }
 
 type Point struct {

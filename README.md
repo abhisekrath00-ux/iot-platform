@@ -1,7 +1,7 @@
 # Hexmon IoT Platform
 
 An enterprise IoT platform for energy meters, door sensors and other field devices.
-Sensors connect to a Vicharak Axon SBC (edge gateway) over UART/USB serial or Modbus;
+Sensors connect to an edge gateway (Vicharak Axon SBC, any Linux arm64/x86 box, or a Windows PC) over UART/USB serial, Modbus RTU/TCP or OPC UA;
 the edge agent buffers and forwards telemetry over MQTT (mTLS) to the control plane,
 which serves a web dashboard, rules/flows, alerts, reports, fleet rollout and
 AI-assisted diagnosis via MCP. The same container stack deploys to cloud, customer
@@ -22,6 +22,9 @@ no code change needed.
 | Live monitoring | Latest values, quality flags, 24h trends per device/point; KPI cards | Verified (simulated telemetry); real sensors are Pilot |
 | Multi-sensor onboarding | `modbus-generic` driver + device profiles; new sensor types added by config/UI, not code | Verified (Config) |
 | UI device onboarding | Add-device page, one-time enrollment tokens, commissioning wizard (API + edge claim + ingest validation) | Verified; wizard visual pass on a real deployment is Pilot |
+| Connectors | Modbus RTU, **Modbus TCP**, **OPC UA** (SCADA/PLC), **STM32/Arduino/ESP32 UART** - see [docs/connectors.md](docs/connectors.md) | Verified against in-process Modbus TCP and OPC UA servers; real hardware is Pilot |
+| Edge on Ubuntu + Windows | Static agent for linux/windows x amd64/arm64, installers, Windows service - see [docs/edge-install.md](docs/edge-install.md) | Cross-compiled in CI; Windows service + arm64 need a first pilot install |
+| SCADA/BI export | Bounded telemetry CSV export, report CSV/HTML download, JSON APIs | Verified (unit-tested renderers); live DB paths exercised by compose smoke only in part |
 | Device profiles | Profile CRUD (`/v1/profiles`, Profiles page) mapping points, units, scaling | Verified |
 
 ### Control and automation

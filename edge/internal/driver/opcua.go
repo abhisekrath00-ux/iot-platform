@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -43,16 +44,55 @@ func newOPCUA(d config.Device) (Driver, error) {
 		}
 		o.ids = append(o.ids, id)
 	}
-	c, err := opcua.NewClient(ep,
-		opcua.SecurityMode(ua.MessageSecurityModeNone),
-		opcua.RequestTimeout(3*time.Second),
-		opcua.DialTimeout(3*time.Second),
-	)
+	opts, err := opcuaOptions(d)
+	if err != nil {
+		return nil, err
+	}
+	c, err := opcua.NewClient(ep, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("device %s: opcua client: %w", d.ID, err)
 	}
 	o.client = c
 	return o, nil
+}
+
+// opcuaOptions maps the device's security settings to client options.
+// Refuses ambiguous setups (encryption without a client cert, username
+// without a password source) instead of silently falling back to none.
+func opcuaOptions(d config.Device) ([]opcua.Option, error) {
+	opts := []opcua.Option{opcua.RequestTimeout(3 * time.Second), opcua.DialTimeout(3 * time.Second)}
+	switch d.Security {
+	case "", "none":
+		opts = append(opts, opcua.SecurityMode(ua.MessageSecurityModeNone))
+	case "sign", "sign-and-encrypt":
+		if d.ClientCert == "" || d.ClientKey == "" {
+			return nil, fmt.Errorf("device %s: security %q needs client_cert and client_key", d.ID, d.Security)
+		}
+		mode := ua.MessageSecurityModeSign
+		if d.Security == "sign-and-encrypt" {
+			mode = ua.MessageSecurityModeSignAndEncrypt
+		}
+		opts = append(opts,
+			opcua.SecurityPolicy(ua.SecurityPolicyURIBasic256Sha256),
+			opcua.SecurityMode(mode),
+			opcua.CertificateFile(d.ClientCert),
+			opcua.PrivateKeyFile(d.ClientKey))
+	default:
+		return nil, fmt.Errorf("device %s: unknown opcua security %q", d.ID, d.Security)
+	}
+	if d.Username != "" {
+		pw := ""
+		if d.PasswordEnv != "" {
+			pw = os.Getenv(d.PasswordEnv)
+		}
+		if pw == "" {
+			return nil, fmt.Errorf("device %s: username set but password_env %q is empty", d.ID, d.PasswordEnv)
+		}
+		opts = append(opts, opcua.AuthUsername(d.Username, pw))
+	} else {
+		opts = append(opts, opcua.AuthAnonymous())
+	}
+	return opts, nil
 }
 
 func (o *opcuaDriver) connect(ctx context.Context) error {
