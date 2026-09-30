@@ -27,6 +27,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/pki"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/respcache"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/retention"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 	"github.com/golang-jwt/jwt/v5"
@@ -105,6 +106,7 @@ func main() {
 	s.cached(api, "GET /v1/telemetry/latest", s.latestTelemetry)
 	api.HandleFunc("GET /v1/telemetry/count", s.countTelemetry)
 	api.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
+	api.HandleFunc("GET /v1/telemetry/rollup", s.rollupTelemetry)
 	api.HandleFunc("POST /v1/commands", s.requestCommand)
 	api.HandleFunc("POST /v1/commands/{id}/approve", s.approveCommand)
 	api.HandleFunc("GET /v1/commands", s.listCommands)
@@ -182,6 +184,9 @@ func main() {
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).
 	go leader.Run(ctx, st.Pool, leaderReportScheduler, "report-scheduler", 10*time.Second, s.reportScheduler)
+	// Hourly rollups always; raw-data purge only when RAW_RETENTION_DAYS is set (default: keep everything).
+	retDays, _ := strconv.Atoi(os.Getenv("RAW_RETENTION_DAYS"))
+	go leader.Run(ctx, st.Pool, leaderRetention, "retention", 30*time.Second, retention.Job(st.Pool, retDays, time.Hour))
 	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: auth.SecurityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		log.Printf("api listening on %s", srv.Addr)
@@ -203,6 +208,9 @@ const migrateAdvisoryLockID int64 = 0x4845584D4F4E // "HEXMON"
 
 // leaderReportScheduler is the advisory lock key for the report scheduler.
 const leaderReportScheduler int64 = 0x4845584D4F4F
+
+// leaderRetention is the advisory lock key for the rollup/retention job.
+const leaderRetention int64 = 0x4845584D4F50
 
 func migrate(ctx context.Context, st *store.Store) error {
 	conn, err := st.Pool.Acquire(ctx)

@@ -38,6 +38,7 @@ services:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
       JWT_SIGNING_SECRET: ${JWT_SIGNING_SECRET}
       ELASTICSEARCH_URL: http://elasticsearch:9200
+      RAW_RETENTION_DAYS: ${RAW_RETENTION_DAYS:-0}   # 0 = keep raw telemetry forever; hourly rollups are always kept
     depends_on:
       postgres: {condition: service_healthy}
       elasticsearch: {condition: service_started}

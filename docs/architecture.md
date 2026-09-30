@@ -206,3 +206,10 @@ Wall mode hides navigation and editing chrome, uses larger values and frosted ca
 ## Product tour
 
 First sign-in shows an 8-step spotlight tour of the sidebar (Fleet to Settings). Skip or Esc ends it and it stays dismissed (`localStorage` key `hexmon-tour-done`); "Take the tour" in the sidebar restarts it. Steps and progress logic live in `web/src/lib/tour.ts` with unit tests. No external assets.
+
+## Retention and rollups
+
+A leader-elected job (advisory lock, one replica at a time) runs hourly. It rolls the last 48 hours of raw telemetry into `telemetry_rollup_hourly` (count, sum, min, max per tenant/device/point/hour, measured and estimated samples only). Rollups are recomputed for whole hours, so re-running is safe.
+`RAW_RETENTION_DAYS` (default 0 = keep everything) enables purging: raw rows older than the window are deleted only after their hours are rolled up, in batches of 5000. Rollups are never purged.
+`GET /v1/telemetry/rollup?device_id=&point_id=&from=&to=` returns hourly aggregates (default last 30 days, max span 2 years) and keeps answering after raw data is gone.
+Not built yet: daily rollups, per-tenant retention settings, routing the series API and report builder to rollups for long ranges (they still read raw data), and partition dropping for very large installs.
