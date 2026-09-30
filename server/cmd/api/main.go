@@ -1011,27 +1011,27 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 
 // buildSeries aggregates telemetry for every metric in a definition.
 func (s *server) buildSeries(ctx context.Context, tenant string, def report.Definition) (map[report.Metric][]report.Bucket, int, error) {
-	trunc := "hour"
-	if def.GroupBy == "day" {
-		trunc = "day"
+	bucketExpr := report.BucketExpr(def.GroupBy) // whitelisted constant
+	if bucketExpr == "" {
+		return nil, 0, report.ErrBadGroupBy
 	}
 	series := map[report.Metric][]report.Bucket{}
 	total := 0
 	for _, m := range def.Metrics {
 		rows, err := s.st.Pool.Query(ctx,
-			`SELECT date_trunc($1, observed_at) AS bucket,
-			        avg(value), min(value), max(value), count(*)
+			`SELECT `+bucketExpr+` AS bucket,
+			        avg(value), min(value), max(value), sum(value), count(*)
 			 FROM telemetry
-			 WHERE tenant_id=$2 AND device_id=$3 AND point_id=$4
-			   AND observed_at > now() - ($5 || ' hours')::interval
+			 WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
+			   AND observed_at > now() - ($4 || ' hours')::interval
 			 GROUP BY bucket ORDER BY bucket`,
-			trunc, tenant, m.DeviceID, m.PointID, fmt.Sprint(def.WindowHours))
+			tenant, m.DeviceID, m.PointID, fmt.Sprint(def.WindowHours))
 		if err != nil {
 			return nil, 0, err
 		}
 		for rows.Next() {
 			var b report.Bucket
-			rows.Scan(&b.Start, &b.Avg, &b.Min, &b.Max, &b.Count)
+			rows.Scan(&b.Start, &b.Avg, &b.Min, &b.Max, &b.Sum, &b.Count)
 			series[m] = append(series[m], b)
 			total++
 		}

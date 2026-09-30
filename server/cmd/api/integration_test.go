@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 )
 
@@ -176,5 +177,23 @@ func TestIntegrationReportPreviewAndDownload(t *testing.T) {
 	}
 	if w = call(h, "itest-other", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv", ""); w.Code != 404 {
 		t.Fatalf("cross-tenant report download = %d", w.Code)
+	}
+}
+
+// Every allowed bucket size must execute against real Postgres and account
+// for all samples (catches SQL-expression mistakes in BucketExpr).
+func TestIntegrationReportBucketSizes(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-g")
+	for _, g := range []string{"15min", "hour", "day", "week"} {
+		def := report.Definition{Metrics: []report.Metric{{DeviceID: "itest-g-dev", PointID: "temp"}}, WindowHours: 24, GroupBy: g}
+		series, total, err := s.buildSeries(context.Background(), "itest-g", def)
+		if err != nil || total == 0 {
+			t.Fatalf("%s: total=%d err=%v", g, total, err)
+		}
+		_, _, _, sum, n := report.Summary(series[def.Metrics[0]])
+		if n != 5 || sum != 21+22+23+24+25 {
+			t.Fatalf("%s: samples=%d sum=%v, want 5 and 115", g, n, sum)
+		}
 	}
 }

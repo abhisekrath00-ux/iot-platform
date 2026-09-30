@@ -20,13 +20,13 @@ type Metric struct {
 type Definition struct {
 	Metrics     []Metric `json:"metrics"`
 	WindowHours int      `json:"window_hours"`
-	GroupBy     string   `json:"group_by"` // hour|day
+	GroupBy     string   `json:"group_by"` // 15min|hour|day|week
 }
 
 var (
 	ErrNoMetrics  = errors.New("at least one metric required")
 	ErrBadWindow  = errors.New("window_hours must be between 1 and 24*90")
-	ErrBadGroupBy = errors.New("group_by must be hour or day")
+	ErrBadGroupBy = errors.New("group_by must be 15min, hour, day or week")
 	ErrBadID      = errors.New("device_id and point_id: lowercase letters, digits, - _ only")
 )
 
@@ -59,10 +59,45 @@ func Validate(d Definition) error {
 	if d.WindowHours < 1 || d.WindowHours > 24*90 {
 		return ErrBadWindow
 	}
-	if d.GroupBy != "hour" && d.GroupBy != "day" {
+	if BucketExpr(d.GroupBy) == "" {
 		return ErrBadGroupBy
 	}
 	return nil
+}
+
+// BucketExpr returns the SQL expression that buckets observed_at for a
+// group_by value, or "" when the value is not allowed. It only ever returns
+// constants from this whitelist, so it is safe to splice into a query.
+func BucketExpr(groupBy string) string {
+	switch groupBy {
+	case "15min":
+		return "to_timestamp(floor(extract(epoch FROM observed_at) / 900) * 900)"
+	case "hour":
+		return "date_trunc('hour', observed_at)"
+	case "day":
+		return "date_trunc('day', observed_at)"
+	case "week":
+		return "date_trunc('week', observed_at)"
+	}
+	return ""
+}
+
+// Summary folds buckets into overall min/max, count-weighted average and sum.
+func Summary(rows []Bucket) (avg, min, max, sum float64, n int) {
+	for i, r := range rows {
+		if i == 0 || r.Min < min {
+			min = r.Min
+		}
+		if i == 0 || r.Max > max {
+			max = r.Max
+		}
+		sum += r.Sum
+		n += r.Count
+	}
+	if n > 0 {
+		avg = sum / float64(n)
+	}
+	return
 }
 
 // Bucket is one aggregated cell: avg/min/max/count over one time bucket.
@@ -71,6 +106,7 @@ type Bucket struct {
 	Avg   float64
 	Min   float64
 	Max   float64
+	Sum   float64
 	Count int
 }
 
@@ -104,11 +140,13 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 			b.WriteString(`<p class="meta">no data in window</p>`)
 			continue
 		}
-		b.WriteString(`<table><tr><th>` + html.EscapeString(d.GroupBy) + `</th><th>avg</th><th>min</th><th>max</th><th>samples</th></tr>`)
+		b.WriteString(`<table><tr><th>` + html.EscapeString(d.GroupBy) + `</th><th>avg</th><th>min</th><th>max</th><th>sum</th><th>samples</th></tr>`)
 		for _, r := range rows {
-			fmt.Fprintf(&b, `<tr><td>%s</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`,
-				r.Start.UTC().Format("2006-01-02 15:04"), r.Avg, r.Min, r.Max, r.Count)
+			fmt.Fprintf(&b, `<tr><td>%s</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`,
+				r.Start.UTC().Format("2006-01-02 15:04"), r.Avg, r.Min, r.Max, r.Sum, r.Count)
 		}
+		ta, tmin, tmax, tsum, tn := Summary(rows)
+		fmt.Fprintf(&b, `<tr style="font-weight:600;background:#fafafa"><td>overall</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`, ta, tmin, tmax, tsum, tn)
 		b.WriteString(`</table>`)
 	}
 	return b.String()
@@ -126,11 +164,11 @@ func CSVSafe(s string) string {
 // RenderCSV flattens aggregated series to CSV (device, point, bucket, avg, min, max, count).
 func RenderCSV(d Definition, series map[Metric][]Bucket) string {
 	var b strings.Builder
-	b.WriteString("device_id,point_id,bucket_start,avg,min,max,count\n")
+	b.WriteString("device_id,point_id,bucket_start,avg,min,max,count,sum\n")
 	for _, m := range d.Metrics {
 		for _, k := range series[m] {
-			fmt.Fprintf(&b, "%s,%s,%s,%.6g,%.6g,%.6g,%d\n", CSVSafe(m.DeviceID), CSVSafe(m.PointID),
-				k.Start.UTC().Format(time.RFC3339), k.Avg, k.Min, k.Max, k.Count)
+			fmt.Fprintf(&b, "%s,%s,%s,%.6g,%.6g,%.6g,%d,%.6g\n", CSVSafe(m.DeviceID), CSVSafe(m.PointID),
+				k.Start.UTC().Format(time.RFC3339), k.Avg, k.Min, k.Max, k.Count, k.Sum)
 		}
 	}
 	return b.String()

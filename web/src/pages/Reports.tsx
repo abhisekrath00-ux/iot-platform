@@ -97,7 +97,7 @@ export default function Reports() {
           <input type="number" min={1} max={2160} value={windowHours} onChange={e => setWindowHours(+e.target.value)} />
           <label>Group by</label>
           <select value={groupBy} onChange={e => setGroupBy(e.target.value)}>
-            <option value="hour">Hour</option><option value="day">Day</option>
+            <option value="15min">15 minutes</option><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week</option>
           </select>
           <label>Schedule (5-field cron, empty = on demand)</label>
           <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>

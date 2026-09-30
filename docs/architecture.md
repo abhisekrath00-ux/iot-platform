@@ -175,3 +175,7 @@ Limits: the cache is per API replica, so with several replicas a read can be as 
 ## Dashboard widgets
 
 Widgets are stored as JSON in the dashboard layout, so adding a type needs no migration. Types: live value (KPI), gauge, trend (24 h line), bars (all points of a device) and device status. Gauge, KPI and bars accept `min`, `max`, `warn` and `crit`; the colour comes from `web/src/lib/widgets.ts` (unit-tested: threshold state, gauge fraction, online/offline freshness). Layout is an auto-fill grid; there is no drag-and-drop or per-widget time-window picker yet.
+
+## Report aggregation
+
+Reports bucket telemetry by 15 minutes, hour, day or week (`report.BucketExpr`, a fixed whitelist spliced into SQL, never user text). Each bucket carries avg, min, max, sum and sample count; the HTML report adds an overall row per metric (count-weighted average, min, max, sum). CSV gains a trailing `sum` column. Covered by unit tests and a real-Postgres test of every bucket size.
