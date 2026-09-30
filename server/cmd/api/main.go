@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -121,6 +123,10 @@ func main() {
 	api.HandleFunc("GET /v1/reports", s.listReports)
 	api.HandleFunc("POST /v1/reports", s.createReport)
 	api.HandleFunc("POST /v1/reports/{id}/run", s.runReport)
+	api.HandleFunc("POST /v1/reports/preview", s.previewReport)
+	api.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
+	api.HandleFunc("GET /v1/points", s.listPoints)
+	api.HandleFunc("GET /v1/export/telemetry.csv", s.exportTelemetryCSV)
 	api.HandleFunc("GET /v1/flows", s.listFlows)
 	api.HandleFunc("POST /v1/flows", s.createFlow)
 	api.HandleFunc("GET /v1/flows/{id}/versions", s.listFlowVersions)
@@ -961,31 +967,9 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 		s.st.Pool.Exec(ctx, `UPDATE report_runs SET finished_at=now(), status='failed', error=$2 WHERE id=$1`, runID, err.Error())
 		return err
 	}
-	trunc := "hour"
-	if def.GroupBy == "day" {
-		trunc = "day"
-	}
-	series := map[report.Metric][]report.Bucket{}
-	total := 0
-	for _, m := range def.Metrics {
-		rows, err := s.st.Pool.Query(ctx,
-			`SELECT date_trunc($1, observed_at) AS bucket,
-			        avg(value), min(value), max(value), count(*)
-			 FROM telemetry
-			 WHERE tenant_id=$2 AND device_id=$3 AND point_id=$4
-			   AND observed_at > now() - ($5 || ' hours')::interval
-			 GROUP BY bucket ORDER BY bucket`,
-			trunc, tenant, m.DeviceID, m.PointID, fmt.Sprint(def.WindowHours))
-		if err != nil {
-			return fail(err)
-		}
-		for rows.Next() {
-			var b report.Bucket
-			rows.Scan(&b.Start, &b.Avg, &b.Min, &b.Max, &b.Count)
-			series[m] = append(series[m], b)
-			total++
-		}
-		rows.Close()
+	series, total, err := s.buildSeries(ctx, tenant, def)
+	if err != nil {
+		return fail(err)
 	}
 	htmlDoc := report.Render(name, def, series, time.Now())
 	if channelID != nil {
@@ -1015,6 +999,158 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 	}
 	_, err = s.st.Pool.Exec(ctx, `UPDATE reports SET last_run_at=now() WHERE id=$1`, id)
 	return err
+}
+
+// buildSeries aggregates telemetry for every metric in a definition.
+func (s *server) buildSeries(ctx context.Context, tenant string, def report.Definition) (map[report.Metric][]report.Bucket, int, error) {
+	trunc := "hour"
+	if def.GroupBy == "day" {
+		trunc = "day"
+	}
+	series := map[report.Metric][]report.Bucket{}
+	total := 0
+	for _, m := range def.Metrics {
+		rows, err := s.st.Pool.Query(ctx,
+			`SELECT date_trunc($1, observed_at) AS bucket,
+			        avg(value), min(value), max(value), count(*)
+			 FROM telemetry
+			 WHERE tenant_id=$2 AND device_id=$3 AND point_id=$4
+			   AND observed_at > now() - ($5 || ' hours')::interval
+			 GROUP BY bucket ORDER BY bucket`,
+			trunc, tenant, m.DeviceID, m.PointID, fmt.Sprint(def.WindowHours))
+		if err != nil {
+			return nil, 0, err
+		}
+		for rows.Next() {
+			var b report.Bucket
+			rows.Scan(&b.Start, &b.Avg, &b.Min, &b.Max, &b.Count)
+			series[m] = append(series[m], b)
+			total++
+		}
+		rows.Close()
+	}
+	return series, total, nil
+}
+
+// previewReport renders a definition without storing or delivering it.
+func (s *server) previewReport(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name       string            `json:"name"`
+		Definition report.Definition `json:"definition"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	if err := report.Validate(in.Definition); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		name = "Preview"
+	}
+	series, total, err := s.buildSeries(r.Context(), auth.Tenant(r), in.Definition)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"html": report.Render(name, in.Definition, series, time.Now()), "rows": total})
+}
+
+// downloadReport returns the stored report's current data as CSV or HTML.
+func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
+	var name string
+	var defBytes []byte
+	if err := s.st.Pool.QueryRow(r.Context(),
+		`SELECT name, definition FROM reports WHERE id=$1 AND tenant_id=$2`, r.PathValue("id"), auth.Tenant(r)).
+		Scan(&name, &defBytes); err != nil {
+		http.Error(w, "report not found", 404)
+		return
+	}
+	var def report.Definition
+	if err := json.Unmarshal(defBytes, &def); err != nil {
+		http.Error(w, "report definition corrupt", 500)
+		return
+	}
+	series, _, err := s.buildSeries(r.Context(), auth.Tenant(r), def)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	safe := strings.Map(func(c rune) rune {
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' {
+			return c
+		}
+		return '_'
+	}, name)
+	s.audit(r, "report.download", r.PathValue("id"), map[string]any{"format": r.URL.Query().Get("format")})
+	if r.URL.Query().Get("format") == "html" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.html"`)
+		fmt.Fprint(w, report.Render(name, def, series, time.Now()))
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.csv"`)
+	fmt.Fprint(w, report.RenderCSV(def, series))
+}
+
+// listPoints feeds the report/dashboard pickers: every device with its points.
+func (s *server) listPoints(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT d.id, d.name, p.id, COALESCE(p.unit,'') FROM devices d JOIN points p ON p.device_id=d.id
+		 WHERE d.tenant_id=$1 ORDER BY d.name, p.id LIMIT 5000`, auth.Tenant(r))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var did, dname, pid, unit string
+		rows.Scan(&did, &dname, &pid, &unit)
+		out = append(out, map[string]any{"device_id": did, "device_name": dname, "point_id": pid, "unit": unit})
+	}
+	writeJSON(w, 200, out)
+}
+
+// exportTelemetryCSV streams raw samples for SCADA historians, BI tools and
+// spreadsheets. Bounded (hours <= 720, 200k rows) so one call cannot hurt ingest.
+func (s *server) exportTelemetryCSV(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	dev, pt := q.Get("device_id"), q.Get("point_id")
+	hours, _ := strconv.Atoi(q.Get("hours"))
+	if hours < 1 || hours > 720 {
+		hours = 24
+	}
+	if dev == "" || len(dev) > 128 || len(pt) > 128 {
+		http.Error(w, "device_id required", 400)
+		return
+	}
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT observed_at, point_id, value, unit, quality FROM telemetry
+		 WHERE tenant_id=$1 AND device_id=$2 AND ($3='' OR point_id=$3)
+		   AND observed_at > now() - ($4 || ' hours')::interval
+		 ORDER BY observed_at LIMIT 200000`, auth.Tenant(r), dev, pt, fmt.Sprint(hours))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="telemetry.csv"`)
+	s.audit(r, "export.telemetry", dev, map[string]any{"point_id": pt, "hours": hours})
+	cw := csv.NewWriter(w)
+	cw.Write([]string{"observed_at", "point_id", "value", "unit", "quality"})
+	for rows.Next() {
+		var t time.Time
+		var p, u, ql string
+		var v float64
+		rows.Scan(&t, &p, &v, &u, &ql)
+		cw.Write([]string{t.UTC().Format(time.RFC3339Nano), report.CSVSafe(p), strconv.FormatFloat(v, 'g', -1, 64), report.CSVSafe(u), report.CSVSafe(ql)})
+	}
+	cw.Flush()
 }
 
 // reportScheduler fires cron-due reports once per minute. Multi-replica

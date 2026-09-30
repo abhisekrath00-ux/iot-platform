@@ -113,3 +113,25 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 	}
 	return b.String()
 }
+
+// CSVSafe neutralizes spreadsheet formula injection: a cell starting with
+// = + - @ tab or CR is prefixed with an apostrophe.
+func CSVSafe(s string) string {
+	if s != "" && strings.ContainsRune("=+-@\t\r", rune(s[0])) {
+		return "'" + s
+	}
+	return s
+}
+
+// RenderCSV flattens aggregated series to CSV (device, point, bucket, avg, min, max, count).
+func RenderCSV(d Definition, series map[Metric][]Bucket) string {
+	var b strings.Builder
+	b.WriteString("device_id,point_id,bucket_start,avg,min,max,count\n")
+	for _, m := range d.Metrics {
+		for _, k := range series[m] {
+			fmt.Fprintf(&b, "%s,%s,%s,%.6g,%.6g,%.6g,%d\n", CSVSafe(m.DeviceID), CSVSafe(m.PointID),
+				k.Start.UTC().Format(time.RFC3339), k.Avg, k.Min, k.Max, k.Count)
+		}
+	}
+	return b.String()
+}

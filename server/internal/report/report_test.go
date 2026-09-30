@@ -52,3 +52,15 @@ func TestRenderEmptySeries(t *testing.T) {
 		t.Fatal("missing empty note")
 	}
 }
+
+func TestCSVSafeAndRender(t *testing.T) {
+	if CSVSafe("=cmd|'/c calc'") != "'=cmd|'/c calc'" || CSVSafe("ok") != "ok" || CSVSafe("") != "" {
+		t.Fatal("CSVSafe wrong")
+	}
+	m := Metric{DeviceID: "d1", PointID: "t"}
+	out := RenderCSV(Definition{Metrics: []Metric{m}}, map[Metric][]Bucket{m: {{Start: time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC), Avg: 1.5, Min: 1, Max: 2, Count: 4}}})
+	want := "device_id,point_id,bucket_start,avg,min,max,count\nd1,t,2026-01-02T03:00:00Z,1.5,1,2,4\n"
+	if out != want {
+		t.Fatalf("got %q", out)
+	}
+}
