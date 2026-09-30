@@ -91,7 +91,7 @@ machine and install offline per `docs/airgap.md`.
 - [Local setup](docs/setup.md) · [Deployment (cloud & on-prem)](docs/deployment.md) · [Air-gapped install](docs/airgap.md)
 - [Testing](docs/testing.md) — what CI runs and how to run it locally
 - [Security model](docs/security.md) — mTLS, RBAC, approval gating, hazard analysis
-- [Connectors (STM32, Modbus, OPC UA, SCADA)](docs/connectors.md) · [Edge install (Ubuntu/Windows)](docs/edge-install.md)
+- [Connectors (STM32, Modbus, OPC UA, SCADA)](docs/connectors.md) · [Direct MQTT devices (design)](docs/mqtt-direct.md) · [Edge install (Ubuntu/Windows)](docs/edge-install.md)
 - [Commissioning](docs/commissioning.md) · [Fleet rollout](docs/fleet.md) · [Backup/restore](docs/backup-restore.md)
 - [MCP evaluation](docs/mcp-eval.md) · [SLOs](docs/slo.md) · [Contributing](docs/contributing.md)
 
