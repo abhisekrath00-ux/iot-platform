@@ -171,3 +171,7 @@ Change any of these only with a written ADR in docs/adr/.
 Hot read endpoints (`/v1/fleet`, `/v1/telemetry/latest`, `/v1/devices`, `/v1/points`, `/v1/sites`, `/v1/profiles`) sit behind a small in-process response cache (`server/internal/respcache`): tenant-scoped keys, per-endpoint TTL (2 s for live values, 10-30 s for configuration lists), single-flight on concurrent misses, a hard entry cap, and only `200` GET responses stored. Any successful non-GET request drops that tenant's entries. Responses carry `X-Cache: HIT|MISS`.
 
 Limits: the cache is per API replica, so with several replicas a read can be as old as its TTL from any replica (a write invalidates only the replica that served it). That is why TTLs are seconds. A shared cache (Redis is already optional for OIDC state) is the next step if replicas multiply; it is not built.
+
+## Dashboard widgets
+
+Widgets are stored as JSON in the dashboard layout, so adding a type needs no migration. Types: live value (KPI), gauge, trend (24 h line), bars (all points of a device) and device status. Gauge, KPI and bars accept `min`, `max`, `warn` and `crit`; the colour comes from `web/src/lib/widgets.ts` (unit-tested: threshold state, gauge fraction, online/offline freshness). Layout is an auto-fill grid; there is no drag-and-drop or per-widget time-window picker yet.

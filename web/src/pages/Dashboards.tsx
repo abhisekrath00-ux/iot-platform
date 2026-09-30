@@ -3,14 +3,9 @@ import { formatValue } from '../lib/format';
 import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
+import { Widget, WidgetType, thresholdState, optNum } from '../lib/widgets';
+import { GaugeWidget, BarWidget, StatusWidget } from '../components/Widgets';
 
-interface Widget {
-  id: string;
-  type: 'kpi' | 'timeseries';
-  title: string;
-  device_id: string;
-  point_id?: string;
-}
 interface Dashboard { id: string; name: string; layout: { widgets?: Widget[] }; }
 
 const TEMPLATES = [
@@ -38,7 +33,7 @@ function KpiWidget({ w }: { w: Widget }) {
       {err && <div className="muted" style={{ fontSize: 12 }}>{err}</div>}
       {pt ? (
         <>
-          <div className="kpi">{formatValue(pt.value)} <small>{pt.unit}</small></div>
+          <div className="kpi" style={{ color: ({ ok: 'inherit', warn: 'var(--warn, #b25000)', bad: 'var(--bad, #d70015)', none: 'inherit' } as Record<string, string>)[thresholdState(pt.value, w.warn, w.crit)] }}>{formatValue(pt.value)} <small>{pt.unit}</small></div>
           <span className={`pill ${pt.quality === 'measured' ? 'ok' : 'warn'}`}>{pt.quality}</span>
           <div className="muted" style={{ fontSize: 12 }}>{new Date(pt.observed_at).toLocaleString()}</div>
         </>
@@ -57,7 +52,7 @@ function SeriesWidget({ w }: { w: Widget }) {
       .catch(e => setErr(String(e)));
   }, [w.device_id, w.point_id]);
   return (
-    <div className="card" style={{ minWidth: 320 }}>
+    <div className="card">
       <div className="muted">{w.title}</div>
       {err && <div className="muted" style={{ fontSize: 12 }}>{err}</div>}
       <div style={{ width: '100%', height: 220 }}>
@@ -87,7 +82,11 @@ export default function Dashboards() {
   const [tpl, setTpl] = useState('blank');
   const [tplDevice, setTplDevice] = useState('');
   // widget form
-  const [wType, setWType] = useState<'kpi' | 'timeseries'>('kpi');
+  const [wType, setWType] = useState<WidgetType>('kpi');
+  const [wMin, setWMin] = useState('');
+  const [wMax, setWMax] = useState('');
+  const [wWarn, setWWarn] = useState('');
+  const [wCrit, setWCrit] = useState('');
   const [wTitle, setWTitle] = useState('');
   const [wDevice, setWDevice] = useState('');
   const [wPoint, setWPoint] = useState('');
@@ -152,7 +151,8 @@ export default function Dashboards() {
     if (!sel || !wDevice) return;
     const w: Widget = {
       id: uid(), type: wType, device_id: wDevice, point_id: wPoint || undefined,
-      title: wTitle.trim() || `${deviceName(wDevice)} ${wPoint || ''}${wType === 'timeseries' ? ' (24h)' : ''}`,
+      title: wTitle.trim() || `${deviceName(wDevice)} ${wType === 'bar' || wType === 'status' ? '' : wPoint || ''}${wType === 'timeseries' ? ' (24h)' : ''}`.trim(),
+      min: optNum(wMin), max: optNum(wMax), warn: optNum(wWarn), crit: optNum(wCrit),
     };
     setSel({ ...sel, layout: { widgets: [...(sel.layout.widgets ?? []), w] } });
     setWTitle('');
@@ -218,9 +218,12 @@ export default function Dashboards() {
               <div className="muted" style={{ marginBottom: 8 }}>Add widget</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
                 <div><label>Type</label>
-                  <select value={wType} onChange={e => setWType(e.target.value as 'kpi' | 'timeseries')}>
+                  <select value={wType} onChange={e => setWType(e.target.value as WidgetType)}>
                     <option value="kpi">Live value (KPI)</option>
+                    <option value="gauge">Gauge</option>
                     <option value="timeseries">Trend (24h chart)</option>
+                    <option value="bar">Bars (all points)</option>
+                    <option value="status">Device status</option>
                   </select>
                 </div>
                 <div><label>Device</label>
@@ -235,15 +238,19 @@ export default function Dashboards() {
                   </select>
                 </div>
                 <div><label>Title (optional)</label><input value={wTitle} onChange={e => setWTitle(e.target.value)} /></div>
-                <button onClick={addWidget} disabled={!wDevice || !wPoint}>Add</button>
+                {(wType === 'gauge' || wType === 'bar') && <div><label>Min</label><input type="number" style={{ width: 80 }} value={wMin} onChange={e => setWMin(e.target.value)} /></div>}
+                {(wType === 'gauge' || wType === 'bar') && <div><label>Max</label><input type="number" style={{ width: 80 }} value={wMax} onChange={e => setWMax(e.target.value)} /></div>}
+                {wType !== 'timeseries' && wType !== 'status' && <div><label>Warn at</label><input type="number" style={{ width: 80 }} value={wWarn} onChange={e => setWWarn(e.target.value)} /></div>}
+                {wType !== 'timeseries' && wType !== 'status' && <div><label>Critical at</label><input type="number" style={{ width: 80 }} value={wCrit} onChange={e => setWCrit(e.target.value)} /></div>}
+                <button onClick={addWidget} disabled={!wDevice || (!wPoint && wType !== 'bar' && wType !== 'status')}>Add</button>
               </div>
             </div>
           )}
 
           <div className="cards">
             {widgets.map(w => (
-              <div key={w.id} style={{ position: 'relative' }}>
-                {w.type === 'kpi' ? <KpiWidget w={w} /> : <SeriesWidget w={w} />}
+              <div key={w.id} style={{ position: 'relative', minWidth: 0, gridColumn: w.type === 'bar' || w.type === 'timeseries' ? 'span 2' : undefined }}>
+                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : <SeriesWidget w={w} />}
                 {editing && <button className="ghost" style={{ position: 'absolute', top: 6, right: 6 }} onClick={() => removeWidget(w.id)}>x</button>}
               </div>
             ))}
