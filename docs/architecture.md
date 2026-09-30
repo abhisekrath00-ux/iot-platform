@@ -197,3 +197,8 @@ Devices carry up to 20 lowercase tags (`a-z 0-9 . _ : -`, max 32 chars). `PUT /v
 `GET /v1/devices/{id}/health` returns a 0-100 score, a status (healthy, degraded, critical, offline) and the factors behind it.
 Rules live in `server/internal/health` (pure, unit tested): freshness of the newest sample relative to the device's poll interval (weight 50), share of recent samples with `measured` quality (30), and gateway link (20). Stale data is never reported healthy.
 The device page shows a tilting twin of the device (SVG/CSS, no external assets, respects reduced motion) with live readouts and an animated health ring. This is a 2.5D card, not a 3D model of the real hardware.
+
+## Dashboard layout and wall mode
+
+Dashboards use a 4-column grid (2 on narrow screens). In edit mode widgets can be dragged to reorder (native HTML5 drag and drop, no extra dependency) or moved with the arrow buttons, and resized 1-4 columns with the +/- buttons. The layout is stored in the dashboard JSON (`span` per widget, order = array order); `spanOf` and `moveItem` in `web/src/lib/widgets.ts` are unit tested.
+Wall mode hides navigation and editing chrome, uses larger values and frosted cards, requests browser fullscreen where allowed and exits on Esc. It does not rotate between dashboards yet. Touch drag-and-drop is not supported (the arrow buttons work on touch).

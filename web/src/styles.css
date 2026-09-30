@@ -119,3 +119,19 @@ form.grid2 { display: grid; grid-template-columns: 160px 240px; gap: 8px 12px; a
 @keyframes twin-pulse { 50% { opacity: .45; } }
 @media (max-width: 800px) { .twin { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .twin-device, .twin-arc, .twin-bar > div { transition: none; } .twin-led { animation: none !important; } }
+
+/* dashboard board, wall mode */
+.board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } .board-item { grid-column: span 1 !important; } }
+.board-item.dragging { opacity: .45; }
+.board-item[draggable='true'] { cursor: grab; outline: 1px dashed var(--line); outline-offset: 4px; border-radius: var(--radius); }
+.board-tools { display: flex; gap: 4px; justify-content: flex-end; margin-top: 6px; }
+.board-tools button { padding: 2px 8px; min-width: 26px; }
+body.wall nav { display: none; }
+body.wall .shell { grid-template-columns: 1fr; }
+body.wall main { padding: 28px 36px; max-width: none; }
+body.wall h1, body.wall .card .muted { letter-spacing: .01em; }
+body.wall .card { background: color-mix(in srgb, var(--panel) 70%, transparent); backdrop-filter: blur(18px) saturate(170%); -webkit-backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid var(--line); }
+body.wall .kpi { font-size: 52px; }
+.wall-exit { position: fixed; top: 14px; right: 18px; z-index: 10; opacity: .5; } .wall-exit:hover { opacity: 1; }

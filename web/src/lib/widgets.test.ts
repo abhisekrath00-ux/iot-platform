@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { thresholdState, fraction, freshness, optNum } from './widgets';
+import { thresholdState, fraction, freshness, optNum, spanOf, moveItem } from './widgets';
 
 describe('widget logic', () => {
   it('threshold state: crit beats warn, none when no value', () => {
@@ -27,5 +27,23 @@ describe('widget logic', () => {
     expect(optNum('abc')).toBeUndefined();
     expect(optNum('0')).toBe(0);
     expect(optNum(' 12.5 ')).toBe(12.5);
+  });
+});
+
+describe('layout logic', () => {
+  it('spanOf uses defaults and clamps explicit spans', () => {
+    expect(spanOf({ type: 'kpi' })).toBe(1);
+    expect(spanOf({ type: 'timeseries' })).toBe(2);
+    expect(spanOf({ type: 'kpi', span: 9 })).toBe(4);
+    expect(spanOf({ type: 'bar', span: 0 })).toBe(1);
+    expect(spanOf({ type: 'bar', span: NaN })).toBe(2);
+  });
+  it('moveItem reorders and ignores bad indexes', () => {
+    expect(moveItem(['a', 'b', 'c', 'd'], 0, 2)).toEqual(['b', 'c', 'a', 'd']);
+    expect(moveItem(['a', 'b', 'c', 'd'], 3, 0)).toEqual(['d', 'a', 'b', 'c']);
+    expect(moveItem(['a', 'b'], 5, 0)).toEqual(['a', 'b']);
+    const src = ['a', 'b'];
+    expect(moveItem(src, 0, 1)).not.toBe(src);
+    expect(src).toEqual(['a', 'b']);
   });
 });

@@ -3,7 +3,7 @@ import { formatValue } from '../lib/format';
 import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
-import { Widget, WidgetType, thresholdState, optNum } from '../lib/widgets';
+import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem } from '../lib/widgets';
 import { GaugeWidget, BarWidget, StatusWidget } from '../components/Widgets';
 
 interface Dashboard { id: string; name: string; layout: { widgets?: Widget[] }; }
@@ -76,6 +76,8 @@ export default function Dashboards() {
   const [sel, setSel] = useState<Dashboard | null>(null);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState(false);
+  const [wall, setWall] = useState(false);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [name, setName] = useState('');
   // create form
   const [newName, setNewName] = useState('');
@@ -165,12 +167,31 @@ export default function Dashboards() {
 
   const widgets = sel?.layout.widgets ?? [];
 
+  const setWidgets = (ws: Widget[]) => sel && setSel({ ...sel, layout: { widgets: ws } });
+  const resize = (id: string, delta: number) => setWidgets(widgets.map(w => w.id === id ? { ...w, span: Math.min(4, Math.max(1, spanOf(w) + delta)) } : w));
+
+  // Wall / TV mode: hides navigation, goes fullscreen when allowed, Esc exits.
+  useEffect(() => {
+    document.body.classList.toggle('wall', wall);
+    if (wall) document.documentElement.requestFullscreen?.().catch(() => undefined);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setWall(false); };
+    const onFs = () => { if (!document.fullscreenElement) setWall(false); };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('fullscreenchange', onFs);
+      document.body.classList.remove('wall');
+      if (wall && document.fullscreenElement) document.exitFullscreen?.().catch(() => undefined);
+    };
+  }, [wall]);
+
   return (
     <>
-      <h1>Dashboards</h1>
+      {!wall && <h1>Dashboards</h1>}
       {err && <p className="muted">{err}</p>}
 
-      <div className="card" style={{ marginBottom: 16 }}>
+      {!wall && <div className="card" style={{ marginBottom: 16 }}>
         <div className="muted" style={{ marginBottom: 8 }}>New dashboard</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
           <div><label>Name</label><input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Plant overview" /></div>
@@ -189,27 +210,30 @@ export default function Dashboards() {
           <button onClick={createBoard} disabled={!newName.trim()}>Create</button>
         </div>
         <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{TEMPLATES.find(t => t.id === tpl)?.desc}</div>
-      </div>
+      </div>}
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+      {!wall && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
         {boards.map(b => (
           <button key={b.id} className={sel?.id === b.id ? '' : 'ghost'} onClick={() => { setSel(b); setName(b.name); setEditing(false); }}>{b.name}</button>
         ))}
         {boards.length === 0 && <span className="muted">No dashboards yet.</span>}
-      </div>
+      </div>}
 
       {sel && (
         <>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
             {editing ? <input value={name} onChange={e => setName(e.target.value)} /> : <h2 style={{ margin: 0 }}>{sel.name}</h2>}
-            {editing ? (
+            {wall ? null : editing ? (
               <>
                 <button onClick={saveBoard}>Save</button>
                 <button className="ghost" onClick={() => { setEditing(false); loadBoards(); }}>Cancel</button>
                 <button className="ghost" onClick={deleteBoard}>Delete</button>
               </>
             ) : (
-              <button className="ghost" onClick={() => setEditing(true)}>Edit</button>
+              <>
+                <button className="ghost" onClick={() => setEditing(true)}>Edit</button>
+                <button className="ghost" onClick={() => setWall(true)} disabled={widgets.length === 0}>Wall mode</button>
+              </>
             )}
           </div>
 
@@ -247,11 +271,27 @@ export default function Dashboards() {
             </div>
           )}
 
-          <div className="cards">
-            {widgets.map(w => (
-              <div key={w.id} style={{ position: 'relative', minWidth: 0, gridColumn: w.type === 'bar' || w.type === 'timeseries' ? 'span 2' : undefined }}>
+          {wall && <button className="ghost wall-exit" onClick={() => setWall(false)}>Exit wall mode (Esc)</button>}
+          {editing && widgets.length > 1 && <p className="muted" style={{ fontSize: 12 }}>Drag widgets to reorder. Use the size buttons to make a widget wider or narrower.</p>}
+          <div className={`cards board${wall ? ' wall-grid' : ''}`}>
+            {widgets.map((w, i) => (
+              <div key={w.id} className={`board-item${dragFrom === i ? ' dragging' : ''}`}
+                style={{ position: 'relative', minWidth: 0, gridColumn: `span ${spanOf(w)}` }}
+                draggable={editing}
+                onDragStart={() => setDragFrom(i)}
+                onDragOver={e => { if (editing && dragFrom !== null) e.preventDefault(); }}
+                onDrop={e => { e.preventDefault(); if (dragFrom !== null) setWidgets(moveItem(widgets, dragFrom, i)); setDragFrom(null); }}
+                onDragEnd={() => setDragFrom(null)}>
                 {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : <SeriesWidget w={w} />}
-                {editing && <button className="ghost" style={{ position: 'absolute', top: 6, right: 6 }} onClick={() => removeWidget(w.id)}>x</button>}
+                {editing && (
+                  <div className="board-tools">
+                    <button className="ghost" aria-label="Narrower" onClick={() => resize(w.id, -1)}>-</button>
+                    <button className="ghost" aria-label="Wider" onClick={() => resize(w.id, 1)}>+</button>
+                    <button className="ghost" aria-label="Move earlier" onClick={() => setWidgets(moveItem(widgets, i, i - 1))}>&lt;</button>
+                    <button className="ghost" aria-label="Move later" onClick={() => setWidgets(moveItem(widgets, i, i + 1))}>&gt;</button>
+                    <button className="ghost" aria-label="Remove widget" onClick={() => removeWidget(w.id)}>x</button>
+                  </div>
+                )}
               </div>
             ))}
             {widgets.length === 0 && <p className="muted">No widgets. {editing ? 'Add one above.' : 'Click Edit to add widgets.'}</p>}
