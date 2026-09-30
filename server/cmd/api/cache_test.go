@@ -2,8 +2,10 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The cache is tenant-scoped, serves repeat reads from memory, and any
@@ -40,7 +42,7 @@ func TestIntegrationCacheHitIsolationAndInvalidation(t *testing.T) {
 		t.Fatal("expected cached (stale) body before invalidation")
 	}
 	// ...and a successful write through the API drops them.
-	if w := call(h, "itest-c1", "admin", "POST", "/v1/profiles", `{"name":"Cache probe","driver_profile":"opcua","points":[{"id":"x","node_id":"ns=2;s=A.B","unit":"C","min":0,"max":400}]}`); w.Code >= 400 {
+	if w := call(h, "itest-c1", "admin", "POST", "/v1/profiles", `{"name":"Cache probe `+strconv.FormatInt(time.Now().UnixNano(), 10)+`","driver_profile":"opcua","points":[{"id":"x","node_id":"ns=2;s=A.B","unit":"C","min":0,"max":400}]}`); w.Code >= 400 {
 		t.Fatalf("profile create failed: %d %s", w.Code, w.Body.String())
 	}
 	w = call(h, "itest-c1", "viewer", "GET", "/v1/points", "")
