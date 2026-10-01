@@ -33,6 +33,37 @@ from the code, not from intent.
 | Air-gapped deploy | ThingsBoard (self-host) | Offline bundle, self-hosted assets, verified install scripts | Have (dry-run on a clean VM still pending) |
 | Read caching, HA | ThingsBoard microservices | Per-replica response cache, leader election for scheduler | Partial |
 
+## Parity audit, 2026-10-01 evening (ThingsBoard, Siemens Insights Hub, Node-RED, Ignition)
+
+Status words: Have (built and tested), Partial, Missing. "Not planned" needs an owner decision or hardware.
+Siemens items are from its public documentation (sources below), not hands-on use.
+
+| Capability | Compared with | Status here | Plan |
+|---|---|---|---|
+| Generic HTTP device ingest | ThingsBoard HTTP API, Insights Hub | Have (this pass, integration-tested) | |
+| Automatic monthly telemetry partitions | ThingsBoard, Ignition historian | Have (this pass, tested) | |
+| Rules by asset or device type, activated for many instances | Insights Hub Monitor | Missing (rules are per device and point) | Build: rule applies to a profile |
+| Anomaly detection on a time series | Insights Hub Predict | Missing | Build: statistical (EWMA/z-score), no external ML |
+| Asset hierarchy, aspects, asset files | Insights Hub Asset Manager, ThingsBoard | Missing | Build: asset tree and relations |
+| KPI / derived points (formulas) | Insights Hub Monitor | Missing | Build: expression points |
+| Flow canvas with function, switch, change, debug nodes | Node-RED, Visual Flow Creator | Partial: trigger, condition, delay, notify nodes, versions, simulator; no JS function node, no switch/change/debug, no free-form canvas | Build: node types, import/export first |
+| Flow import and export (JSON) | Node-RED | Missing | Build next |
+| Custom node SDK, sandboxed function node | Node-RED | Missing | Needs a sandbox decision (WASM or goja) and security review |
+| Outbound webhooks and HTTP request node | ThingsBoard, Node-RED | Missing | Build with an allowlist (air-gap and SSRF safe) |
+| Geofencing and maps | ThingsBoard | Missing | Build only with a self-hosted tile source |
+| OTA firmware for end devices | ThingsBoard, Insights Hub | Partial: edge agent releases and staged rollout only | Not planned for MCU firmware without signing design |
+| White-label (logo, colours, title) | ThingsBoard PE | Missing | Build: tenant branding settings |
+| SSO | all | Have (OIDC) | SAML not built |
+| Mobile app / PWA | ThingsBoard | Missing | PWA manifest is cheap; native app not planned |
+| Edge compute | ThingsBoard Edge, Insights Hub edge analytics | Partial | See table above |
+| Protocols: BACnet, CoAP, LoRaWAN, SNMP, MQTT direct, LwM2M | ThingsBoard gateway | Missing (HTTP ingest and Modbus/OPC UA/serial exist) | Adapter-only claims are not made; each needs a device or simulator to test |
+| Historian | Ignition | Partial: raw plus hourly and daily rollups, partitions | Retention policy needs an owner decision |
+
+Sources: Insights Hub applications overview https://documentation.mindsphere.io/MindSphere/apps-and-solutions/overview.html ;
+capability packages https://assets.ctfassets.net/17si5cpawjzf/5cWrwqUy9OFRCeiyJ5B9wa/3885a769ba6031ba7e5bd3283452e1fd/Insights_Hub_CapabilityPackages_ProductSheet_v2.4.pdf ;
+Monitor rules by asset type and Predict anomaly detection https://blogs.sw.siemens.com/insights-hub/2023/04/17/insights-hub-and-the-industrial-iot-whats-new-april-2022/ ;
+Visual Flow Creator API https://developer.siemens.com/insights-hub/docs/apis/advanced-visual-flow-creator/api-visual-flow-creator-overview.html
+
 ## Ranked build list
 
 Status as of 2026-10-01 morning: items 1 to 7 below are built (see the table for caveats). Remaining gaps are the table rows still marked Partial or Missing.
