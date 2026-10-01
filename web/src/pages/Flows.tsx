@@ -13,6 +13,8 @@ interface Channel { id: string; type: string; target: string; }
 // the ingest worker and dispatch to the tenant's email/Slack channels.
 export default function Flows() {
   const [rules, setRules] = useState<Rule[]>([]);
+  const [assets, setAssets] = useState<{ id: string; name: string }[]>([]);
+  const [assetFilter, setAssetFilter] = useState('');
   const [name, setName] = useState('');
   const [pointId, setPointId] = useState('');
   const [deviceId, setDeviceId] = useState('');
@@ -34,11 +36,12 @@ export default function Flows() {
   const [steps, setSteps] = useState<any[]>([{ type: 'notify', channel_id: '', message: '' }]);
 
   const load = () => {
-    api<Rule[]>('/v1/rules').then(setRules).catch(e => setMsg(String(e)));
+    api<Rule[]>(assetFilter ? `/v1/rules?asset_id=${encodeURIComponent(assetFilter)}` : '/v1/rules').then(setRules).catch(e => setMsg(String(e)));
     api<FlowRow[]>('/v1/flows').then(setFlows).catch(() => {});
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [assetFilter]);
+  useEffect(() => { api<typeof assets>('/v1/assets').then(setAssets).catch(() => {}); }, []);
 
   function setStep(i: number, patch: any) {
     setSteps(ss => ss.map((st, j) => (j === i ? { ...st, ...patch } : st)));
@@ -120,6 +123,9 @@ export default function Flows() {
         {msg && <p className="muted">{msg}</p>}
       </div>
       <AnomalyRuleForm onCreated={load} />
+      {assets.length > 0 && <div style={{ marginBottom: 8 }}><label htmlFor="rule-asset" className="muted">Rules for devices under </label>
+        <select id="rule-asset" value={assetFilter} onChange={e => setAssetFilter(e.target.value)} style={{ width: 'auto' }}><option value="">All assets</option>{assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+        {assetFilter && <span className="muted"> Rules that apply to any device or a whole profile are hidden while filtering.</span>}</div>}
       {rules.length === 0 && <Empty title="No rules yet" hint="Create a threshold rule above to raise alerts when a point crosses a limit." />}
       {rules.length > 0 && <table>
         <thead><tr><th>Name</th><th>Condition</th><th>Severity</th><th>Status</th></tr></thead>

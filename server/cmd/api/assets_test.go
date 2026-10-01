@@ -140,6 +140,28 @@ func TestIntegrationDeviceFilterByAsset(t *testing.T) {
 	if n := alertIDs("itest-af2", "?asset_id=af-plant"); n != 0 {
 		t.Fatalf("cross-tenant alerts: %d", n)
 	}
+	s.st.Pool.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('af-user','itest-af1','af@x.local','af','admin') ON CONFLICT DO NOTHING`)
+	s.st.Pool.Exec(ctx, `DELETE FROM rules WHERE tenant_id='itest-af1'`)
+	s.st.Pool.Exec(ctx, `INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES
+	  ('af-r1','itest-af1','on line','{"device_id":"itest-af1-dev","point_id":"temp","op":">","threshold":1,"severity":"info"}',true,'af-user'),
+	  ('af-r2','itest-af1','any device','{"point_id":"temp","op":">","threshold":1,"severity":"info"}',true,'af-user')`)
+	t.Cleanup(func() { s.st.Pool.Exec(ctx, `DELETE FROM rules WHERE tenant_id='itest-af1'`) })
+	api.HandleFunc("GET /v1/rules", s.listRules)
+	ruleCount := func(tenant, q string) int {
+		w := call(api, tenant, "viewer", "GET", "/v1/rules"+q, "")
+		var l []map[string]any
+		json.Unmarshal(w.Body.Bytes(), &l)
+		return len(l)
+	}
+	if n := ruleCount("itest-af1", "?asset_id=af-plant"); n != 1 {
+		t.Fatalf("rules under asset: %d", n)
+	}
+	if n := ruleCount("itest-af2", "?asset_id=af-plant"); n != 0 {
+		t.Fatalf("cross-tenant rules: %d", n)
+	}
+	if n := ruleCount("itest-af1", ""); n != 2 {
+		t.Fatalf("unfiltered rules: %d", n)
+	}
 	if got := ids("itest-af1", ""); len(got) == 0 {
 		t.Fatal("unfiltered list empty")
 	}

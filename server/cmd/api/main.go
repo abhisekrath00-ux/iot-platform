@@ -1589,8 +1589,16 @@ func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
 
 // --- rules CRUD (flow definitions; evaluator runs in ingest) ---
 func (s *server) listRules(w http.ResponseWriter, r *http.Request) {
+	asset := r.URL.Query().Get("asset_id") // rules that name a device under this asset
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, name, definition, version, enabled FROM rules WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
+		`WITH RECURSIVE sub AS (
+		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($2,'')
+		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
+		 )
+		 SELECT id, name, definition, version, enabled FROM rules
+		 WHERE tenant_id=$1
+		   AND ($2='' OR definition->>'device_id' IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub)))
+		 ORDER BY created_at DESC`, auth.Tenant(r), asset)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
