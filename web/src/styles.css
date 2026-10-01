@@ -144,3 +144,13 @@ body.wall .kpi { font-size: 52px; }
   backdrop-filter: blur(20px) saturate(170%); -webkit-backdrop-filter: blur(20px) saturate(170%); border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0,0,0,.35); animation: tour-pop .25s ease; }
 @keyframes tour-pop { from { opacity: 0; transform: translateY(4px) scale(.98); } }
 @media (prefers-reduced-motion: reduce) { .tour-card, .tour-ring { animation: none; } }
+
+/* Glass surfaces: self-hosted, CSS only (no external assets). */
+:root { --glass: rgba(255,255,255,.62); --glass-edge: rgba(255,255,255,.7);
+  --aurora: radial-gradient(900px 500px at 8% -10%, rgba(10,132,255,.14), transparent 60%), radial-gradient(800px 480px at 100% 0%, rgba(175,82,222,.10), transparent 60%); }
+:root[data-theme="dark"] { --glass: rgba(44,44,48,.55); --glass-edge: rgba(255,255,255,.08);
+  --aurora: radial-gradient(900px 500px at 8% -10%, rgba(10,132,255,.22), transparent 60%), radial-gradient(800px 480px at 100% 0%, rgba(191,90,242,.16), transparent 60%); }
+body { background-image: var(--aurora); background-attachment: fixed; }
+.card { background: var(--glass); backdrop-filter: saturate(160%) blur(18px); -webkit-backdrop-filter: saturate(160%) blur(18px);
+  border-color: var(--glass-edge); box-shadow: var(--shadow), inset 0 1px 0 var(--glass-edge); }
+@media (prefers-reduced-transparency: reduce) { .card { background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; } }
