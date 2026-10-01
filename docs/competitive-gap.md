@@ -49,7 +49,7 @@ Siemens items are from its public documentation (sources below), not hands-on us
 | Flow canvas with function, switch, change, debug nodes | Node-RED, Visual Flow Creator | Partial: trigger, condition, delay, notify nodes, versions, simulator; no JS function node, no switch/change/debug, no free-form canvas | Build: node types, import/export first |
 | Flow import and export (JSON) | Node-RED | Have (this pass, integration-tested): export of the published version as `hexmon-flow/1`, import as an unpublished draft, channel ids replaced by type:target labels. Not Node-RED file compatible. | |
 | Custom node SDK, sandboxed function node | Node-RED | Missing | Needs a sandbox decision (WASM or goja) and security review |
-| Outbound webhooks and HTTP request node | ThingsBoard, Node-RED | Missing | Build with an allowlist (air-gap and SSRF safe) |
+| Outbound webhooks and HTTP request node | ThingsBoard, Node-RED | Partial (this pass, tested): `webhook` notification channel used by alert rules, flows and scheduled reports. Admin-configured URL only (flows cannot supply URLs), no redirects, loopback/link-local/metadata addresses blocked at dial time, optional HMAC signature (`WEBHOOK_SIGNING_SECRET`). No arbitrary HTTP request node, no response handling in flows | |
 | Geofencing and maps | ThingsBoard | Missing | Build only with a self-hosted tile source |
 | OTA firmware for end devices | ThingsBoard, Insights Hub | Partial: edge agent releases and staged rollout only | Not planned for MCU firmware without signing design |
 | White-label (logo, colours, title) | ThingsBoard PE | Missing | Build: tenant branding settings |

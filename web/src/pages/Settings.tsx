@@ -32,7 +32,7 @@ export default function Settings() {
         <form onSubmit={submit}>
           <label>Type</label>
           <select value={type} onChange={e => setType(e.target.value)}>
-            <option value="email">Email</option><option value="slack">Slack channel</option>
+            <option value="email">Email</option><option value="slack">Slack channel</option><option value="webhook">Webhook (HTTPS URL)</option>
           </select>
           <label>{type === 'email' ? 'Email address' : 'Slack channel ID'}</label>
           <input value={target} onChange={e => setTarget(e.target.value)} placeholder={type === 'email' ? 'ops@yourcompany.com' : 'C0123456789'} required />

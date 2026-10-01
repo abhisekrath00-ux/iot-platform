@@ -1095,6 +1095,10 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 			if err := n.Slack(ctx, target, "Report ready: "+name+" ("+fmt.Sprint(total)+" rows)"); err != nil {
 				return fail(err)
 			}
+		case "webhook":
+			if err := n.Webhook(ctx, target, "report.ready", map[string]any{"report": name, "rows": total}); err != nil {
+				return fail(err)
+			}
 		}
 	}
 	if _, err := s.st.Pool.Exec(ctx,
@@ -1584,9 +1588,15 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		Target string `json:"target"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Target == "" ||
-		(in.Type != "email" && in.Type != "slack") {
-		http.Error(w, "type (email|slack) and target required", 400)
+		(in.Type != "email" && in.Type != "slack" && in.Type != "webhook") {
+		http.Error(w, "type (email|slack|webhook) and target required", 400)
 		return
+	}
+	if in.Type == "webhook" {
+		if err := notify.ValidateWebhookURL(in.Target); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 	}
 	id := uuid.NewString()
 	_, err := s.st.Pool.Exec(r.Context(),

@@ -92,10 +92,17 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 					continue
 				}
 				var derr error
-				if ctype == "email" {
+				switch ctype {
+				case "email":
 					derr = n.Email(bg, []string{target}, "Flow: "+flowName, a.Message)
-				} else {
+				case "slack":
 					derr = n.Slack(bg, target, "["+flowName+"] "+a.Message)
+				case "webhook":
+					if wh, ok := n.(interface {
+						Webhook(context.Context, string, string, map[string]any) error
+					}); ok {
+						derr = wh.Webhook(bg, target, "flow.notify", map[string]any{"flow": flowName, "message": a.Message, "device_id": deviceID, "point_id": pointID, "value": value})
+					}
 				}
 				if derr != nil {
 					log.Printf("flow %s: dispatch: %v", flowID, derr)

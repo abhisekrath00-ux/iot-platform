@@ -110,3 +110,7 @@ Machine clients (SCADA, BI, scripts) use `Authorization: Bearer hxk_<id>.<secret
 - Keys cannot list, create or revoke keys; those calls need an admin session.
 - Create and revoke are audited; `last_used_at` is recorded. Key principals appear as `apikey:<id>` in audit and approval records.
 - Not yet built: per-key endpoint scopes and per-key rate limits (the global limiter applies).
+
+## Outbound webhooks
+
+Webhook channels can only be created by a tenant admin. Flows and rules reference a channel id, never a URL, so an operator cannot aim a flow at an arbitrary host. The sender refuses redirects and checks the resolved address when it connects (DNS rebinding safe): loopback, link-local (including the cloud metadata address), unspecified and multicast targets are blocked. RFC 1918 private ranges are allowed on purpose, because on-prem and air-gapped receivers live there; that means an admin can point a webhook at an internal service, which is why only admins can create them. Set `WEBHOOK_SIGNING_SECRET` to add an `X-Hexmon-Signature: sha256=<hmac of body>` header. Delivery is best-effort, one attempt, logged on failure; there is no retry queue yet.

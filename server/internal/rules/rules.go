@@ -110,6 +110,12 @@ func dispatch(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, sev
 			err = n.Email(cctx, []string{target}, "[Hexmon IoT] "+severity+" alert", msg)
 		case "slack":
 			err = n.Slack(cctx, target, "["+severity+"] "+msg)
+		case "webhook":
+			if wh, ok := n.(interface {
+				Webhook(context.Context, string, string, map[string]any) error
+			}); ok {
+				err = wh.Webhook(cctx, target, "alert.raised", map[string]any{"severity": severity, "message": msg})
+			}
 		}
 		cancel()
 		if err != nil {

@@ -15,6 +15,7 @@ import (
 type Notifier struct {
 	smtpHost, smtpPort, smtpUser, smtpPass, from string
 	slackToken, slackBase                        string
+	allowLoopback                                bool // tests only
 }
 
 func FromEnv() *Notifier {
