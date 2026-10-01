@@ -1,3 +1,4 @@
+import { History, emptyHistory, record, redo, undo } from '../lib/history';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import {
@@ -14,10 +15,10 @@ const SW_OPS = ['==', '!=', '>', '<', '>=', '<=', 'contains', 'else'];
 
 // One open flow. flowId is set once it exists on the server; version is the
 // stored version this tab last saved or opened.
-interface Tab { key: string; flowId?: string; version?: number; name: string; g: Graph; dirty: boolean; sel: string | null; msg: string; result: TestResult | null; testValue: string; }
+interface Tab { key: string; flowId?: string; version?: number; name: string; g: Graph; dirty: boolean; sel: string | null; msg: string; result: TestResult | null; testValue: string; hist: History; }
 
 let tabCounter = 0;
-const newTab = (over: Partial<Tab> = {}): Tab => ({ key: `t${++tabCounter}`, name: '', g: emptyGraph(), dirty: false, sel: null, msg: '', result: null, testValue: '', ...over });
+const newTab = (over: Partial<Tab> = {}): Tab => ({ key: `t${++tabCounter}`, name: '', g: emptyGraph(), dirty: false, sel: null, msg: '', result: null, testValue: '', hist: emptyHistory(), ...over });
 
 // Visual editor for node-graph flows, with a manager for many flows and one
 // tab per open flow. Everything is saved as an unpublished draft; publishing is
@@ -36,7 +37,17 @@ export default function FlowEditor() {
 
   const tab = tabs.find(t => t.key === active) ?? tabs[0];
   const patchTab = (key: string, p: Partial<Tab> | ((t: Tab) => Partial<Tab>)) =>
-    setTabs(ts => ts.map(t => (t.key === key ? { ...t, ...(typeof p === 'function' ? p(t) : p) } : t)));
+    setTabs(ts => ts.map(t => {
+      if (t.key !== key) return t;
+      const np = typeof p === 'function' ? p(t) : p;
+      // an edit to the graph from the user (not a load, undo or redo) is recorded for undo
+      if (np.g && np.g !== t.g && np.hist === undefined) return { ...t, ...np, hist: record(t.hist, t.g, Date.now()) };
+      return { ...t, ...np };
+    }));
+  const stepHistory = (dir: 'undo' | 'redo') => {
+    const r = (dir === 'undo' ? undo : redo)(tab.hist, tab.g);
+    if (r) patchTab(tab.key, { g: r.g, hist: r.h, dirty: true, sel: null });
+  };
   const setG = (fn: (g: Graph) => Graph, dirty = true) => patchTab(tab.key, t => ({ g: fn(t.g), dirty: dirty || t.dirty }));
   const g = tab.g;
 
@@ -254,6 +265,8 @@ export default function FlowEditor() {
         {hints.length > 0 && <ul className="muted" style={{ marginTop: 0 }}>{hints.map(h => <li key={h}>{h}</li>)}</ul>}
         <div className="fe-toolbar">
           <input aria-label="Test value" type="number" step="any" value={tab.testValue} onChange={e => patchTab(tab.key, { testValue: e.target.value })} placeholder="test reading" style={{ maxWidth: 160 }} />
+          <button type="button" className="ghost" onClick={() => stepHistory('undo')} disabled={tab.hist.past.length === 0}>Undo</button>
+          <button type="button" className="ghost" onClick={() => stepHistory('redo')} disabled={tab.hist.future.length === 0}>Redo</button>
           <button type="button" className="ghost" onClick={test} disabled={tab.testValue === ''}>Test (nothing is sent)</button>
           <button type="button" onClick={save} disabled={!tab.name || hints.length > 0 || (!!tab.flowId && !tab.dirty)}>{tab.flowId ? 'Save as new draft version' : 'Save draft'}</button>
           <button type="button" className="ghost" onClick={publish} disabled={!tab.flowId || tab.dirty}>Publish saved version</button>
