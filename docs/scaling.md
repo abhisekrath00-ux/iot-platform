@@ -17,7 +17,13 @@ tenant (not built).
 
 ## Built
 
-- Telemetry is range-partitioned by month, indexed on (device, point, time desc).
+- Telemetry is declared range-partitioned by month, but schema v1 only created a
+  default partition, so until now all rows sat in one table. The leader-elected
+  hourly job now creates the current and next 3 monthly partitions
+  (`retention.EnsurePartitions`, tested). Months whose rows are already in the
+  default partition are skipped and logged, because Postgres will not attach a
+  partition over existing default rows; existing deployments keep old data in the
+  default partition until an operator moves it. Indexed on (device, point, time desc).
 - Hourly rollups so reports and long-range charts do not scan raw rows.
 - Backpressure on HTTP ingest: body capped at 1 MB, batches capped at 500
   readings (413), per-key rate limit (`API_KEY_RPM`), duplicate event ids stored once.
@@ -33,5 +39,5 @@ tenant (not built).
   broker (EMQX or HiveMQ clusters, or Mosquitto behind a bridge per site) and keep
   the `t/<tenant>/g/<gateway>/...` topic scheme and ACL file identical on every node.
   This is guidance, not a tested configuration.
-- Table partition creation beyond the default partition is a manual operation
-  today; check `docs/backup-restore.md` before large retention changes.
+- Moving historical rows out of the default partition into monthly partitions is
+  not automated.
