@@ -33,12 +33,16 @@ no code change needed.
 | Physical control | Command requests with mandatory approval (four-eyes: requester != approver), edge executor allowlist | Verified; physical actuation is Pilot (needs hardware) |
 | Workflows (flows) | Flow definitions with draft/publish, version history, rollback, dry-run simulate | Verified |
 | Rules | Threshold/rule evaluation against live telemetry | Verified |
-| Alerts | Severity, acknowledge/resolve lifecycle, fan-out to notification channels | Verified |
+| Alerts | Severity, acknowledge/resolve lifecycle with notes and status filter, fan-out to notification channels | Verified |
+| Flow cooldown | Optional per-flow quiet period so a stuck sensor does not flood channels | Verified (not a latch: does not wait for the value to recover) |
 
 ### Dashboards and reporting
 | Feature | What you get | Status |
 |---|---|---|
-| Custom dashboards | Dashboard builder page: KPI and 24h-trend widgets, per-device/point config, starter templates (blank / KPI grid / trends) | Verified |
+| Custom dashboards | Builder with KPI, gauge, bar, status and 24h-trend widgets, thresholds, templates, drag-and-drop layout and sizing, wall/TV mode | Verified (layout logic unit-tested; drag and wall mode checked by screenshots, no browser e2e; no wall auto-rotate yet) |
+| Device tags and fleet search | Up to 20 tags per device, search and filter the fleet | Verified |
+| Device health and digital twin | Explainable 0-100 health score and a 2.5D twin card per device | Verified (score rules unit-tested; twin is an SVG/CSS card, not a 3D model) |
+| Product tour | First-run guided tour, restartable | Verified (logic); visual check by screenshot |
 | Report builder | Report definitions, on-demand runs, scheduled cron runner | Verified |
 | Audit logs | Append-only audit trail (who/what/when), admin-only API + Audit page | Verified |
 
@@ -47,7 +51,9 @@ no code change needed.
 |---|---|---|
 | Notifications | SMTP email and Slack channels (`/v1/notifications/channels`) | Verified end to end with test servers; real deliverability is Pilot (needs site SMTP/Slack creds) |
 | RBAC + SSO | admin/operator/viewer roles on every write path, OIDC login, rate-limited auth | Verified |
-| MCP (AI integration) | MCP server exposing platform tools to AI assistants, plus `mcpeval` regression suite | Verified (eval suite) |
+| MCP (AI integration) | MCP server with 7 tools (sites, device health, time series, alert explain, list devices, list alerts, aggregate) plus `mcpeval` regression suite | Verified (eval suite, DB-backed tool tests) |
+| API keys | Hashed, tenant-scoped, viewer/operator only, expiring, revocable keys for SCADA/BI | Verified (no per-key endpoint scopes yet) |
+| Retention and rollups | Hourly rollups, optional raw purge (`RAW_RETENTION_DAYS`), rollup API | Verified (charts and reports still read raw data for long ranges) |
 | Search | Tenant-scoped Elasticsearch over devices and alerts | Verified in compose |
 | Fleet management | Releases and staged rollout campaigns (rings, pause/abort), edge `fleetctl` applier | API Verified; OTA on a live gateway is Pilot |
 | Broker security | Per-gateway Mosquitto ACLs generated from enrollment | Verified; production enablement documented |

@@ -13,7 +13,7 @@ the discussion doc for why the system is shaped the way it is.
 | Ingest | Implemented | MQTT consumer, idempotent insert, rules + flow evaluation per reading |
 | API | Implemented | Devices, telemetry, fleet, audit, rules, notification channels, profiles, reports, flows, dashboards, enrollment, OIDC SSO, search; RBAC (admin/operator/viewer), security headers, rate limits |
 | Web dashboard | Implemented | Apple-style light/dark design system (self-hosted, air-gap safe), fleet overview, devices + 24h charts, onboarding wizard, dashboard builder (KPI/trend widgets + templates), flows + rules, report builder (point picker, live preview, presets, CSV/HTML export), protocol-aware sensor profiles, commands with approval, audit log, settings |
-| MCP server | Implemented, read-only | list-sites, device-health, query-time-series, explain-alert (JWT-scoped); regression suite in `cmd/mcpeval` (docs/mcp-eval.md) |
+| MCP server | Implemented, read-only | list-sites, device-health, query-time-series, explain-alert, list_devices, list_alerts, aggregate_time_series (JWT-scoped); regression suite in `cmd/mcpeval` (docs/mcp-eval.md) |
 | Search | Implemented | Elasticsearch, tenant-scoped /v1/search over devices + alerts |
 | Broker ACLs | Implemented | Per-gateway Mosquitto ACL file generated from enrollment (docs/broker-acl.md); enable in production via `BROKER_ACL_FILE` |
 | Fleet management | Implemented (API) | Releases + staged campaigns with rings, pause/abort, progress tracking (docs/fleet.md); live OTA on real gateways is pilot scope |
