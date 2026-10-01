@@ -14,7 +14,10 @@ import (
 )
 
 type Definition struct {
-	DeviceID  string  `json:"device_id"` // empty = any device exposing the point
+	DeviceID string `json:"device_id"` // empty = any device exposing the point
+	// Profile limits the rule to devices of one device profile (asset type), so
+	// one rule covers every device of that type, now and in the future.
+	Profile   string  `json:"profile,omitempty"`
 	PointID   string  `json:"point_id"`
 	Op        string  `json:"op"` // ">" or "<"
 	Threshold float64 `json:"threshold"`
@@ -49,6 +52,12 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 		if d.PointID != pointID || (d.DeviceID != "" && d.DeviceID != deviceID) {
 			continue
 		}
+		if d.Profile != "" {
+			var prof string
+			if pool.QueryRow(ctx, `SELECT profile FROM devices WHERE id=$1 AND tenant_id=$2`, deviceID, tenantID).Scan(&prof) != nil || prof != d.Profile {
+				continue
+			}
+		}
 		hit := (d.Op == ">" && value > d.Threshold) || (d.Op == "<" && value < d.Threshold)
 		if !hit {
 			continue
@@ -58,10 +67,10 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 }
 
 func fire(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, ruleID string, d Definition, deviceID, pointID string, value float64) {
-	// one open alert per rule: dedupe
+	// one open alert per rule and device: dedupe
 	var existing string
 	err := pool.QueryRow(ctx,
-		`SELECT id FROM alerts WHERE rule_id=$1 AND status='open' LIMIT 1`, ruleID).Scan(&existing)
+		`SELECT id FROM alerts WHERE rule_id=$1 AND status='open' AND COALESCE(device_id,'')=$2 LIMIT 1`, ruleID, deviceID).Scan(&existing)
 	if err == nil {
 		return // already open
 	}
@@ -71,8 +80,8 @@ func fire(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, ruleID 
 	}
 	alertID := uuid.NewString()
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO alerts(id,tenant_id,rule_id,severity,message) VALUES($1,$2,$3,$4,$5)`,
-		alertID, tenantID, ruleID, d.Severity, msg); err != nil {
+		`INSERT INTO alerts(id,tenant_id,rule_id,severity,message,device_id) VALUES($1,$2,$3,$4,$5,$6)`,
+		alertID, tenantID, ruleID, d.Severity, msg, deviceID); err != nil {
 		log.Printf("rules: insert alert: %v", err)
 		return
 	}

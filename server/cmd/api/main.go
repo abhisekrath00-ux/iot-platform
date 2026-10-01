@@ -1537,8 +1537,9 @@ func (s *server) createRule(w http.ResponseWriter, r *http.Request) {
 		Op        string  `json:"op"`
 		Threshold float64 `json:"threshold"`
 		Severity  string  `json:"severity"`
+		Profile   string  `json:"profile"`
 	}
-	if err := json.Unmarshal(in.Definition, &shape); err != nil || shape.PointID == "" ||
+	if err := json.Unmarshal(in.Definition, &shape); err != nil || shape.PointID == "" || len(shape.Profile) > 64 ||
 		(shape.Op != ">" && shape.Op != "<") || (shape.Severity != "info" && shape.Severity != "warning" && shape.Severity != "critical") {
 		http.Error(w, "invalid rule definition (v1: point_id, op >|<, threshold, severity info|warning|critical)", 400)
 		return
