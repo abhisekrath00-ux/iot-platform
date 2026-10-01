@@ -42,7 +42,7 @@ Siemens items are from its public documentation (sources below), not hands-on us
 |---|---|---|---|
 | Generic HTTP device ingest | ThingsBoard HTTP API, Insights Hub | Have (this pass, integration-tested) | |
 | Automatic monthly telemetry partitions | ThingsBoard, Ignition historian | Have (this pass, tested) | |
-| Rules by asset or device type, activated for many instances | Insights Hub Monitor | Have (this pass, tested): a rule may carry `profile`; it then covers every device of that profile, one open alert per rule and device (migration 0016). API only, no UI field yet | UI field next |
+| Rules by asset or device type, activated for many instances | Insights Hub Monitor | Have (this pass, tested): a rule may carry `profile`; it then covers every device of that profile, one open alert per rule and device (migration 0016). Rules form has a profile field | | |
 | Anomaly detection on a time series | Insights Hub Predict | Partial (this pass, tested): robust median/MAD outlier detection per point via `GET /v1/telemetry/anomalies` and a card on the device page. Explains outliers; no forecasting, no learned model, no automatic alerting yet | Next: alert rule type that uses it |
 | Asset hierarchy, aspects, asset files | Insights Hub Asset Manager, ThingsBoard | Missing | Build: asset tree and relations |
 | KPI / derived points (formulas) | Insights Hub Monitor | Missing | Build: expression points |

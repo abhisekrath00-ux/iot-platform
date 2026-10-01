@@ -20,6 +20,7 @@ export default function Flows() {
   const [msg, setMsg] = useState('');
   const [flows, setFlows] = useState<FlowRow[]>([]);
   const [importMsg, setImportMsg] = useState('');
+  const [profile, setProfile] = useState('');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [fname, setFname] = useState('');
   const [fdevice, setFdevice] = useState('');
@@ -75,6 +76,7 @@ export default function Flows() {
           enabled: true,
           definition: {
             device_id: deviceId || undefined,
+            profile: profile || undefined,
             point_id: pointId,
             op,
             threshold: parseFloat(threshold),
@@ -99,6 +101,8 @@ export default function Flows() {
           <input value={pointId} onChange={e => setPointId(e.target.value)} placeholder="current" required />
           <label>Device (optional - all devices with this point if empty)</label>
           <input value={deviceId} onChange={e => setDeviceId(e.target.value)} placeholder="meter-1" />
+          <label>Device profile (optional - applies to every device of this profile)</label>
+          <input value={profile} onChange={e => setProfile(e.target.value)} placeholder="modbus-tcp" />
           <label>Condition</label>
           <div style={{ display: 'flex', gap: 8 }}>
             <select value={op} onChange={e => setOp(e.target.value)} style={{ width: 70 }}>
