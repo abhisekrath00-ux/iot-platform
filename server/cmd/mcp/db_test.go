@@ -123,3 +123,71 @@ func TestToolsTenantIsolationAndAggregation(t *testing.T) {
 		t.Fatal("bucket explosion must be rejected")
 	}
 }
+
+func toolAs(t *testing.T, s *server, tenant, role, name string, args map[string]any) (any, error) {
+	t.Helper()
+	r := httptest.NewRequest("POST", "/mcp", nil)
+	ctx := context.WithValue(r.Context(), auth.CtxTenant, tenant)
+	ctx = context.WithValue(ctx, auth.CtxRole, role)
+	ctx = context.WithValue(ctx, auth.CtxUser, "mcp-user")
+	return s.callTool(r.WithContext(ctx), name, args)
+}
+
+func TestDraftFlowGraphIsDraftOnlyAndGuarded(t *testing.T) {
+	s := dbServer(t)
+	seedMCP(t, s, "mcp-d1")
+	seedMCP(t, s, "mcp-d2")
+	ctx := context.Background()
+	s.st.Pool.Exec(ctx, `DELETE FROM flows WHERE tenant_id IN ('mcp-d1','mcp-d2')`)
+	s.st.Pool.Exec(ctx, `INSERT INTO notification_channels(id,tenant_id,type,target) VALUES('mcp-d1-ch','mcp-d1','slack','C1') ON CONFLICT DO NOTHING`)
+	graph := func(ch string) map[string]any {
+		var g map[string]any
+		json.Unmarshal([]byte(`{"nodes":[{"id":"t","type":"trigger","device_id":"mcp-d1-dev","point_id":"temp","op":">","value":50},
+		 {"id":"n","type":"notify","channel_id":"`+ch+`","message":"hot {value}"}],"edges":[{"from":"t","to":"n"}]}`), &g)
+		return g
+	}
+	// catalogue and dry-run need no write role
+	if out, err := toolAs(t, s, "mcp-d1", "viewer", "validate_flow_graph", map[string]any{"graph": graph("mcp-d1-ch"), "value": 60.0}); err != nil || !strings.Contains(mustJSON(out), `"hot 60"`) {
+		t.Fatalf("validate: %v %s", err, mustJSON(out))
+	}
+	// viewers cannot draft
+	if _, err := toolAs(t, s, "mcp-d1", "viewer", "draft_flow_graph", map[string]any{"name": "x", "graph": graph("mcp-d1-ch")}); err == nil {
+		t.Fatal("viewer drafted a flow")
+	}
+	// another tenant's channel is refused
+	if _, err := toolAs(t, s, "mcp-d2", "operator", "draft_flow_graph", map[string]any{"name": "x", "graph": graph("mcp-d1-ch")}); err == nil {
+		t.Fatal("cross-tenant channel accepted")
+	}
+	// function nodes and unknown fields are refused
+	fn := graph("mcp-d1-ch")
+	fn["nodes"] = append(fn["nodes"].([]any), map[string]any{"id": "f", "type": "function", "code": "return msg"})
+	if _, err := toolAs(t, s, "mcp-d1", "admin", "draft_flow_graph", map[string]any{"name": "x", "graph": fn}); err == nil {
+		t.Fatal("function node accepted over MCP")
+	}
+	unk := graph("mcp-d1-ch")
+	unk["shell"] = "rm -rf"
+	if _, err := toolAs(t, s, "mcp-d1", "operator", "draft_flow_graph", map[string]any{"name": "x", "graph": unk}); err == nil {
+		t.Fatal("unknown graph field accepted")
+	}
+	// the happy path stores an unpublished draft and audits it
+	out, err := toolAs(t, s, "mcp-d1", "operator", "draft_flow_graph", map[string]any{"name": "from text", "graph": graph("mcp-d1-ch")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := out.(map[string]any)["flow_id"].(string)
+	var pub *string
+	var enabled bool
+	var status string
+	s.st.Pool.QueryRow(ctx, `SELECT published_version_id, enabled FROM flows WHERE id=$1`, id).Scan(&pub, &enabled)
+	s.st.Pool.QueryRow(ctx, `SELECT status FROM flow_versions WHERE flow_id=$1`, id).Scan(&status)
+	if pub != nil || status != "draft" {
+		t.Fatalf("not a pure draft: published=%v status=%s", pub, status)
+	}
+	var n int
+	s.st.Pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id='mcp-d1' AND action='flow.draft_mcp' AND target=$1`, id).Scan(&n)
+	if n != 1 {
+		t.Fatal("draft not audited")
+	}
+}
+
+func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }

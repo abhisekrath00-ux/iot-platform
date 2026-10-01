@@ -94,3 +94,16 @@ firmware signing for end devices.
 - AWS IoT Device Management features: https://aws.amazon.com/iot-device-management/features/
 - Losant workflows: https://docs.losant.com/workflows/overview/
 - Ignition introduction (8.3): https://www.docs.inductiveautomation.com/docs/8.3/getting-started/introducing-ignition
+
+## Node-graph flows, function nodes, Node-RED and MCP (this pass)
+
+| Item | Status |
+|---|---|
+| Node-graph flow executor (trigger, switch, change, condition, delay, debug, notify, function) | Built and tested (unit tests, plus API tests that run a graph end to end). Legacy linear flows still run unchanged; a test proves a legacy flow and its converted graph give identical actions. Fan-out is capped at 500 node visits per run. |
+| Debug node | Output is stored in the flow run log (`flow_runs.detail`). No live debug sidebar yet. |
+| Function node (sandboxed JS) | Built, tested, off by default, admin-only. See [function-nodes.md](function-nodes.md) for limits and weaknesses. No outside security review. |
+| Node-RED interchange | Export of a flow as a Node-RED flow array, and import of a supported subset (switch, change, delay, debug, function plus our own trigger/notify nodes). Anything else (inject, mqtt, http, link nodes, JSONata, etc.) is refused and listed; nothing is approximated. Exported files do not run in Node-RED because trigger and notify are Hexmon node types. |
+| Running the real Node-RED inside the platform | **Not built.** Decision and reasons in [node-red-decision.md](node-red-decision.md). The Node-RED palette (thousands of community nodes) is therefore not available. |
+| MCP text-to-flow | Built: `describe_flow_nodes`, `validate_flow_graph`, `draft_flow_graph`. The calling LLM writes the graph; the server validates it. Drafts only: never published or enabled, operator/admin token required, no function nodes. Tested. |
+| Natural-language text to graph inside the UI | **Not built.** An air-gapped install has no language model to call. Use any MCP-capable assistant against `/mcp`. |
+| Visual graph editor | See the Flows page status in the changelog below. |

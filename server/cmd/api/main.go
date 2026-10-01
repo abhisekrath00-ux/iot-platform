@@ -164,6 +164,8 @@ func main() {
 	api.HandleFunc("POST /v1/flows/simulate", s.simulateFlow)
 	api.HandleFunc("POST /v1/flows/graph/test", s.testFlowGraph)
 	api.HandleFunc("POST /v1/flows/convert", s.convertFlow)
+	api.HandleFunc("GET /v1/flows/{id}/export-nodered", s.exportNodeRED)
+	api.HandleFunc("POST /v1/flows/import-nodered", s.importNodeRED)
 	api.HandleFunc("GET /v1/features", s.getFeatures)
 	api.HandleFunc("PUT /v1/features/{feature}", s.putFeature)
 	api.HandleFunc("GET /v1/fleet/releases", s.listReleases)

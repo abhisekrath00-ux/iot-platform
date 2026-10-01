@@ -1,8 +1,9 @@
 // mcp is the read-only MCP gateway: JSON-RPC 2.0 over HTTP exposing
 // allowlisted tools (list_sites, get_device_health, query_time_series,
 // explain_alert). Every call requires the user's delegated JWT (tenant +
-// role). No write tools exist here by design; any actuation path requires the
-// safety review in docs/security.md.
+// role). The only write is draft_flow_graph, which stores an UNPUBLISHED flow
+// draft; there is no actuation or publish path here by design (see
+// docs/security.md).
 package main
 
 import (
@@ -63,6 +64,8 @@ var tools = []map[string]any{
 		"inputSchema": map[string]any{"type": "object", "required": []string{"alert_id"},
 			"properties": map[string]any{"alert_id": map[string]any{"type": "string"}}}},
 }
+
+func init() { tools = append(tools, flowTools...) }
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -133,6 +136,9 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 func (s *server) callTool(r *http.Request, name string, args map[string]any) (any, error) {
 	ctx := r.Context()
 	t := auth.Tenant(r)
+	if out, handled, err := s.flowTool(r, name, args); handled {
+		return out, err
+	}
 	switch name {
 	case "list_sites":
 		rows, err := s.st.Pool.Query(ctx, `

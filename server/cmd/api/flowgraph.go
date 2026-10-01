@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow/jsfn"
+	"github.com/google/uuid"
 )
 
 // fnRunner executes function nodes (goja sandbox, see docs/function-nodes.md).
@@ -126,4 +128,102 @@ func (s *server) convertFlow(w http.ResponseWriter, r *http.Request) {
 	}
 	g := flow.ToGraph(in.Definition)
 	writeJSON(w, 200, map[string]any{"graph": g})
+}
+
+// exportNodeRED writes the published flow as a Node-RED flow array. Notify
+// channels are written as portable "type:target" labels, as in the native export.
+func (s *server) exportNodeRED(w http.ResponseWriter, r *http.Request) {
+	var name string
+	var def []byte
+	if s.st.Pool.QueryRow(r.Context(),
+		`SELECT f.name, v.definition FROM flows f JOIN flow_versions v ON v.id = f.published_version_id
+		 WHERE f.id=$1 AND f.tenant_id=$2`, r.PathValue("id"), auth.Tenant(r)).Scan(&name, &def) != nil {
+		http.Error(w, "flow not found or not published", 404)
+		return
+	}
+	var d flow.Definition
+	if json.Unmarshal(def, &d) != nil {
+		http.Error(w, "stored definition invalid", 500)
+		return
+	}
+	g := flow.ToGraph(d)
+	d.Graph = &g
+	for _, slot := range d.ChannelSlots() {
+		var typ, target string
+		if s.st.Pool.QueryRow(r.Context(), `SELECT type,target FROM notification_channels WHERE id=$1 AND tenant_id=$2`,
+			*slot, auth.Tenant(r)).Scan(&typ, &target) == nil {
+			*slot = typ + ":" + target
+		} else {
+			*slot = ""
+		}
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="flow.node-red.json"`)
+	writeJSON(w, 200, flow.ToNodeRED(g, name))
+}
+
+// importNodeRED reads a Node-RED flow array (supported subset only) into an
+// UNPUBLISHED draft. Unsupported nodes refuse the whole import and are listed.
+func (s *server) importNodeRED(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		Name  string           `json:"name"`
+		Flows []map[string]any `json:"flows"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10)).Decode(&in); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" || len(name) > 128 || strings.ContainsAny(name, "<>\x00") {
+		http.Error(w, "name invalid", 400)
+		return
+	}
+	g, unsupported, err := flow.FromNodeRED(in.Flows)
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"error": err.Error(), "unsupported": unsupported})
+		return
+	}
+	d := flow.Definition{Graph: &g}
+	for _, slot := range d.ChannelSlots() {
+		typ, target, ok := strings.Cut(*slot, ":")
+		if !ok || s.st.Pool.QueryRow(r.Context(),
+			`SELECT id FROM notification_channels WHERE tenant_id=$1 AND type=$2 AND target=$3 ORDER BY created_at LIMIT 1`,
+			auth.Tenant(r), typ, target).Scan(slot) != nil {
+			http.Error(w, "notify node needs channel_id \"type:target\" matching an existing channel of this tenant", 400)
+			return
+		}
+	}
+	if err := flow.Validate(d); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if !s.gateFunctionNodes(w, r, d) {
+		return
+	}
+	def, _ := json.Marshal(d)
+	id, verID := uuid.NewString(), uuid.NewString()
+	tx, err := s.st.Pool.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(), `INSERT INTO flows(id,tenant_id,name,definition,created_by) VALUES($1,$2,$3,$4,$5)`,
+		id, auth.Tenant(r), name, def, auth.User(r)); err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `INSERT INTO flow_versions(id,flow_id,tenant_id,version,definition,status,created_by)
+		VALUES($1,$2,$3,1,$4,'draft',$5)`, verID, id, auth.Tenant(r), def, auth.User(r)); err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	s.audit(r, "flow.import_nodered", id, map[string]any{"name": name})
+	writeJSON(w, 201, map[string]any{"id": id, "version": 1, "status": "draft"})
 }

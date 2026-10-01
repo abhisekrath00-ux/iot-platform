@@ -44,6 +44,8 @@ func TestIntegrationGraphFlowsAndFunctionNodeGating(t *testing.T) {
 	api.HandleFunc("POST /v1/flows/import", s.importFlow)
 	api.HandleFunc("POST /v1/flows/graph/test", s.testFlowGraph)
 	api.HandleFunc("POST /v1/flows/convert", s.convertFlow)
+	api.HandleFunc("GET /v1/flows/{id}/export-nodered", s.exportNodeRED)
+	api.HandleFunc("POST /v1/flows/import-nodered", s.importNodeRED)
 	api.HandleFunc("GET /v1/features", s.getFeatures)
 	api.HandleFunc("PUT /v1/features/{feature}", s.putFeature)
 
@@ -130,6 +132,23 @@ func TestIntegrationGraphFlowsAndFunctionNodeGating(t *testing.T) {
 	}
 	if strings.Contains(d1, "v=142") {
 		t.Fatal("function ran after disable")
+	}
+
+	// Node-RED interchange: export the first (plain graph) flow, import it elsewhere as a draft
+	nr := call(api, "itest-gf1", "viewer", "GET", "/v1/flows/"+created["id"].(string)+"/export-nodered", "")
+	if nr.Code != 200 || !strings.Contains(nr.Body.String(), `"channel_id":"slack:C-OPS"`) || !strings.Contains(nr.Body.String(), `"type":"change"`) {
+		t.Fatalf("nodered export %d %s", nr.Code, nr.Body.String())
+	}
+	imp := call(api, "itest-gf2", "operator", "POST", "/v1/flows/import-nodered", `{"name":"from node-red","flows":`+nr.Body.String()+`}`)
+	if imp.Code != 201 {
+		t.Fatalf("nodered import %d %s", imp.Code, imp.Body.String())
+	}
+	unsup := call(api, "itest-gf2", "operator", "POST", "/v1/flows/import-nodered", `{"name":"x","flows":[{"id":"a","type":"http request"}]}`)
+	if unsup.Code != 400 || !strings.Contains(unsup.Body.String(), "http request") {
+		t.Fatalf("unsupported node not refused: %d %s", unsup.Code, unsup.Body.String())
+	}
+	if call(api, "itest-gf2", "viewer", "POST", "/v1/flows/import-nodered", `{"name":"x","flows":[]}`).Code != 403 {
+		t.Fatal("viewer imported")
 	}
 
 	// legacy -> graph conversion is stateless and validates

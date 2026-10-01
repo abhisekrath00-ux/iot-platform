@@ -32,15 +32,18 @@ func TestInitializeAdvertisesProtocol(t *testing.T) {
 	}
 }
 
-func TestToolsListIsReadOnlyAllowlist(t *testing.T) {
+func TestToolsListHasNoActuationTools(t *testing.T) {
 	r := call(t, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	res := r.Result.(map[string]any)
 	list, _ := res["tools"].([]any)
-	if len(list) != 7 {
-		t.Fatalf("want 7 tools, got %d", len(list))
+	if len(list) != 10 {
+		t.Fatalf("want 10 tools, got %d", len(list))
 	}
 	for _, tool := range list {
 		name := tool.(map[string]any)["name"].(string)
+		if name == "draft_flow_graph" {
+			continue // the one write: an unpublished draft, covered by TestDraftFlowGraph*
+		}
 		for _, banned := range []string{"write", "set", "command", "actuate", "delete", "update"} {
 			if strings.Contains(name, banned) {
 				t.Fatalf("write-capable tool exposed: %s", name)
