@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
-import { api } from '../lib/api';
+import { api, download } from '../lib/api';
 
 interface Rule { id: string; name: string; definition: any; version: number; enabled: boolean; }
 interface FlowDef { trigger: { device_id: string; point_id: string; op: string; value: number }; steps: any[]; cooldown_seconds?: number; latch?: boolean; }
-interface FlowRow { id: string; name: string; definition: FlowDef; enabled: boolean; }
+interface FlowRow { id: string; name: string; definition: FlowDef; enabled: boolean; published_version?: number | null; }
 interface Channel { id: string; type: string; target: string; }
 
 // Threshold rules (v1) with the flow-builder UI coming next. Rules evaluate in
@@ -19,6 +19,7 @@ export default function Flows() {
   const [severity, setSeverity] = useState('warning');
   const [msg, setMsg] = useState('');
   const [flows, setFlows] = useState<FlowRow[]>([]);
+  const [importMsg, setImportMsg] = useState('');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [fname, setFname] = useState('');
   const [fdevice, setFdevice] = useState('');
@@ -180,10 +181,22 @@ export default function Flows() {
           <div style={{ marginTop: 14 }}><button type="submit">Create flow</button></div>
         </form>
       </div>
+      <div className="card" style={{ maxWidth: 640, marginBottom: 20 }}>
+        <b>Import flow</b>
+        <p className="muted">Load a .hexmon.json file. It is saved as an unpublished draft; notify steps must match an existing channel (type and target).</p>
+        <input type="file" accept=".json,application/json" aria-label="Flow file" onChange={async e => {
+          const file = e.target.files?.[0]; if (!file) return;
+          try { await api('/v1/flows/import', { method: 'POST', body: await file.text() }); setImportMsg('Imported as a draft.'); load(); }
+          catch (err) { setImportMsg(String(err)); }
+          e.target.value = '';
+        }} />
+        {importMsg && <p className="muted" role="status">{importMsg}</p>}
+      </div>
       {flows.map(f => (
         <div key={f.id} className="card" style={{ marginBottom: 10 }}>
           <b>{f.name}</b> <span className="muted">{f.definition.trigger.device_id}/{f.definition.trigger.point_id} {f.definition.trigger.op} {f.definition.trigger.value} - {f.definition.steps.length} steps{f.definition.cooldown_seconds ? ` - quiet for ${Math.round(f.definition.cooldown_seconds / 60)} min after a notification` : ''}{f.definition.latch ? ' - latched' : ''}</span>
-          <div className="muted">{f.enabled ? 'enabled' : 'disabled'}</div>
+          <div className="muted">{f.enabled ? 'enabled' : 'disabled'}{f.published_version ? '' : ' - draft, not published'}</div>
+          {f.published_version ? <button className="ghost" style={{ marginTop: 8 }} onClick={() => download(`/v1/flows/${f.id}/export`, `${f.name}.hexmon.json`).catch(e => setImportMsg(String(e)))}>Export</button> : null}
         </div>
       ))}
     </>

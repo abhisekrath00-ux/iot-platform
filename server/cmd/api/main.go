@@ -144,6 +144,8 @@ func main() {
 	s.cached(api, "GET /v1/points", s.listPoints)
 	api.HandleFunc("GET /v1/export/telemetry.csv", s.exportTelemetryCSV)
 	api.HandleFunc("GET /v1/flows", s.listFlows)
+	api.HandleFunc("GET /v1/flows/{id}/export", s.exportFlow)
+	api.HandleFunc("POST /v1/flows/import", s.importFlow)
 	api.HandleFunc("POST /v1/flows", s.createFlow)
 	api.HandleFunc("GET /v1/flows/{id}/versions", s.listFlowVersions)
 	api.HandleFunc("POST /v1/flows/{id}/draft", s.createFlowDraft)

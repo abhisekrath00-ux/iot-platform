@@ -47,7 +47,7 @@ Siemens items are from its public documentation (sources below), not hands-on us
 | Asset hierarchy, aspects, asset files | Insights Hub Asset Manager, ThingsBoard | Missing | Build: asset tree and relations |
 | KPI / derived points (formulas) | Insights Hub Monitor | Missing | Build: expression points |
 | Flow canvas with function, switch, change, debug nodes | Node-RED, Visual Flow Creator | Partial: trigger, condition, delay, notify nodes, versions, simulator; no JS function node, no switch/change/debug, no free-form canvas | Build: node types, import/export first |
-| Flow import and export (JSON) | Node-RED | Missing | Build next |
+| Flow import and export (JSON) | Node-RED | Have (this pass, integration-tested): export of the published version as `hexmon-flow/1`, import as an unpublished draft, channel ids replaced by type:target labels. Not Node-RED file compatible. | |
 | Custom node SDK, sandboxed function node | Node-RED | Missing | Needs a sandbox decision (WASM or goja) and security review |
 | Outbound webhooks and HTTP request node | ThingsBoard, Node-RED | Missing | Build with an allowlist (air-gap and SSRF safe) |
 | Geofencing and maps | ThingsBoard | Missing | Build only with a self-hosted tile source |
