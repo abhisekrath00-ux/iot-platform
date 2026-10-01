@@ -158,3 +158,29 @@ body { background-image: var(--aurora); background-attachment: fixed; }
 .card { background: var(--glass); backdrop-filter: saturate(160%) blur(18px); -webkit-backdrop-filter: saturate(160%) blur(18px);
   border-color: var(--glass-edge); box-shadow: var(--shadow), inset 0 1px 0 var(--glass-edge); }
 @media (prefers-reduced-transparency: reduce) { .card { background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+
+/* Soft neumorphic layer on top of glass. Raised = controls and cards, inset = inputs and wells.
+   Contrast stays on text and borders (never on shadow alone); focus rings are explicit. */
+:root { --neu-hi: rgba(255,255,255,.95); --neu-lo: rgba(163,177,198,.38); --neu-in-lo: rgba(163,177,198,.30);
+  --bg: #e9edf3; --panel-2: #f1f4f9; --line: rgba(60,70,90,.12);
+  --raise: -5px -5px 12px var(--neu-hi), 6px 6px 16px var(--neu-lo);
+  --raise-sm: -2px -2px 6px var(--neu-hi), 3px 3px 8px var(--neu-lo);
+  --inset: inset 2px 2px 5px var(--neu-in-lo), inset -2px -2px 5px var(--neu-hi); }
+:root[data-theme="dark"] { --neu-hi: rgba(255,255,255,.045); --neu-lo: rgba(0,0,0,.65); --neu-in-lo: rgba(0,0,0,.6);
+  --bg: #0b0c10; --panel-2: #20222a; --line: rgba(255,255,255,.10); }
+.card, .twin-health, .twin-stage { box-shadow: var(--raise), inset 0 1px 0 var(--glass-edge); border-radius: 20px; }
+.cards .card:hover { transform: translateY(-2px); }
+table { box-shadow: var(--raise); border-radius: 20px; }
+nav { background: var(--nav-bg); backdrop-filter: saturate(170%) blur(22px); -webkit-backdrop-filter: saturate(170%) blur(22px); }
+nav a.active { box-shadow: var(--inset); }
+button { box-shadow: var(--raise-sm); border-radius: 12px; }
+button:active { box-shadow: var(--inset); }
+button.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+input, select, textarea { background: var(--panel-2); box-shadow: var(--inset); border-radius: 12px; }
+input:focus, select:focus, textarea:focus { box-shadow: var(--inset), 0 0 0 3px var(--accent-bg); outline: 2px solid transparent; }
+button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.pill { box-shadow: var(--raise-sm); }
+.twin-read { box-shadow: var(--inset); background: var(--panel-2); }
+.twin-bar, .twin-ports i { box-shadow: var(--inset); }
+@media (prefers-contrast: more) { :root { --line: rgba(0,0,0,.45); } :root[data-theme="dark"] { --line: rgba(255,255,255,.55); } .card, table, button, input, select { box-shadow: none; border: 1px solid var(--line); } }
+@media (prefers-reduced-transparency: reduce) { nav { background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; } }
