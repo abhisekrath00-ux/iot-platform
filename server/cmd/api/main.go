@@ -1052,21 +1052,49 @@ func (s *server) buildSeries(ctx context.Context, tenant string, def report.Defi
 	}
 	series := map[report.Metric][]report.Bucket{}
 	total := 0
+	window := fmt.Sprint(def.WindowHours)
 	for _, m := range def.Metrics {
+		// Hour-or-coarser buckets read hourly rollups for the part of the window whose
+		// raw samples were purged, and raw rows from the first raw hour onward.
+		// 15min buckets cannot come from hourly rollups and read raw only.
+		boundary := time.Now().Add(-time.Duration(def.WindowHours+1) * time.Hour) // raw from the start
+		useRollup := def.GroupBy != "15min"
+		if useRollup {
+			var first *time.Time
+			if err := s.st.Pool.QueryRow(ctx,
+				`SELECT min(observed_at) FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
+				   AND observed_at > now() - ($4 || ' hours')::interval`,
+				tenant, m.DeviceID, m.PointID, window).Scan(&first); err != nil {
+				return nil, 0, err
+			}
+			if first == nil {
+				boundary = time.Now().Add(time.Hour) // no raw in window: rollups only
+			} else {
+				boundary = first.UTC().Truncate(time.Hour)
+			}
+		}
 		rows, err := s.st.Pool.Query(ctx,
-			`SELECT `+bucketExpr+` AS bucket,
-			        avg(value), min(value), max(value), sum(value), count(*)
-			 FROM telemetry
-			 WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
-			   AND observed_at > now() - ($4 || ' hours')::interval
-			 GROUP BY bucket ORDER BY bucket`,
-			tenant, m.DeviceID, m.PointID, fmt.Sprint(def.WindowHours))
+			`WITH parts AS (
+			   SELECT observed_at, 1::bigint AS n, value AS s, value AS mn, value AS mx
+			   FROM telemetry
+			   WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
+			     AND observed_at > now() - ($4 || ' hours')::interval AND observed_at >= $5
+			   UNION ALL
+			   SELECT bucket, n, sum, min, max FROM telemetry_rollup_hourly
+			   WHERE $6 AND tenant_id=$1 AND device_id=$2 AND point_id=$3
+			     AND bucket >= date_trunc('hour', now() - ($4 || ' hours')::interval) AND bucket < $5)
+			 SELECT `+bucketExpr+` AS bucket,
+			        sum(s)/sum(n), min(mn), max(mx), sum(s), sum(n)
+			 FROM parts GROUP BY bucket ORDER BY bucket`,
+			tenant, m.DeviceID, m.PointID, window, boundary, useRollup)
 		if err != nil {
 			return nil, 0, err
 		}
 		for rows.Next() {
 			var b report.Bucket
-			rows.Scan(&b.Start, &b.Avg, &b.Min, &b.Max, &b.Sum, &b.Count)
+			var n int64
+			rows.Scan(&b.Start, &b.Avg, &b.Min, &b.Max, &b.Sum, &n)
+			b.Count = int(n)
 			series[m] = append(series[m], b)
 			total++
 		}

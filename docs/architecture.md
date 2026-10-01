@@ -212,7 +212,7 @@ First sign-in shows an 8-step spotlight tour of the sidebar (Fleet to Settings).
 A leader-elected job (advisory lock, one replica at a time) runs hourly. It rolls the last 48 hours of raw telemetry into `telemetry_rollup_hourly` (count, sum, min, max per tenant/device/point/hour, measured and estimated samples only). Rollups are recomputed for whole hours, so re-running is safe.
 `RAW_RETENTION_DAYS` (default 0 = keep everything) enables purging: raw rows older than the window are deleted only after their hours are rolled up, in batches of 5000. Rollups are never purged.
 `GET /v1/telemetry/rollup?device_id=&point_id=&from=&to=` returns hourly aggregates (default last 30 days, max span 2 years) and keeps answering after raw data is gone.
-Not built yet: daily rollups, per-tenant retention settings, routing the series API and report builder to rollups for long ranges (they still read raw data), and partition dropping for very large installs.
+The report builder (hour, day, week buckets) reads rollups for hours whose raw rows were purged and raw rows from the first retained hour on, with no double counting; 15-minute buckets read raw only. Rollups count measured and estimated samples only, while raw report reads count every quality, so a report can differ slightly across the purge boundary if a device sent `missing`/`stale` samples. Not built yet: daily rollups, per-tenant retention settings, routing the 24h series API to rollups, and partition dropping for very large installs.
 
 ## Flow cooldown (dedupe)
 

@@ -53,7 +53,7 @@ no code change needed.
 | RBAC + SSO | admin/operator/viewer roles on every write path, OIDC login, rate-limited auth | Verified |
 | MCP (AI integration) | MCP server with 7 tools (sites, device health, time series, alert explain, list devices, list alerts, aggregate) plus `mcpeval` regression suite | Verified (eval suite, DB-backed tool tests) |
 | API keys | Hashed, tenant-scoped, viewer/operator only, expiring, revocable keys for SCADA/BI | Verified (no per-key endpoint scopes yet) |
-| Retention and rollups | Hourly rollups, optional raw purge (`RAW_RETENTION_DAYS`), rollup API | Verified (charts and reports still read raw data for long ranges) |
+| Retention and rollups | Hourly rollups, optional raw purge (`RAW_RETENTION_DAYS`), rollup API | Verified (report builder uses rollups after purge; 15-minute buckets are raw-only) |
 | Search | Tenant-scoped Elasticsearch over devices and alerts | Verified in compose |
 | Fleet management | Releases and staged rollout campaigns (rings, pause/abort), edge `fleetctl` applier | API Verified; OTA on a live gateway is Pilot |
 | Broker security | Per-gateway Mosquitto ACLs generated from enrollment | Verified; production enablement documented |

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/retention"
 )
 
@@ -75,5 +76,51 @@ func TestIntegrationRollupAndPurge(t *testing.T) {
 	}
 	if w := call(api, "itest-rt1", "viewer", "GET", "/v1/telemetry/rollup?device_id=a&point_id=b&from=2020-01-01T00:00:00Z&to=2026-01-01T00:00:00Z", ""); w.Code != 400 {
 		t.Fatalf("huge range = %d", w.Code)
+	}
+}
+
+// Reports over long windows keep working after raw data is purged, and never double count.
+func TestIntegrationReportUsesRollupsAfterPurge(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-rr1")
+	pool := s.st.Pool
+	ctx := t.Context()
+	pool.Exec(ctx, `DELETE FROM telemetry_rollup_hourly WHERE tenant_id='itest-rr1'`)
+	pool.Exec(ctx, `DELETE FROM telemetry WHERE tenant_id='itest-rr1'`)
+	day := time.Now().UTC().Add(-20 * 24 * time.Hour).Truncate(time.Hour)
+	// purged period: only rollups (2 hours, 60 samples each, avg 10 and 20)
+	pool.Exec(ctx, `INSERT INTO telemetry_rollup_hourly VALUES('itest-rr1','itest-rr1-dev','temp',$1,60,600,5,15),('itest-rr1','itest-rr1-dev','temp',$2,60,1200,10,30)`, day, day.Add(time.Hour))
+	// retained period: raw rows (4 samples) that ALSO have a rollup row, which must be ignored
+	rawHour := time.Now().UTC().Add(-2 * 24 * time.Hour).Truncate(time.Hour)
+	for i := 0; i < 4; i++ {
+		pool.Exec(ctx, `INSERT INTO telemetry(event_id,tenant_id,gateway_id,device_id,point_id,observed_at,value,unit,schema_version)
+			VALUES($1,'itest-rr1','itest-rr1-gw','itest-rr1-dev','temp',$2,100,'C',1)`, "rr-"+string(rune('a'+i)), rawHour.Add(time.Duration(i+1)*time.Minute))
+	}
+	pool.Exec(ctx, `INSERT INTO telemetry_rollup_hourly VALUES('itest-rr1','itest-rr1-dev','temp',$1,4,400,100,100)`, rawHour)
+
+	def := report.Definition{Metrics: []report.Metric{{DeviceID: "itest-rr1-dev", PointID: "temp"}}, WindowHours: 24 * 30, GroupBy: "hour"}
+	series, _, err := s.buildSeries(ctx, "itest-rr1", def)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := series[def.Metrics[0]]
+	var n int
+	var sum float64
+	for _, b := range rows {
+		n += b.Count
+		sum += b.Sum
+	}
+	if n != 124 || sum != 600+1200+400 {
+		t.Fatalf("count=%d sum=%v, want 124 and 2200 (rollups for purged hours, raw for retained, no double count); rows=%d", n, sum, len(rows))
+	}
+	// 15min buckets read raw only
+	def.GroupBy = "15min"
+	series, _, _ = s.buildSeries(ctx, "itest-rr1", def)
+	n = 0
+	for _, b := range series[def.Metrics[0]] {
+		n += b.Count
+	}
+	if n != 4 {
+		t.Fatalf("15min count=%d, want raw-only 4", n)
 	}
 }
