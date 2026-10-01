@@ -22,6 +22,13 @@ interface Profile { id: string; name: string; driver_profile: string; }
 interface PreviewPoint { point_id: string; value: number; unit: string; quality: string; observed_at: string; }
 
 const STEPS = ['Site & claim code', 'Gateway claim', 'Device profile', 'Port test', 'Live preview'];
+const HINTS = [
+  'Pick the site and name the gateway. You get a one-time claim code to enter on the gateway.',
+  'Waiting for the gateway to claim itself with the code. It generates its own key and gets a certificate.',
+  'Choose which sensor model and points this gateway reads. Profiles generate the edge config.',
+  'Test the port from the gateway before going live. Nothing is written to the device.',
+  'Confirm real readings arrive. Commissioning finishes when the first value lands.',
+];
 
 export default function Onboarding() {
   const [step, setStep] = useState(0);
@@ -120,6 +127,7 @@ export default function Onboarding() {
     <>
       <h1>Commission a sensor</h1>
       <ol className="steps">{STEPS.map((s, i) => <li key={s} className={i === step ? 'current' : i < step ? 'done' : ''}>{s}</li>)}</ol>
+      <p className="muted" style={{ marginTop: -8, maxWidth: 640 }}>Step {step + 1} of {STEPS.length}. {HINTS[step]}</p>
 
       {step === 0 && (
         <form onSubmit={start}>

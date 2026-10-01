@@ -88,7 +88,11 @@ pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: 
 
 /* commissioning wizard */
 ol.steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 24px; flex-wrap: wrap; }
-ol.steps li { padding: 5px 14px; border-radius: 999px; background: var(--line); color: var(--muted); font-size: 12px; font-weight: 600; }
+ol.steps { counter-reset: st; }
+ol.steps li::before { counter-increment: st; content: counter(st); display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 8px; border-radius: 50%; background: rgba(127,127,127,.22); font-size: 11px; }
+ol.steps li.current::before { background: rgba(255,255,255,.28); }
+ol.steps li.done::before { content: '\2713'; background: var(--ok); color: #fff; }
+ol.steps li { padding: 5px 14px 5px 8px; transition: background .2s; border-radius: 999px; background: var(--line); color: var(--muted); font-size: 12px; font-weight: 600; }
 ol.steps li.current { background: var(--accent); color: #fff; }
 ol.steps li.done { background: var(--ok-bg); color: var(--ok); }
 form.grid2 { display: grid; grid-template-columns: 160px 240px; gap: 8px 12px; align-items: center; }
