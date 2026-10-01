@@ -50,6 +50,27 @@ with Wi-Fi, STM32 with Ethernet) use Modbus TCP or OPC UA on the firmware side,
 or publish to the gateway's local Modbus TCP server; a direct MQTT publisher
 path is on the roadmap.
 
+## Any HTTP device: push readings
+
+Any device or bridge that can make an HTTPS request can push readings for a
+device that was onboarded in the UI (Add device, or Profiles for the point map).
+Create an API key with the `telemetry` scope and operator role (Settings), then:
+
+```bash
+curl -X POST https://HOST/api/v1/telemetry/ingest \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"device_id":"esp32-1","readings":[{"point":"temp","value":23.4,"event_id":"esp32-1-000123"}]}'
+```
+
+Rules: the device must belong to the key's tenant, every point must be
+registered on the device, values are range-checked against the point's min/max,
+`ts` (RFC 3339, optional, max 30 days old, max 5 minutes ahead) defaults to the
+server time, and a repeated `event_id` is stored once, so retries are safe.
+Batches over 500 readings get 413. The response lists accepted count and the
+index and reason of each rejected reading. Alert rules and flows run on these
+readings exactly as for MQTT. Tested by an integration test (tenant isolation,
+range, duplicate, role, size limit); not yet load-tested.
+
 ## PLCs and SCADA (southbound: reading from them)
 
 Modbus TCP:
