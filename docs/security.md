@@ -99,6 +99,9 @@ boot. Revoke and wipe keys on decommission. Document software support lifetime.
 
 ## API keys
 
+Keys can request commands but can never approve them: approval requires an interactive
+user session (human four-eyes), enforced in `approveCommand` and covered by a test.
+
 Machine clients (SCADA, BI, scripts) use `Authorization: Bearer hxk_<id>.<secret>`.
 - Only `sha256(secret)` is stored; the token is shown once at creation (`Cache-Control: no-store`) and compared in constant time.
 - Keys are tenant scoped, limited to `viewer` or `operator` (never `admin`), must expire (max 365 days), and can be revoked immediately.

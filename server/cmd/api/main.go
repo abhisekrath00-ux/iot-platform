@@ -432,6 +432,12 @@ func (s *server) approveCommand(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "approver role required", 403)
 		return
 	}
+	// Approval is a human decision: an API key (unattended automation) may
+	// request a command but can never approve one.
+	if auth.ViaKey(r) {
+		http.Error(w, "approval requires an interactive user session", 403)
+		return
+	}
 	id := r.PathValue("id")
 	// Approver must differ from requester (four-eyes on actuation).
 	tag, err := s.st.Pool.Exec(r.Context(),
