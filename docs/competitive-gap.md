@@ -15,18 +15,18 @@ from the code, not from intent.
 | Industrial protocols | ThingsBoard IoT Gateway | Modbus RTU/TCP, OPC UA (secure modes), serial JSON | Partial (no BACnet, CAN, SNMP, LwM2M, CoAP) |
 | Store and forward at the edge | Ignition | SQLite queue, delete after broker ACK | Have |
 | Fleet updates with staged rollout | AWS Device Management | Staged cohorts, rollback, ack | Have (edge agent config/release); no signed firmware for end devices |
-| Dashboards and widgets | ThingsBoard (300+ widgets) | 5 widget types with thresholds | Partial (small library, no wall mode or drag-drop yet) |
-| Rule engine / workflows | ThingsBoard, Losant | Threshold rules, flows (trigger, condition, delay, notify) with versions and simulator | Partial (no scripting node, no device-state write node, no latch/dedupe node) |
-| Alarm lifecycle (ack, clear, assign) | ThingsBoard | Alert status field, no ack/clear workflow in API or UI | Missing |
+| Dashboards and widgets | ThingsBoard (300+ widgets) | 5 widget types with thresholds, drag-drop layout and sizing, wall mode with rotation, product tour, light/dark glass UI | Partial (small widget library; drag/wall covered by a manual browser e2e, not CI) |
+| Rule engine / workflows | ThingsBoard, Losant | Threshold rules, flows (trigger, condition, delay, notify) with versions and simulator | Partial (no scripting node, no device-state write node; cooldown and latch exist) |
+| Alarm lifecycle (ack, clear, assign) | ThingsBoard | Open, acknowledged, resolved with notes and history in API and UI | Have (no assignment or escalation) |
 | Notifications | ThingsBoard | SMTP and Slack, scheduled reports | Partial (no SMS, Teams, escalation chains) |
 | Reports, scheduled delivery | Ignition, ThingsBoard | Builder with preview, 15min-week buckets, CSV/HTML, cron delivery | Have |
-| Digital twin: assets, hierarchy, relations | ThingsBoard, Azure | Flat site, gateway, device | Missing |
-| Device attributes, tags, groups, fleet search | AWS, ThingsBoard | None | Missing |
+| Digital twin: assets, hierarchy, relations | ThingsBoard, Azure | Site, gateway, device plus a per-device twin card with health score (2.5D SVG, not 3D) | Partial (no asset hierarchy or relations) |
+| Device attributes, tags, groups, fleet search | AWS, ThingsBoard | Tags, fleet search and filters | Partial (tags only; no groups or typed attributes) |
 | Desired/reported state (shadow, twin) | AWS, Azure | None | Missing |
-| Data retention and downsampling | Ignition (QuestDB historian), ThingsBoard | Raw telemetry only; documented as operator concern | Missing |
-| API keys / service tokens | all | User JWT only | Missing |
+| Data retention and downsampling | Ignition (QuestDB historian), ThingsBoard | Hourly rollups, optional raw purge, reports read rollups for purged ranges | Partial (no daily rollups, no per-tenant retention; 24h series API still reads raw) |
+| API keys / service tokens | all | Hashed, expiring, revocable keys; viewer/operator role; endpoint-group scopes; per-key rate limit; never able to approve commands; audited | Have (coarse scopes, per-replica limit) |
 | Secrets management | Ignition 8.3 | Env vars and vault-free config | Missing |
-| Edge rules, edge compute | Losant, ThingsBoard Edge | Allowlisted commands only | Missing (by design until control hazard analysis) |
+| Edge rules, edge compute | Losant, ThingsBoard Edge | Allowlisted commands, edge gate (expiry, replay, TTL), ack path, simulated actuator only | Partial (no real actuator drivers, by design until hazard analysis) |
 | Mobile app | ThingsBoard | Responsive web only | Missing |
 | Bulk device provisioning | AWS | One device at a time via onboarding | Missing |
 | AI access | none of the above natively | MCP server, 7 read-only tools | Have |
@@ -34,6 +34,8 @@ from the code, not from intent.
 | Read caching, HA | ThingsBoard microservices | Per-replica response cache, leader election for scheduler | Partial |
 
 ## Ranked build list
+
+Status as of 2026-10-01 morning: items 1 to 7 below are built (see the table for caveats). Remaining gaps are the table rows still marked Partial or Missing.
 
 Chosen for customer impact on the stated use (energy meters, door sensors,
 STM32 and PLC sources, enterprise monitoring) and for low risk:
