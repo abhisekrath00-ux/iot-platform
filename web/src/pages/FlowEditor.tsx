@@ -6,37 +6,48 @@ import {
 } from '../lib/graph';
 
 interface Channel { id: string; type: string; target: string; }
-interface FlowRow { id: string; name: string; definition: any; published_version?: number | null; }
+interface FlowRow { id: string; name: string; definition: any; enabled: boolean; published_version?: number | null; latest_version?: number | null; }
 interface TestResult { matched: boolean; actions: { channel_id: string; message: string; delay_seconds: number }[]; debug: { node: string; message: string }[]; }
 
 const OPS = ['>', '<', '>=', '<=', '==', '!='];
 const SW_OPS = ['==', '!=', '>', '<', '>=', '<=', 'contains', 'else'];
 
-// Visual editor for node-graph flows. Everything is saved as an unpublished
-// draft; publishing is a separate, explicit button. The server validates.
+// One open flow. flowId is set once it exists on the server; version is the
+// stored version this tab last saved or opened.
+interface Tab { key: string; flowId?: string; version?: number; name: string; g: Graph; dirty: boolean; sel: string | null; msg: string; result: TestResult | null; testValue: string; }
+
+let tabCounter = 0;
+const newTab = (over: Partial<Tab> = {}): Tab => ({ key: `t${++tabCounter}`, name: '', g: emptyGraph(), dirty: false, sel: null, msg: '', result: null, testValue: '', ...over });
+
+// Visual editor for node-graph flows, with a manager for many flows and one
+// tab per open flow. Everything is saved as an unpublished draft; publishing is
+// a separate, explicit button. The server validates.
 export default function FlowEditor() {
-  const [g, setG] = useState<Graph>(emptyGraph());
-  const [name, setName] = useState('');
-  const [sel, setSel] = useState<string | null>(null);
+  const [tabs, setTabs] = useState<Tab[]>(() => [newTab()]);
+  const [active, setActive] = useState(() => `t${tabCounter}`);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [flows, setFlows] = useState<FlowRow[]>([]);
   const [fnOn, setFnOn] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [testValue, setTestValue] = useState('');
-  const [result, setResult] = useState<TestResult | null>(null);
-  const [saved, setSaved] = useState<{ id: string; version: number } | null>(null);
+  const [mgrMsg, setMgrMsg] = useState('');
   const [link, setLink] = useState<{ from: string; port: number } | null>(null);
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
   const svg = useRef<SVGSVGElement>(null);
 
+  const tab = tabs.find(t => t.key === active) ?? tabs[0];
+  const patchTab = (key: string, p: Partial<Tab> | ((t: Tab) => Partial<Tab>)) =>
+    setTabs(ts => ts.map(t => (t.key === key ? { ...t, ...(typeof p === 'function' ? p(t) : p) } : t)));
+  const setG = (fn: (g: Graph) => Graph, dirty = true) => patchTab(tab.key, t => ({ g: fn(t.g), dirty: dirty || t.dirty }));
+  const g = tab.g;
+
+  const loadFlows = () => api<FlowRow[]>('/v1/flows').then(setFlows).catch(() => {});
   useEffect(() => {
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
-    api<FlowRow[]>('/v1/flows').then(setFlows).catch(() => {});
+    loadFlows();
     api<{ function_nodes: boolean }>('/v1/features').then(f => setFnOn(f.function_nodes)).catch(() => {});
   }, []);
 
-  const node = g.nodes.find(n => n.id === sel) ?? null;
+  const node = g.nodes.find(n => n.id === tab.sel) ?? null;
   const upd = (id: string, patch: Partial<GNode>) =>
     setG(cur => prunePorts({ ...cur, nodes: cur.nodes.map(n => (n.id === id ? { ...n, ...patch } : n)) }));
 
@@ -46,59 +57,145 @@ export default function FlowEditor() {
   }
   function tryConnect(from: string, port: number, to: string) {
     const r = connect(g, from, String(port), to);
-    if (typeof r === 'string') setMsg(r); else { setG(r); setMsg(''); }
+    if (typeof r === 'string') patchTab(tab.key, { msg: r }); else patchTab(tab.key, { g: r, dirty: true, msg: '' });
   }
 
-  async function loadFlow(id: string) {
-    const f = flows.find(x => x.id === id);
-    if (!f) return;
+  // ---- tabs ----
+  function addTab(t: Tab) { setTabs(ts => [...ts, t]); setActive(t.key); }
+  function closeTab(key: string) {
+    const t = tabs.find(x => x.key === key)!;
+    if (t.dirty && !window.confirm(`Close "${t.name || 'Untitled flow'}" without saving?`)) return;
+    const rest = tabs.filter(x => x.key !== key);
+    const next = rest.length ? rest : [newTab()];
+    setTabs(next);
+    if (key === active) setActive(next[next.length - 1].key);
+  }
+
+  // ---- manager ----
+  async function openFlow(f: FlowRow) {
+    const open = tabs.find(t => t.flowId === f.id);
+    if (open) { setActive(open.key); return; }
     try {
-      const d = f.definition;
-      const graph: Graph = d.graph ?? (await api<{ graph: Graph }>('/v1/flows/convert', { method: 'POST', body: JSON.stringify({ definition: d }) })).graph;
-      setG({ nodes: graph.nodes.map(n => ({ ...n, x: n.x ?? 40, y: n.y ?? 40 })) as GNode[], edges: graph.edges.map(e => ({ ...e, port: e.port || '0' })) });
-      setName(f.name + ' (copy)'); setSaved(null); setSel(null); setResult(null);
-      setMsg('Loaded. Saving creates a new draft; the original is untouched.');
-    } catch (e) { setMsg(String(e)); }
+      const version = f.latest_version ?? f.published_version ?? 1;
+      const v = await api<{ version: number; definition: any }>(`/v1/flows/${f.id}/versions/${version}`);
+      const graph: Graph = v.definition.graph ?? (await api<{ graph: Graph }>('/v1/flows/convert', { method: 'POST', body: JSON.stringify({ definition: v.definition }) })).graph;
+      const gg: Graph = { nodes: graph.nodes.map(n => ({ ...n, x: n.x ?? 40, y: n.y ?? 40 })) as GNode[], edges: graph.edges.map(e => ({ ...e, port: e.port || '0' })) };
+      const t = newTab({ flowId: f.id, version: v.version, name: f.name, g: gg });
+      // replace an untouched blank tab instead of stacking one next to it
+      setTabs(ts => (ts.length === 1 && !ts[0].flowId && !ts[0].dirty ? [t] : [...ts, t]));
+      setActive(t.key);
+    } catch (e) { setMgrMsg(String(e)); }
   }
+  async function manage(f: FlowRow, what: 'duplicate' | 'rename' | 'toggle' | 'delete') {
+    setMgrMsg('');
+    try {
+      if (what === 'duplicate') {
+        await api(`/v1/flows/${f.id}/duplicate`, { method: 'POST', body: '{}' });
+        setMgrMsg(`Duplicated "${f.name}" as an unpublished draft.`);
+      } else if (what === 'rename') {
+        const n = window.prompt('New name', f.name);
+        if (!n || n === f.name) return;
+        await api(`/v1/flows/${f.id}`, { method: 'PATCH', body: JSON.stringify({ name: n }) });
+        setTabs(ts => ts.map(t => (t.flowId === f.id ? { ...t, name: n } : t)));
+      } else if (what === 'toggle') {
+        await api(`/v1/flows/${f.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !f.enabled }) });
+      } else {
+        if (!window.confirm(`Delete "${f.name}" with all its versions and run history? This cannot be undone.`)) return;
+        await api(`/v1/flows/${f.id}`, { method: 'DELETE' });
+        setTabs(ts => { const rest = ts.filter(t => t.flowId !== f.id); return rest.length ? rest : [newTab()]; });
+        setActive(a => (tabs.find(t => t.key === a)?.flowId === f.id ? '' : a));
+      }
+      loadFlows();
+    } catch (e) { setMgrMsg(String(e)); }
+  }
+  useEffect(() => { if (!tabs.some(t => t.key === active)) setActive(tabs[tabs.length - 1].key); }, [tabs, active]);
 
+  // ---- per-tab actions ----
   const def = () => ({ graph: { nodes: g.nodes, edges: g.edges } });
-
   async function test() {
-    setMsg(''); setResult(null);
+    patchTab(tab.key, { msg: '', result: null });
     try {
-      setResult(await api<TestResult>('/v1/flows/graph/test', { method: 'POST', body: JSON.stringify({ definition: def(), value: parseFloat(testValue) }) }));
-    } catch (e) { setMsg(String(e)); }
+      const r = await api<TestResult>('/v1/flows/graph/test', { method: 'POST', body: JSON.stringify({ definition: def(), value: parseFloat(tab.testValue) }) });
+      patchTab(tab.key, { result: r });
+    } catch (e) { patchTab(tab.key, { msg: String(e) }); }
   }
   async function save() {
-    setMsg('');
+    patchTab(tab.key, { msg: '' });
     try {
-      const r = await api<{ id: string; version: number }>('/v1/flows?draft=1', { method: 'POST', body: JSON.stringify({ name, definition: def() }) });
-      setSaved(r); setMsg('Saved as a draft. It does not run until you publish it.');
-    } catch (e) { setMsg(String(e)); }
+      if (tab.flowId) {
+        const r = await api<{ version: number }>(`/v1/flows/${tab.flowId}/draft`, { method: 'POST', body: JSON.stringify({ definition: def() }) });
+        patchTab(tab.key, { version: r.version, dirty: false, msg: `Saved as draft version ${r.version}. It does not run until you publish it.` });
+      } else {
+        const r = await api<{ id: string; version: number }>('/v1/flows?draft=1', { method: 'POST', body: JSON.stringify({ name: tab.name, definition: def() }) });
+        patchTab(tab.key, { flowId: r.id, version: r.version, dirty: false, msg: 'Saved as a draft. It does not run until you publish it.' });
+      }
+      loadFlows();
+    } catch (e) { patchTab(tab.key, { msg: String(e) }); }
   }
   async function publish() {
-    if (!saved || !window.confirm('Publish this flow? It will start notifying when readings match.')) return;
+    if (!tab.flowId || !tab.version || tab.dirty) return;
+    if (!window.confirm(`Publish "${tab.name}" version ${tab.version}? It will start notifying when readings match.`)) return;
     try {
-      await api(`/v1/flows/${saved.id}/publish`, { method: 'POST', body: JSON.stringify({ version: saved.version }) });
-      setMsg('Published.');
-    } catch (e) { setMsg(String(e)); }
+      await api(`/v1/flows/${tab.flowId}/publish`, { method: 'POST', body: JSON.stringify({ version: tab.version }) });
+      patchTab(tab.key, { msg: `Published version ${tab.version}.` });
+      loadFlows();
+    } catch (e) { patchTab(tab.key, { msg: String(e) }); }
   }
 
   const hints = problems(g);
   const width = Math.max(900, ...g.nodes.map(n => n.x + NODE_W + 60));
   const height = Math.max(460, ...g.nodes.map(n => n.y + NODE_H + 60));
   const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', ...(fnOn ? ['function' as NodeType] : [])];
+  const status = (f: FlowRow) => (f.published_version ? `published v${f.published_version}${f.latest_version && f.latest_version > f.published_version ? ` (draft v${f.latest_version} pending)` : ''}` : 'draft, not published') + (f.enabled ? '' : ' - disabled');
 
   return (
     <>
       <h1>Flow editor</h1>
-      <p className="muted">Build a flow as a graph: a reading comes in, nodes route and change it, notify nodes send. Saved as a draft; nothing runs until you publish.</p>
+      <p className="muted">Build flows as graphs: a reading comes in, nodes route and change it, notify nodes send. Saved as drafts; nothing runs until you publish.</p>
+
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="fe-toolbar" style={{ marginTop: 0 }}>
+          <b>Your flows</b>
+          <span className="muted">{flows.length} total</span>
+          <button type="button" onClick={() => addTab(newTab())}>+ New flow</button>
+        </div>
+        {flows.length === 0 ? <p className="muted">No flows yet. Click New flow.</p> : (
+          <table className="fe-flows">
+            <thead><tr><th>Name</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {flows.map(f => (
+                <tr key={f.id}>
+                  <td><button type="button" className="link" onClick={() => openFlow(f)}>{f.name}</button></td>
+                  <td className="muted">{status(f)}</td>
+                  <td className="fe-actions">
+                    <button type="button" className="ghost" onClick={() => openFlow(f)}>Open</button>
+                    <button type="button" className="ghost" onClick={() => manage(f, 'duplicate')}>Duplicate</button>
+                    <button type="button" className="ghost" onClick={() => manage(f, 'rename')}>Rename</button>
+                    <button type="button" className="ghost" onClick={() => manage(f, 'toggle')}>{f.enabled ? 'Disable' : 'Enable'}</button>
+                    <button type="button" className="ghost" onClick={() => manage(f, 'delete')}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {mgrMsg && <p className="muted" role="status">{mgrMsg}</p>}
+      </div>
+
+      <div className="fe-tabs" role="tablist" aria-label="Open flows">
+        {tabs.map(t => (
+          <span key={t.key} className={`fe-tab${t.key === tab.key ? ' on' : ''}`}>
+            <button type="button" role="tab" aria-selected={t.key === tab.key} onClick={() => setActive(t.key)}>
+              {t.name || 'Untitled flow'}{t.dirty ? ' \u2022' : ''}
+            </button>
+            <button type="button" className="x" aria-label={`Close ${t.name || 'Untitled flow'}`} onClick={() => closeTab(t.key)}>{'\u00d7'}</button>
+          </span>
+        ))}
+        <button type="button" className="fe-tab-add" aria-label="New flow tab" onClick={() => addTab(newTab())}>+</button>
+      </div>
+
       <div className="fe-toolbar">
-        <input aria-label="Flow name" value={name} onChange={e => setName(e.target.value)} placeholder="Flow name" style={{ maxWidth: 260 }} />
-        <select aria-label="Open an existing flow as a starting point" value="" onChange={e => loadFlow(e.target.value)} style={{ maxWidth: 260 }}>
-          <option value="">Start from an existing flow...</option>
-          {flows.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
+        <input aria-label="Flow name" value={tab.name} disabled={!!tab.flowId} title={tab.flowId ? 'Use Rename in the list above' : ''} onChange={e => patchTab(tab.key, { name: e.target.value, dirty: true })} placeholder="Flow name" style={{ maxWidth: 260 }} />
         <span className="muted">Add:</span>
         {types.map(t => <button key={t} type="button" className="ghost" onClick={() => setG(cur => addNode(cur, t, 60 + (cur.nodes.length % 5) * 30, 40 + cur.nodes.length * 40 % 300))}>+ {LABELS[t]}</button>)}
       </div>
@@ -113,7 +210,7 @@ export default function FlowEditor() {
             }}
             onPointerUp={() => { drag.current = null; setLink(null); }}
             onPointerLeave={() => { drag.current = null; }}
-            onPointerDown={e => { if (e.target === svg.current) setSel(null); }}
+            onPointerDown={e => { if (e.target === svg.current) patchTab(tab.key, { sel: null }); }}
           >
             {g.edges.map((e: GEdge) => (
               <path key={`${e.from}-${e.port}-${e.to}`} d={edgePath(g, e)} className="fe-edge" fill="none"
@@ -126,12 +223,12 @@ export default function FlowEditor() {
               return <path d={`M${a.x + NODE_W},${portY(a, link.port)} L${mouse.x},${mouse.y}`} className="fe-edge fe-ghost" fill="none" />;
             })()}
             {g.nodes.map(n => (
-              <g key={n.id} transform={`translate(${n.x},${n.y})`} className={`fe-node fe-${n.type}${sel === n.id ? ' sel' : ''}`}
-                onPointerDown={e => { e.stopPropagation(); setSel(n.id); const p = pt(e); drag.current = { id: n.id, dx: p.x - n.x, dy: p.y - n.y }; }}
+              <g key={n.id} transform={`translate(${n.x},${n.y})`} className={`fe-node fe-${n.type}${tab.sel === n.id ? ' sel' : ''}`}
+                onPointerDown={e => { e.stopPropagation(); patchTab(tab.key, { sel: n.id }); const p = pt(e); drag.current = { id: n.id, dx: p.x - n.x, dy: p.y - n.y }; }}
                 onPointerUp={e => { if (link && link.from !== n.id) { e.stopPropagation(); tryConnect(link.from, link.port, n.id); setLink(null); } }}
                 tabIndex={0} role="button" aria-label={`${LABELS[n.type]} node ${n.name || n.id}`}
-                onFocus={() => setSel(n.id)}
-                onKeyDown={e => { if (e.key === 'Delete' || e.key === 'Backspace') { if (n.type !== 'trigger') { setG(cur => removeNode(cur, n.id)); setSel(null); } } }}>
+                onFocus={() => patchTab(tab.key, { sel: n.id })}
+                onKeyDown={e => { if (e.key === 'Delete' || e.key === 'Backspace') { if (n.type !== 'trigger') { setG(cur => removeNode(cur, n.id)); patchTab(tab.key, { sel: null }); } } }}>
                 <rect width={NODE_W} height={NODE_H} rx={14} />
                 <text x={14} y={22} className="fe-title">{LABELS[n.type]}</text>
                 <text x={14} y={40} className="fe-sub">{summary(n)}</text>
@@ -149,23 +246,23 @@ export default function FlowEditor() {
         <div className="fe-side">
           {node ? <Props n={node} g={g} channels={channels} upd={p => upd(node.id, p)}
             connectTo={(port, to) => tryConnect(node.id, port, to)}
-            remove={() => { setG(cur => removeNode(cur, node.id)); setSel(null); }} /> :
+            remove={() => { setG(cur => removeNode(cur, node.id)); patchTab(tab.key, { sel: null }); }} /> :
             <div className="card"><b>Select a node</b><p className="muted">Click a node to edit it. Drag from the round dot on its right edge to another node to connect them. Click a line to remove it. Delete removes the selected node.</p></div>}
         </div>
       </div>
       <div className="card" style={{ marginTop: 16 }}>
         {hints.length > 0 && <ul className="muted" style={{ marginTop: 0 }}>{hints.map(h => <li key={h}>{h}</li>)}</ul>}
         <div className="fe-toolbar">
-          <input aria-label="Test value" type="number" step="any" value={testValue} onChange={e => setTestValue(e.target.value)} placeholder="test reading" style={{ maxWidth: 160 }} />
-          <button type="button" className="ghost" onClick={test} disabled={testValue === ''}>Test (nothing is sent)</button>
-          <button type="button" onClick={save} disabled={!name || hints.length > 0}>Save draft</button>
-          <button type="button" className="ghost" onClick={publish} disabled={!saved}>Publish saved draft</button>
+          <input aria-label="Test value" type="number" step="any" value={tab.testValue} onChange={e => patchTab(tab.key, { testValue: e.target.value })} placeholder="test reading" style={{ maxWidth: 160 }} />
+          <button type="button" className="ghost" onClick={test} disabled={tab.testValue === ''}>Test (nothing is sent)</button>
+          <button type="button" onClick={save} disabled={!tab.name || hints.length > 0 || (!!tab.flowId && !tab.dirty)}>{tab.flowId ? 'Save as new draft version' : 'Save draft'}</button>
+          <button type="button" className="ghost" onClick={publish} disabled={!tab.flowId || tab.dirty}>Publish saved version</button>
         </div>
-        {msg && <p className="muted" role="status">{msg}</p>}
-        {result && <div role="status">
-          <b>{result.matched ? 'Flow starts for this reading' : 'The reading node does not match; nothing happens'}</b>
-          {result.actions.map((a, i) => <div key={i} className="muted">notify {channels.find(c => c.id === a.channel_id)?.target ?? a.channel_id}{a.delay_seconds ? ` after ${a.delay_seconds}s` : ''}: {a.message}</div>)}
-          {result.debug.map((d, i) => <div key={i} className="muted">debug {d.node}: {d.message}</div>)}
+        {tab.msg && <p className="muted" role="status">{tab.msg}</p>}
+        {tab.result && <div role="status">
+          <b>{tab.result.matched ? 'Flow starts for this reading' : 'The reading node does not match; nothing happens'}</b>
+          {tab.result.actions.map((a, i) => <div key={i} className="muted">notify {channels.find(c => c.id === a.channel_id)?.target ?? a.channel_id}{a.delay_seconds ? ` after ${a.delay_seconds}s` : ''}: {a.message}</div>)}
+          {tab.result.debug.map((d, i) => <div key={i} className="muted">debug {d.node}: {d.message}</div>)}
         </div>}
       </div>
     </>
