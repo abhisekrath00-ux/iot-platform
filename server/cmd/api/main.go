@@ -215,6 +215,20 @@ func main() {
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).
 	go leader.Run(ctx, st.Pool, leaderReportScheduler, "report-scheduler", 10*time.Second, s.reportScheduler)
+	// Timed flows (inject nodes): same single-replica rule, checked every 30s.
+	go leader.Run(ctx, st.Pool, leaderFlowScheduler, "flow-scheduler", 10*time.Second, func(c context.Context) {
+		fn := notify.FromEnv()
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			flow.RunScheduled(c, st.Pool, fn)
+			select {
+			case <-c.Done():
+				return
+			case <-t.C:
+			}
+		}
+	})
 	// Hourly rollups always; raw-data purge only when RAW_RETENTION_DAYS is set (default: keep everything).
 	retDays, _ := strconv.Atoi(os.Getenv("RAW_RETENTION_DAYS"))
 	go leader.Run(ctx, st.Pool, leaderRetention, "retention", 30*time.Second, retention.Job(st.Pool, retDays, time.Hour))
@@ -239,6 +253,9 @@ const migrateAdvisoryLockID int64 = 0x4845584D4F4E // "HEXMON"
 
 // leaderReportScheduler is the advisory lock key for the report scheduler.
 const leaderReportScheduler int64 = 0x4845584D4F4F
+
+// leaderFlowScheduler is the advisory lock key for timed (inject) flows.
+const leaderFlowScheduler int64 = 0x4845584D4F51
 
 // leaderRetention is the advisory lock key for the rollup/retention job.
 const leaderRetention int64 = 0x4845584D4F50

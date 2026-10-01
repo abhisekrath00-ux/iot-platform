@@ -56,7 +56,7 @@ with tests, tenant isolation and the control approval path intact.
 | template (render text into a property) | Built, unit-tested | pure, no I/O |
 | range / scale | Built, unit-tested | pure |
 | rate-limit / limit | Built, unit-tested | in-memory, per API replica, resets on restart; no Node-RED import mapping |
-| inject / schedule (time-based start) | Planned | needs a scheduler, a trigger without a reading, and multi-replica dedupe (graphs require exactly one reading trigger today) |
+| inject / schedule (timed start) | Built, integration-tested | interval 60-86400 s, one start node per flow (reading trigger OR timer); run by one elected API replica every 30 s; due-ness comes from flow_runs so restarts do not double-fire; function nodes do not run in timed flows; no cron expressions yet |
 | split / join | Not planned for now | a flow message carries one scalar reading, so there is nothing to split; join would need batching state. Revisit when messages can carry arrays |
 | HTTP request | Partly covered | a notify node on a tenant webhook channel posts JSON to a host an admin registered (that registry is the allowlist; single attempt, no retry, fixed payload, no response handling). A free-form request node with response routing is Planned: per-tenant host allowlist, no private ranges by default, timeouts, size caps, secrets from the vault |
 | MQTT in/out | Planned | tenant-prefixed topics only; out is a control path, so it goes through approval and four-eyes |

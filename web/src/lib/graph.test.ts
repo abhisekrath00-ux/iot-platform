@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addNode, connect, emptyGraph, problems, prunePorts, removeNode } from './graph';
+import { addNode, connect, emptyGraph, isStart, problems, prunePorts, removeNode, setStart } from './graph';
 
 describe('graph editor helpers', () => {
   it('adds nodes with unique ids and never a second trigger', () => {
@@ -46,5 +46,17 @@ describe('graph editor helpers', () => {
     expect(problems(g)).toContain('Add at least one Notify node');
     g = addNode(g, 'notify', 0, 0);
     expect(problems(g).some(p => p.includes('needs a channel'))).toBe(true);
+  });
+});
+
+describe('timer start', () => {
+  it('swaps the start node and keeps edges', () => {
+    let g = addNode(emptyGraph(), 'delay', 0, 0);
+    g = { ...g, edges: [{ from: 'trigger', port: '0', to: 'delay1' }] };
+    const t = setStart(g, 'inject');
+    expect(t.nodes.filter(isStart)).toHaveLength(1);
+    expect(t.nodes.find(isStart)!.type).toBe('inject');
+    expect(t.edges).toHaveLength(1);
+    expect(setStart(t, 'trigger').nodes.find(isStart)!.type).toBe('trigger');
   });
 });

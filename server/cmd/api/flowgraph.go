@@ -101,6 +101,7 @@ func (s *server) testFlowGraph(w http.ResponseWriter, r *http.Request) {
 	if in.Definition.HasFunctionNodes() && s.functionNodesAllowed(r) {
 		opt.Functions = fnRunner
 	}
+	opt.Scheduled = in.Definition.IsScheduled() // a test of a timed flow runs it as if the timer fired
 	t := in.Definition.Trig()
 	res := in.Definition.Exec(in.Value, t.DeviceID, t.PointID, opt)
 	acts := []map[string]any{}

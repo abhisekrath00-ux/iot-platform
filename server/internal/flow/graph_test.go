@@ -256,3 +256,34 @@ func TestRateLimitNode(t *testing.T) {
 		t.Fatal("simulation passes")
 	}
 }
+
+func TestInjectStartsOnlyWhenScheduled(t *testing.T) {
+	g := Graph{
+		Nodes: []Node{{ID: "i", Type: "inject", Seconds: 60, Value: 5, DeviceID: "d", PointID: "p"}, {ID: "n", Type: "notify", ChannelID: "c", Message: "v {value} {device_id}"}},
+		Edges: []Edge{{From: "i", To: "n"}},
+	}
+	d := Definition{Graph: &g}
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+	if r := d.Exec(99, "d", "p", ExecOptions{}); r.Matched || len(r.Actions) != 0 {
+		t.Fatal("a reading must not start an inject graph")
+	}
+	r := d.Exec(0, "", "", ExecOptions{Scheduled: true})
+	if len(r.Actions) != 1 || r.Actions[0].Message != "v 5 d" {
+		t.Fatalf("%+v", r.Actions)
+	}
+	// a reading graph does not run on the scheduler
+	tg := Graph{Nodes: []Node{trig(), {ID: "n", Type: "notify", ChannelID: "c"}}, Edges: []Edge{{From: "t", To: "n"}}}
+	if r := (Definition{Graph: &tg}).Exec(50, "d", "p", ExecOptions{Scheduled: true}); r.Matched {
+		t.Fatal("trigger graph ran as scheduled")
+	}
+	// exactly one start node, sane interval
+	two := Graph{Nodes: []Node{trig(), {ID: "i", Type: "inject", Seconds: 60}, {ID: "n", Type: "notify", ChannelID: "c"}}, Edges: []Edge{{From: "t", To: "n"}, {From: "i", To: "n"}}}
+	if Validate(Definition{Graph: &two}) == nil {
+		t.Fatal("two start nodes accepted")
+	}
+	if validateNode(&Node{ID: "i", Type: "inject", Seconds: 5}) == nil {
+		t.Fatal("5s interval accepted")
+	}
+}

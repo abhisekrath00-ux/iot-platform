@@ -2,7 +2,7 @@
 // The server is the authority on validity; these keep the editor from building
 // graphs it already knows will be refused.
 
-export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range' | 'rate_limit';
+export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range' | 'rate_limit' | 'inject';
 
 export interface GNode {
   id: string; type: NodeType; name?: string; x: number; y: number;
@@ -20,7 +20,7 @@ export const NODE_H = 52;
 
 export const LABELS: Record<NodeType, string> = {
   trigger: 'Reading', switch: 'Switch', change: 'Change', condition: 'Condition',
-  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range', rate_limit: 'Rate limit'
+  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range', rate_limit: 'Rate limit', inject: 'Timer'
 };
 
 export function portCount(n: GNode): number {
@@ -48,6 +48,7 @@ export function defaults(type: NodeType): Partial<GNode> {
     case 'notify': return { channel_id: '', message: 'value {value}' };
     case 'debug': return { message: '{value}' };
     case 'template': return { template: 'value {value}', target: 'text' };
+    case 'inject': return { seconds: 3600, value: 0, device_id: '', point_id: '' };
     case 'rate_limit': return { seconds: 60 };
     case 'range': return { in_min: 0, in_max: 100, out_min: 0, out_max: 1, clamp: true };
     case 'function': return { code: 'return msg;' };
@@ -55,14 +56,28 @@ export function defaults(type: NodeType): Partial<GNode> {
   }
 }
 
+export const isStart = (n: GNode) => n.type === 'trigger' || n.type === 'inject';
+
+/** Swap the start node between a reading trigger and a timer, keeping its connections. */
+export function setStart(g: Graph, kind: 'trigger' | 'inject'): Graph {
+  const cur = g.nodes.find(isStart);
+  if (!cur || cur.type === kind) return g;
+  const base = { id: cur.id, x: cur.x, y: cur.y, name: cur.name };
+  const next: GNode = kind === 'inject'
+    ? { ...base, type: 'inject', ...defaults('inject') }
+    : { ...base, type: 'trigger', device_id: '', point_id: '', op: '>', value: 0 };
+  return { ...g, nodes: g.nodes.map(n => (n === cur ? next : n)) };
+}
+
 export function addNode(g: Graph, type: NodeType, x: number, y: number): Graph {
-  if (type === 'trigger') return g; // exactly one, already present
+  if (type === 'trigger' || type === 'inject') return g; // exactly one start node, already present (use setStart)
   const id = nextId(g, type);
   return { ...g, nodes: [...g.nodes, { id, type, x, y, ...defaults(type) } as GNode] };
 }
 
 export function removeNode(g: Graph, id: string): Graph {
-  if (g.nodes.find(n => n.id === id)?.type === 'trigger') return g;
+  const victim = g.nodes.find(n => n.id === id);
+  if (victim && isStart(victim)) return g;
   return { nodes: g.nodes.filter(n => n.id !== id), edges: g.edges.filter(e => e.from !== id && e.to !== id) };
 }
 
@@ -85,7 +100,7 @@ export function connect(g: Graph, from: string, port: string, to: string): Graph
   if (!a || !b) return 'Unknown node';
   if (from === to) return 'A node cannot connect to itself';
   if (portCount(a) === 0) return `${LABELS[a.type]} nodes are an end point and have no output`;
-  if (b.type === 'trigger') return 'The reading node has no input';
+  if (isStart(b)) return 'The start node has no input';
   if (Number(port) >= portCount(a)) return 'No such output';
   if (g.edges.some(e => e.from === from && e.port === port && e.to === to)) return 'Already connected';
   if (reaches(g, to, from)) return 'That would create a loop';
@@ -101,11 +116,12 @@ export function prunePorts(g: Graph): Graph {
 /** Client-side hints shown before Save; the server still validates. */
 export function problems(g: Graph): string[] {
   const out: string[] = [];
-  const t = g.nodes.find(n => n.type === 'trigger');
-  if (!t || !t.device_id || !t.point_id) out.push('Set the device and point on the reading node');
+  const t = g.nodes.find(isStart);
+  if (t?.type === 'inject') { if (!t.seconds || t.seconds < 60) out.push('Timer interval must be at least 60 seconds'); }
+  else if (!t || !t.device_id || !t.point_id) out.push('Set the device and point on the reading node');
   if (!g.nodes.some(n => n.type === 'notify')) out.push('Add at least one Notify node');
   for (const n of g.nodes) {
-    if (n.type !== 'trigger' && !g.edges.some(e => e.to === n.id)) out.push(`${n.name || n.id} has no input`);
+    if (!isStart(n) && !g.edges.some(e => e.to === n.id)) out.push(`${n.name || n.id} has no input`);
     if (n.type === 'notify' && !n.channel_id) out.push(`${n.name || n.id} needs a channel`);
   }
   return out;

@@ -2,7 +2,7 @@ import { History, emptyHistory, record, redo, undo } from '../lib/history';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import {
-  GEdge, GNode, Graph, LABELS, NODE_H, NODE_W, NodeType, addNode, connect, edgePath, emptyGraph,
+  GEdge, GNode, Graph, LABELS, NODE_H, NODE_W, NodeType, addNode, connect, isStart, setStart, edgePath, emptyGraph,
   portCount, portY, problems, prunePorts, removeNode
 } from '../lib/graph';
 
@@ -258,6 +258,7 @@ export default function FlowEditor() {
         <div className="fe-side">
           {node ? <Props n={node} g={g} channels={channels} upd={p => upd(node.id, p)}
             connectTo={(port, to) => tryConnect(node.id, port, to)}
+            setStartKind={k => setG(cur => setStart(cur, k))}
             remove={() => { setG(cur => removeNode(cur, node.id)); patchTab(tab.key, { sel: null }); }} /> :
             <div className="card"><b>Select a node</b><p className="muted">Click a node to edit it. Drag from the round dot on its right edge to another node to connect them. Click a line to remove it. Delete removes the selected node.</p></div>}
         </div>
@@ -288,6 +289,7 @@ export default function FlowEditor() {
 
 function summary(n: GNode): string {
   switch (n.type) {
+    case 'inject': return `every ${n.seconds}s`;
     case 'trigger': return n.device_id ? `${n.device_id}/${n.point_id} ${n.op} ${n.value}` : 'set device and point';
     case 'switch': return `${n.property} - ${n.rules?.length ?? 0} rule${n.rules?.length === 1 ? '' : 's'}`;
     case 'change': return `${n.changes?.length ?? 0} change${n.changes?.length === 1 ? '' : 's'}`;
@@ -302,7 +304,8 @@ function summary(n: GNode): string {
   }
 }
 
-function Props({ n, g, channels, upd, connectTo, remove }: {
+function Props({ n, g, channels, upd, connectTo, remove, setStartKind }: {
+  setStartKind: (k: 'trigger' | 'inject') => void;
   n: GNode; g: Graph; channels: Channel[]; upd: (p: Partial<GNode>) => void;
   connectTo: (port: number, to: string) => void; remove: () => void;
 }) {
@@ -314,6 +317,21 @@ function Props({ n, g, channels, upd, connectTo, remove }: {
       <b>{LABELS[n.type]} node</b> <span className="muted">{n.id}</span>
       <label htmlFor="np-name">Label</label>
       <input id="np-name" value={n.name ?? ''} maxLength={64} onChange={e => upd({ name: e.target.value })} />
+      {isStart(n) && <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <button type="button" className={n.type === 'trigger' ? '' : 'ghost'} onClick={() => setStartKind('trigger')}>On a reading</button>
+        <button type="button" className={n.type === 'inject' ? '' : 'ghost'} onClick={() => setStartKind('inject')}>On a timer</button>
+      </div>}
+      {n.type === 'inject' && <>
+        <label htmlFor="np-iv">Run every (seconds, 60 to 86400)</label>
+        <input id="np-iv" type="number" min={60} max={86400} value={n.seconds ?? 3600} onChange={e => upd({ seconds: parseInt(e.target.value) || 60 })} />
+        <label htmlFor="np-ival">Value sent</label>
+        <input id="np-ival" type="number" step="any" value={n.value ?? 0} onChange={e => upd({ value: parseFloat(e.target.value) || 0 })} />
+        <label htmlFor="np-idev">Device label (optional, for messages)</label>
+        <input id="np-idev" value={n.device_id ?? ''} onChange={e => upd({ device_id: e.target.value })} />
+        <label htmlFor="np-ipt">Point label (optional)</label>
+        <input id="np-ipt" value={n.point_id ?? ''} onChange={e => upd({ point_id: e.target.value })} />
+        <p className="muted">Runs once per interval on the published version, from one API replica. The first run happens soon after publishing. Function nodes do not run in timed flows.</p>
+      </>}
       {n.type === 'trigger' && <>
         <label htmlFor="np-dev">Device</label>
         <input id="np-dev" value={n.device_id ?? ''} onChange={e => upd({ device_id: e.target.value })} placeholder="meter-1" />

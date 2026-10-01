@@ -86,6 +86,20 @@ func (d Definition) HasFunctionNodes() bool {
 	return false
 }
 
+// IsScheduled reports whether the flow starts from a timed inject node rather
+// than a reading.
+func (d Definition) IsScheduled() bool {
+	if d.Graph == nil {
+		return false
+	}
+	for _, n := range d.Graph.Nodes {
+		if n.Type == "inject" {
+			return true
+		}
+	}
+	return false
+}
+
 // Exec evaluates the definition (legacy or graph) against one reading.
 func (d Definition) Exec(value float64, deviceID, pointID string, opt ExecOptions) ExecResult {
 	if d.Graph != nil {

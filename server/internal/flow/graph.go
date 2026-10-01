@@ -25,6 +25,8 @@ const (
 	maxStringSize = 256
 )
 
+func isStart(t string) bool { return t == "trigger" || t == "inject" }
+
 type Node struct {
 	ID   string  `json:"id"`
 	Type string  `json:"type"` // trigger|switch|change|condition|delay|notify|debug|function
@@ -111,6 +113,7 @@ type ExecOptions struct {
 	Functions FunctionRunner // nil: function nodes are disabled
 	Limiter   Limiter        // nil: rate-limit nodes pass everything (simulation)
 	LimitKey  string         // scopes limiter state, e.g. tenant/flow id
+	Scheduled bool           // run an inject-started graph (the scheduler sets this)
 }
 
 // Limiter decides whether a rate-limit node lets a message through. State is
@@ -370,11 +373,20 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 	}
 	var start *Node
 	for i := range g.Nodes {
-		if g.Nodes[i].Type == "trigger" {
+		if isStart(g.Nodes[i].Type) {
 			start = &g.Nodes[i]
 		}
 	}
-	if start == nil || !compare(start.Op, value, start.Value) {
+	if start == nil {
+		return res
+	}
+	if start.Type == "inject" {
+		// timed start: only the scheduler runs it, never an incoming reading
+		if !opt.Scheduled {
+			return res
+		}
+		value, deviceID, pointID = start.Value, start.DeviceID, start.PointID
+	} else if opt.Scheduled || !compare(start.Op, value, start.Value) {
 		return res
 	}
 	res.Matched = true
@@ -521,12 +533,12 @@ func validateGraph(g *Graph) error {
 		if err := validateNode(n); err != nil {
 			return fmt.Errorf("node %s: %w", n.ID, err)
 		}
-		if n.Type == "trigger" {
+		if isStart(n.Type) {
 			triggers++
 		}
 	}
 	if triggers != 1 {
-		return fmt.Errorf("exactly one trigger node required")
+		return fmt.Errorf("exactly one start node (reading trigger or inject) required")
 	}
 	adj := map[string][]string{}
 	indeg := map[string]int{}
@@ -539,8 +551,8 @@ func validateGraph(g *Graph) error {
 		case "notify", "debug":
 			return fmt.Errorf("node %s is terminal and cannot have outputs", from.ID)
 		}
-		if to.Type == "trigger" {
-			return fmt.Errorf("trigger cannot have inputs")
+		if isStart(to.Type) {
+			return fmt.Errorf("a start node cannot have inputs")
 		}
 		p := e.Port
 		if p == "" {
@@ -585,7 +597,7 @@ func validateGraph(g *Graph) error {
 	reach := map[string]bool{}
 	var trig string
 	for _, n := range g.Nodes {
-		if n.Type == "trigger" {
+		if isStart(n.Type) {
 			trig = n.ID
 		}
 	}
@@ -699,6 +711,13 @@ func validateNode(n *Node) error {
 	case "debug":
 		if len(n.Message) > 500 {
 			return fmt.Errorf("message too long")
+		}
+	case "inject":
+		if n.Seconds < 60 || n.Seconds > 86400 {
+			return fmt.Errorf("inject interval 60-86400 seconds")
+		}
+		if math.IsNaN(n.Value) || math.IsInf(n.Value, 0) {
+			return fmt.Errorf("inject value must be finite")
 		}
 	case "rate_limit":
 		if n.Seconds < 1 || n.Seconds > 86400 {

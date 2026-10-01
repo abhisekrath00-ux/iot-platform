@@ -46,6 +46,7 @@ var nodeCatalogue = map[string]any{
 		{"type": "delay", "fields": "seconds (1-3600)", "ports": "0"},
 		{"type": "template", "fields": "template (max 500), target (variable name)", "ports": "0"},
 		{"type": "range", "fields": "in_min, in_max (differ), out_min, out_max, clamp", "ports": "0"},
+		{"type": "inject", "fields": "seconds (60-86400 interval), value, device_id, point_id (labels); an alternative start node, exactly one start node per flow", "ports": "0"},
 		{"type": "rate_limit", "fields": "seconds (1-86400): lets one message per window pass", "ports": "0"},
 		{"type": "debug", "fields": "message", "ports": "none"},
 		{"type": "notify", "fields": "channel_id (an existing notification channel), message", "ports": "none"},
@@ -73,7 +74,7 @@ func (s *server) flowTool(r *http.Request, name string, args map[string]any) (an
 		if f, ok := args["value"].(float64); ok {
 			v = f
 		}
-		res := d.Exec(v, t.DeviceID, t.PointID, flow.ExecOptions{})
+		res := d.Exec(v, t.DeviceID, t.PointID, flow.ExecOptions{Scheduled: d.IsScheduled()})
 		acts := []map[string]any{}
 		for _, a := range res.Actions {
 			acts = append(acts, map[string]any{"channel_id": a.ChannelID, "message": a.Message, "delay_seconds": int(a.Delay.Seconds())})

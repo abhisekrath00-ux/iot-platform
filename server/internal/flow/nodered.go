@@ -120,6 +120,9 @@ func ToNodeRED(g Graph, flowName string) []map[string]any {
 				rules = append(rules, r)
 			}
 			o["rules"] = rules
+		case "inject":
+			o["type"] = "inject"
+			o["repeat"], o["once"], o["payloadType"], o["payload"] = strconv.Itoa(n.Seconds), false, "num", strconv.FormatFloat(n.Value, 'g', -1, 64)
 		case "rate_limit":
 			o["type"] = "delay"
 			o["pauseType"], o["rate"], o["nbRateUnits"], o["rateUnits"], o["drop"] = "rate", "1", strconv.Itoa(n.Seconds), "second", true
