@@ -65,6 +65,17 @@ func TestIntegrationGraphFlowsAndFunctionNodeGating(t *testing.T) {
 		t.Fatalf("run %q detail %q", outcome, detail)
 	}
 
+	// ?draft=1 saves without publishing
+	dw := call(api, "itest-gf1", "operator", "POST", "/v1/flows?draft=1", graphBody("itest-gf1", false))
+	if dw.Code != 201 {
+		t.Fatalf("draft create %d %s", dw.Code, dw.Body.String())
+	}
+	var pubd *string
+	s.st.Pool.QueryRow(ctx, `SELECT published_version_id FROM flows WHERE id=$1`, fw2id(t, dw)).Scan(&pubd)
+	if pubd != nil {
+		t.Fatal("?draft=1 must not publish")
+	}
+
 	// export carries the node-index channel label; import into another tenant remaps it as a draft
 	ex := call(api, "itest-gf1", "viewer", "GET", "/v1/flows/"+created["id"].(string)+"/export", "")
 	if ex.Code != 200 || !strings.Contains(ex.Body.String(), `"3":"slack:C-OPS"`) || strings.Contains(ex.Body.String(), "itest-gf1-ch") {

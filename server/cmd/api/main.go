@@ -1412,17 +1412,29 @@ func (s *server) createFlow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if _, err := tx.Exec(r.Context(),
-		`INSERT INTO flow_versions(id,flow_id,tenant_id,version,definition,status,created_by,published_at)
-		 VALUES($1,$2,$3,1,$4,'published',$5,now())`,
-		verID, id, auth.Tenant(r), def, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	if _, err := tx.Exec(r.Context(),
-		`UPDATE flows SET published_version_id=$1 WHERE id=$2`, verID, id); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+	// ?draft=1 saves an unpublished draft (the graph editor uses this so a person
+	// publishes deliberately); the default keeps the previous publish-on-create.
+	if r.URL.Query().Get("draft") == "1" {
+		if _, err := tx.Exec(r.Context(),
+			`INSERT INTO flow_versions(id,flow_id,tenant_id,version,definition,status,created_by)
+			 VALUES($1,$2,$3,1,$4,'draft',$5)`,
+			verID, id, auth.Tenant(r), def, auth.User(r)); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	} else {
+		if _, err := tx.Exec(r.Context(),
+			`INSERT INTO flow_versions(id,flow_id,tenant_id,version,definition,status,created_by,published_at)
+			 VALUES($1,$2,$3,1,$4,'published',$5,now())`,
+			verID, id, auth.Tenant(r), def, auth.User(r)); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		if _, err := tx.Exec(r.Context(),
+			`UPDATE flows SET published_version_id=$1 WHERE id=$2`, verID, id); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		http.Error(w, err.Error(), 500)

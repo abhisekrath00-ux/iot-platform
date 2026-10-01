@@ -184,3 +184,22 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outlin
 .twin-bar, .twin-ports i { box-shadow: var(--inset); }
 @media (prefers-contrast: more) { :root { --line: rgba(0,0,0,.45); } :root[data-theme="dark"] { --line: rgba(255,255,255,.55); } .card, table, button, input, select { box-shadow: none; border: 1px solid var(--line); } }
 @media (prefers-reduced-transparency: reduce) { nav { background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+
+/* flow graph editor */
+.fe-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+.fe-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .fe-layout { grid-template-columns: 1fr; } }
+.fe-canvas { overflow: auto; max-height: 70vh; min-height: 300px; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 22px 22px; }
+.fe-canvas svg { display: block; touch-action: none; }
+.fe-edge { stroke: var(--muted, #8e8e93); stroke-width: 2.5; cursor: pointer; }
+.fe-edge:hover { stroke: var(--bad, #ff453a); }
+.fe-ghost { stroke-dasharray: 5 5; pointer-events: none; stroke: var(--accent); }
+.fe-node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; filter: drop-shadow(0 4px 10px rgba(0,0,0,.12)); }
+.fe-node { cursor: grab; outline: none; }
+.fe-node.sel rect, .fe-node:focus-visible rect { stroke: var(--accent); stroke-width: 2.5; }
+.fe-title { fill: var(--text, currentColor); font-size: 13px; font-weight: 600; }
+.fe-sub { fill: var(--muted, #8e8e93); font-size: 11px; }
+.fe-port { fill: var(--panel); stroke: var(--accent); stroke-width: 2; }
+.fe-port.out { cursor: crosshair; fill: var(--accent); }
+.fe-trigger rect { stroke: var(--accent); }
+.fe-notify rect { stroke: #30d158; }

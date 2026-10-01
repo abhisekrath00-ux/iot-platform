@@ -10,6 +10,7 @@ import DeviceDetail from './pages/DeviceDetail';
 import Onboarding from './pages/Onboarding';
 import Dashboards from './pages/Dashboards';
 import Flows from './pages/Flows';
+import FlowEditor from './pages/FlowEditor';
 import Alerts from './pages/Alerts';
 import Commands from './pages/Commands';
 import Settings from './pages/Settings';
@@ -73,6 +74,7 @@ export default function App() {
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/dashboards" element={<Dashboards />} />
           <Route path="/flows" element={<Flows />} />
+          <Route path="/flows/editor" element={<FlowEditor />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/commands" element={<Commands />} />
           <Route path="/reports" element={<Reports />} />

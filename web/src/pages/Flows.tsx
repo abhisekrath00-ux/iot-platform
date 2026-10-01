@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
+import { Link } from 'react-router-dom';
 import { api, download } from '../lib/api';
 
 interface Rule { id: string; name: string; definition: any; version: number; enabled: boolean; }
@@ -132,6 +133,7 @@ export default function Flows() {
         </tbody>
       </table>}
       <h2 style={{ marginTop: 28 }}>Automation flows</h2>
+      <p><Link to="/flows/editor"><button type="button">Open the graph editor</button></Link></p>
       <p className="muted">Trigger on a reading, optionally check a condition and wait, then notify. Flows evaluate in the ingest worker alongside rules.</p>
       <div className="card" style={{ maxWidth: 640, marginBottom: 20 }}>
         <b>New flow</b>
