@@ -31,6 +31,7 @@ export default function FlowEditor() {
   const [fnOn, setFnOn] = useState(false);
   const [mgrMsg, setMgrMsg] = useState('');
   const [link, setLink] = useState<{ from: string; port: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
   const svg = useRef<SVGSVGElement>(null);
@@ -64,7 +65,7 @@ export default function FlowEditor() {
 
   function pt(e: React.PointerEvent) {
     const r = svg.current!.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    return { x: (e.clientX - r.left) / zoom, y: (e.clientY - r.top) / zoom };
   }
   function tryConnect(from: string, port: number, to: string) {
     const r = connect(g, from, String(port), to);
@@ -213,7 +214,7 @@ export default function FlowEditor() {
       <div className="fe-layout">
         <div className="fe-canvas card" style={{ padding: 0 }}>
           <svg
-            ref={svg} width={width} height={height} role="application" aria-label="Flow graph canvas"
+            ref={svg} width={width * zoom} height={height * zoom} viewBox={`0 0 ${width} ${height}`} role="application" aria-label="Flow graph canvas"
             onPointerMove={e => {
               const p = pt(e);
               setMouse(p);
@@ -265,6 +266,9 @@ export default function FlowEditor() {
         {hints.length > 0 && <ul className="muted" style={{ marginTop: 0 }}>{hints.map(h => <li key={h}>{h}</li>)}</ul>}
         <div className="fe-toolbar">
           <input aria-label="Test value" type="number" step="any" value={tab.testValue} onChange={e => patchTab(tab.key, { testValue: e.target.value })} placeholder="test reading" style={{ maxWidth: 160 }} />
+          <button type="button" className="ghost" aria-label="Zoom out" onClick={() => setZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))} disabled={zoom <= 0.5}>-</button>
+          <button type="button" className="ghost" aria-label="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+          <button type="button" className="ghost" aria-label="Zoom in" onClick={() => setZoom(z => Math.min(2, +(z + 0.25).toFixed(2)))} disabled={zoom >= 2}>+</button>
           <button type="button" className="ghost" onClick={() => stepHistory('undo')} disabled={tab.hist.past.length === 0}>Undo</button>
           <button type="button" className="ghost" onClick={() => stepHistory('redo')} disabled={tab.hist.future.length === 0}>Redo</button>
           <button type="button" className="ghost" onClick={test} disabled={tab.testValue === ''}>Test (nothing is sent)</button>
