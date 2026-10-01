@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,12 @@ func TestIntegrationRollupDailyMergesHourly(t *testing.T) {
 	}
 	if f(d[1], "n") != 1 || f(d[1], "avg") != 7 {
 		t.Fatalf("day2 = %v", d[1])
+	}
+	// Another tenant asking for the same device and point sees nothing.
+	seed(t, s, "itest-ru2")
+	w := call(api, "itest-ru2", "viewer", "GET", "/v1/telemetry/rollup?device_id=d&point_id=p&from=2026-02-28T00:00:00Z&to=2026-03-10T00:00:00Z", "")
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != "[]" {
+		t.Fatalf("cross-tenant rollup = %d %s, want empty list", w.Code, w.Body.String())
 	}
 	if w := call(api, "itest-ru1", "viewer", "GET", "/v1/telemetry/rollup?device_id=d&point_id=p&bucket=week", ""); w.Code != 400 {
 		t.Fatalf("bad bucket = %d", w.Code)
