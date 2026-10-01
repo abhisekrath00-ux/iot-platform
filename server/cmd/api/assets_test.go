@@ -124,6 +124,22 @@ func TestIntegrationDeviceFilterByAsset(t *testing.T) {
 	if got := ids("itest-af1", "?asset_id=af-other"); len(got) != 0 {
 		t.Fatalf("other tenant's asset must match nothing: %v", got)
 	}
+	s.st.Pool.Exec(ctx, `DELETE FROM alerts WHERE tenant_id='itest-af1' AND id LIKE 'af-al%'`)
+	s.st.Pool.Exec(ctx, `INSERT INTO alerts(id,tenant_id,severity,message,device_id) VALUES('af-al1','itest-af1','warning','on line','itest-af1-dev'),('af-al2','itest-af1','warning','no device',NULL)`)
+	t.Cleanup(func() { s.st.Pool.Exec(ctx, `DELETE FROM alerts WHERE tenant_id='itest-af1' AND id LIKE 'af-al%'`) })
+	api.HandleFunc("GET /v1/alerts", s.listAlerts)
+	alertIDs := func(tenant, q string) int {
+		w := call(api, tenant, "viewer", "GET", "/v1/alerts"+q, "")
+		var l []map[string]any
+		json.Unmarshal(w.Body.Bytes(), &l)
+		return len(l)
+	}
+	if n := alertIDs("itest-af1", "?asset_id=af-plant"); n != 1 {
+		t.Fatalf("alerts under asset: %d", n)
+	}
+	if n := alertIDs("itest-af2", "?asset_id=af-plant"); n != 0 {
+		t.Fatalf("cross-tenant alerts: %d", n)
+	}
 	if got := ids("itest-af1", ""); len(got) == 0 {
 		t.Fatal("unfiltered list empty")
 	}

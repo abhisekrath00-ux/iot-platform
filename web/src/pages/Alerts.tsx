@@ -9,12 +9,15 @@ export default function Alerts() {
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [filter, setFilter] = useState<Filter>('open');
   const [err, setErr] = useState('');
+  const [assets, setAssets] = useState<{ id: string; name: string }[]>([]);
+  const [asset, setAsset] = useState('');
+  useEffect(() => { api<typeof assets>('/v1/assets').then(setAssets).catch(() => {}); }, []);
   const [sel, setSel] = useState<AlertDetail | null>(null);
   const [note, setNote] = useState('');
 
-  const load = () => api<AlertRow[]>(`/v1/alerts${filter === 'all' ? '' : `?status=${filter}`}`)
+  const load = () => api<AlertRow[]>(`/v1/alerts?${new URLSearchParams({ ...(filter === 'all' ? {} : { status: filter }), ...(asset ? { asset_id: asset } : {}) })}`)
     .then(a => { setAlerts(a); setErr(''); }).catch(e => setErr(String(e)));
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [filter]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [filter, asset]);
 
   const open = (id: string) => api<AlertDetail>(`/v1/alerts/${id}`).then(setSel).catch(e => setErr(String(e)));
   const act = (id: string, action: 'ack' | 'resolve') =>
@@ -31,6 +34,7 @@ export default function Alerts() {
     <>
       <h1>Alerts</h1>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {assets.length > 0 && <select aria-label="Filter by asset" value={asset} onChange={e => setAsset(e.target.value)} style={{ width: 'auto' }}><option value="">All assets</option>{assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>}
         {FILTERS.map(f => <button key={f} className={filter === f ? '' : 'ghost'} onClick={() => setFilter(f)}>{f}</button>)}
       </div>
       {err && <p className="muted">{err}</p>}

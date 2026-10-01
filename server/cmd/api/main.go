@@ -567,9 +567,16 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "status must be open, acknowledged or resolved", 400)
 		return
 	}
+	asset := r.URL.Query().Get("asset_id") // alerts on devices under this asset
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by FROM alerts
-		 WHERE tenant_id=$1 AND ($2 = '' OR status=$2) ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status)
+		`WITH RECURSIVE sub AS (
+		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($3,'')
+		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
+		 )
+		 SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by FROM alerts
+		 WHERE tenant_id=$1 AND ($2 = '' OR status=$2)
+		   AND ($3='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub)))
+		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
