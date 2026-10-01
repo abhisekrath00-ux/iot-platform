@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from './lib/api';
 import { useTheme } from './lib/theme';
 import Tour from './components/Tour';
 import { tourDone } from './lib/tour';
@@ -38,12 +39,25 @@ const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/a
 
 export default function App() {
   const [theme, toggle] = useTheme();
+  const [brand, setBrand] = useState('Hexmon IoT');
+  useEffect(() => {
+    if (!localStorage.getItem('iot.token')) return;
+    api<{ product_name: string; accent: string }>('/v1/branding').then(b => {
+      if (b.product_name) { setBrand(b.product_name); document.title = b.product_name; }
+      const root = document.documentElement.style;
+      if (b.accent) {
+        root.setProperty('--accent', b.accent);
+        root.setProperty('--accent-2', b.accent);
+        root.setProperty('--accent-bg', `color-mix(in srgb, ${b.accent} 16%, transparent)`);
+      }
+    }).catch(() => {});
+  }, []);
   const [tour, setTour] = useState(() => !tourDone(localStorage) && !!localStorage.getItem('iot.token'));
   return (
     <div className="shell">
       {tour && <Tour onClose={() => setTour(false)} />}
       <nav>
-        <div className="brand"><span className="logo">H</span>Hexmon IoT</div>
+        <div className="brand"><span className="logo">{brand.slice(0, 1).toUpperCase()}</span>{brand}</div>
         {items.map(([to, label]) => (
           <NavLink key={to} to={to} end={to === '/'}>{icons[label]}{label}</NavLink>
         ))}

@@ -52,9 +52,9 @@ Siemens items are from its public documentation (sources below), not hands-on us
 | Outbound webhooks and HTTP request node | ThingsBoard, Node-RED | Partial (this pass, tested): `webhook` notification channel used by alert rules, flows and scheduled reports. Admin-configured URL only (flows cannot supply URLs), no redirects, loopback/link-local/metadata addresses blocked at dial time, optional HMAC signature (`WEBHOOK_SIGNING_SECRET`). No arbitrary HTTP request node, no response handling in flows | |
 | Geofencing and maps | ThingsBoard | Missing | Build only with a self-hosted tile source |
 | OTA firmware for end devices | ThingsBoard, Insights Hub | Partial: edge agent releases and staged rollout only | Not planned for MCU firmware without signing design |
-| White-label (logo, colours, title) | ThingsBoard PE | Missing | Build: tenant branding settings |
+| White-label (logo, colours, title) | ThingsBoard PE | Partial (this pass, tested): per-tenant product name and accent colour (contrast-checked), applied to sidebar, tab title and buttons; migration 0020. No logo upload, no custom domain, no email template branding | |
 | SSO | all | Have (OIDC) | SAML not built |
-| Mobile app / PWA | ThingsBoard | Missing | PWA manifest is cheap; native app not planned |
+| Mobile app / PWA | ThingsBoard | Partial: responsive web plus a web manifest, icon and theme colour so it can be added to a home screen. No service worker, so no offline mode and no push notifications; native app not planned | |
 | Edge compute | ThingsBoard Edge, Insights Hub edge analytics | Partial | See table above |
 | Protocols: BACnet, CoAP, LoRaWAN, SNMP, MQTT direct, LwM2M | ThingsBoard gateway | Missing (HTTP ingest and Modbus/OPC UA/serial exist) | Adapter-only claims are not made; each needs a device or simulator to test |
 | Historian | Ignition | Partial: raw plus hourly and daily rollups, partitions | Retention policy needs an owner decision |

@@ -115,6 +115,8 @@ func main() {
 	api.HandleFunc("PUT /v1/devices/{id}/tags", s.setDeviceTags)
 	api.HandleFunc("PUT /v1/devices/{id}/asset", s.setDeviceAsset)
 	api.HandleFunc("GET /v1/assets", s.listAssets)
+	api.HandleFunc("GET /v1/branding", s.getBranding)
+	api.HandleFunc("PUT /v1/branding", s.putBranding)
 	api.HandleFunc("GET /v1/kpis", s.listKPIs)
 	api.HandleFunc("POST /v1/kpis", s.createKPI)
 	api.HandleFunc("DELETE /v1/kpis/{id}", s.deleteKPI)

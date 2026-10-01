@@ -9,9 +9,12 @@ export default function Settings() {
   const [type, setType] = useState('email');
   const [target, setTarget] = useState('');
   const [msg, setMsg] = useState('');
+  const [bName, setBName] = useState('');
+  const [bAccent, setBAccent] = useState('');
+  const [bMsg, setBMsg] = useState('');
 
   const load = () => api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(e => setMsg(String(e)));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api<{ product_name: string; accent: string }>('/v1/branding').then(b => { setBName(b.product_name); setBAccent(b.accent); }).catch(() => {}); }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -45,6 +48,22 @@ export default function Settings() {
             {channels.map(c => <tr key={c.id}><td>{c.type}</td><td>{c.target}</td><td className="muted">{c.enabled ? 'on' : 'off'}</td></tr>)}
           </tbody>
         </table>
+      </div>
+      <div className="card" style={{ maxWidth: 640, margin: '20px 0' }}>
+        <b>Branding</b>
+        <p className="muted">Product name and accent colour for this tenant. Admins only. The accent must keep white button text readable (contrast 4.5:1).</p>
+        <form onSubmit={async e => {
+          e.preventDefault(); setBMsg('');
+          try { await api('/v1/branding', { method: 'PUT', body: JSON.stringify({ product_name: bName, accent: bAccent }) }); setBMsg('Saved. Reload to apply.'); }
+          catch (err) { setBMsg(String(err)); }
+        }}>
+          <label htmlFor="b-name">Product name</label>
+          <input id="b-name" value={bName} maxLength={40} onChange={e => setBName(e.target.value)} placeholder="Hexmon IoT" />
+          <label htmlFor="b-accent">Accent colour (#rrggbb)</label>
+          <input id="b-accent" value={bAccent} onChange={e => setBAccent(e.target.value)} placeholder="#0071e3" pattern="#[0-9a-fA-F]{6}|" />
+          <div style={{ marginTop: 14 }}><button type="submit">Save branding</button></div>
+        </form>
+        {bMsg && <p className="muted" role="status">{bMsg}</p>}
       </div>
       <ApiKeys />
       <div className="cards">
