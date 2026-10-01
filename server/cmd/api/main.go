@@ -107,6 +107,7 @@ func main() {
 	api.HandleFunc("GET /v1/telemetry/count", s.countTelemetry)
 	api.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
 	api.HandleFunc("GET /v1/telemetry/rollup", s.rollupTelemetry)
+	api.HandleFunc("GET /v1/telemetry/anomalies", s.anomaliesTelemetry)
 	api.HandleFunc("POST /v1/telemetry/ingest", s.ingestHTTP)
 	api.HandleFunc("POST /v1/commands", s.requestCommand)
 	api.HandleFunc("POST /v1/commands/{id}/approve", s.approveCommand)

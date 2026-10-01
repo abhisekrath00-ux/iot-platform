@@ -43,7 +43,7 @@ Siemens items are from its public documentation (sources below), not hands-on us
 | Generic HTTP device ingest | ThingsBoard HTTP API, Insights Hub | Have (this pass, integration-tested) | |
 | Automatic monthly telemetry partitions | ThingsBoard, Ignition historian | Have (this pass, tested) | |
 | Rules by asset or device type, activated for many instances | Insights Hub Monitor | Missing (rules are per device and point) | Build: rule applies to a profile |
-| Anomaly detection on a time series | Insights Hub Predict | Missing | Build: statistical (EWMA/z-score), no external ML |
+| Anomaly detection on a time series | Insights Hub Predict | Partial (this pass, tested): robust median/MAD outlier detection per point via `GET /v1/telemetry/anomalies` and a card on the device page. Explains outliers; no forecasting, no learned model, no automatic alerting yet | Next: alert rule type that uses it |
 | Asset hierarchy, aspects, asset files | Insights Hub Asset Manager, ThingsBoard | Missing | Build: asset tree and relations |
 | KPI / derived points (formulas) | Insights Hub Monitor | Missing | Build: expression points |
 | Flow canvas with function, switch, change, debug nodes | Node-RED, Visual Flow Creator | Partial: trigger, condition, delay, notify nodes, versions, simulator; no JS function node, no switch/change/debug, no free-form canvas | Build: node types, import/export first |

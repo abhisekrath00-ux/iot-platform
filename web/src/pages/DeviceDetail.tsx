@@ -13,6 +13,7 @@ export default function DeviceDetail() {
   const [latest, setLatest] = useState<LatestPoint[]>([]);
   const [point, setPoint] = useState('');
   const [series, setSeries] = useState<SeriesPoint[]>([]);
+  const [anom, setAnom] = useState<{ samples: number; enough_data: boolean; min_samples: number; anomalies: { t: number; value: number; score: number; median: number }[] } | null>(null);
   const [err, setErr] = useState('');
   const [health, setHealth] = useState<Health | null>(null);
   const [meta, setMeta] = useState<{ name: string; profile: string } | null>(null);
@@ -33,6 +34,8 @@ export default function DeviceDetail() {
     if (!id || !point) return;
     api<SeriesPoint[]>(`/v1/telemetry/series?device_id=${id}&point_id=${point}`)
       .then(setSeries).catch(e => setErr(String(e)));
+    api<NonNullable<typeof anom>>(`/v1/telemetry/anomalies?device_id=${id}&point_id=${point}`)
+      .then(setAnom).catch(() => setAnom(null));
   }, [id, point]);
 
   const chart = series.map(p => ({ t: new Date(p.t).toLocaleTimeString(), v: p.v }));
@@ -71,6 +74,19 @@ export default function DeviceDetail() {
               </LineChart>
             </ResponsiveContainer>
           </div>
+          {anom && (
+            <div className="card" style={{ marginTop: 14 }} role="region" aria-label="Anomalies">
+              <b>Anomalies (24h)</b>
+              {!anom.enough_data
+                ? <p className="muted">Needs at least {anom.min_samples} measured samples; has {anom.samples}.</p>
+                : anom.anomalies.length === 0
+                  ? <p className="muted">No outliers in {anom.samples} samples.</p>
+                  : <table style={{ marginTop: 8 }}><thead><tr><th>Time</th><th>Value</th><th>Median</th><th>Score</th></tr></thead><tbody>
+                      {anom.anomalies.slice(0, 20).map(a => <tr key={a.t}><td>{new Date(a.t * 1000).toLocaleString()}</td><td>{formatValue(a.value)}</td><td>{formatValue(a.median)}</td><td>{a.score}</td></tr>)}
+                    </tbody></table>}
+              <p className="muted" style={{ fontSize: 12 }}>Robust median/MAD score, flagged above 3.5. Explains outliers; it does not predict failures.</p>
+            </div>
+          )}
         </>
       )}
     </>
