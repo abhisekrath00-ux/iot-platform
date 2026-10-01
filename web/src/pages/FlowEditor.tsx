@@ -145,7 +145,7 @@ export default function FlowEditor() {
   const hints = problems(g);
   const width = Math.max(900, ...g.nodes.map(n => n.x + NODE_W + 60));
   const height = Math.max(460, ...g.nodes.map(n => n.y + NODE_H + 60));
-  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', ...(fnOn ? ['function' as NodeType] : [])];
+  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', ...(fnOn ? ['function' as NodeType] : [])];
   const status = (f: FlowRow) => (f.published_version ? `published v${f.published_version}${f.latest_version && f.latest_version > f.published_version ? ` (draft v${f.latest_version} pending)` : ''}` : 'draft, not published') + (f.enabled ? '' : ' - disabled');
 
   return (
@@ -278,6 +278,8 @@ function summary(n: GNode): string {
     case 'delay': return `${n.seconds}s`;
     case 'notify': return n.message || 'notify';
     case 'debug': return n.message || 'debug';
+    case 'template': return `vars.${n.target}`;
+    case 'range': return `${n.in_min}-${n.in_max} to ${n.out_min}-${n.out_max}`;
     case 'function': return 'JavaScript';
   }
 }
@@ -359,6 +361,19 @@ function Props({ n, g, channels, upd, connectTo, remove }: {
           </div>
         ))}
         <button type="button" className="ghost" disabled={(n.changes?.length ?? 0) >= 10} onClick={() => upd({ changes: [...(n.changes ?? []), { action: 'set', property: 'vars.name', value: '' }] })}>+ change</button>
+      </>}
+      {n.type === 'template' && <>
+        <label htmlFor="np-tpl">Text ({'{value}'}, {'{device_id}'}, {'{vars.x}'})</label>
+        <input id="np-tpl" maxLength={500} value={n.template ?? ''} onChange={e => upd({ template: e.target.value })} />
+        <label htmlFor="np-tg">Store in variable</label>
+        <input id="np-tg" maxLength={40} value={n.target ?? ''} onChange={e => upd({ target: e.target.value })} />
+      </>}
+      {n.type === 'range' && <>
+        {([['in_min', 'Input min'], ['in_max', 'Input max'], ['out_min', 'Output min'], ['out_max', 'Output max']] as const).map(([k, l]) => (
+          <div key={k}><label htmlFor={`np-${k}`}>{l}</label>
+            <input id={`np-${k}`} type="number" step="any" value={n[k] ?? 0} onChange={e => upd({ [k]: parseFloat(e.target.value) || 0 })} /></div>
+        ))}
+        <label><input type="checkbox" checked={!!n.clamp} onChange={e => upd({ clamp: e.target.checked })} style={{ width: 'auto' }} /> Clamp to output range</label>
       </>}
       {n.type === 'function' && <>
         <label htmlFor="np-code">JavaScript (admin only; runs in a sandbox)</label>

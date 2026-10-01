@@ -120,6 +120,18 @@ func ToNodeRED(g Graph, flowName string) []map[string]any {
 				rules = append(rules, r)
 			}
 			o["rules"] = rules
+		case "range":
+			o["type"] = "range"
+			o["minin"], o["maxin"], o["minout"], o["maxout"] = n.InMin, n.InMax, n.OutMin, n.OutMax
+			o["action"] = "scale"
+			if n.Clamp {
+				o["action"] = "clamp"
+			}
+			o["round"], o["property"] = false, "payload"
+		case "template":
+			// Hexmon placeholders are not Mustache; exported under a Hexmon type, not a stock node.
+			o["type"] = "hexmon-template"
+			o["template"], o["target"] = n.Template, n.Target
 		case "function":
 			o["type"] = "function"
 			o["func"] = n.Code

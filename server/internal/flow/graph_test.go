@@ -193,3 +193,37 @@ func TestChannelSlotsAndTrigForGraph(t *testing.T) {
 		t.Fatal("slot must alias the node")
 	}
 }
+
+func TestTemplateAndRangeNodes(t *testing.T) {
+	g := Graph{
+		Nodes: []Node{
+			trig(),
+			{ID: "r", Type: "range", InMin: 0, InMax: 200, OutMin: 0, OutMax: 100, Clamp: true},
+			{ID: "tp", Type: "template", Template: "load {value}% on {device_id}", Target: "text"},
+			{ID: "n", Type: "notify", ChannelID: "c", Message: "{vars.text}"},
+		},
+		Edges: []Edge{{From: "t", To: "r"}, {From: "r", To: "tp"}, {From: "tp", To: "n"}},
+	}
+	d := Definition{Graph: &g}
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+	if r := d.Exec(50, "d", "p", ExecOptions{}); len(r.Actions) != 1 || r.Actions[0].Message != "load 25% on d" {
+		t.Fatalf("%+v", r.Actions)
+	}
+	if r := d.Exec(900, "d", "p", ExecOptions{}); r.Actions[0].Message != "load 100% on d" {
+		t.Fatalf("clamp: %+v", r.Actions)
+	}
+}
+
+func TestTemplateRangeValidation(t *testing.T) {
+	for _, n := range []Node{
+		{ID: "a", Type: "range", InMin: 1, InMax: 1},
+		{ID: "a", Type: "template", Template: "x", Target: "bad name"},
+		{ID: "a", Type: "template", Template: "", Target: "ok"},
+	} {
+		if validateNode(&n) == nil {
+			t.Fatalf("accepted %+v", n)
+		}
+	}
+}

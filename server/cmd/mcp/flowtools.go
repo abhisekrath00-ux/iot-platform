@@ -44,6 +44,8 @@ var nodeCatalogue = map[string]any{
 		{"type": "change", "fields": "changes[{action (set|delete|move|add|mul), property, value, to}]; properties: value or vars.name", "ports": "0"},
 		{"type": "condition", "fields": "op, value (compares msg.value)", "ports": "0 (passes when true)"},
 		{"type": "delay", "fields": "seconds (1-3600)", "ports": "0"},
+		{"type": "template", "fields": "template (max 500), target (variable name)", "ports": "0"},
+		{"type": "range", "fields": "in_min, in_max (differ), out_min, out_max, clamp", "ports": "0"},
 		{"type": "debug", "fields": "message", "ports": "none"},
 		{"type": "notify", "fields": "channel_id (an existing notification channel), message", "ports": "none"},
 	},

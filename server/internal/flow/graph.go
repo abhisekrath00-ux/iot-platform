@@ -49,6 +49,15 @@ type Node struct {
 	Message   string `json:"message,omitempty"`
 	// function (sandboxed JavaScript; admin-only and off by default per tenant)
 	Code string `json:"code,omitempty"`
+	// template: renders Template into vars.<Target> (Target is a bare var name)
+	Template string `json:"template,omitempty"`
+	Target   string `json:"target,omitempty"`
+	// range: linear rescale of value from [in_min,in_max] to [out_min,out_max]
+	InMin  float64 `json:"in_min,omitempty"`
+	InMax  float64 `json:"in_max,omitempty"`
+	OutMin float64 `json:"out_min,omitempty"`
+	OutMax float64 `json:"out_max,omitempty"`
+	Clamp  bool    `json:"clamp,omitempty"`
 }
 
 type SwitchRule struct {
@@ -395,6 +404,21 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 				d = maxPathDelay * time.Second
 			}
 			push(n.ID, "0", m, d)
+		case "template":
+			m = m.clone()
+			if err := setVar(&m, "vars."+n.Target, render(n.Template, m)); err != nil {
+				dbg(n, "template failed: "+err.Error())
+				continue
+			}
+			push(n.ID, "0", m, v.delay)
+		case "range":
+			m = m.clone()
+			t := (m.Value - n.InMin) / (n.InMax - n.InMin)
+			if n.Clamp {
+				t = math.Max(0, math.Min(1, t))
+			}
+			m.Value = n.OutMin + t*(n.OutMax-n.OutMin)
+			push(n.ID, "0", m, v.delay)
 		case "function":
 			if opt.Functions == nil {
 				dbg(n, "function nodes are disabled for this tenant")
@@ -629,6 +653,22 @@ func validateNode(n *Node) error {
 	case "debug":
 		if len(n.Message) > 500 {
 			return fmt.Errorf("message too long")
+		}
+	case "template":
+		if len(n.Template) == 0 || len(n.Template) > 500 {
+			return fmt.Errorf("template required, max 500 bytes")
+		}
+		if !validProp("vars."+n.Target, true) || n.Target == "" {
+			return fmt.Errorf("target must be a variable name")
+		}
+	case "range":
+		if n.InMin == n.InMax {
+			return fmt.Errorf("in_min and in_max must differ")
+		}
+		for _, f := range []float64{n.InMin, n.InMax, n.OutMin, n.OutMax} {
+			if math.IsNaN(f) || math.IsInf(f, 0) {
+				return fmt.Errorf("range values must be finite")
+			}
 		}
 	case "function":
 		if strings.TrimSpace(n.Code) == "" || len(n.Code) > maxFuncCode {
