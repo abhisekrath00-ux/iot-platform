@@ -170,6 +170,20 @@ export default function Dashboards() {
   const setWidgets = (ws: Widget[]) => sel && setSel({ ...sel, layout: { widgets: ws } });
   const resize = (id: string, delta: number) => setWidgets(widgets.map(w => w.id === id ? { ...w, span: Math.min(4, Math.max(1, spanOf(w) + delta)) } : w));
 
+  // Wall mode with several dashboards: rotate through those that have widgets.
+  useEffect(() => {
+    if (!wall) return;
+    const rotating = boards.filter(b => (b.layout.widgets ?? []).length > 0);
+    if (rotating.length < 2) return;
+    const t = setInterval(() => {
+      setSel(cur => {
+        const i = rotating.findIndex(b => b.id === cur?.id);
+        return rotating[(i + 1) % rotating.length];
+      });
+    }, 30000);
+    return () => clearInterval(t);
+  }, [wall, boards]);
+
   // Wall / TV mode: hides navigation, goes fullscreen when allowed, Esc exits.
   useEffect(() => {
     document.body.classList.toggle('wall', wall);

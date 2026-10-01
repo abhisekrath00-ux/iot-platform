@@ -201,7 +201,7 @@ The device page shows a tilting twin of the device (SVG/CSS, no external assets,
 ## Dashboard layout and wall mode
 
 Dashboards use a 4-column grid (2 on narrow screens). In edit mode widgets can be dragged to reorder (native HTML5 drag and drop, no extra dependency) or moved with the arrow buttons, and resized 1-4 columns with the +/- buttons. The layout is stored in the dashboard JSON (`span` per widget, order = array order); `spanOf` and `moveItem` in `web/src/lib/widgets.ts` are unit tested.
-Wall mode hides navigation and editing chrome, uses larger values and frosted cards, requests browser fullscreen where allowed and exits on Esc. It does not rotate between dashboards yet. Touch drag-and-drop is not supported (the arrow buttons work on touch).
+Wall mode hides navigation and editing chrome, uses larger values and frosted cards, requests browser fullscreen where allowed and exits on Esc. With two or more dashboards that have widgets it rotates between them every 30 seconds. Touch drag-and-drop is not supported (the arrow buttons work on touch).
 
 ## Product tour
 
