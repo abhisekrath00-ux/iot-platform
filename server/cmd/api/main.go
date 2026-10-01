@@ -25,6 +25,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/oidcstate"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/pki"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/redisx"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/respcache"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/retention"
@@ -69,6 +70,7 @@ func main() {
 	}
 
 	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET")), es: search.New(os.Getenv("ELASTICSEARCH_URL"))}
+	var redisCli *redisx.Client
 	if ru := os.Getenv("REDIS_URL"); ru != "" {
 		// redis://[:password@]host:port - shared OIDC state for multi-replica HA
 		ru = strings.TrimPrefix(ru, "redis://")
@@ -79,6 +81,7 @@ func main() {
 		}
 		s.states = oidcstate.NewRedis(ru, pass)
 		log.Printf("oidc state: redis at %s", ru)
+		redisCli = redisx.New(ru, pass)
 	} else {
 		s.states = oidcstate.NewMemory()
 	}
@@ -102,6 +105,13 @@ func main() {
 	// Authenticated API (all tenant-scoped).
 	api := http.NewServeMux()
 	s.cache = newCache()
+	if os.Getenv("CACHE_BACKEND") == "redis" { // opt-in: one cache and one invalidation for every replica
+		if redisCli == nil {
+			log.Fatalf("CACHE_BACKEND=redis needs REDIS_URL")
+		}
+		s.cache.UseShared(redisCli)
+		log.Printf("response cache: shared via redis")
+	}
 	s.cached(api, "GET /v1/devices", s.listDevices)
 	api.HandleFunc("POST /v1/devices", s.createDevice) // UI onboarding entry point
 	s.cached(api, "GET /v1/telemetry/latest", s.latestTelemetry)

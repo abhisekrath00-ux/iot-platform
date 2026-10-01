@@ -1,6 +1,8 @@
 package respcache
 
 import (
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/redisx"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/redisx/redisxtest"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -117,5 +119,43 @@ func TestBounded(t *testing.T) {
 	defer c.mu.Unlock()
 	if len(c.m) > 5 {
 		t.Fatalf("cache grew to %d entries, max 5", len(c.m))
+	}
+}
+
+func TestSharedCacheAcrossReplicasAndOutage(t *testing.T) {
+	srv := redisxtest.Start()
+	defer srv.Close()
+	cli := redisx.New(srv.Addr, "pw")
+	var n atomic.Int32
+	backend := func(w http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"t":"` + r.Header.Get("T") + `","n":` + string(rune('0'+n.Load())) + `}`))
+	}
+	a, b := New(100), New(100)
+	a.UseShared(cli)
+	b.UseShared(cli)
+	ha := a.Middleware(30*time.Second, tenantHdr, backend)
+	hb := b.Middleware(30*time.Second, tenantHdr, backend)
+
+	if w := get(ha, "t1", "/x?q=1"); w.Header().Get("X-Cache") != "MISS" {
+		t.Fatal("replica A first call must miss")
+	}
+	w := get(hb, "t1", "/x?q=1")
+	if w.Header().Get("X-Cache") != "HIT" || n.Load() != 1 || w.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("replica B must hit A's entry: %s calls=%d", w.Header().Get("X-Cache"), n.Load())
+	}
+	if w := get(hb, "t2", "/x?q=1"); w.Header().Get("X-Cache") != "MISS" || w.Body.String() == get(hb, "t1", "/x?q=1").Body.String() {
+		t.Fatal("tenants must not share entries")
+	}
+	// a write on replica A invalidates replica B's view
+	a.Invalidate("t1")
+	if w := get(hb, "t1", "/x?q=1"); w.Header().Get("X-Cache") != "MISS" {
+		t.Fatal("invalidation on A must reach B")
+	}
+	// shared store down: requests still succeed through the local path
+	srv.Down = true
+	if w := get(ha, "t1", "/y"); w.Code != 200 || w.Body.Len() == 0 {
+		t.Fatalf("outage broke the request: %d", w.Code)
 	}
 }

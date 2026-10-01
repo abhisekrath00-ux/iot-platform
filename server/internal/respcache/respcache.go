@@ -12,6 +12,8 @@
 package respcache
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -30,6 +32,19 @@ type call struct {
 	ent  *entry
 }
 
+// Shared is an optional backing store (Redis) that makes the cache and its
+// invalidation visible to every API replica. When it errors, the cache falls
+// back to the per-process behaviour for that request.
+type Shared interface {
+	Get(key string) (string, bool, error)
+	Set(key, val string, ttl time.Duration) error
+	Incr(key string) (int64, error)
+	GetInt(key string) (int64, error)
+}
+
+// maxSharedBody bounds what is written to the shared store.
+const maxSharedBody = 1 << 20
+
 // Cache is safe for concurrent use.
 type Cache struct {
 	mu         sync.Mutex
@@ -38,6 +53,7 @@ type Cache struct {
 	inflight   map[string]*call
 	maxEntries int
 	now        func() time.Time
+	shared     Shared
 
 	Hits, Misses, Invalidations atomic.Uint64
 }
@@ -47,8 +63,15 @@ func New(maxEntries int) *Cache {
 		maxEntries: maxEntries, now: time.Now}
 }
 
+// UseShared switches the cache to a store shared by all replicas.
+func (c *Cache) UseShared(s Shared) { c.shared = s }
+
 // Invalidate drops every cached response for a tenant.
 func (c *Cache) Invalidate(tenant string) {
+	if c.shared != nil {
+		// If this fails, other replicas keep serving until the entry TTL (seconds).
+		_, _ = c.shared.Incr("hx:gen:" + tenant)
+	}
 	c.mu.Lock()
 	c.gens[tenant]++
 	c.mu.Unlock()
@@ -80,6 +103,9 @@ func (c *Cache) Middleware(ttl time.Duration, tenantOf func(*http.Request) strin
 		tenant := tenantOf(r)
 		if r.Method != http.MethodGet || tenant == "" || ttl <= 0 {
 			next(w, r)
+			return
+		}
+		if c.shared != nil && c.serveShared(w, r, tenant, ttl, next) {
 			return
 		}
 		c.mu.Lock()
@@ -160,4 +186,74 @@ func (c *Cache) evictLocked() {
 		}
 		delete(c.m, k)
 	}
+}
+
+// serveShared handles one request through the shared store. It returns false
+// when the store is unreachable so the caller can use the local path instead.
+func (c *Cache) serveShared(w http.ResponseWriter, r *http.Request, tenant string, ttl time.Duration, next http.HandlerFunc) bool {
+	gen, err := c.shared.GetInt("hx:gen:" + tenant)
+	if err != nil {
+		return false
+	}
+	sum := sha256.Sum256([]byte(r.URL.RequestURI()))
+	k := "hx:rc:" + tenant + ":" + uitoa(uint64(gen)) + ":" + hex.EncodeToString(sum[:16])
+	if v, ok, err := c.shared.Get(k); err != nil {
+		return false
+	} else if ok {
+		if i := indexNUL(v); i >= 0 {
+			c.Hits.Add(1)
+			write(w, &entry{ctype: v[:i], body: []byte(v[i+1:])}, "HIT")
+			return true
+		}
+	}
+	c.mu.Lock()
+	if f, ok := c.inflight[k]; ok {
+		c.mu.Unlock()
+		<-f.done
+		if f.ent != nil {
+			c.Hits.Add(1)
+			write(w, f.ent, "HIT")
+			return true
+		}
+		next(w, r)
+		return true
+	}
+	f := &call{done: make(chan struct{})}
+	c.inflight[k] = f
+	c.mu.Unlock()
+	c.Misses.Add(1)
+
+	rec := httptest.NewRecorder()
+	next(rec, r)
+	var ent *entry
+	if rec.Code == http.StatusOK {
+		ent = &entry{body: rec.Body.Bytes(), ctype: rec.Header().Get("Content-Type"), expires: c.now().Add(ttl)}
+		if len(ent.body) <= maxSharedBody {
+			_ = c.shared.Set(k, ent.ctype+"\x00"+string(ent.body), ttl)
+		}
+	}
+	c.mu.Lock()
+	delete(c.inflight, k)
+	f.ent = ent
+	c.mu.Unlock()
+	close(f.done)
+	if ent != nil {
+		write(w, ent, "MISS")
+		return true
+	}
+	for h, v := range rec.Header() {
+		w.Header()[h] = v
+	}
+	w.WriteHeader(rec.Code)
+	_, _ = w.Write(rec.Body.Bytes())
+	return true
+}
+
+func indexNUL(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0 {
+			return i
+		}
+	}
+	return -1
 }

@@ -3,6 +3,7 @@ package oidcstate
 import (
 	"bufio"
 	"fmt"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/redisx/redisxtest"
 	"net"
 	"strings"
 	"testing"
@@ -95,5 +96,20 @@ func TestRedisPutTake(t *testing.T) {
 	}
 	if _, ok := r.Take("st"); ok {
 		t.Fatal("GETDEL must be single use")
+	}
+}
+
+func TestRedisStoreSingleUseThroughRESPClient(t *testing.T) {
+	srv := redisxtest.Start()
+	defer srv.Close()
+	s := NewRedis(srv.Addr, "pw")
+	if err := s.Put("st1", "nonce1", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := s.Take("st1"); !ok || n != "nonce1" {
+		t.Fatalf("take: %q %v", n, ok)
+	}
+	if _, ok := s.Take("st1"); ok {
+		t.Fatal("state must be single use")
 	}
 }

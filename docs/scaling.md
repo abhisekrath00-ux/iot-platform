@@ -32,8 +32,7 @@ tenant (not built).
 
 ## Not built or not proven
 
-- The response cache and API-key rate limit are per replica. A shared (Redis)
-  cache is not built. With N replicas the effective key limit is N times the setting.
+- The API-key rate limit is per replica, so with N replicas the effective key limit is N times the setting. The response cache is per replica by default; `CACHE_BACKEND=redis` (with `REDIS_URL`) shares it, tested against a fake Redis only.
 - Multi-replica ingest and first-match latch behaviour are not load-tested.
 - Mosquitto runs as a single broker. For more than one broker use a clustered
   broker (EMQX or HiveMQ clusters, or Mosquitto behind a bridge per site) and keep

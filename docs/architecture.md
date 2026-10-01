@@ -17,7 +17,7 @@ the discussion doc for why the system is shaped the way it is.
 | Search | Implemented | Elasticsearch, tenant-scoped /v1/search over devices + alerts |
 | Broker ACLs | Implemented | Per-gateway Mosquitto ACL file generated from enrollment (docs/broker-acl.md); enable in production via `BROKER_ACL_FILE` |
 | Fleet management | Implemented (API) | Releases + staged campaigns with rings, pause/abort, progress tracking (docs/fleet.md); live OTA on real gateways is pilot scope |
-| HA | Partial | Redis-backed shared OIDC state; report scheduler uses Postgres advisory-lock leader election (`internal/leader`, tested with competing contenders + failover); ingest can scale out via MQTT shared subscriptions (`INGEST_SHARED_GROUP`, opt-in, needs broker ACL for `$share/`), not load-tested multi-replica; broker and Postgres HA are deployment-level and not shipped |
+| HA | Partial | Redis-backed shared OIDC state and an opt-in shared response cache (`CACHE_BACKEND=redis`; fake-tested only); report scheduler uses Postgres advisory-lock leader election (`internal/leader`, tested with competing contenders + failover); ingest can scale out via MQTT shared subscriptions (`INGEST_SHARED_GROUP`, opt-in, needs broker ACL for `$share/`), not load-tested multi-replica; broker and Postgres HA are deployment-level and not shipped |
 | Physical actuation | Gated | Hazard analysis done (docs/hazard-analysis.md); command path enforces approval gating; actuation stays disabled at sites until interlock review signs off |
 
 ## Logical view
@@ -178,7 +178,7 @@ Change any of these only with a written ADR in docs/adr/.
 
 Hot read endpoints (`/v1/fleet`, `/v1/telemetry/latest`, `/v1/devices`, `/v1/points`, `/v1/sites`, `/v1/profiles`) sit behind a small in-process response cache (`server/internal/respcache`): tenant-scoped keys, per-endpoint TTL (2 s for live values, 10-30 s for configuration lists), single-flight on concurrent misses, a hard entry cap, and only `200` GET responses stored. Any successful non-GET request drops that tenant's entries. Responses carry `X-Cache: HIT|MISS`.
 
-Limits: the cache is per API replica, so with several replicas a read can be as old as its TTL from any replica (a write invalidates only the replica that served it). That is why TTLs are seconds. A shared cache (Redis is already optional for OIDC state) is the next step if replicas multiply; it is not built.
+Limits: the cache is per API replica, so with several replicas a read can be as old as its TTL from any replica (a write invalidates only the replica that served it). That is why TTLs are seconds. An optional shared cache is built: set `REDIS_URL` and `CACHE_BACKEND=redis` on every API replica (compose profile `ha` starts Redis) and entries plus tenant invalidation live in Redis, so a write on any replica invalidates all of them. Default stays per replica, so air-gapped single-node installs are unchanged. Redis is cache only: if it is unreachable each request falls back to the local per-replica cache, and a failed invalidation can leave other replicas serving an entry until its TTL (seconds). Tested against an in-process Redis fake (two replicas, tenant isolation, invalidation, outage), not against a real Redis server or a real multi-replica deployment; there is no TLS to Redis and AUTH is a password only.
 
 ## Dashboard widgets
 
