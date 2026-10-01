@@ -20,6 +20,13 @@ type Notifier interface {
 // Delays execute in a goroutine so ingest never blocks; each dispatch is
 // recorded in flow_runs.
 func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, deviceID, pointID string, value float64) {
+	EvaluateWith(ctx, pool, n, nil, tenantID, deviceID, pointID, value)
+}
+
+// EvaluateWith is Evaluate with a function-node runner. Function nodes only run
+// when fn is non-nil AND the tenant has enabled them (tenant_features).
+func EvaluateWith(ctx context.Context, pool *pgxpool.Pool, n Notifier, fn FunctionRunner, tenantID, deviceID, pointID string, value float64) {
+	fnOn := -1 // lazily resolved: -1 unknown, 0 off, 1 on
 	rows, err := pool.Query(ctx,
 		`SELECT f.id, f.name, v.definition
 		 FROM flows f JOIN flow_versions v ON v.id = f.published_version_id
@@ -39,10 +46,25 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 		if json.Unmarshal(defBytes, &d) != nil {
 			continue
 		}
-		if d.Trigger.DeviceID != deviceID || d.Trigger.PointID != pointID {
+		if t := d.Trig(); t.DeviceID != deviceID || t.PointID != pointID {
 			continue
 		}
-		actions, wait, ok := Run(d, value)
+		opt := ExecOptions{}
+		if fn != nil && d.HasFunctionNodes() {
+			if fnOn < 0 {
+				fnOn = 0
+				var on bool
+				if pool.QueryRow(ctx, `SELECT enabled FROM tenant_features WHERE tenant_id=$1 AND feature='function_nodes'`, tenantID).Scan(&on) == nil && on {
+					fnOn = 1
+				}
+			}
+			if fnOn == 1 {
+				opt.Functions = fn
+			}
+		}
+		er := d.Exec(value, deviceID, pointID, opt)
+		actions, ok := er.Actions, er.Matched
+		detail := debugDetail(er.Debug)
 		outcome := "notified"
 		if ok && len(actions) > 0 && d.Latch {
 			var last string
@@ -69,19 +91,19 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 			outcome = "skipped_condition"
 		}
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO flow_runs(id,flow_id,trigger_value,outcome) VALUES($1,$2,$3,$4)`,
-			uuid.NewString(), id, value, outcome); err != nil {
+			`INSERT INTO flow_runs(id,flow_id,trigger_value,outcome,detail) VALUES($1,$2,$3,$4,NULLIF($5,''))`,
+			uuid.NewString(), id, value, outcome, detail); err != nil {
 			log.Printf("flows: record run: %v", err)
 		}
 		if !ok || len(actions) == 0 {
 			continue
 		}
-		go func(flowID, flowName string, acts []Action, w time.Duration) {
+		go func(flowID, flowName string, acts []Action) {
 			bg := context.Background()
-			if w > 0 {
-				time.Sleep(w) // validated max 1h
-			}
 			for _, a := range acts {
+				if a.Delay > 0 {
+					time.Sleep(a.Delay) // capped at 1h per path
+				}
 				var ctype, target string
 				var enabled bool
 				err := pool.QueryRow(bg,
@@ -108,6 +130,18 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 					log.Printf("flow %s: dispatch: %v", flowID, derr)
 				}
 			}
-		}(id, name, actions, wait)
+		}(id, name, actions)
 	}
+}
+
+// debugDetail renders debug-node output for flow_runs.detail (bounded).
+func debugDetail(es []DebugEntry) string {
+	out := ""
+	for _, e := range es {
+		out += e.Node + ": " + e.Message + "\n"
+		if len(out) > 2000 {
+			return out[:2000]
+		}
+	}
+	return out
 }

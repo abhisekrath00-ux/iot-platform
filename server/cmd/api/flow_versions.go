@@ -29,14 +29,11 @@ func (s *server) flowOwned(r *http.Request, id string) bool {
 // checkFlowChannels verifies every notify step references a channel the
 // tenant owns (same rule as flow creation).
 func (s *server) checkFlowChannels(r *http.Request, d flow.Definition) bool {
-	for _, st := range d.Steps {
-		if st.Type != "notify" {
-			continue
-		}
+	for _, slot := range d.ChannelSlots() {
 		var ok bool
 		if err := s.st.Pool.QueryRow(r.Context(),
 			`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=$1 AND tenant_id=$2)`,
-			st.ChannelID, auth.Tenant(r)).Scan(&ok); err != nil || !ok {
+			*slot, auth.Tenant(r)).Scan(&ok); err != nil || !ok {
 			return false
 		}
 	}
@@ -88,6 +85,9 @@ func (s *server) createFlowDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := flow.Validate(in.Definition); err != nil {
 		http.Error(w, err.Error(), 400)
+		return
+	}
+	if !s.gateFunctionNodes(w, r, in.Definition) {
 		return
 	}
 	if !s.checkFlowChannels(r, in.Definition) {
@@ -219,7 +219,7 @@ func (s *server) simulateFlow(w http.ResponseWriter, r *http.Request) {
 		 WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
 		   AND observed_at > now() - make_interval(hours => $4)
 		 ORDER BY observed_at LIMIT 10000`,
-		auth.Tenant(r), in.Definition.Trigger.DeviceID, in.Definition.Trigger.PointID, in.Hours)
+		auth.Tenant(r), in.Definition.Trig().DeviceID, in.Definition.Trig().PointID, in.Hours)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

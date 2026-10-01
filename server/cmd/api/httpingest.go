@@ -155,7 +155,7 @@ func (s *server) ingestHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		accepted++
 		rules.Evaluate(ctx, s.st.Pool, n, tenant, in.DeviceID, g.t.PointID, g.t.Value)
-		flow.Evaluate(ctx, s.st.Pool, n, tenant, in.DeviceID, g.t.PointID, g.t.Value)
+		flow.EvaluateWith(ctx, s.st.Pool, n, fnRunner, tenant, in.DeviceID, g.t.PointID, g.t.Value)
 	}
 	br.Close()
 	code := 200

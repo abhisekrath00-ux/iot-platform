@@ -37,6 +37,65 @@ type Definition struct {
 	// a reading (or step condition) stops matching, which re-arms it. Unlike
 	// cooldown it has no timer. May be combined with cooldown.
 	Latch bool `json:"latch,omitempty"`
+	// Graph, when set, replaces Trigger and Steps (node-graph flows).
+	Graph *Graph `json:"graph,omitempty"`
+}
+
+// Trig returns the effective trigger: the graph's trigger node, or the legacy one.
+func (d Definition) Trig() Trigger {
+	if d.Graph != nil {
+		for _, n := range d.Graph.Nodes {
+			if n.Type == "trigger" {
+				return Trigger{DeviceID: n.DeviceID, PointID: n.PointID, Op: n.Op, Value: n.Value}
+			}
+		}
+	}
+	return d.Trigger
+}
+
+// ChannelSlots returns pointers to every notify channel id, keyed by the index
+// of the step (legacy) or node (graph) that holds it.
+func (d Definition) ChannelSlots() map[int]*string {
+	out := map[int]*string{}
+	if d.Graph != nil {
+		for i := range d.Graph.Nodes {
+			if d.Graph.Nodes[i].Type == "notify" {
+				out[i] = &d.Graph.Nodes[i].ChannelID
+			}
+		}
+		return out
+	}
+	for i := range d.Steps {
+		if d.Steps[i].Type == "notify" {
+			out[i] = &d.Steps[i].ChannelID
+		}
+	}
+	return out
+}
+
+// HasFunctionNodes reports whether the definition runs sandboxed JavaScript.
+func (d Definition) HasFunctionNodes() bool {
+	if d.Graph == nil {
+		return false
+	}
+	for _, n := range d.Graph.Nodes {
+		if n.Type == "function" {
+			return true
+		}
+	}
+	return false
+}
+
+// Exec evaluates the definition (legacy or graph) against one reading.
+func (d Definition) Exec(value float64, deviceID, pointID string, opt ExecOptions) ExecResult {
+	if d.Graph != nil {
+		return execGraph(d.Graph, value, deviceID, pointID, opt)
+	}
+	acts, wait, ok := Run(d, value)
+	for i := range acts {
+		acts[i].Delay = wait
+	}
+	return ExecResult{Matched: ok, Actions: acts}
 }
 
 // LatchHolds reports whether a latched flow should stay quiet: the most recent
@@ -87,6 +146,15 @@ func compare(op string, a, b float64) bool {
 }
 
 func Validate(d Definition) error {
+	if d.Graph != nil {
+		if len(d.Steps) != 0 {
+			return fmt.Errorf("a graph flow cannot also have steps")
+		}
+		if d.CooldownSeconds < 0 || d.CooldownSeconds > 86400 {
+			return fmt.Errorf("cooldown_seconds must be 0-86400")
+		}
+		return validateGraph(d.Graph)
+	}
 	if d.Trigger.DeviceID == "" || d.Trigger.PointID == "" || !validOp(d.Trigger.Op) {
 		return ErrBadTrigger
 	}
@@ -132,6 +200,7 @@ func Validate(d Definition) error {
 type Action struct {
 	ChannelID string
 	Message   string
+	Delay     time.Duration
 }
 
 // Run evaluates a flow against one observed value. Conditions compare against
@@ -200,7 +269,14 @@ type SimEvent struct {
 func Simulate(d Definition, readings []Reading) []SimEvent {
 	var out []SimEvent
 	for _, r := range readings {
-		acts, wait, ok := Run(d, r.Value)
+		er := d.Exec(r.Value, d.Trig().DeviceID, d.Trig().PointID, ExecOptions{})
+		acts, ok := er.Actions, er.Matched
+		var wait time.Duration
+		for _, a := range acts {
+			if a.Delay > wait {
+				wait = a.Delay
+			}
+		}
 		if !ok || len(acts) == 0 {
 			continue
 		}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow/jsfn"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
@@ -71,7 +72,7 @@ func main() {
 			return
 		}
 		rules.Evaluate(ctx, st.Pool, notifier, e.TenantID, e.DeviceID, e.PointID, e.Value)
-		flow.Evaluate(ctx, st.Pool, notifier, e.TenantID, e.DeviceID, e.PointID, e.Value)
+		flow.EvaluateWith(ctx, st.Pool, notifier, jsfn.New(4), e.TenantID, e.DeviceID, e.PointID, e.Value)
 	}
 
 	if tok := c.Subscribe(subTopic("t/+/g/+/telemetry"), 1, handler); tok.Wait() && tok.Error() != nil {

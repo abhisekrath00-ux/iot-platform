@@ -40,16 +40,13 @@ func (s *server) exportFlow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "stored definition invalid", 500)
 		return
 	}
-	for i, st := range out.Definition.Steps {
-		if st.Type != "notify" {
-			continue
-		}
+	for i, slot := range out.Definition.ChannelSlots() {
 		var typ, target string
 		if s.st.Pool.QueryRow(r.Context(), `SELECT type,target FROM notification_channels WHERE id=$1 AND tenant_id=$2`,
-			st.ChannelID, auth.Tenant(r)).Scan(&typ, &target) == nil {
+			*slot, auth.Tenant(r)).Scan(&typ, &target) == nil {
 			out.Channels[i] = typ + ":" + target
 		}
-		out.Definition.Steps[i].ChannelID = ""
+		*slot = ""
 	}
 	w.Header().Set("Content-Disposition", `attachment; filename="flow.hexmon.json"`)
 	writeJSON(w, 200, out)
@@ -73,11 +70,10 @@ func (s *server) importFlow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name invalid", 400)
 		return
 	}
-	for i := range in.Definition.Steps {
-		st := &in.Definition.Steps[i]
-		if st.Type != "notify" {
-			continue
-		}
+	if !s.gateFunctionNodes(w, r, in.Definition) {
+		return
+	}
+	for i, slot := range in.Definition.ChannelSlots() {
 		label, ok := in.Channels[i]
 		typ, target, found := strings.Cut(label, ":")
 		if !ok || !found {
@@ -86,7 +82,7 @@ func (s *server) importFlow(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.st.Pool.QueryRow(r.Context(),
 			`SELECT id FROM notification_channels WHERE tenant_id=$1 AND type=$2 AND target=$3 ORDER BY created_at LIMIT 1`,
-			auth.Tenant(r), typ, target).Scan(&st.ChannelID); err != nil {
+			auth.Tenant(r), typ, target).Scan(slot); err != nil {
 			http.Error(w, "no channel "+label+" in this tenant; create it first", 400)
 			return
 		}

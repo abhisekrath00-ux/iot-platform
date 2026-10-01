@@ -162,6 +162,10 @@ func main() {
 	api.HandleFunc("POST /v1/flows/{id}/publish", s.publishFlow)
 	api.HandleFunc("POST /v1/flows/{id}/rollback", s.rollbackFlow)
 	api.HandleFunc("POST /v1/flows/simulate", s.simulateFlow)
+	api.HandleFunc("POST /v1/flows/graph/test", s.testFlowGraph)
+	api.HandleFunc("POST /v1/flows/convert", s.convertFlow)
+	api.HandleFunc("GET /v1/features", s.getFeatures)
+	api.HandleFunc("PUT /v1/features/{feature}", s.putFeature)
 	api.HandleFunc("GET /v1/fleet/releases", s.listReleases)
 	api.HandleFunc("POST /v1/fleet/releases", s.createRelease)
 	api.HandleFunc("GET /v1/fleet/campaigns", s.listCampaigns)
@@ -1383,18 +1387,13 @@ func (s *server) createFlow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	if !s.gateFunctionNodes(w, r, in.Definition) {
+		return
+	}
 	// referenced channels must belong to this tenant
-	for _, st := range in.Definition.Steps {
-		if st.Type != "notify" {
-			continue
-		}
-		var ok bool
-		if err := s.st.Pool.QueryRow(r.Context(),
-			`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=$1 AND tenant_id=$2)`,
-			st.ChannelID, auth.Tenant(r)).Scan(&ok); err != nil || !ok {
-			http.Error(w, "notify channel not found for this tenant", 400)
-			return
-		}
+	if !s.checkFlowChannels(r, in.Definition) {
+		http.Error(w, "notify channel not found for this tenant", 400)
+		return
 	}
 	def, _ := json.Marshal(in.Definition)
 	id := uuid.NewString()
