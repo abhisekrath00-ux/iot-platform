@@ -18,12 +18,13 @@ func TestIntegrationFlowCooldownSuppressesRepeats(t *testing.T) {
 	ctx := t.Context()
 	pool := s.st.Pool
 	pool.Exec(ctx, `DELETE FROM flows WHERE tenant_id='itest-fc1'`)
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM flows WHERE tenant_id='itest-fc1'`) })
 	def := `{"trigger":{"device_id":"itest-fc1-dev","point_id":"temp","op":">","value":50},"steps":[{"type":"notify","channel_id":"itest-fc1-ch"}],"cooldown_seconds":3600}`
 	for _, q := range []string{
 		`INSERT INTO notification_channels(id,tenant_id,type,target) VALUES('itest-fc1-ch','itest-fc1','email','ops@example.com') ON CONFLICT DO NOTHING`,
 		`INSERT INTO flows(id,tenant_id,name,definition,created_by) VALUES('itest-fc1-f','itest-fc1','Hot','` + def + `','t')`,
-		`INSERT INTO flow_versions(id,flow_id,tenant_id,version,definition,status,created_by) VALUES('itest-fc1-v','itest-fc1-f','itest-fc1',1,'` + def + `','published','t')`,
-		`UPDATE flows SET published_version_id='itest-fc1-v' WHERE id='itest-fc1-f'`,
+		`INSERT INTO flow_versions(id,flow_id,tenant_id,version,definition,status,created_by) VALUES('fv-itest-fc1-f','itest-fc1-f','itest-fc1',1,'` + def + `','published','t')`,
+		`UPDATE flows SET published_version_id='fv-itest-fc1-f' WHERE id='itest-fc1-f'`,
 	} {
 		if _, err := pool.Exec(ctx, q); err != nil {
 			t.Fatalf("%s: %v", q, err)
