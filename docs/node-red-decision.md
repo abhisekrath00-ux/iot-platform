@@ -55,7 +55,7 @@ with tests, tenant isolation and the control approval path intact.
 | function (sandboxed JS) | Built, off by default | docs/function-nodes.md |
 | template (render text into a property) | Built, unit-tested | pure, no I/O |
 | range / scale | Built, unit-tested | pure |
-| rate-limit / limit | Planned | needs per-flow state storage |
+| rate-limit / limit | Built, unit-tested | in-memory, per API replica, resets on restart; no Node-RED import mapping |
 | inject / schedule (time-based start) | Planned | needs a scheduler and a trigger without a reading |
 | split / join | Planned | needs message batching state |
 | HTTP request | Planned | per-tenant host allowlist, no private ranges by default, timeouts, size caps, secrets from the vault |

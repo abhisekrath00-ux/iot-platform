@@ -145,7 +145,7 @@ export default function FlowEditor() {
   const hints = problems(g);
   const width = Math.max(900, ...g.nodes.map(n => n.x + NODE_W + 60));
   const height = Math.max(460, ...g.nodes.map(n => n.y + NODE_H + 60));
-  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', ...(fnOn ? ['function' as NodeType] : [])];
+  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', 'rate_limit', ...(fnOn ? ['function' as NodeType] : [])];
   const status = (f: FlowRow) => (f.published_version ? `published v${f.published_version}${f.latest_version && f.latest_version > f.published_version ? ` (draft v${f.latest_version} pending)` : ''}` : 'draft, not published') + (f.enabled ? '' : ' - disabled');
 
   return (
@@ -278,6 +278,7 @@ function summary(n: GNode): string {
     case 'delay': return `${n.seconds}s`;
     case 'notify': return n.message || 'notify';
     case 'debug': return n.message || 'debug';
+    case 'rate_limit': return `1 per ${n.seconds}s`;
     case 'template': return `vars.${n.target}`;
     case 'range': return `${n.in_min}-${n.in_max} to ${n.out_min}-${n.out_max}`;
     case 'function': return 'JavaScript';
@@ -313,6 +314,9 @@ function Props({ n, g, channels, upd, connectTo, remove }: {
       </div>}
       {n.type === 'delay' && <><label htmlFor="np-sec">Wait (seconds, 1 to 3600)</label>
         <input id="np-sec" type="number" min={1} max={3600} value={n.seconds ?? 1} onChange={e => upd({ seconds: parseInt(e.target.value) || 1 })} /></>}
+      {n.type === 'rate_limit' && <><label htmlFor="np-rl">Let one message through every (seconds, 1 to 86400)</label>
+        <input id="np-rl" type="number" min={1} max={86400} value={n.seconds ?? 60} onChange={e => upd({ seconds: parseInt(e.target.value) || 1 })} />
+        <p className="muted">Extra messages are dropped. The count is kept per API process, and the test button does not apply it.</p></>}
       {n.type === 'notify' && <>
         <label htmlFor="np-ch">Channel</label>
         <select id="np-ch" value={n.channel_id ?? ''} onChange={e => upd({ channel_id: e.target.value })}>

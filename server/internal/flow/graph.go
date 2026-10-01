@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -108,6 +109,45 @@ type FunctionRunner interface {
 
 type ExecOptions struct {
 	Functions FunctionRunner // nil: function nodes are disabled
+	Limiter   Limiter        // nil: rate-limit nodes pass everything (simulation)
+	LimitKey  string         // scopes limiter state, e.g. tenant/flow id
+}
+
+// Limiter decides whether a rate-limit node lets a message through. State is
+// per process: with several API replicas each keeps its own window.
+type Limiter interface {
+	Allow(key string, every time.Duration) bool
+}
+
+// MemLimiter allows one message per key per window, in memory.
+type MemLimiter struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+	Now  func() time.Time
+}
+
+func (l *MemLimiter) Allow(key string, every time.Duration) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	if l.Now != nil {
+		now = l.Now()
+	}
+	if l.last == nil {
+		l.last = map[string]time.Time{}
+	}
+	if t, ok := l.last[key]; ok && now.Sub(t) < every {
+		return false
+	}
+	if len(l.last) > 10000 { // bound memory: drop expired entries
+		for k, t := range l.last {
+			if now.Sub(t) >= time.Hour {
+				delete(l.last, k)
+			}
+		}
+	}
+	l.last[key] = now
+	return true
 }
 
 type DebugEntry struct {
@@ -419,6 +459,12 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 			}
 			m.Value = n.OutMin + t*(n.OutMax-n.OutMin)
 			push(n.ID, "0", m, v.delay)
+		case "rate_limit":
+			if opt.Limiter == nil || opt.Limiter.Allow(opt.LimitKey+"/"+n.ID, time.Duration(n.Seconds)*time.Second) {
+				push(n.ID, "0", m, v.delay)
+			} else {
+				dbg(n, "dropped by rate limit")
+			}
 		case "function":
 			if opt.Functions == nil {
 				dbg(n, "function nodes are disabled for this tenant")
@@ -653,6 +699,10 @@ func validateNode(n *Node) error {
 	case "debug":
 		if len(n.Message) > 500 {
 			return fmt.Errorf("message too long")
+		}
+	case "rate_limit":
+		if n.Seconds < 1 || n.Seconds > 86400 {
+			return fmt.Errorf("rate limit window 1-86400 seconds")
 		}
 	case "template":
 		if len(n.Template) == 0 || len(n.Template) > 500 {

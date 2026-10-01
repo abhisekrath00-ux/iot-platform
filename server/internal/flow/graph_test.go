@@ -227,3 +227,32 @@ func TestTemplateRangeValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestRateLimitNode(t *testing.T) {
+	g := Graph{
+		Nodes: []Node{trig(), {ID: "rl", Type: "rate_limit", Seconds: 60}, {ID: "n", Type: "notify", ChannelID: "c"}},
+		Edges: []Edge{{From: "t", To: "rl"}, {From: "rl", To: "n"}},
+	}
+	d := Definition{Graph: &g}
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1000, 0)
+	l := &MemLimiter{Now: func() time.Time { return now }}
+	o := ExecOptions{Limiter: l, LimitKey: "f1"}
+	if r := d.Exec(20, "d", "p", o); len(r.Actions) != 1 {
+		t.Fatal("first should pass")
+	}
+	now = now.Add(30 * time.Second)
+	r := d.Exec(20, "d", "p", o)
+	if len(r.Actions) != 0 || len(r.Debug) == 0 {
+		t.Fatalf("second should drop: %+v", r)
+	}
+	now = now.Add(31 * time.Second)
+	if r := d.Exec(20, "d", "p", o); len(r.Actions) != 1 {
+		t.Fatal("after window should pass")
+	}
+	if r := d.Exec(20, "d", "p", ExecOptions{}); len(r.Actions) != 1 {
+		t.Fatal("simulation passes")
+	}
+}

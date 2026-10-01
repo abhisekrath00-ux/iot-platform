@@ -2,7 +2,7 @@
 // The server is the authority on validity; these keep the editor from building
 // graphs it already knows will be refused.
 
-export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range';
+export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range' | 'rate_limit';
 
 export interface GNode {
   id: string; type: NodeType; name?: string; x: number; y: number;
@@ -20,7 +20,7 @@ export const NODE_H = 52;
 
 export const LABELS: Record<NodeType, string> = {
   trigger: 'Reading', switch: 'Switch', change: 'Change', condition: 'Condition',
-  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range'
+  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range', rate_limit: 'Rate limit'
 };
 
 export function portCount(n: GNode): number {
@@ -48,6 +48,7 @@ export function defaults(type: NodeType): Partial<GNode> {
     case 'notify': return { channel_id: '', message: 'value {value}' };
     case 'debug': return { message: '{value}' };
     case 'template': return { template: 'value {value}', target: 'text' };
+    case 'rate_limit': return { seconds: 60 };
     case 'range': return { in_min: 0, in_max: 100, out_min: 0, out_max: 1, clamp: true };
     case 'function': return { code: 'return msg;' };
     default: return {};

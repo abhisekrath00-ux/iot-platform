@@ -19,6 +19,8 @@ type Notifier interface {
 // Only the PUBLISHED version of each flow executes; drafts never fire.
 // Delays execute in a goroutine so ingest never blocks; each dispatch is
 // recorded in flow_runs.
+var sharedLimiter = &MemLimiter{}
+
 func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, deviceID, pointID string, value float64) {
 	EvaluateWith(ctx, pool, n, nil, tenantID, deviceID, pointID, value)
 }
@@ -49,7 +51,7 @@ func EvaluateWith(ctx context.Context, pool *pgxpool.Pool, n Notifier, fn Functi
 		if t := d.Trig(); t.DeviceID != deviceID || t.PointID != pointID {
 			continue
 		}
-		opt := ExecOptions{}
+		opt := ExecOptions{Limiter: sharedLimiter, LimitKey: id}
 		if fn != nil && d.HasFunctionNodes() {
 			if fnOn < 0 {
 				fnOn = 0
