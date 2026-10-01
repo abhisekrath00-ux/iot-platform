@@ -42,10 +42,26 @@ Built: our own executor, Node-RED-style (graph, switch, change, delay, debug,
 function) plus Node-RED JSON import/export for the supported subset, plus MCP
 text-to-draft tools.
 
-Not built: the real Node-RED runtime or its palette. If a customer needs it, the
-supportable shape is a dedicated Node-RED container per tenant, on a separate
-network, fed from our webhooks and API, with no route to the control path.
-That is a deployment recipe, not shipped code, and it needs its own review.
+Not built: the real Node-RED runtime or its palette. Product owner decision
+(Oct 1 10:47 PM, relayed): build natively, no Node-RED container recipe. The
+engine will grow toward Node-RED-class breadth one node type at a time, each
+with tests, tenant isolation and the control approval path intact.
+
+## Native node roadmap (status is honest; nothing below "Built" exists yet)
+
+| Node | Status | Notes / safety rule |
+|---|---|---|
+| trigger, switch, change, condition, delay, debug, notify | Built | |
+| function (sandboxed JS) | Built, off by default | docs/function-nodes.md |
+| template (render text into a property) | Planned | pure, no I/O |
+| range / scale | Planned | pure |
+| rate-limit / limit | Planned | needs per-flow state storage |
+| inject / schedule (time-based start) | Planned | needs a scheduler and a trigger without a reading |
+| split / join | Planned | needs message batching state |
+| HTTP request | Planned | per-tenant host allowlist, no private ranges by default, timeouts, size caps, secrets from the vault |
+| MQTT in/out | Planned | tenant-prefixed topics only; out is a control path, so it goes through approval and four-eyes |
+| Modbus read/write | Planned | write is a control path: approval and four-eyes |
+| Any node that changes a physical device | Rule | must create an approval request, never act directly |
 
 The claim "all Node-RED functionality" is therefore not met. The gap table in
 competitive-gap.md says so.
