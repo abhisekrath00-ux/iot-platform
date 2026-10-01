@@ -1,3 +1,4 @@
+import AnomalyRuleForm from './AnomalyRuleForm';
 import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
 import { Link } from 'react-router-dom';
@@ -118,6 +119,7 @@ export default function Flows() {
         </form>
         {msg && <p className="muted">{msg}</p>}
       </div>
+      <AnomalyRuleForm onCreated={load} />
       {rules.length === 0 && <Empty title="No rules yet" hint="Create a threshold rule above to raise alerts when a point crosses a limit." />}
       {rules.length > 0 && <table>
         <thead><tr><th>Name</th><th>Condition</th><th>Severity</th><th>Status</th></tr></thead>
@@ -125,7 +127,7 @@ export default function Flows() {
           {rules.map(r => (
             <tr key={r.id}>
               <td>{r.name}</td>
-              <td className="muted">{r.definition?.point_id} {r.definition?.op} {r.definition?.threshold}{r.definition?.device_id ? ` on ${r.definition.device_id}` : ''}</td>
+              <td className="muted">{r.definition?.kind === 'sigma' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of ${r.definition.window_minutes} min history` : r.definition?.kind === 'kpi_band' ? `KPI band ${r.definition.min ?? '-'} to ${r.definition.max ?? '-'}` : `${r.definition?.point_id} ${r.definition?.op} ${r.definition?.threshold}`}{r.definition?.device_id ? ` on ${r.definition.device_id}` : ''}</td>
               <td><span className={`pill ${r.definition?.severity === 'critical' ? 'bad' : r.definition?.severity === 'warning' ? 'warn' : 'ok'}`}>{r.definition?.severity}</span></td>
               <td className="muted">{r.enabled ? 'enabled' : 'disabled'}</td>
             </tr>

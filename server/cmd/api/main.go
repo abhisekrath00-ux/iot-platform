@@ -28,6 +28,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/respcache"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/retention"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 	"github.com/golang-jwt/jwt/v5"
@@ -229,6 +230,20 @@ func main() {
 			}
 		}
 	})
+	// KPI band rules are evaluated once a minute by one replica.
+	go leader.Run(ctx, st.Pool, leaderKPIRules, "kpi-rules", 10*time.Second, func(c context.Context) {
+		fn := notify.FromEnv()
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-c.Done():
+				return
+			case <-t.C:
+				rules.EvaluateKPIs(c, st.Pool, fn)
+			}
+		}
+	})
 	// Hourly rollups always; raw-data purge only when RAW_RETENTION_DAYS is set (default: keep everything).
 	retDays, _ := strconv.Atoi(os.Getenv("RAW_RETENTION_DAYS"))
 	go leader.Run(ctx, st.Pool, leaderRetention, "retention", 30*time.Second, retention.Job(st.Pool, retDays, time.Hour))
@@ -256,6 +271,9 @@ const leaderReportScheduler int64 = 0x4845584D4F4F
 
 // leaderFlowScheduler is the advisory lock key for timed (inject) flows.
 const leaderFlowScheduler int64 = 0x4845584D4F51
+
+// leaderKPIRules is the advisory lock key for KPI band rule evaluation.
+const leaderKPIRules int64 = 0x4845584D4F52
 
 // leaderRetention is the advisory lock key for the rollup/retention job.
 const leaderRetention int64 = 0x4845584D4F50
@@ -1593,18 +1611,22 @@ func (s *server) createRule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name and definition required", 400)
 		return
 	}
-	// v1 rule shape: {"device_id":..,"point_id":..,"op":">","threshold":N,"severity":"warning","message":..}
-	var shape struct {
-		PointID   string  `json:"point_id"`
-		Op        string  `json:"op"`
-		Threshold float64 `json:"threshold"`
-		Severity  string  `json:"severity"`
-		Profile   string  `json:"profile"`
-	}
-	if err := json.Unmarshal(in.Definition, &shape); err != nil || shape.PointID == "" || len(shape.Profile) > 64 ||
-		(shape.Op != ">" && shape.Op != "<") || (shape.Severity != "info" && shape.Severity != "warning" && shape.Severity != "critical") {
-		http.Error(w, "invalid rule definition (v1: point_id, op >|<, threshold, severity info|warning|critical)", 400)
+	// kinds: threshold (point_id, op >|<, threshold), sigma (point_id, sigma, window_minutes, direction) or kpi_band (kpi_id, min and/or max)
+	var def rules.Definition
+	if err := json.Unmarshal(in.Definition, &def); err != nil {
+		http.Error(w, "invalid rule definition", 400)
 		return
+	}
+	if err := def.Validate(); err != nil {
+		http.Error(w, "invalid rule definition: "+err.Error(), 400)
+		return
+	}
+	if def.Kind == "kpi_band" {
+		var one int
+		if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM kpis WHERE id=$1 AND tenant_id=$2`, def.KPIID, auth.Tenant(r)).Scan(&one) != nil {
+			http.Error(w, "unknown kpi", 404)
+			return
+		}
 	}
 	id := uuid.NewString()
 	_, err := s.st.Pool.Exec(r.Context(),
