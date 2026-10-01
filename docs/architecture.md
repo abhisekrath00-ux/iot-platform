@@ -89,7 +89,14 @@ Commands flow on separate topics with a strict envelope:
 Pipeline: user permission -> policy check -> short-lived command -> gateway allowlist
 -> ACK -> measured outcome recorded to audit. Four-eyes is enforced: the approver
 must differ from the requester. Non-idempotent actuation is never retried without
-explicit policy. Physical safety gating is in docs/security.md and
+explicit policy.
+
+Implemented: on approval the API publishes the envelope (non-retained, QoS 1) to
+`t/<tenant>/g/<gateway>/cmd` and sets status `sent`, or `failed` if the broker
+refused it; each outcome is audited. Not implemented: the edge executor that
+consumes the topic, enforces the allowlist and `expires_at`, and ACKs. Until it
+exists a `sent` command is not executed by anything, and status never reaches
+`acked`. Physical safety gating is in docs/security.md and
 docs/hazard-analysis.md and is a release gate, not a nice-to-have.
 
 ## Commissioning and fleet lifecycle

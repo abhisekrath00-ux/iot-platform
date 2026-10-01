@@ -447,8 +447,51 @@ func (s *server) approveCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "command.approve", id, nil)
-	// TODO: publish to gateway cmd topic with the command envelope.
-	writeJSON(w, 200, map[string]any{"request_id": id, "status": "approved"})
+	status := s.dispatchCommand(r, id)
+	writeJSON(w, 200, map[string]any{"request_id": id, "status": status})
+}
+
+// commandEnvelope is the strict wire format gateways receive (docs/architecture.md).
+type commandEnvelope struct {
+	RequestID     string          `json:"request_id"`
+	Target        string          `json:"target"`
+	Action        string          `json:"action"`
+	Parameters    json.RawMessage `json:"parameters"`
+	ApprovedBy    string          `json:"approved_by"`
+	IssuedAt      time.Time       `json:"issued_at"`
+	ExpiresAt     time.Time       `json:"expires_at"`
+	PolicyVersion string          `json:"policy_version"`
+}
+
+// commandTopic is tenant- and gateway-scoped so broker ACLs can pin a gateway to its own topic.
+func commandTopic(tenant, gateway string) string { return "t/" + tenant + "/g/" + gateway + "/cmd" }
+
+// dispatchCommand publishes an approved command. It is never retained (a
+// reconnecting gateway must not replay stale actuation); the envelope carries
+// expires_at and the gateway must drop expired commands. Status becomes 'sent'
+// only after the broker accepted the publish, else 'failed'. 'sent' is not
+// 'acked': nothing consumes the topic until the edge executor exists.
+func (s *server) dispatchCommand(r *http.Request, id string) string {
+	var env commandEnvelope
+	var gw, params string
+	err := s.st.Pool.QueryRow(r.Context(),
+		`SELECT request_id, gateway_id, device_id, action, parameters::text, approved_by, issued_at, expires_at, policy_version
+		 FROM commands WHERE request_id=$1 AND tenant_id=$2`, id, auth.Tenant(r)).
+		Scan(&env.RequestID, &gw, &env.Target, &env.Action, &params, &env.ApprovedBy, &env.IssuedAt, &env.ExpiresAt, &env.PolicyVersion)
+	env.Parameters = json.RawMessage(params)
+	if err == nil {
+		var b []byte
+		if b, err = json.Marshal(env); err == nil {
+			err = s.publishMQTTRetained(commandTopic(auth.Tenant(r), gw), b, false)
+		}
+	}
+	next := "sent"
+	if err != nil {
+		next = "failed"
+	}
+	s.st.Pool.Exec(r.Context(), `UPDATE commands SET status=$1 WHERE request_id=$2 AND status='approved'`, next, id)
+	s.audit(r, "command."+next, id, map[string]any{"topic_gateway": gw})
+	return next
 }
 
 func (s *server) listCommands(w http.ResponseWriter, r *http.Request) {
