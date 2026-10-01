@@ -29,7 +29,7 @@ type Claims struct {
 // KeyResolver authenticates a non-JWT bearer token (an API key). It returns
 // tenant, principal and role, or ok=false when the key is unknown, revoked or
 // expired.
-type KeyResolver func(ctx context.Context, token string) (tenant, user, role string, ok bool)
+type KeyResolver func(ctx context.Context, token string) (tenant, user, role string, scopes []string, ok bool)
 
 // CtxViaKey marks requests authenticated by an API key rather than a session.
 const CtxViaKey ctxKey = "via_key"
@@ -45,9 +45,13 @@ func Middleware(secret []byte, resolvers ...KeyResolver) func(http.Handler) http
 				return
 			}
 			if raw := strings.TrimPrefix(h, "Bearer "); strings.HasPrefix(raw, "hxk_") && len(resolvers) > 0 {
-				t, u, role, ok := resolvers[0](r.Context(), raw)
+				t, u, role, scopes, ok := resolvers[0](r.Context(), raw)
 				if !ok {
 					http.Error(w, "invalid token", http.StatusUnauthorized)
+					return
+				}
+				if !ScopeAllows(scopes, r.URL.Path) {
+					http.Error(w, "api key scope does not allow this endpoint", http.StatusForbidden)
 					return
 				}
 				if keyLimiter != nil {
@@ -83,3 +87,22 @@ func Middleware(secret []byte, resolvers ...KeyResolver) func(http.Handler) http
 func Tenant(r *http.Request) string { v, _ := r.Context().Value(CtxTenant).(string); return v }
 func User(r *http.Request) string   { v, _ := r.Context().Value(CtxUser).(string); return v }
 func Role(r *http.Request) string   { v, _ := r.Context().Value(CtxRole).(string); return v }
+
+// ScopeAllows reports whether an API key with the given scopes may call path.
+// A scope is the first path segment after /v1/ (for example "devices"). An
+// empty scope list is unrestricted, which keeps pre-scope keys working.
+func ScopeAllows(scopes []string, path string) bool {
+	if len(scopes) == 0 {
+		return true
+	}
+	seg := strings.TrimPrefix(path, "/v1/")
+	if i := strings.IndexByte(seg, '/'); i >= 0 {
+		seg = seg[:i]
+	}
+	for _, sc := range scopes {
+		if sc == seg && seg != "" {
+			return true
+		}
+	}
+	return false
+}

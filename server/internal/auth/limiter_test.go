@@ -41,8 +41,8 @@ func TestLimiter(t *testing.T) {
 func TestMiddlewareRateLimitsKeysOnly(t *testing.T) {
 	SetKeyLimiter(NewLimiter(60, 2))
 	defer SetKeyLimiter(nil)
-	resolver := func(_ context.Context, _ string) (string, string, string, bool) {
-		return "t", "apikey:1", "viewer", true
+	resolver := func(_ context.Context, _ string) (string, string, string, []string, bool) {
+		return "t", "apikey:1", "viewer", nil, true
 	}
 	h := Middleware([]byte("s"), resolver)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	codes := []int{}
@@ -58,5 +58,26 @@ func TestMiddlewareRateLimitsKeysOnly(t *testing.T) {
 	}
 	if codes[0] != 200 || codes[1] != 200 || codes[2] != 429 {
 		t.Fatalf("codes %v", codes)
+	}
+}
+
+func TestScopeAllows(t *testing.T) {
+	cases := []struct {
+		scopes []string
+		path   string
+		want   bool
+	}{
+		{nil, "/v1/anything", true},
+		{[]string{"devices"}, "/v1/devices", true},
+		{[]string{"devices"}, "/v1/devices/abc/telemetry", true},
+		{[]string{"devices"}, "/v1/alerts", false},
+		{[]string{"devices"}, "/v1/devicesx", false},
+		{[]string{"devices"}, "/v1/", false},
+		{[]string{"devices", "alerts"}, "/v1/alerts/1/ack", true},
+	}
+	for _, c := range cases {
+		if got := ScopeAllows(c.scopes, c.path); got != c.want {
+			t.Errorf("ScopeAllows(%v,%q)=%v want %v", c.scopes, c.path, got, c.want)
+		}
 	}
 }

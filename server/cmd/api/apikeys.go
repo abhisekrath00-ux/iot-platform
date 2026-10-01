@@ -36,25 +36,26 @@ func newKeyToken() (id, secret, token string, err error) {
 }
 
 // resolveAPIKey implements auth.KeyResolver.
-func (s *server) resolveAPIKey(ctx context.Context, token string) (string, string, string, bool) {
+func (s *server) resolveAPIKey(ctx context.Context, token string) (string, string, string, []string, bool) {
 	rest := strings.TrimPrefix(token, "hxk_")
 	id, secret, ok := strings.Cut(rest, ".")
 	if !ok || id == "" || secret == "" || len(id) > 32 {
-		return "", "", "", false
+		return "", "", "", nil, false
 	}
 	var tenant, role string
 	var hash []byte
+	var scopes []string
 	err := s.st.Pool.QueryRow(ctx,
-		`SELECT tenant_id, role, secret_hash FROM api_keys
-		 WHERE id=$1 AND revoked_at IS NULL AND expires_at > now()`, id).Scan(&tenant, &role, &hash)
+		`SELECT tenant_id, role, secret_hash, scopes FROM api_keys
+		 WHERE id=$1 AND revoked_at IS NULL AND expires_at > now()`, id).Scan(&tenant, &role, &hash, &scopes)
 	if err != nil {
-		return "", "", "", false
+		return "", "", "", nil, false
 	}
 	if subtle.ConstantTimeCompare(hash, hashSecret(secret)) != 1 {
-		return "", "", "", false
+		return "", "", "", nil, false
 	}
 	go s.st.Pool.Exec(context.Background(), `UPDATE api_keys SET last_used_at=now() WHERE id=$1`, id)
-	return tenant, "apikey:" + id, role, true
+	return tenant, "apikey:" + id, role, scopes, true
 }
 
 func (s *server) createAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -63,9 +64,10 @@ func (s *server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name string `json:"name"`
-		Role string `json:"role"`
-		Days int    `json:"expires_in_days"`
+		Name   string   `json:"name"`
+		Role   string   `json:"role"`
+		Days   int      `json:"expires_in_days"`
+		Scopes []string `json:"scopes"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in); err != nil {
 		http.Error(w, "bad json", 400)
@@ -92,16 +94,31 @@ func (s *server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "entropy failure", 500)
 		return
 	}
+	if len(in.Scopes) > len(grantableScopes) {
+		http.Error(w, "too many scopes", 400)
+		return
+	}
+	seen := map[string]bool{}
+	for _, sc := range in.Scopes {
+		if !grantableScopes[sc] || seen[sc] {
+			http.Error(w, "unknown or duplicate scope "+sc, 400)
+			return
+		}
+		seen[sc] = true
+	}
+	if in.Scopes == nil {
+		in.Scopes = []string{}
+	}
 	exp := time.Now().Add(time.Duration(in.Days) * 24 * time.Hour)
 	if _, err := s.st.Pool.Exec(r.Context(),
-		`INSERT INTO api_keys(id,tenant_id,name,secret_hash,role,created_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`,
-		id, auth.Tenant(r), in.Name, hashSecret(secret), in.Role, auth.User(r), exp); err != nil {
+		`INSERT INTO api_keys(id,tenant_id,name,secret_hash,role,created_by,expires_at,scopes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+		id, auth.Tenant(r), in.Name, hashSecret(secret), in.Role, auth.User(r), exp, in.Scopes); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.audit(r, "apikey.create", id, map[string]any{"name": in.Name, "role": in.Role, "expires_at": exp})
+	s.audit(r, "apikey.create", id, map[string]any{"name": in.Name, "role": in.Role, "expires_at": exp, "scopes": in.Scopes})
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 201, map[string]any{"id": id, "name": in.Name, "role": in.Role, "expires_at": exp, "token": token,
+	writeJSON(w, 201, map[string]any{"id": id, "name": in.Name, "role": in.Role, "scopes": in.Scopes, "expires_at": exp, "token": token,
 		"note": "Store this token now. It cannot be shown again."})
 }
 
@@ -111,7 +128,7 @@ func (s *server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id,name,role,created_by,created_at,expires_at,last_used_at,revoked_at FROM api_keys WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
+		`SELECT id,name,role,created_by,created_at,expires_at,last_used_at,revoked_at,scopes FROM api_keys WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -122,9 +139,10 @@ func (s *server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 		var id, name, role, by string
 		var created, exp time.Time
 		var used, rev *time.Time
-		rows.Scan(&id, &name, &role, &by, &created, &exp, &used, &rev)
+		var scopes []string
+		rows.Scan(&id, &name, &role, &by, &created, &exp, &used, &rev, &scopes)
 		out = append(out, map[string]any{"id": id, "name": name, "role": role, "created_by": by, "created_at": created,
-			"expires_at": exp, "last_used_at": used, "revoked_at": rev})
+			"expires_at": exp, "last_used_at": used, "revoked_at": rev, "scopes": scopes})
 	}
 	writeJSON(w, 200, out)
 }
@@ -147,4 +165,13 @@ func (s *server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "apikey.revoke", id, nil)
 	writeJSON(w, 200, map[string]any{"id": id, "revoked": true})
+}
+
+// grantableScopes are the first path segments a key may be limited to.
+// Administrative surfaces (api-keys, audit, broker, commands, commissioning,
+// enrollment, fleet, gateways, notifications) can never be granted to a
+// scoped key; an unscoped key keeps its role's existing reach.
+var grantableScopes = map[string]bool{
+	"alerts": true, "dashboards": true, "devices": true, "export": true, "flows": true,
+	"points": true, "profiles": true, "reports": true, "rules": true, "search": true, "telemetry": true,
 }

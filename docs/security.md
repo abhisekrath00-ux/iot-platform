@@ -102,7 +102,7 @@ boot. Revoke and wipe keys on decommission. Document software support lifetime.
 Keys can request commands but can never approve them: approval requires an interactive
 user session (human four-eyes), enforced in `approveCommand` and covered by a test.
 
-Each key is rate limited (token bucket, default 600 requests/min with a small burst, `API_KEY_RPM` to change, 0 disables). The bucket is in memory per API replica, so the cluster-wide ceiling is the rate times the replica count; it bounds a leaked key but does not replace a WAF. Keys still have no per-endpoint scopes, only the viewer or operator role.
+Each key is rate limited (token bucket, default 600 requests/min with a small burst, `API_KEY_RPM` to change, 0 disables). The bucket is in memory per API replica, so the cluster-wide ceiling is the rate times the replica count; it bounds a leaked key but does not replace a WAF. A key can also be limited to endpoint groups (the first path segment: devices, telemetry, alerts, dashboards, reports, flows, rules, points, profiles, search, export); anything else returns 403. Administrative groups (api-keys, audit, broker, commands, commissioning, enrollment, fleet, gateways, notifications) cannot be granted to a scoped key. An empty scope list means every endpoint the role allows, so keys created before scopes keep working. Scopes are coarse (endpoint group, not per-device or per-method); the role still decides read versus write.
 
 Machine clients (SCADA, BI, scripts) use `Authorization: Bearer hxk_<id>.<secret>`.
 - Only `sha256(secret)` is stored; the token is shown once at creation (`Cache-Control: no-store`) and compared in constant time.
