@@ -6,6 +6,8 @@ on:
 jobs:
   go:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only to post the failure log as a commit comment
     services:
       postgres:
         image: postgres:16-alpine
@@ -24,9 +26,8 @@ jobs:
       - name: vet + test server
         working-directory: server
         run: |
-          go vet ./...
-          go test ./...
-          go build ./...
+          set -o pipefail
+          { go vet ./... && go test ./... && go build ./...; } 2>&1 | tee /tmp/server-ci.log
       - name: vet + test edge
         working-directory: edge
         run: |
@@ -37,6 +38,13 @@ jobs:
           for t in linux/arm64 windows/amd64 windows/arm64; do
             CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -o /dev/null ./cmd/edge-agent
           done
+      - name: post failing server log as a commit comment
+        if: failure() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '```'; grep -v 'migration applied' /tmp/server-ci.log 2>/dev/null | grep -E 'FAIL|---|panic|_test.go|error|cannot|undefined' | head -60; echo '```'; } > /tmp/body.md
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@/tmp/body.md || true
 
   web:
     runs-on: ubuntu-latest

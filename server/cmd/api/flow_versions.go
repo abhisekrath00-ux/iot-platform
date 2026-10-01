@@ -119,6 +119,13 @@ func (s *server) setPublished(w http.ResponseWriter, r *http.Request, flowID str
 		http.Error(w, "version not found", 404)
 		return false
 	}
+	// publishing a version that holds sandboxed JavaScript is as restricted as saving one
+	var vdef []byte
+	var vd flow.Definition
+	if s.st.Pool.QueryRow(r.Context(), `SELECT definition FROM flow_versions WHERE id=$1`, verID).Scan(&vdef) == nil &&
+		json.Unmarshal(vdef, &vd) == nil && !s.gateFunctionNodes(w, r, vd) {
+		return false
+	}
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), 500)

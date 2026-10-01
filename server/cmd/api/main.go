@@ -161,6 +161,10 @@ func main() {
 	api.HandleFunc("POST /v1/flows/{id}/draft", s.createFlowDraft)
 	api.HandleFunc("POST /v1/flows/{id}/publish", s.publishFlow)
 	api.HandleFunc("POST /v1/flows/{id}/rollback", s.rollbackFlow)
+	api.HandleFunc("GET /v1/flows/{id}/versions/{version}", s.getFlowVersion)
+	api.HandleFunc("PATCH /v1/flows/{id}", s.patchFlow)
+	api.HandleFunc("DELETE /v1/flows/{id}", s.deleteFlow)
+	api.HandleFunc("POST /v1/flows/{id}/duplicate", s.duplicateFlow)
 	api.HandleFunc("POST /v1/flows/simulate", s.simulateFlow)
 	api.HandleFunc("POST /v1/flows/graph/test", s.testFlowGraph)
 	api.HandleFunc("POST /v1/flows/convert", s.convertFlow)
@@ -1345,7 +1349,8 @@ func (s *server) reportScheduler(ctx context.Context) {
 
 func (s *server) listFlows(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT f.id, f.name, f.definition, f.enabled, f.created_at, v.version
+		`SELECT f.id, f.name, f.definition, f.enabled, f.created_at, v.version,
+		   (SELECT max(version) FROM flow_versions x WHERE x.flow_id=f.id)
 		 FROM flows f LEFT JOIN flow_versions v ON v.id = f.published_version_id
 		 WHERE f.tenant_id=$1 ORDER BY f.created_at DESC`,
 		auth.Tenant(r))
@@ -1360,10 +1365,10 @@ func (s *server) listFlows(w http.ResponseWriter, r *http.Request) {
 		var def []byte
 		var enabled bool
 		var created time.Time
-		var ver *int
-		rows.Scan(&id, &name, &def, &enabled, &created, &ver)
+		var ver, latest *int
+		rows.Scan(&id, &name, &def, &enabled, &created, &ver, &latest)
 		out = append(out, map[string]any{"id": id, "name": name, "definition": json.RawMessage(def),
-			"enabled": enabled, "created_at": created, "published_version": ver})
+			"enabled": enabled, "created_at": created, "published_version": ver, "latest_version": latest})
 	}
 	writeJSON(w, 200, out)
 }
