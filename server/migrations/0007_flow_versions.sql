@@ -17,7 +17,8 @@ CREATE INDEX IF NOT EXISTS flow_versions_flow ON flow_versions(flow_id, version 
 
 -- Backfill: every pre-versioning flow becomes v1 published (idempotent).
 INSERT INTO flow_versions (id, flow_id, tenant_id, version, definition, status, created_by, published_at)
-SELECT 'fv-' || id, id, tenant_id, 1, definition, 'published', created_by, now() FROM flows
+SELECT 'fv-' || id, id, tenant_id, 1, definition, 'published', created_by, now() FROM flows f
+WHERE NOT EXISTS (SELECT 1 FROM flow_versions v WHERE v.flow_id = f.id)
 ON CONFLICT (id) DO NOTHING;
 UPDATE flows f SET published_version_id = 'fv-' || f.id
 WHERE published_version_id IS NULL AND EXISTS (SELECT 1 FROM flow_versions v WHERE v.id = 'fv-' || f.id);
