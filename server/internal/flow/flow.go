@@ -29,6 +29,19 @@ type Step struct {
 type Definition struct {
 	Trigger Trigger `json:"trigger"`
 	Steps   []Step  `json:"steps"`
+	// CooldownSeconds suppresses repeat notifications: after a run notifies,
+	// further matching readings are recorded as suppressed until the cooldown
+	// passes. 0 = notify on every match (previous behaviour). Max 24h.
+	CooldownSeconds int `json:"cooldown_seconds,omitempty"`
+}
+
+// InCooldown reports whether a run at now is inside the cooldown that began at
+// lastNotified. A zero lastNotified or non-positive cooldown is never in cooldown.
+func InCooldown(lastNotified, now time.Time, cooldownSeconds int) bool {
+	if cooldownSeconds <= 0 || lastNotified.IsZero() {
+		return false
+	}
+	return now.Sub(lastNotified) < time.Duration(cooldownSeconds)*time.Second
 }
 
 var (
@@ -68,6 +81,9 @@ func Validate(d Definition) error {
 	}
 	if len(d.Steps) == 0 {
 		return ErrNoSteps
+	}
+	if d.CooldownSeconds < 0 || d.CooldownSeconds > 86400 {
+		return fmt.Errorf("cooldown_seconds must be 0-86400")
 	}
 	if len(d.Steps) > 20 {
 		return fmt.Errorf("at most 20 steps")

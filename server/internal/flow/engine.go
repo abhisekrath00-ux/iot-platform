@@ -44,6 +44,16 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 		}
 		actions, wait, ok := Run(d, value)
 		outcome := "notified"
+		if ok && len(actions) > 0 && d.CooldownSeconds > 0 {
+			var last time.Time
+			err := pool.QueryRow(ctx,
+				`SELECT created_at FROM flow_runs WHERE flow_id=$1 AND outcome='notified' ORDER BY created_at DESC LIMIT 1`, id).Scan(&last)
+			if err == nil && InCooldown(last, time.Now(), d.CooldownSeconds) {
+				pool.Exec(ctx, `INSERT INTO flow_runs(id,flow_id,trigger_value,outcome) VALUES($1,$2,$3,'suppressed_cooldown')`,
+					uuid.NewString(), id, value)
+				continue
+			}
+		}
 		if !ok {
 			outcome = "skipped_condition"
 		}

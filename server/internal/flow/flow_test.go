@@ -64,3 +64,29 @@ func TestRunNotifyAndDelay(t *testing.T) {
 		t.Fatalf("message %q", actions[0].Message)
 	}
 }
+
+func TestCooldown(t *testing.T) {
+	now := time.Now()
+	if InCooldown(time.Time{}, now, 60) || InCooldown(now.Add(-time.Second), now, 0) {
+		t.Fatal("no history or zero cooldown must not suppress")
+	}
+	if !InCooldown(now.Add(-30*time.Second), now, 60) {
+		t.Fatal("30s after notify with 60s cooldown must suppress")
+	}
+	if InCooldown(now.Add(-61*time.Second), now, 60) {
+		t.Fatal("after cooldown must not suppress")
+	}
+	d := Definition{Trigger: Trigger{DeviceID: "d", PointID: "p", Op: ">", Value: 1}, Steps: []Step{{Type: "notify", ChannelID: "c"}}}
+	d.CooldownSeconds = 86401
+	if Validate(d) == nil {
+		t.Fatal("cooldown over 24h accepted")
+	}
+	d.CooldownSeconds = -1
+	if Validate(d) == nil {
+		t.Fatal("negative cooldown accepted")
+	}
+	d.CooldownSeconds = 300
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+}

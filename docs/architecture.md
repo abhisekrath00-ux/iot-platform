@@ -213,3 +213,7 @@ A leader-elected job (advisory lock, one replica at a time) runs hourly. It roll
 `RAW_RETENTION_DAYS` (default 0 = keep everything) enables purging: raw rows older than the window are deleted only after their hours are rolled up, in batches of 5000. Rollups are never purged.
 `GET /v1/telemetry/rollup?device_id=&point_id=&from=&to=` returns hourly aggregates (default last 30 days, max span 2 years) and keeps answering after raw data is gone.
 Not built yet: daily rollups, per-tenant retention settings, routing the series API and report builder to rollups for long ranges (they still read raw data), and partition dropping for very large installs.
+
+## Flow cooldown (dedupe)
+
+A flow definition may set `cooldown_seconds` (0-86400). After a run notifies, further matching readings are recorded in `flow_runs` as `suppressed_cooldown` until the cooldown passes, so a sensor stuck above its threshold does not flood email or Slack. Default 0 keeps the old behaviour (notify on every match). Cooldown is per flow, not per device. It is not a latch: it does not wait for the reading to return to normal.

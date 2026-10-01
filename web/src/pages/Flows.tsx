@@ -3,7 +3,7 @@ import Empty from '../components/Empty';
 import { api } from '../lib/api';
 
 interface Rule { id: string; name: string; definition: any; version: number; enabled: boolean; }
-interface FlowDef { trigger: { device_id: string; point_id: string; op: string; value: number }; steps: any[]; }
+interface FlowDef { trigger: { device_id: string; point_id: string; op: string; value: number }; steps: any[]; cooldown_seconds?: number; }
 interface FlowRow { id: string; name: string; definition: FlowDef; enabled: boolean; }
 interface Channel { id: string; type: string; target: string; }
 
@@ -25,6 +25,7 @@ export default function Flows() {
   const [fpoint, setFpoint] = useState('');
   const [fop, setFop] = useState('>');
   const [fvalue, setFvalue] = useState('');
+  const [fcool, setFcool] = useState('');
   const [steps, setSteps] = useState<any[]>([{ type: 'notify', channel_id: '', message: '' }]);
 
   const load = () => {
@@ -50,7 +51,8 @@ export default function Flows() {
             trigger: { device_id: fdevice, point_id: fpoint, op: fop, value: parseFloat(fvalue) },
             steps: steps.map(st => st.type === 'condition' ? { type: st.type, op: st.op, value: parseFloat(st.value) }
               : st.type === 'delay' ? { type: st.type, seconds: +st.seconds }
-              : { type: st.type, channel_id: st.channel_id, message: st.message })
+              : { type: st.type, channel_id: st.channel_id, message: st.message }),
+            ...(+fcool > 0 ? { cooldown_seconds: Math.round(+fcool * 60) } : {})
           }
         })
       });
@@ -141,6 +143,8 @@ export default function Flows() {
             </select>
             <input value={fvalue} onChange={e => setFvalue(e.target.value)} type="number" step="any" required />
           </div>
+          <label>Do not repeat for (minutes, optional)</label>
+          <input value={fcool} onChange={e => setFcool(e.target.value)} type="number" min={0} max={1440} placeholder="e.g. 30 to avoid alert storms" />
           <label>Steps</label>
           {steps.map((st, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
@@ -172,7 +176,7 @@ export default function Flows() {
       </div>
       {flows.map(f => (
         <div key={f.id} className="card" style={{ marginBottom: 10 }}>
-          <b>{f.name}</b> <span className="muted">{f.definition.trigger.device_id}/{f.definition.trigger.point_id} {f.definition.trigger.op} {f.definition.trigger.value} - {f.definition.steps.length} steps</span>
+          <b>{f.name}</b> <span className="muted">{f.definition.trigger.device_id}/{f.definition.trigger.point_id} {f.definition.trigger.op} {f.definition.trigger.value} - {f.definition.steps.length} steps{f.definition.cooldown_seconds ? ` - quiet for ${Math.round(f.definition.cooldown_seconds / 60)} min after a notification` : ''}</span>
           <div className="muted">{f.enabled ? 'enabled' : 'disabled'}</div>
         </div>
       ))}
