@@ -11,11 +11,14 @@ export default function Fleet() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [latest, setLatest] = useState<Record<string, LatestPoint[]>>({});
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
+  const [assets, setAssets] = useState<{ id: string; name: string; parent_id: string | null }[]>([]);
+  const [asset, setAsset] = useState('');
+  useEffect(() => { api<typeof assets>('/v1/assets').then(setAssets).catch(() => {}); }, []);
   useEffect(() => {
     const load = () => api<FleetStatus>('/v1/fleet').then(setS).catch(e => setErr(String(e)));
     const loadDevices = async () => {
       try {
-        const ds = await api<Device[]>('/v1/devices');
+        const ds = await api<Device[]>(asset ? `/v1/devices?asset_id=${encodeURIComponent(asset)}` : '/v1/devices');
         setDevices(ds);
         const entries = await Promise.all(ds.slice(0, 12).map(async d =>
           [d.id, await api<LatestPoint[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(d.id)}`).catch(() => [])] as const));
@@ -26,7 +29,7 @@ export default function Fleet() {
     load(); loadDevices();
     const t = setInterval(() => { load(); loadDevices(); }, 15000);
     return () => clearInterval(t);
-  }, []);
+  }, [asset]);
   return (
     <>
       <h1>Fleet</h1>
@@ -40,6 +43,13 @@ export default function Fleet() {
       <p className="muted" style={{ marginTop: 12 }}>Refreshes every 15s. A device is stale when nothing was measured in the last 15 minutes.</p>
 
       <h2>Devices</h2>
+      {assets.length > 0 && <div style={{ marginBottom: 12 }}>
+        <label htmlFor="fleet-asset" className="muted">Show devices under </label>
+        <select id="fleet-asset" value={asset} onChange={e => setAsset(e.target.value)} style={{ width: 'auto' }}>
+          <option value="">All assets</option>
+          {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </div>}
       {devices.length === 0 ? (
         <Empty title="No devices yet" hint="Claim a gateway and add your first sensor. The wizard takes a few minutes." action={<Link to="/onboarding"><button>Add a device</button></Link>} />
       ) : (

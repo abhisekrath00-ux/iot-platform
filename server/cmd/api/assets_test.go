@@ -88,3 +88,43 @@ func TestIntegrationAssetHierarchy(t *testing.T) {
 		t.Fatal("viewer created asset")
 	}
 }
+
+func TestIntegrationDeviceFilterByAsset(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-af1")
+	seed(t, s, "itest-af2")
+	ctx := t.Context()
+	clean := func() {
+		for _, tn := range []string{"itest-af1", "itest-af2"} {
+			s.st.Pool.Exec(ctx, `UPDATE devices SET asset_id=NULL WHERE tenant_id=$1`, tn)
+			s.st.Pool.Exec(ctx, `DELETE FROM assets WHERE tenant_id=$1 AND parent_id IS NOT NULL`, tn)
+			s.st.Pool.Exec(ctx, `DELETE FROM assets WHERE tenant_id=$1`, tn)
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+	s.st.Pool.Exec(ctx, `INSERT INTO assets(id,tenant_id,parent_id,name,kind) VALUES('af-plant','itest-af1',NULL,'P','plant'),('af-other','itest-af2',NULL,'O','plant')`)
+	s.st.Pool.Exec(ctx, `INSERT INTO assets(id,tenant_id,parent_id,name,kind) VALUES('af-line','itest-af1','af-plant','L','line')`)
+	s.st.Pool.Exec(ctx, `UPDATE devices SET asset_id='af-line' WHERE id='itest-af1-dev'`)
+	api := http.NewServeMux()
+	api.HandleFunc("GET /v1/devices", s.listDevices)
+	ids := func(tenant, q string) []string {
+		w := call(api, tenant, "viewer", "GET", "/v1/devices"+q, "")
+		var l []map[string]any
+		json.Unmarshal(w.Body.Bytes(), &l)
+		var out []string
+		for _, d := range l {
+			out = append(out, d["id"].(string))
+		}
+		return out
+	}
+	if got := ids("itest-af1", "?asset_id=af-plant"); len(got) != 1 || got[0] != "itest-af1-dev" {
+		t.Fatalf("descendant match: %v", got)
+	}
+	if got := ids("itest-af1", "?asset_id=af-other"); len(got) != 0 {
+		t.Fatalf("other tenant's asset must match nothing: %v", got)
+	}
+	if got := ids("itest-af1", ""); len(got) == 0 {
+		t.Fatal("unfiltered list empty")
+	}
+}

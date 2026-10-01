@@ -304,13 +304,19 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	tag := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("tag")))
 	gw := r.URL.Query().Get("gateway_id")
+	asset := r.URL.Query().Get("asset_id") // matches the asset and everything below it
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, profile, name, gateway_id, created_at, tags FROM devices
+		`WITH RECURSIVE sub AS (
+		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($5,'')
+		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
+		 )
+		 SELECT id, profile, name, gateway_id, created_at, tags, asset_id FROM devices
 		 WHERE tenant_id=$1
+		   AND ($5='' OR asset_id IN (SELECT id FROM sub))
 		   AND ($2='' OR name ILIKE '%'||$2||'%' OR id ILIKE '%'||$2||'%' OR profile ILIKE '%'||$2||'%')
 		   AND ($3='' OR $3 = ANY(tags))
 		   AND ($4='' OR gateway_id=$4)
-		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw)
+		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw, asset)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -321,8 +327,9 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		var id, profile, name, gw string
 		var created time.Time
 		var tags []string
-		rows.Scan(&id, &profile, &name, &gw, &created, &tags)
-		out = append(out, map[string]any{"id": id, "profile": profile, "name": name, "gateway_id": gw, "created_at": created, "tags": tags})
+		var assetID *string
+		rows.Scan(&id, &profile, &name, &gw, &created, &tags, &assetID)
+		out = append(out, map[string]any{"id": id, "profile": profile, "name": name, "gateway_id": gw, "created_at": created, "tags": tags, "asset_id": assetID})
 	}
 	writeJSON(w, 200, out)
 }
