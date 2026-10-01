@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/claim"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/cmdexec"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/driver"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/fleetctl"
@@ -85,31 +86,29 @@ func main() {
 	defer svcDone()
 	defer stop()
 
-	allowed := map[string]bool{}
-	for _, a := range cfg.AllowedCommands {
-		allowed[a] = true
+	// Commands pass cmdexec's gate (allowlist, expiry, TTL, replay) and are then
+	// executed by the configured actuator. Only "simulate" exists today; with no
+	// command_mode every command is rejected and acked as rejected.
+	gate := cmdexec.NewGate(cfg.AllowedCommands)
+	var actuator cmdexec.Actuator
+	if cfg.CommandMode == "simulate" {
+		actuator = &cmdexec.Simulated{}
+		log.Printf("command mode: SIMULATE - no hardware will be actuated")
 	}
+	var mc *mqttc.Client
 	onCmd := func(_ mqtt.Client, m mqtt.Message) {
-		var c command
-		if err := json.Unmarshal(m.Payload(), &c); err != nil {
-			log.Printf("cmd: bad payload: %v", err)
+		ack, ok := cmdexec.Handle(ctx, gate, actuator, m.Payload(), time.Now())
+		log.Printf("cmd %s: %s %s", ack.RequestID, ack.State, ack.Detail)
+		if !ok || mc == nil {
 			return
 		}
-		if !allowed[c.Action] {
-			log.Printf("cmd %s: action %q not in allowlist, rejected", c.RequestID, c.Action)
-			return
+		b, _ := json.Marshal(ack)
+		if err := mc.Publish("t/"+cfg.TenantID+"/g/"+cfg.GatewayID+"/cmd/ack", b); err != nil {
+			log.Printf("cmd %s: ack publish: %v", ack.RequestID, err)
 		}
-		if time.Now().After(c.ExpiresAt) {
-			log.Printf("cmd %s: expired, rejected", c.RequestID)
-			return
-		}
-		// Execution adapters land here per actuator driver, with ACK publish
-		// and measured outcome. Physical actuation requires the safety gating
-		// in docs/security.md before merge.
-		log.Printf("cmd %s: %s accepted (executor not yet implemented)", c.RequestID, c.Action)
 	}
 
-	mc, err := mqttc.Connect(cfg, onCmd)
+	mc, err = mqttc.Connect(cfg, onCmd)
 	if err != nil {
 		log.Fatalf("mqtt: %v", err)
 	}

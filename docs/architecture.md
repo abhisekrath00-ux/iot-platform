@@ -95,7 +95,7 @@ Implemented: on approval the API publishes the envelope (non-retained, QoS 1) to
 `t/<tenant>/g/<gateway>/cmd` and sets status `sent`, or `failed` if the broker
 refused it; each outcome is audited. Edge side: `edge/internal/cmdexec` is a unit-tested gate (fail-closed
 allowlist, `expires_at`, max lifetime, clock skew, single-use `request_id`, strict
-envelope). Not implemented: subscribing to the topic, driving actuators and the ACK. Until it
+envelope). The edge agent subscribes, gates and ACKs on `.../cmd/ack`; ingest moves `sent` to `acked` or `failed` (a `rejected` ack is stored as `failed` with the edge state in `outcome`). The only executor is a **simulated actuator** (`command_mode: simulate`, no hardware); with no `command_mode` every command is rejected. Real actuator drivers are not implemented and need the hazard-analysis gate. The ACK path has unit tests only, no broker integration test. Until it
 exists a `sent` command is not executed by anything, and status never reaches
 `acked`. Physical safety gating is in docs/security.md and
 docs/hazard-analysis.md and is a release gate, not a nice-to-have.

@@ -9,6 +9,9 @@ pins each gateway to its own topic subtree:
 user AXON-0007
 topic write t/acme/g/<gateway-uuid>/telemetry
 topic write t/acme/g/<gateway-uuid>/diag/result
+topic write t/acme/g/<gateway-uuid>/cmd/ack
+topic write t/acme/g/<gateway-uuid>/fleet/ack
+topic read  t/acme/g/<gateway-uuid>/fleet
 topic read  t/acme/g/<gateway-uuid>/cmd
 topic read  t/acme/g/<gateway-uuid>/diag
 ```

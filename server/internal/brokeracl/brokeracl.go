@@ -47,6 +47,9 @@ func Generate(entries []Entry) string {
 		fmt.Fprintf(&b, "\nuser %s\n", e.Serial)
 		fmt.Fprintf(&b, "topic write %s/telemetry\n", base)
 		fmt.Fprintf(&b, "topic write %s/diag/result\n", base)
+		fmt.Fprintf(&b, "topic write %s/cmd/ack\n", base)
+		fmt.Fprintf(&b, "topic write %s/fleet/ack\n", base)
+		fmt.Fprintf(&b, "topic read %s/fleet\n", base)
 		fmt.Fprintf(&b, "topic read %s/cmd\n", base)
 		fmt.Fprintf(&b, "topic read %s/diag\n", base)
 	}

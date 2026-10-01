@@ -42,6 +42,7 @@ type Config struct {
 
 	// Commands: only these actions may execute on this gateway.
 	AllowedCommands []string `yaml:"allowed_commands"`
+	CommandMode     string   `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
 }
 
 type Device struct {

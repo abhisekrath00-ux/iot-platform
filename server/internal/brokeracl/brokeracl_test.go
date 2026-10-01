@@ -65,3 +65,21 @@ func TestWriteAtomic(t *testing.T) {
 		t.Fatal("temp file left behind")
 	}
 }
+
+// Every topic the edge uses must be granted, or mTLS deployments silently
+// drop acks and manifests. Writes are own-subtree only.
+func TestGenerateGrantsEdgeTopics(t *testing.T) {
+	out := Generate([]Entry{{Serial: "S1", TenantID: "acme", GatewayID: "gw1"}})
+	for _, want := range []string{
+		"topic write t/acme/g/gw1/telemetry", "topic write t/acme/g/gw1/diag/result",
+		"topic write t/acme/g/gw1/cmd/ack", "topic write t/acme/g/gw1/fleet/ack",
+		"topic read t/acme/g/gw1/cmd\n", "topic read t/acme/g/gw1/fleet\n", "topic read t/acme/g/gw1/diag\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(out, "topic write t/acme/g/gw1/cmd\n") {
+		t.Error("gateway must not write its own command topic")
+	}
+}

@@ -171,6 +171,29 @@ func main() {
 	if tok := c.Subscribe(subTopic("t/+/g/+/fleet/ack"), 1, ackHandler); tok.Wait() && tok.Error() != nil {
 		log.Fatalf("fleet ack subscribe: %v", tok.Error())
 	}
+	// Command ACKs from the edge: t/<tenant>/g/<gateway>/cmd/ack. Topic identity
+	// pins the ack to the command's own gateway; only 'sent' commands move.
+	cmdAckHandler := func(_ mqtt.Client, m mqtt.Message) {
+		tenant, gw, ack, err := parseCmdAck(m.Topic(), m.Payload())
+		if err != nil {
+			log.Printf("cmd ack drop: %v", err)
+			return
+		}
+		state := ack.State
+		if state == "rejected" {
+			state = "failed"
+		}
+		outcome, _ := json.Marshal(map[string]any{"edge_state": ack.State, "detail": ack.Detail, "at": ack.At})
+		if _, err := st.Pool.Exec(ctx,
+			`UPDATE commands SET status=$1, outcome=$2
+			 WHERE request_id=$3 AND tenant_id=$4 AND gateway_id=$5 AND status='sent'`,
+			state, outcome, ack.RequestID, tenant, gw); err != nil {
+			log.Printf("cmd ack update: %v", err)
+		}
+	}
+	if tok := c.Subscribe(subTopic("t/+/g/+/cmd/ack"), 1, cmdAckHandler); tok.Wait() && tok.Error() != nil {
+		log.Fatalf("cmd ack subscribe: %v", tok.Error())
+	}
 	log.Printf("ingest up")
 	<-ctx.Done()
 	c.Disconnect(250)
@@ -247,4 +270,34 @@ func subTopic(topic string) string {
 		return "$share/" + g + "/" + topic
 	}
 	return topic
+}
+
+type cmdAck struct {
+	RequestID string    `json:"request_id"`
+	State     string    `json:"state"`
+	Detail    string    `json:"detail"`
+	At        time.Time `json:"at"`
+}
+
+// parseCmdAck validates an edge command ack. Identity comes from the topic only.
+func parseCmdAck(topic string, payload []byte) (tenant, gateway string, ack cmdAck, err error) {
+	parts := strings.Split(topic, "/")
+	if len(parts) != 6 || parts[0] != "t" || parts[2] != "g" || parts[4] != "cmd" || parts[5] != "ack" || parts[1] == "" || parts[3] == "" {
+		return "", "", ack, fmt.Errorf("bad topic %q", topic)
+	}
+	if len(payload) > 4096 {
+		return "", "", ack, fmt.Errorf("payload too large")
+	}
+	if err := json.Unmarshal(payload, &ack); err != nil || ack.RequestID == "" {
+		return "", "", ack, fmt.Errorf("bad payload")
+	}
+	switch ack.State {
+	case "acked", "failed", "rejected":
+	default:
+		return "", "", ack, fmt.Errorf("state %q", ack.State)
+	}
+	if len(ack.Detail) > 500 {
+		ack.Detail = ack.Detail[:500]
+	}
+	return parts[1], parts[3], ack, nil
 }
