@@ -23,7 +23,7 @@ from the code, not from intent.
 | Digital twin: assets, hierarchy, relations | ThingsBoard, Azure | Site, gateway, device plus a per-device twin card with health score (2.5D SVG, not 3D) | Partial (no asset hierarchy or relations) |
 | Device attributes, tags, groups, fleet search | AWS, ThingsBoard | Tags, fleet search and filters | Partial (tags only; no groups or typed attributes) |
 | Desired/reported state (shadow, twin) | AWS, Azure | None | Missing |
-| Data retention and downsampling | Ignition (QuestDB historian), ThingsBoard | Hourly rollups, optional raw purge, reports read rollups for purged ranges | Partial (no daily rollups, no per-tenant retention; 24h series API still reads raw) |
+| Data retention and downsampling | Ignition (QuestDB historian), ThingsBoard | Hourly rollups, optional raw purge, reports read rollups for purged ranges | Partial (daily view merges hourly rows via `bucket=day`, no stored daily table; no per-tenant retention; 24h series API still reads raw) |
 | API keys / service tokens | all | Hashed, expiring, revocable keys; viewer/operator role; endpoint-group scopes; per-key rate limit; never able to approve commands; audited | Have (coarse scopes, per-replica limit) |
 | Secrets management | Ignition 8.3 | Env vars and vault-free config | Missing |
 | Edge rules, edge compute | Losant, ThingsBoard Edge | Allowlisted commands, edge gate (expiry, replay, TTL), ack path, simulated actuator only | Partial (no real actuator drivers, by design until hazard analysis) |
