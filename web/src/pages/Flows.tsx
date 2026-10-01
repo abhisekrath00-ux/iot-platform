@@ -3,7 +3,7 @@ import Empty from '../components/Empty';
 import { api } from '../lib/api';
 
 interface Rule { id: string; name: string; definition: any; version: number; enabled: boolean; }
-interface FlowDef { trigger: { device_id: string; point_id: string; op: string; value: number }; steps: any[]; cooldown_seconds?: number; }
+interface FlowDef { trigger: { device_id: string; point_id: string; op: string; value: number }; steps: any[]; cooldown_seconds?: number; latch?: boolean; }
 interface FlowRow { id: string; name: string; definition: FlowDef; enabled: boolean; }
 interface Channel { id: string; type: string; target: string; }
 
@@ -26,6 +26,7 @@ export default function Flows() {
   const [fop, setFop] = useState('>');
   const [fvalue, setFvalue] = useState('');
   const [fcool, setFcool] = useState('');
+  const [flatch, setFlatch] = useState(false);
   const [steps, setSteps] = useState<any[]>([{ type: 'notify', channel_id: '', message: '' }]);
 
   const load = () => {
@@ -52,7 +53,8 @@ export default function Flows() {
             steps: steps.map(st => st.type === 'condition' ? { type: st.type, op: st.op, value: parseFloat(st.value) }
               : st.type === 'delay' ? { type: st.type, seconds: +st.seconds }
               : { type: st.type, channel_id: st.channel_id, message: st.message }),
-            ...(+fcool > 0 ? { cooldown_seconds: Math.round(+fcool * 60) } : {})
+            ...(+fcool > 0 ? { cooldown_seconds: Math.round(+fcool * 60) } : {}),
+            ...(flatch ? { latch: true } : {})
           }
         })
       });
@@ -145,6 +147,10 @@ export default function Flows() {
           </div>
           <label>Do not repeat for (minutes, optional)</label>
           <input value={fcool} onChange={e => setFcool(e.target.value)} type="number" min={0} max={1440} placeholder="e.g. 30 to avoid alert storms" />
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', textTransform: 'none', letterSpacing: 0 }}>
+            <input type="checkbox" checked={flatch} onChange={e => setFlatch(e.target.checked)} style={{ width: 'auto' }} />
+            Notify once, then stay quiet until the reading returns to normal (latch)
+          </label>
           <label>Steps</label>
           {steps.map((st, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
@@ -176,7 +182,7 @@ export default function Flows() {
       </div>
       {flows.map(f => (
         <div key={f.id} className="card" style={{ marginBottom: 10 }}>
-          <b>{f.name}</b> <span className="muted">{f.definition.trigger.device_id}/{f.definition.trigger.point_id} {f.definition.trigger.op} {f.definition.trigger.value} - {f.definition.steps.length} steps{f.definition.cooldown_seconds ? ` - quiet for ${Math.round(f.definition.cooldown_seconds / 60)} min after a notification` : ''}</span>
+          <b>{f.name}</b> <span className="muted">{f.definition.trigger.device_id}/{f.definition.trigger.point_id} {f.definition.trigger.op} {f.definition.trigger.value} - {f.definition.steps.length} steps{f.definition.cooldown_seconds ? ` - quiet for ${Math.round(f.definition.cooldown_seconds / 60)} min after a notification` : ''}{f.definition.latch ? ' - latched' : ''}</span>
           <div className="muted">{f.enabled ? 'enabled' : 'disabled'}</div>
         </div>
       ))}

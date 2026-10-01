@@ -90,3 +90,23 @@ func TestCooldown(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLatchHolds(t *testing.T) {
+	cases := []struct {
+		latch bool
+		last  string
+		want  bool
+	}{
+		{true, "", false},
+		{true, "notified", true},
+		{true, "suppressed_latch", true},
+		{true, "skipped_condition", false}, // re-armed
+		{true, "suppressed_cooldown", false},
+		{false, "notified", false},
+	}
+	for _, c := range cases {
+		if got := LatchHolds(c.latch, c.last); got != c.want {
+			t.Errorf("LatchHolds(%v,%q)=%v want %v", c.latch, c.last, got, c.want)
+		}
+	}
+}

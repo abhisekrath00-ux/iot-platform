@@ -33,6 +33,17 @@ type Definition struct {
 	// further matching readings are recorded as suppressed until the cooldown
 	// passes. 0 = notify on every match (previous behaviour). Max 24h.
 	CooldownSeconds int `json:"cooldown_seconds,omitempty"`
+	// Latch notifies once when the flow starts matching and stays quiet until
+	// a reading (or step condition) stops matching, which re-arms it. Unlike
+	// cooldown it has no timer. May be combined with cooldown.
+	Latch bool `json:"latch,omitempty"`
+}
+
+// LatchHolds reports whether a latched flow should stay quiet: the most recent
+// recorded outcome is a notification or a latch suppression, i.e. no
+// non-matching reading has re-armed it. An empty lastOutcome (first run) never holds.
+func LatchHolds(latch bool, lastOutcome string) bool {
+	return latch && (lastOutcome == "notified" || lastOutcome == "suppressed_latch")
 }
 
 // InCooldown reports whether a run at now is inside the cooldown that began at

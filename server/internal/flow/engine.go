@@ -44,6 +44,14 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 		}
 		actions, wait, ok := Run(d, value)
 		outcome := "notified"
+		if ok && len(actions) > 0 && d.Latch {
+			var last string
+			if pool.QueryRow(ctx, `SELECT outcome FROM flow_runs WHERE flow_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1`, id).Scan(&last) == nil && LatchHolds(true, last) {
+				pool.Exec(ctx, `INSERT INTO flow_runs(id,flow_id,trigger_value,outcome) VALUES($1,$2,$3,'suppressed_latch')`,
+					uuid.NewString(), id, value)
+				continue
+			}
+		}
 		if ok && len(actions) > 0 && d.CooldownSeconds > 0 {
 			var last time.Time
 			err := pool.QueryRow(ctx,

@@ -225,3 +225,7 @@ The report builder (hour, day, week buckets) reads rollups for hours whose raw r
 ## Flow cooldown (dedupe)
 
 A flow definition may set `cooldown_seconds` (0-86400). After a run notifies, further matching readings are recorded in `flow_runs` as `suppressed_cooldown` until the cooldown passes, so a sensor stuck above its threshold does not flood email or Slack. Default 0 keeps the old behaviour (notify on every match). Cooldown is per flow, not per device. It is not a latch: it does not wait for the reading to return to normal.
+
+## Flow latch
+
+`latch: true` notifies once when a flow starts matching, then records `suppressed_latch` until a run that does not match (trigger or a step condition fails, recorded `skipped_condition`) re-arms it. No timer. It can be combined with cooldown. State is derived from the flow's most recent `flow_runs` row, so it survives restarts; it is per flow, and a flow with several replicas evaluating concurrently could double-notify on the very first match (not load-tested).
