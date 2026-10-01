@@ -56,9 +56,9 @@ with tests, tenant isolation and the control approval path intact.
 | template (render text into a property) | Built, unit-tested | pure, no I/O |
 | range / scale | Built, unit-tested | pure |
 | rate-limit / limit | Built, unit-tested | in-memory, per API replica, resets on restart; no Node-RED import mapping |
-| inject / schedule (time-based start) | Planned | needs a scheduler and a trigger without a reading |
-| split / join | Planned | needs message batching state |
-| HTTP request | Planned | per-tenant host allowlist, no private ranges by default, timeouts, size caps, secrets from the vault |
+| inject / schedule (time-based start) | Planned | needs a scheduler, a trigger without a reading, and multi-replica dedupe (graphs require exactly one reading trigger today) |
+| split / join | Not planned for now | a flow message carries one scalar reading, so there is nothing to split; join would need batching state. Revisit when messages can carry arrays |
+| HTTP request | Partly covered | a notify node on a tenant webhook channel posts JSON to a host an admin registered (that registry is the allowlist; single attempt, no retry, fixed payload, no response handling). A free-form request node with response routing is Planned: per-tenant host allowlist, no private ranges by default, timeouts, size caps, secrets from the vault |
 | MQTT in/out | Planned | tenant-prefixed topics only; out is a control path, so it goes through approval and four-eyes |
 | Modbus read/write | Planned | write is a control path: approval and four-eyes |
 | Any node that changes a physical device | Rule | must create an approval request, never act directly |
