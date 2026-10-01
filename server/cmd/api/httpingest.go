@@ -14,6 +14,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
+	"github.com/jackc/pgx/v5"
 )
 
 // maxIngestBatch bounds one HTTP push; larger batches get 413 so a client
@@ -87,6 +88,11 @@ func (s *server) ingestHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	accepted, rejected := 0, []rej{}
 	n := notify.FromEnv()
+	type okRow struct {
+		idx int
+		t   store.Telemetry
+	}
+	var good []okRow
 	for i, rd := range in.Readings {
 		p, ok := pts[rd.Point]
 		switch {
@@ -129,15 +135,29 @@ func (s *server) ingestHTTP(w http.ResponseWriter, r *http.Request) {
 		if unit == "" {
 			unit = p.unit
 		}
-		if err := s.st.InsertTelemetry(ctx, store.Telemetry{EventID: eid, TenantID: tenant, GatewayID: gw, DeviceID: in.DeviceID,
-			PointID: rd.Point, ObservedAt: at, Value: *rd.Value, Unit: unit, Quality: "measured", SchemaVersion: 1}); err != nil {
-			rejected = append(rejected, rej{i, "store error"})
+		good = append(good, okRow{i, store.Telemetry{EventID: eid, TenantID: tenant, GatewayID: gw, DeviceID: in.DeviceID,
+			PointID: rd.Point, ObservedAt: at, Value: *rd.Value, Unit: unit, Quality: "measured", SchemaVersion: 1}})
+	}
+	// One round trip for the whole batch instead of one per reading.
+	batch := &pgx.Batch{}
+	for _, g := range good {
+		e := g.t
+		batch.Queue(`INSERT INTO telemetry
+			(event_id,tenant_id,site_id,gateway_id,device_id,point_id,observed_at,value,unit,quality,schema_version)
+			VALUES ($1,$2,NULL,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (event_id, observed_at) DO NOTHING`,
+			e.EventID, e.TenantID, e.GatewayID, e.DeviceID, e.PointID, e.ObservedAt, e.Value, e.Unit, e.Quality, e.SchemaVersion)
+	}
+	br := s.st.Pool.SendBatch(ctx, batch)
+	for _, g := range good {
+		if _, err := br.Exec(); err != nil {
+			rejected = append(rejected, rej{g.idx, "store error"})
 			continue
 		}
 		accepted++
-		rules.Evaluate(ctx, s.st.Pool, n, tenant, in.DeviceID, rd.Point, *rd.Value)
-		flow.Evaluate(ctx, s.st.Pool, n, tenant, in.DeviceID, rd.Point, *rd.Value)
+		rules.Evaluate(ctx, s.st.Pool, n, tenant, in.DeviceID, g.t.PointID, g.t.Value)
+		flow.Evaluate(ctx, s.st.Pool, n, tenant, in.DeviceID, g.t.PointID, g.t.Value)
 	}
+	br.Close()
 	code := 200
 	if accepted == 0 {
 		code = 422

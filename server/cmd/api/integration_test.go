@@ -19,7 +19,7 @@ import (
 // pure unit tests cannot: onboarding -> edge config, reports, exports, and
 // tenant isolation.
 
-func testServer(t *testing.T) (*server, http.Handler) {
+func testServer(t testing.TB) (*server, http.Handler) {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -58,7 +58,7 @@ func call(h http.Handler, tenant, role, method, path, body string) *httptest.Res
 	return w
 }
 
-func seed(t *testing.T, s *server, tenant string) {
+func seed(t testing.TB, s *server, tenant string) {
 	t.Helper()
 	ctx := context.Background()
 	for _, q := range []string{

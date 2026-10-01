@@ -81,6 +81,11 @@ func Job(pool *pgxpool.Pool, retentionDays int, every time.Duration) func(contex
 	return func(ctx context.Context) {
 		run := func() {
 			now := time.Now()
+			if c, sk, err := EnsurePartitions(ctx, pool, now, 3); err != nil {
+				log.Printf("retention: partitions: %v", err)
+			} else if len(c)+len(sk) > 0 {
+				log.Printf("retention: partitions created=%v skipped_default_has_rows=%v", c, sk)
+			}
 			if n, err := Rollup(ctx, pool, now.Add(-48*time.Hour), now); err != nil {
 				log.Printf("retention: rollup: %v", err)
 			} else {
