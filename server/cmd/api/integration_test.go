@@ -63,6 +63,8 @@ func seed(t testing.TB, s *server, tenant string) {
 	ctx := context.Background()
 	for _, q := range []string{
 		`INSERT INTO tenants(id,name) VALUES('` + tenant + `','` + tenant + `') ON CONFLICT DO NOTHING`,
+		// handlers record created_by = "test-user"; a fresh database has no such user (FK)
+		`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('test-user','` + tenant + `','test-user@example.invalid','test','admin') ON CONFLICT DO NOTHING`,
 		`INSERT INTO sites(id,tenant_id,name) VALUES('` + tenant + `-site','` + tenant + `','S') ON CONFLICT DO NOTHING`,
 		`INSERT INTO gateways(id,tenant_id,site_id,serial,status) VALUES('` + tenant + `-gw','` + tenant + `','` + tenant + `-site','SER-` + tenant + `','active') ON CONFLICT DO NOTHING`,
 		`DELETE FROM telemetry WHERE tenant_id='` + tenant + `'`,

@@ -50,7 +50,7 @@ func TestIntegrationAlertLifecycle(t *testing.T) {
 		t.Fatalf("empty comment = %d, want 400", w.Code)
 	}
 	if w := call(api, "itest-al1", "operator", "POST", "/v1/alerts/itest-al1-a/comments", `{"body":"checking the boiler"}`); w.Code != 201 {
-		t.Fatalf("comment = %d", w.Code)
+		t.Fatalf("comment = %d %s", w.Code, w.Body.String())
 	}
 	// resolve is final
 	if w := call(api, "itest-al1", "admin", "POST", "/v1/alerts/itest-al1-a/resolve", ""); w.Code != 200 {
