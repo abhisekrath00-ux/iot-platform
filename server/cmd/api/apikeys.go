@@ -172,6 +172,6 @@ func (s *server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 // enrollment, fleet, gateways, notifications) can never be granted to a
 // scoped key; an unscoped key keeps its role's existing reach.
 var grantableScopes = map[string]bool{
-	"alerts": true, "assets": true, "dashboards": true, "devices": true, "export": true, "flows": true,
+	"alerts": true, "assets": true, "dashboards": true, "devices": true, "export": true, "flows": true, "kpis": true,
 	"points": true, "profiles": true, "reports": true, "rules": true, "search": true, "telemetry": true,
 }
