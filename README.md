@@ -39,7 +39,7 @@ no code change needed.
 ### Dashboards and reporting
 | Feature | What you get | Status |
 |---|---|---|
-| Custom dashboards | Builder with KPI, gauge, bar, status and 24h-trend widgets, thresholds, templates, drag-and-drop layout and sizing, wall/TV mode | Verified (layout logic unit-tested; drag and wall mode checked by screenshots, no browser e2e; wall mode rotates dashboards every 30s) |
+| Custom dashboards | Builder with KPI, gauge, bar, status and 24h-trend widgets, thresholds, templates, drag-and-drop layout and sizing, wall/TV mode | Verified (layout logic unit-tested; drag reorder and wall mode covered by a manual browser e2e script, `web/e2e/dashboard.e2e.cjs` (needs a running stack and Chrome, not run in CI); wall mode rotates dashboards every 30s) |
 | Device tags and fleet search | Up to 20 tags per device, search and filter the fleet | Verified |
 | Device health and digital twin | Explainable 0-100 health score and a 2.5D twin card per device | Verified (score rules unit-tested; twin is an SVG/CSS card, not a 3D model) |
 | Product tour | First-run guided tour, restartable | Verified (logic); visual check by screenshot |
