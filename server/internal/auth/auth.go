@@ -6,6 +6,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -48,6 +49,13 @@ func Middleware(secret []byte, resolvers ...KeyResolver) func(http.Handler) http
 				if !ok {
 					http.Error(w, "invalid token", http.StatusUnauthorized)
 					return
+				}
+				if keyLimiter != nil {
+					if ok, wait := keyLimiter.Allow(u); !ok {
+						w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+						http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+						return
+					}
 				}
 				ctx := context.WithValue(r.Context(), CtxTenant, t)
 				ctx = context.WithValue(ctx, CtxUser, u)

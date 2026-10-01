@@ -180,6 +180,14 @@ func main() {
 	mux.Handle("GET /auth/oidc/login", ssoRL.Middleware(http.HandlerFunc(s.oidcLogin)))
 	mux.Handle("GET /auth/oidc/callback", ssoRL.Middleware(http.HandlerFunc(s.oidcCallback)))
 
+	// API keys are unattended credentials: cap each key (per replica). Override with API_KEY_RPM; 0 disables.
+	rpm := 600
+	if v, err := strconv.Atoi(os.Getenv("API_KEY_RPM")); err == nil && v >= 0 {
+		rpm = v
+	}
+	if rpm > 0 {
+		auth.SetKeyLimiter(auth.NewLimiter(rpm, rpm/5+1))
+	}
 	mux.Handle("/v1/", auth.Middleware(s.secret, s.resolveAPIKey)(s.invalidateOnWrite(api)))
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).
