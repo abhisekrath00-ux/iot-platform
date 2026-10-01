@@ -2,6 +2,8 @@ package driver
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"strconv"
@@ -68,6 +70,13 @@ func opcuaOptions(d config.Device) ([]opcua.Option, error) {
 		if d.ClientCert == "" || d.ClientKey == "" {
 			return nil, fmt.Errorf("device %s: security %q needs client_cert and client_key", d.ID, d.Security)
 		}
+		// The server certificate is pinned: the channel is encrypted to this key,
+		// so a server that does not hold the matching private key cannot complete
+		// the handshake. Without a pinned cert we would trust whatever the network offers.
+		serverDER, err := loadServerCert(d.ServerCert, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("device %s: security %q needs server_cert: %w", d.ID, d.Security, err)
+		}
 		mode := ua.MessageSecurityModeSign
 		if d.Security == "sign-and-encrypt" {
 			mode = ua.MessageSecurityModeSignAndEncrypt
@@ -75,6 +84,7 @@ func opcuaOptions(d config.Device) ([]opcua.Option, error) {
 		opts = append(opts,
 			opcua.SecurityPolicy(ua.SecurityPolicyURIBasic256Sha256),
 			opcua.SecurityMode(mode),
+			opcua.RemoteCertificate(serverDER),
 			opcua.CertificateFile(d.ClientCert),
 			opcua.PrivateKeyFile(d.ClientKey))
 	default:
@@ -93,6 +103,30 @@ func opcuaOptions(d config.Device) ([]opcua.Option, error) {
 		opts = append(opts, opcua.AuthAnonymous())
 	}
 	return opts, nil
+}
+
+// loadServerCert reads the pinned OPC UA server certificate (PEM or DER) and
+// refuses a missing, unparseable, not-yet-valid or expired certificate.
+func loadServerCert(path string, now time.Time) ([]byte, error) {
+	if path == "" {
+		return nil, fmt.Errorf("server_cert is empty (export the server's certificate and point server_cert at it)")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	der := raw
+	if blk, _ := pem.Decode(raw); blk != nil {
+		der = blk.Bytes
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, fmt.Errorf("server_cert %s is not a valid X.509 certificate: %w", path, err)
+	}
+	if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
+		return nil, fmt.Errorf("server_cert %s is outside its validity period (%s to %s)", path, cert.NotBefore.Format(time.DateOnly), cert.NotAfter.Format(time.DateOnly))
+	}
+	return cert.Raw, nil
 }
 
 func (o *opcuaDriver) connect(ctx context.Context) error {

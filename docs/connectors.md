@@ -9,7 +9,7 @@ the point's `min`/`max` and drop out-of-range samples as errors.
 |---|---|---|---|
 | `modbus-generic` | Modbus RTU, RS-485/RS-232 serial | Meters, sensors, drives | Unit + round-trip tests. Needs hardware pilot. |
 | `modbus-tcp` | Modbus TCP | PLCs, meters with Ethernet, serial-to-Ethernet bridges, SCADA RTUs | Tested against an in-process Modbus TCP server (reads, u32 decode, redial). |
-| `opcua` | OPC UA client (`opc.tcp://`) | SCADA servers and PLCs: Kepware, Ignition, Siemens S7-1500, Beckhoff, open62541 | Tested against an in-process OPC UA server (no security). Secure modes: unit-tested option handling, not yet against a secured server. |
+| `opcua` | OPC UA client (`opc.tcp://`) | SCADA servers and PLCs: Kepware, Ignition, Siemens S7-1500, Beckhoff, open62541 | Tested against an in-process OPC UA server (no security). Secure modes (sign, sign-and-encrypt) require a pinned `server_cert` (PEM or DER; expired, not-yet-valid or unreadable certs are refused, and there is no trust-on-first-use): unit-tested option handling only, not yet against a secured server. The channel is encrypted to the pinned key, but this relies on the gopcua library's handshake; verify against your real server during the pilot. |
 | `serial-json` | UART / USB-CDC text lines | STM32, Arduino, ESP32, nRF, any firmware that prints readings | Line parser unit-tested. Needs a board in the loop for a full pilot. |
 | `modbus-energy-meter`, `door-contact` | Legacy serial profiles | Kept for existing gateways | Unit tests. |
 
@@ -68,6 +68,7 @@ OPC UA (all points are read in one batched request; the session redials after er
   security: sign-and-encrypt          # none | sign | sign-and-encrypt (Basic256Sha256)
   client_cert: /etc/hexmon/opcua-client.pem
   client_key: /etc/hexmon/opcua-client.key
+  server_cert: /etc/hexmon/opcua-server.pem   # required for sign / sign-and-encrypt: pin the server's certificate (PEM or DER)
   username: hexmon
   password_env: OPCUA_PASSWORD        # password comes from the environment, never the file
   interval: 10s

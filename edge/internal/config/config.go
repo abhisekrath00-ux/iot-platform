@@ -62,6 +62,7 @@ type Device struct {
 	Security    string        `yaml:"security"` // none (default) | sign | sign-and-encrypt
 	ClientCert  string        `yaml:"client_cert"`
 	ClientKey   string        `yaml:"client_key"`
+	ServerCert  string        `yaml:"server_cert"` // pinned OPC UA server certificate (PEM or DER); required for sign / sign-and-encrypt
 	Username    string        `yaml:"username"`
 	PasswordEnv string        `yaml:"password_env"`
 	Interval    time.Duration `yaml:"interval"`
