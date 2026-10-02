@@ -68,6 +68,14 @@ type Device struct {
 	PasswordEnv string        `yaml:"password_env"`
 	Interval    time.Duration `yaml:"interval"`
 	Points      []Point       `yaml:"points"`
+	// SNMP (profile "snmp"). Version "2c" (default) or "3". Secrets come from
+	// the environment variables named here, never from the file.
+	SNMPVersion  string `yaml:"snmp_version"`
+	CommunityEnv string `yaml:"community_env"` // v2c community string
+	AuthProto    string `yaml:"snmp_auth"`     // v3: sha|sha256|sha512 (md5 refused)
+	AuthPassEnv  string `yaml:"snmp_auth_pass_env"`
+	PrivProto    string `yaml:"snmp_priv"` // v3: aes|aes256 (des refused)
+	PrivPassEnv  string `yaml:"snmp_priv_pass_env"`
 	// Writes is the explicit allowlist of writable registers/coils for this
 	// device. Nothing outside it can ever be written. Each entry needs a finite
 	// min < max range, enforced before any frame is sent. Func: 5 coil,
@@ -85,6 +93,7 @@ type Point struct {
 	Unit      string  `yaml:"unit"`
 	Key       string  `yaml:"key"`     // serial-json: field name / key=value key / CSV column index
 	NodeID    string  `yaml:"node_id"` // opcua: e.g. ns=2;s=Boiler.Temp
+	OID       string  `yaml:"oid"`     // snmp: numeric OID, e.g. .1.3.6.1.2.1.1.3.0
 	Min       float64 `yaml:"min"`     // validation range
 	Max       float64 `yaml:"max"`
 }

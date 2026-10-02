@@ -41,6 +41,8 @@ func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
 		return newModbusTCP(d)
 	case "opcua":
 		return newOPCUA(d)
+	case "snmp":
+		return newSNMP(d)
 	}
 	mode := &serial.Mode{BaudRate: d.Baud, DataBits: d.DataBits, StopBits: serial.StopBits(d.StopBits)}
 	switch d.Parity {

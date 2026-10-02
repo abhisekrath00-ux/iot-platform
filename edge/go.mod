@@ -5,6 +5,8 @@ go 1.24.0
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/google/uuid v1.6.0
+	github.com/gopcua/opcua v0.9.1
+	github.com/gosnmp/gosnmp v1.45.0
 	go.bug.st/serial v1.6.2
 	golang.org/x/sys v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -14,7 +16,6 @@ require (
 require (
 	github.com/creack/goselect v0.1.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/gopcua/opcua v0.9.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
