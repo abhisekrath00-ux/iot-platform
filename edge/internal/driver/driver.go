@@ -45,6 +45,8 @@ func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
 		return newSNMP(d)
 	case "bacnet":
 		return newBACnet(d)
+	case "dnp3":
+		return newDNP3(d)
 	case "iec104":
 		return newIEC104(d)
 	}
