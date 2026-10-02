@@ -171,3 +171,21 @@ then approve by a second user. Status: tested with fake serial and TCP peers and
 expiry, malformed parameters, refusals). NOT tested on real equipment; no read-back verification beyond the echo;
 the maintenance interlock and measured-outcome items in docs/hazard-analysis.md are not built. Do not use on
 safety-relevant equipment yet.
+
+## Sparkplug B (MQTT, ingest side)
+
+The ingest service can subscribe to Sparkplug B (`spBv1.0/...`) NBIRTH/NDATA/NDEATH/DBIRTH/DDATA/DDEATH and store numeric
+and boolean metrics. It is OFF unless `SPARKPLUG_TENANT=<tenant id>` is set on the ingest service.
+
+- Mapping: platform device id = `<edge_node>` for node metrics, `<edge_node>:<device>` for device metrics; point id =
+  the metric name. The device and point must already be onboarded in the UI; unknown ones are dropped, values are
+  range-checked, event ids are deterministic so duplicates are harmless.
+- Aliases from BIRTH messages are remembered per edge node/device (in memory; a BIRTH replaces the table, DEATH
+  clears it). After an ingest restart, alias-only DATA is dropped until the next BIRTH. Not a shared subscription.
+- Security: Sparkplug topics carry no tenant, so one ingest bridge feeds one tenant, and the broker ACL must allow only
+  your Sparkplug nodes to publish under `spBv1.0/<group>/#`. Without that ACL any broker client could write readings.
+- Not built: publishing anything (no NCMD/DCMD, no rebirth request, no STATE/primary-host handling), datasets,
+  templates, bytes/strings (skipped), historical metrics (skipped), Sparkplug on the edge agent.
+- Status: decoder and mapping tested with a protobuf encoder written for the tests (types Int8-64/UInt8-64/Float/
+  Double/Boolean, aliases, truncation fuzz, timestamp plausibility). NOT tested against a real Sparkplug node or
+  Ignition/Cirrus Link; the encoder and decoder share one author's reading of the spec.

@@ -195,6 +195,9 @@ func main() {
 	if tok := c.Subscribe(subTopic("t/+/g/+/cmd/ack"), 1, cmdAckHandler); tok.Wait() && tok.Error() != nil {
 		log.Fatalf("cmd ack subscribe: %v", tok.Error())
 	}
+	if t := os.Getenv("SPARKPLUG_TENANT"); t != "" {
+		startSparkplug(ctx, c, st, t, notifier)
+	}
 	log.Printf("ingest up")
 	<-ctx.Done()
 	c.Disconnect(250)
