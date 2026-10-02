@@ -32,6 +32,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/tsstore"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
@@ -43,6 +44,7 @@ type server struct {
 	oidc   *auth.OIDCProvider
 	states oidcstate.Store // memory single-replica, Redis when REDIS_URL set
 	cache  *respcache.Cache
+	ts     tsstore.Store // nil = Postgres; see internal/tsstore
 }
 
 func main() {
@@ -1196,68 +1198,27 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 	return err
 }
 
-// buildSeries aggregates telemetry for every metric in a definition.
+// buildSeries aggregates telemetry for every metric in a definition, reading
+// through the tsstore seam.
 func (s *server) buildSeries(ctx context.Context, tenant string, def report.Definition) (map[report.Metric][]report.Bucket, int, error) {
-	bucketExpr := report.BucketExpr(def.GroupBy) // whitelisted constant
-	if bucketExpr == "" {
+	if report.BucketExpr(def.GroupBy) == "" {
 		return nil, 0, report.ErrBadGroupBy
+	}
+	store := s.ts
+	if store == nil {
+		store = tsstore.NewPostgres(s.st.Pool)
 	}
 	series := map[report.Metric][]report.Bucket{}
 	total := 0
-	window := fmt.Sprint(def.WindowHours)
 	for _, m := range def.Metrics {
-		// Hour-or-coarser buckets read hourly rollups for the part of the window whose
-		// raw samples were purged, and raw rows from the first raw hour onward.
-		// 15min buckets cannot come from hourly rollups and read raw only.
-		boundary := time.Now().Add(-time.Duration(def.WindowHours+1) * time.Hour) // raw from the start
-		useRollup := def.GroupBy != "15min"
-		if useRollup {
-			var first *time.Time
-			if err := s.st.Pool.QueryRow(ctx,
-				`SELECT min(observed_at) FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
-				   AND observed_at > now() - ($4 || ' hours')::interval`,
-				tenant, m.DeviceID, m.PointID, window).Scan(&first); err != nil {
-				return nil, 0, err
-			}
-			if first == nil {
-				boundary = time.Now().Add(time.Hour) // no raw in window: rollups only
-			} else {
-				boundary = first.UTC().Truncate(time.Hour)
-			}
-		}
-		rows, err := s.st.Pool.Query(ctx,
-			`WITH parts AS (
-			   SELECT observed_at, 1::bigint AS n, value AS s, value AS mn, value AS mx
-			   FROM telemetry
-			   WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
-			     AND observed_at > now() - ($4 || ' hours')::interval AND observed_at >= $5
-			   UNION ALL
-			   SELECT bucket, n, sum, min, max FROM telemetry_rollup_hourly
-			   WHERE $6 AND tenant_id=$1 AND device_id=$2 AND point_id=$3
-			     AND bucket >= date_trunc('hour', now() - ($4 || ' hours')::interval) AND bucket < $5
-			   UNION ALL
-			   SELECT bucket, n, sum, min, max FROM telemetry_rollup_daily
-			   WHERE $7 AND tenant_id=$1 AND device_id=$2 AND point_id=$3
-			     AND bucket >= date_trunc('day', now() - ($4 || ' hours')::interval)
-			     AND bucket < date_trunc('day', COALESCE((SELECT min(bucket) FROM telemetry_rollup_hourly
-			         WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
-			           AND bucket >= date_trunc('hour', now() - ($4 || ' hours')::interval)), $5)))
-			 SELECT `+bucketExpr+` AS bucket,
-			        sum(s)/sum(n), min(mn), max(mx), sum(s), sum(n)
-			 FROM parts GROUP BY bucket ORDER BY bucket`,
-			tenant, m.DeviceID, m.PointID, window, boundary, useRollup, def.GroupBy == "day" || def.GroupBy == "week")
+		bs, err := store.Aggregate(ctx, tsstore.SeriesQuery{Tenant: tenant, DeviceID: m.DeviceID, PointID: m.PointID, WindowHours: def.WindowHours, GroupBy: def.GroupBy})
 		if err != nil {
 			return nil, 0, err
 		}
-		for rows.Next() {
-			var b report.Bucket
-			var n int64
-			rows.Scan(&b.Start, &b.Avg, &b.Min, &b.Max, &b.Sum, &n)
-			b.Count = int(n)
-			series[m] = append(series[m], b)
-			total++
+		if len(bs) > 0 {
+			series[m] = bs
 		}
-		rows.Close()
+		total += len(bs)
 	}
 	return series, total, nil
 }

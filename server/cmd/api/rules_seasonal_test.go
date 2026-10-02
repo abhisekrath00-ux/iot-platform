@@ -25,11 +25,11 @@ func TestIntegrationSeasonalRule(t *testing.T) {
 		`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('sea-user','itest-sea','sea@x.local','sea','admin') ON CONFLICT DO NOTHING`,
 		// 10 days x 4 samples at THIS hour of day (UTC): 20..22
 		`INSERT INTO telemetry(event_id,tenant_id,gateway_id,device_id,point_id,observed_at,value,unit,schema_version)
-		 SELECT 'sea-'||d||'-'||m, 'itest-sea','itest-sea-gw','itest-sea-dev','load', date_trunc('hour', now()) - make_interval(days => d) + make_interval(mins => m), 20 + (m % 3), 'kW', 1
+		 SELECT 'sea-'||d||'-'||m, 'itest-sea','itest-sea-gw','itest-sea-dev','load', (date_trunc('hour', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - make_interval(days => d) + make_interval(mins => m), 20 + (m % 3), 'kW', 1
 		 FROM generate_series(1,10) d, generate_series(1,4) m`,
 		// decoy: a high daily peak 12 hours away must not count as this hour's baseline
 		`INSERT INTO telemetry(event_id,tenant_id,gateway_id,device_id,point_id,observed_at,value,unit,schema_version)
-		 SELECT 'seap-'||d||'-'||m, 'itest-sea','itest-sea-gw','itest-sea-dev','load', date_trunc('hour', now()) - make_interval(days => d, hours => 12) + make_interval(mins => m), 90, 'kW', 1
+		 SELECT 'seap-'||d||'-'||m, 'itest-sea','itest-sea-gw','itest-sea-dev','load', (date_trunc('hour', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') - make_interval(days => d, hours => 12) + make_interval(mins => m), 90, 'kW', 1
 		 FROM generate_series(1,10) d, generate_series(1,4) m`,
 		`INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES
 		 ('sea-r','itest-sea','seasonal','{"kind":"seasonal","point_id":"load","sigma":4,"window_days":14,"severity":"warning"}',true,'sea-user')`,

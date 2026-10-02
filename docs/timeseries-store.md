@@ -16,7 +16,7 @@ Built since the first draft (tested): stored daily rollups built from hourly,
 per-tenant retention (`GET/PUT /v1/retention`, admin only, audited) for raw and
 hourly data, daily rows used by day/week reports once hourly rows are purged.
 Still open: the 24h series API reads raw rows, no compression of old raw data,
-no `TelemetryStore` interface yet (reads and writes call SQL directly).
+a read seam exists for report aggregation only (`internal/tsstore.Store.Aggregate`, Postgres implementation, conformance suite in `tsstore/storetest`). About 30 other call sites (ingest writes, latest values, anomalies, KPIs, rules, MCP) still use SQL directly, so no second engine can be swapped in yet.
 
 ## Options
 
