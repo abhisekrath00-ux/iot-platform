@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -106,8 +107,10 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated time.Time) []byte {
 	const perPage = 52
 	type line struct {
-		text string
-		bold bool
+		text  string
+		bold  bool
+		chart []Bucket // non-nil on the first of chartSlots slots reserved for a line chart
+		title string
 	}
 	var pages [][]line
 	cur := []line{}
@@ -121,12 +124,32 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 		if len(cur) >= perPage {
 			flush()
 		}
-		cur = append(cur, line{s, bold})
+		cur = append(cur, line{text: s, bold: bold})
+	}
+	// putChart reserves chartSlots lines (a chart never splits across pages).
+	putChart := func(title string, rows []Bucket) {
+		if len(rows) == 0 {
+			return
+		}
+		if len(cur)+chartSlots > perPage {
+			flush()
+		}
+		cur = append(cur, line{chart: rows, title: title})
+		for i := 1; i < chartSlots; i++ {
+			cur = append(cur, line{})
+		}
 	}
 	put(title, true)
 	put(fmt.Sprintf("Generated %s  window %dh  grouped by %s", generated.UTC().Format(time.RFC3339), d.WindowHours, d.GroupBy), false)
 	put("", false)
 	if d.Layout == "matrix" {
+		for i, m := range d.Metrics {
+			if i >= 4 {
+				put(fmt.Sprintf("(charts shown for the first 4 of %d metrics)", len(d.Metrics)), false)
+				break
+			}
+			putChart(m.DeviceID+" / "+m.PointID, series[m])
+		}
 		hdr, rows, total := Matrix(d, series)
 		const chunk = 5
 		for c0 := 0; c0 < len(hdr) || c0 == 0; c0 += chunk {
@@ -177,6 +200,7 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 			put("", false)
 			continue
 		}
+		putChart(m.DeviceID+" / "+m.PointID, rows)
 		put(colHdr, true)
 		for _, r := range rows {
 			if len(cur) >= perPage {
@@ -192,7 +216,7 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 	}
 	flush()
 	if len(pages) == 0 {
-		pages = [][]line{{{"no data", false}}}
+		pages = [][]line{{{text: "no data"}}}
 	}
 
 	esc := func(s string) string {
@@ -230,11 +254,16 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 		var c strings.Builder
 		y := 800
 		for _, l := range pg {
+			if l.chart != nil {
+				chartOps(&c, l.chart, l.title, y, esc)
+			}
 			f := "F1"
 			if l.bold {
 				f = "F2"
 			}
-			fmt.Fprintf(&c, "BT /%s 9 Tf 40 %d Td (%s) Tj ET\n", f, y, esc(l.text))
+			if l.text != "" {
+				fmt.Fprintf(&c, "BT /%s 9 Tf 40 %d Td (%s) Tj ET\n", f, y, esc(l.text))
+			}
 			y -= 14
 		}
 		fmt.Fprintf(&c, "BT /F1 8 Tf 40 24 Td (Page %d of %d) Tj ET\n", i+1, len(pages))
@@ -248,4 +277,73 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 	}
 	fmt.Fprintf(&out, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(offs)+1, xref)
 	return out.Bytes()
+}
+
+const chartSlots = 11
+
+// chartOps draws a line chart of one metric's buckets with PDF vector operators:
+// avg as a solid line, min and max as thin grey lines, value range on the left,
+// first and last bucket time underneath. y is the baseline of the first reserved
+// text line; the chart fills the following chartSlots lines. No fonts or images.
+func chartOps(c *strings.Builder, rows []Bucket, title string, y int, esc func(string) string) {
+	const x0, w, h = 70.0, 485.0, 100.0
+	top := float64(y) - 4
+	bottom := top - h - 14 // room above for the title
+	plotTop := top - 12
+	lo, hi := math.Inf(1), math.Inf(-1)
+	for _, r := range rows {
+		for _, v := range []float64{r.Min, r.Max, r.Avg} {
+			if !math.IsNaN(v) && !math.IsInf(v, 0) {
+				lo, hi = math.Min(lo, v), math.Max(hi, v)
+			}
+		}
+	}
+	if math.IsInf(lo, 1) {
+		return
+	}
+	if hi == lo {
+		hi, lo = hi+1, lo-1
+	}
+	py := func(v float64) float64 { return bottom + (v-lo)/(hi-lo)*(plotTop-bottom) }
+	px := func(i int) float64 {
+		if len(rows) == 1 {
+			return x0 + w/2
+		}
+		return x0 + float64(i)/float64(len(rows)-1)*w
+	}
+	fmt.Fprintf(c, "BT /F2 8 Tf %.0f %.1f Td (%s) Tj ET\n", x0, top-8, esc(title+"  (avg, min, max)"))
+	fmt.Fprintf(c, "0.6 G 0.5 w %.1f %.1f %.1f %.1f re S\n", x0, bottom, w, plotTop-bottom)
+	fmt.Fprintf(c, "BT /F1 7 Tf 40 %.1f Td (%s) Tj ET\n", plotTop-6, esc(fmt.Sprintf("%.4g", hi)))
+	fmt.Fprintf(c, "BT /F1 7 Tf 40 %.1f Td (%s) Tj ET\n", bottom, esc(fmt.Sprintf("%.4g", lo)))
+	fmt.Fprintf(c, "BT /F1 7 Tf %.0f %.1f Td (%s) Tj ET\n", x0, bottom-8, esc(rows[0].Start.UTC().Format("2006-01-02 15:04")))
+	fmt.Fprintf(c, "BT /F1 7 Tf %.0f %.1f Td (%s) Tj ET\n", x0+w-80, bottom-8, esc(rows[len(rows)-1].Start.UTC().Format("2006-01-02 15:04")))
+	// at most ~240 points per line: keep every n-th bucket for long windows
+	step := 1
+	if len(rows) > 240 {
+		step = (len(rows) + 239) / 240
+	}
+	series := func(get func(Bucket) float64, gray string, width float64) {
+		fmt.Fprintf(c, "%s %.1f w\n", gray, width)
+		first := true
+		for i := 0; i < len(rows); i += step {
+			v := get(rows[i])
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				continue
+			}
+			if first {
+				fmt.Fprintf(c, "%.1f %.1f m\n", px(i), py(v))
+				first = false
+			} else {
+				fmt.Fprintf(c, "%.1f %.1f l\n", px(i), py(v))
+			}
+		}
+		if len(rows) == 1 {
+			fmt.Fprintf(c, "%.1f %.1f l\n", px(0)+1, py(get(rows[0])))
+		}
+		c.WriteString("S\n")
+	}
+	series(func(b Bucket) float64 { return b.Max }, "0.75 G", 0.5)
+	series(func(b Bucket) float64 { return b.Min }, "0.75 G", 0.5)
+	series(func(b Bucket) float64 { return b.Avg }, "0 G", 1.2)
+	c.WriteString("0 G 1 w\n")
 }

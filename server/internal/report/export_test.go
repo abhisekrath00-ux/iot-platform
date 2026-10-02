@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -209,5 +210,43 @@ func TestComputedMatrixColumns(t *testing.T) {
 		if Validate(b) == nil {
 			t.Fatalf("bad definition %d accepted", i)
 		}
+	}
+}
+
+func TestPDFDrawsCharts(t *testing.T) {
+	d, s := sample()
+	p := string(RenderPDF("Plant", d, s, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)))
+	// one chart per metric with data: frame rectangle plus three polylines
+	if n := strings.Count(p, " re S\n"); n != len(s) {
+		t.Fatalf("charts %d, metrics with data %d", n, len(s))
+	}
+	if !strings.Contains(p, `avg, min, max\)`) || !strings.Contains(p, "1.2 w") || !strings.Contains(p, " l\n") {
+		t.Fatal("chart operators or title missing")
+	}
+	if strings.Contains(p, "NaN") || strings.Contains(p, "Inf") {
+		t.Fatal("non-finite coordinate in content stream")
+	}
+	// single bucket, flat series and NaN values must not break the stream
+	m := Metric{DeviceID: "d", PointID: "p"}
+	one := map[Metric][]Bucket{m: {{Start: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Avg: 5, Min: 5, Max: 5, Count: 1}}}
+	q := string(RenderPDF("x", Definition{Metrics: []Metric{m}, WindowHours: 24, GroupBy: "hour"}, one, time.Now()))
+	if strings.Contains(q, "NaN") || strings.Contains(q, "Inf") || !strings.Contains(q, " re S\n") {
+		t.Fatal("flat single-point chart")
+	}
+	nan := map[Metric][]Bucket{m: {{Start: time.Now(), Avg: math.NaN(), Min: math.NaN(), Max: math.NaN()}}}
+	if r := string(RenderPDF("x", Definition{Metrics: []Metric{m}, WindowHours: 24, GroupBy: "hour"}, nan, time.Now())); strings.Contains(r, " re S\n") || strings.Contains(r, "NaN m") {
+		t.Fatal("all-NaN series must draw no chart")
+	}
+	// matrix layout charts the first four metrics only
+	var ms []Metric
+	big := map[Metric][]Bucket{}
+	for i := 0; i < 6; i++ {
+		mm := Metric{DeviceID: "d", PointID: "p" + strconv.Itoa(i)}
+		ms = append(ms, mm)
+		big[mm] = one[m]
+	}
+	r := string(RenderPDF("x", Definition{Metrics: ms, WindowHours: 24, GroupBy: "hour", Layout: "matrix"}, big, time.Now()))
+	if n := strings.Count(r, " re S\n"); n != 4 || !strings.Contains(r, "first 4 of 6 metrics") {
+		t.Fatalf("matrix charts %d", n)
 	}
 }
