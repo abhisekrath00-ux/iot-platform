@@ -23,7 +23,10 @@ the edge agent on an Ubuntu or Windows box with a USB-RS485 adapter (`/dev/ttyUS
 
 Word order is the leaflet's default "mid-little endian" = `cdab`. The leaflet's worked example (1234.12 kWh as
 0x449A43D7, low word 0x43D7 at 30090 and high word 0x449A at 30091) confirms that order, and a unit test decodes it.
-Switching the meter to big-endian (holding register 40070) means changing `word_order` to `abcd`.
+**Open conflict:** the config table (second photo, item 13, display `End.I`) lists Endianness as LSRF/MSRF with factory
+setting MSRF (most significant register first, which would be `abcd`), while the worked example calls mid-little
+endian (low word first, `cdab`) the default. Both cannot be the factory state. Do one live read of voltage and
+check the value is sane (about 230 V); if it is garbage, switch `word_order` to `abcd`. Switching the meter to big-endian (holding register 40070) means changing `word_order` to `abcd`.
 
 Unverified: function code (30xxx suggests FC 04, input registers), unit of power (kW/kvar/kVA as printed, but the
 leaflet resolution table is in W), and whether the total-energy register at 30090 exists on this model (it appears
@@ -56,3 +59,11 @@ only in the worked example, not in the register table). Check with one live read
 The configuration and relay registers (40000-40070: slave id, baud, CT/PT ratios, trip limits, factory default)
 are writable on the meter and can trip a relay. The agent only reads; writes would need the platform's approval
 plus four-eyes path and are not implemented.
+
+## Display and config notes (second photo)
+
+DIP keys 1-3 pick the display parameter: 000 auto/manual scroll, 001 voltage, 010 current, 011 power factor,
+100 active power, 101 reactive power, 110 apparent power, 111 frequency. Config pages 11.3-15 cover current
+hysteresis, current trip time, frequency over/under limits (45-65 Hz, factory 60/50), frequency hysteresis,
+endianness, trip/alarm mode and factory default. The energy-register section of the leaflet is cut off in the photo,
+so the energy register stays unverified.
