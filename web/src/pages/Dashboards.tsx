@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
 import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem } from '../lib/widgets';
-import { GaugeWidget, BarWidget, StatusWidget } from '../components/Widgets';
+import { GaugeWidget, BarWidget, StatusWidget, TableWidget, StatWidget, IndicatorWidget } from '../components/Widgets';
 
 interface Dashboard { id: string; name: string; layout: { widgets?: Widget[] }; }
 
@@ -153,7 +153,7 @@ export default function Dashboards() {
     if (!sel || !wDevice) return;
     const w: Widget = {
       id: uid(), type: wType, device_id: wDevice, point_id: wPoint || undefined,
-      title: wTitle.trim() || `${deviceName(wDevice)} ${wType === 'bar' || wType === 'status' ? '' : wPoint || ''}${wType === 'timeseries' ? ' (24h)' : ''}`.trim(),
+      title: wTitle.trim() || `${deviceName(wDevice)} ${wType === 'bar' || wType === 'status' || wType === 'table' ? '' : wPoint || ''}${wType === 'timeseries' ? ' (24h)' : ''}`.trim(),
       min: optNum(wMin), max: optNum(wMax), warn: optNum(wWarn), crit: optNum(wCrit),
     };
     setSel({ ...sel, layout: { widgets: [...(sel.layout.widgets ?? []), w] } });
@@ -262,6 +262,9 @@ export default function Dashboards() {
                     <option value="timeseries">Trend (24h chart)</option>
                     <option value="bar">Bars (all points)</option>
                     <option value="status">Device status</option>
+                    <option value="table">Table (all points)</option>
+                    <option value="stat">Stats (24h min/avg/max)</option>
+                    <option value="indicator">Indicator lamp</option>
                   </select>
                 </div>
                 <div><label>Device</label>
@@ -278,9 +281,9 @@ export default function Dashboards() {
                 <div><label>Title (optional)</label><input value={wTitle} onChange={e => setWTitle(e.target.value)} /></div>
                 {(wType === 'gauge' || wType === 'bar') && <div><label>Min</label><input type="number" style={{ width: 80 }} value={wMin} onChange={e => setWMin(e.target.value)} /></div>}
                 {(wType === 'gauge' || wType === 'bar') && <div><label>Max</label><input type="number" style={{ width: 80 }} value={wMax} onChange={e => setWMax(e.target.value)} /></div>}
-                {wType !== 'timeseries' && wType !== 'status' && <div><label>Warn at</label><input type="number" style={{ width: 80 }} value={wWarn} onChange={e => setWWarn(e.target.value)} /></div>}
-                {wType !== 'timeseries' && wType !== 'status' && <div><label>Critical at</label><input type="number" style={{ width: 80 }} value={wCrit} onChange={e => setWCrit(e.target.value)} /></div>}
-                <button onClick={addWidget} disabled={!wDevice || (!wPoint && wType !== 'bar' && wType !== 'status')}>Add</button>
+                {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && <div><label>{wType === 'indicator' ? 'On at (value ≥)' : 'Warn at'}</label><input type="number" style={{ width: 80 }} value={wWarn} onChange={e => setWWarn(e.target.value)} /></div>}
+                {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && wType !== 'indicator' && <div><label>Critical at</label><input type="number" style={{ width: 80 }} value={wCrit} onChange={e => setWCrit(e.target.value)} /></div>}
+                <button onClick={addWidget} disabled={!wDevice || (!wPoint && wType !== 'bar' && wType !== 'status' && wType !== 'table')}>Add</button>
               </div>
             </div>
           )}
@@ -296,7 +299,7 @@ export default function Dashboards() {
                 onDragOver={e => { if (editing && dragFrom !== null) e.preventDefault(); }}
                 onDrop={e => { e.preventDefault(); if (dragFrom !== null) setWidgets(moveItem(widgets, dragFrom, i)); setDragFrom(null); }}
                 onDragEnd={() => setDragFrom(null)}>
-                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : <SeriesWidget w={w} />}
+                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : <SeriesWidget w={w} />}
                 {editing && (
                   <div className="board-tools">
                     <button className="ghost" aria-label="Narrower" onClick={() => resize(w.id, -1)}>-</button>

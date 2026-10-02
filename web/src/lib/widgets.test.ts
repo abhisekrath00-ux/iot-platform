@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { thresholdState, fraction, freshness, optNum, spanOf, moveItem } from './widgets';
+import { thresholdState, fraction, freshness, optNum, spanOf, moveItem, summarize, indicatorOn } from './widgets';
 
 describe('widget logic', () => {
   it('threshold state: crit beats warn, none when no value', () => {
@@ -45,5 +45,24 @@ describe('layout logic', () => {
     const src = ['a', 'b'];
     expect(moveItem(src, 0, 1)).not.toBe(src);
     expect(src).toEqual(['a', 'b']);
+  });
+});
+
+describe('widget library additions', () => {
+  it('summarize', () => {
+    expect(summarize([])).toBeNull();
+    expect(summarize([NaN])).toBeNull();
+    expect(summarize([2, 4, 9, 5])).toEqual({ last: 5, min: 2, max: 9, avg: 5, delta: 3, n: 4 });
+  });
+  it('indicatorOn', () => {
+    expect(indicatorOn(1)).toBe(true);
+    expect(indicatorOn(0)).toBe(false);
+    expect(indicatorOn(NaN)).toBe(false);
+    expect(indicatorOn(49, 50)).toBe(false);
+    expect(indicatorOn(50, 50)).toBe(true);
+  });
+  it('table is wide by default', () => {
+    expect(spanOf({ type: 'table' })).toBe(2);
+    expect(spanOf({ type: 'stat' })).toBe(1);
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, LatestPoint } from '../lib/api';
 import { formatValue } from '../lib/format';
-import { Widget, thresholdState, fraction, freshness } from '../lib/widgets';
+import { Widget, thresholdState, fraction, freshness, summarize, indicatorOn } from '../lib/widgets';
 
 const STATE_VAR: Record<string, string> = { ok: 'var(--ok, #248a3d)', warn: 'var(--warn, #b25000)', bad: 'var(--bad, #d70015)', none: 'var(--muted, #6e6e73)' };
 
@@ -79,6 +79,79 @@ export function StatusWidget({ w }: { w: Widget }) {
         {st === 'online' ? 'Online' : 'Offline'}
       </div>
       <div className="muted" style={{ fontSize: 12 }}>{newest ? `last data ${new Date(newest).toLocaleString()}` : 'no data yet'} · {pts.length} points</div>
+    </div>
+  );
+}
+
+export function TableWidget({ w }: { w: Widget }) {
+  const { pts, err } = useLatest(w.device_id);
+  return (
+    <div className="card" style={{ minWidth: 0 }}>
+      <div className="muted" style={{ marginBottom: 8 }}>{w.title}</div>
+      {err && <div className="muted" style={{ fontSize: 12 }}>{err}</div>}
+      <table style={{ width: '100%', fontSize: 13 }}>
+        <thead><tr><th style={{ textAlign: 'left' }}>Point</th><th style={{ textAlign: 'right' }}>Value</th><th style={{ textAlign: 'left' }}>Quality</th></tr></thead>
+        <tbody>
+          {pts.map(p => (
+            <tr key={p.point_id}>
+              <td>{p.point_id}</td>
+              <td style={{ textAlign: 'right', color: STATE_VAR[thresholdState(p.value, w.warn, w.crit) === 'none' ? 'ok' : thresholdState(p.value, w.warn, w.crit)] }}>{formatValue(p.value)} {p.unit}</td>
+              <td className="muted">{p.quality}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {pts.length === 0 && !err && <div className="muted">no data yet</div>}
+    </div>
+  );
+}
+
+/** Last, min, avg, max and change over the 24h series of one point. */
+export function StatWidget({ w }: { w: Widget }) {
+  const [vals, setVals] = useState<number[]>([]);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!w.point_id) return;
+    let alive = true;
+    const load = () => api<{ t: string; v: number }[]>(`/v1/telemetry/series?device_id=${encodeURIComponent(w.device_id)}&point_id=${encodeURIComponent(w.point_id!)}`)
+      .then(d => { if (alive) { setVals(d.map(x => x.v)); setErr(''); } })
+      .catch(e => { if (alive) setErr(String(e)); });
+    load();
+    const t = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, [w.device_id, w.point_id]);
+  const s = summarize(vals);
+  return (
+    <div className="card" style={{ minWidth: 0 }}>
+      <div className="muted">{w.title}</div>
+      {err && <div className="muted" style={{ fontSize: 12 }}>{err}</div>}
+      {s ? (
+        <>
+          <div className="kpi">{formatValue(s.last)}</div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            24h min {formatValue(s.min)} / avg {formatValue(s.avg)} / max {formatValue(s.max)}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>change {s.delta >= 0 ? '+' : ''}{formatValue(s.delta)} over {s.n} samples</div>
+        </>
+      ) : !err && <div className="muted">no data yet</div>}
+    </div>
+  );
+}
+
+/** On/off lamp. On when the value is at or above the "on at" level (default 1). */
+export function IndicatorWidget({ w }: { w: Widget }) {
+  const { pts, err } = useLatest(w.device_id, 5000);
+  const p = pts.find(x => x.point_id === w.point_id);
+  const on = p ? indicatorOn(p.value, w.warn) : false;
+  return (
+    <div className="card" style={{ minWidth: 0 }}>
+      <div className="muted">{w.title}</div>
+      {err && <div className="muted" style={{ fontSize: 12 }}>{err}</div>}
+      <div style={{ fontSize: 22, fontWeight: 650, marginTop: 6 }}>
+        <span role="img" aria-label={on ? 'on' : 'off'} style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 7, marginRight: 8, background: p ? (on ? STATE_VAR.ok : STATE_VAR.none) : STATE_VAR.none, boxShadow: on ? `0 0 8px ${STATE_VAR.ok}` : 'none' }} />
+        {p ? (on ? 'On' : 'Off') : 'No data'}
+      </div>
+      {p && <div className="muted" style={{ fontSize: 12 }}>{formatValue(p.value)} {p.unit}</div>}
     </div>
   );
 }

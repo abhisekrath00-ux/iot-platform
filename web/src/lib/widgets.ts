@@ -1,6 +1,6 @@
 // Pure widget logic: kept out of components so it is unit-tested.
 
-export type WidgetType = 'kpi' | 'timeseries' | 'gauge' | 'bar' | 'status';
+export type WidgetType = 'kpi' | 'timeseries' | 'gauge' | 'bar' | 'status' | 'table' | 'stat' | 'indicator';
 
 export interface Widget {
   id: string;
@@ -51,7 +51,7 @@ export function optNum(s: string): number | undefined {
 /** Grid columns a widget occupies: explicit span (clamped 1-4) or a per-type default. */
 export function spanOf(w: Pick<Widget, 'type' | 'span'>): number {
   if (w.span !== undefined && Number.isFinite(w.span)) return Math.min(4, Math.max(1, Math.round(w.span)));
-  return w.type === 'bar' || w.type === 'timeseries' ? 2 : 1;
+  return w.type === 'bar' || w.type === 'timeseries' || w.type === 'table' ? 2 : 1;
 }
 
 /** Move the item at `from` so it lands at index `to`. Out-of-range input returns the list unchanged (as a copy). */
@@ -61,4 +61,18 @@ export function moveItem<T>(list: T[], from: number, to: number): T[] {
   const [it] = out.splice(from, 1);
   out.splice(to, 0, it);
   return out;
+}
+
+/** Summary of a series: last/min/max/avg and change from first to last. Empty or non-finite input gives null. */
+export function summarize(vals: number[]): { last: number; min: number; max: number; avg: number; delta: number; n: number } | null {
+  const v = vals.filter(Number.isFinite);
+  if (v.length === 0) return null;
+  let min = v[0], max = v[0], sum = 0;
+  for (const x of v) { if (x < min) min = x; if (x > max) max = x; sum += x; }
+  return { last: v[v.length - 1], min, max, avg: sum / v.length, delta: v[v.length - 1] - v[0], n: v.length };
+}
+
+/** Indicator lamp: on when value >= onAt (default 1, so 0/1 flags work). NaN is off. */
+export function indicatorOn(v: number, onAt = 1): boolean {
+  return Number.isFinite(v) && v >= onAt;
 }

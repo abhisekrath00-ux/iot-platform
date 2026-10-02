@@ -15,7 +15,7 @@ from the code, not from intent.
 | Industrial protocols | ThingsBoard IoT Gateway | Modbus RTU/TCP, OPC UA (secure modes), serial JSON | Partial (no BACnet, CAN, SNMP, LwM2M, CoAP) |
 | Store and forward at the edge | Ignition | SQLite queue, delete after broker ACK | Have |
 | Fleet updates with staged rollout | AWS Device Management | Staged cohorts, rollback, ack | Have (edge agent config/release); no signed firmware for end devices |
-| Dashboards and widgets | ThingsBoard (300+ widgets) | 5 widget types with thresholds, drag-drop layout and sizing, wall mode with rotation, product tour, light/dark glass UI | Partial (small widget library; drag/wall covered by a manual browser e2e, not CI) |
+| Dashboards and widgets | ThingsBoard (300+ widgets) | 8 widget types (live value, gauge, trend, bars, status, table, 24h stats, indicator lamp) with thresholds, drag-drop layout and sizing, wall mode with rotation, product tour, light/dark glass UI | Partial (8 widgets, still far from 300+; pure logic unit-tested, new widgets type-checked and built but not browser-checked; drag/wall covered by a manual browser e2e, not CI) |
 | Rule engine / workflows | ThingsBoard, Losant | Threshold rules, flows (trigger, condition, delay, notify) with versions and simulator | Partial (no scripting node, no device-state write node; cooldown and latch exist) |
 | Alarm lifecycle (ack, clear, assign) | ThingsBoard | Open, acknowledged, resolved with notes and history in API and UI | Have (no assignment or escalation) |
 | Notifications | ThingsBoard | SMTP and Slack, scheduled reports | Partial (no SMS, Teams, escalation chains) |
