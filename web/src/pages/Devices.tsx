@@ -10,6 +10,23 @@ export default function Devices() {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState('');
+  const [imp, setImp] = useState<{ text: string; would: number } | null>(null);
+  const [impMsg, setImpMsg] = useState('');
+  const pickFile = async (f?: File) => {
+    if (!f) return;
+    const text = await f.text();
+    setImpMsg('');
+    try {
+      const r = await api<{ would_create: number }>('/v1/devices/bulk?dry_run=1', { method: 'POST', body: text, headers: { 'Content-Type': 'text/csv' } });
+      setImp({ text, would: r.would_create });
+    } catch (e) { setImp(null); setImpMsg(`Import rejected, nothing was created. ${e}`); }
+  };
+  const confirmImport = () => {
+    if (!imp) return;
+    api<{ created: number }>('/v1/devices/bulk', { method: 'POST', body: imp.text, headers: { 'Content-Type': 'text/csv' } })
+      .then(r => { setImpMsg(`Created ${r.created} devices.`); setImp(null); load(); })
+      .catch(e => setImpMsg(`Import failed, nothing was created. ${e}`));
+  };
 
   const load = () => {
     const p = new URLSearchParams();
@@ -34,6 +51,13 @@ export default function Devices() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <input style={{ flex: 1, maxWidth: 360 }} placeholder="Search name, id or profile" value={q} onChange={e => setQ(e.target.value)} />
         {tag && <button className="ghost" onClick={() => setTag('')}>tag: {tag} ✕</button>}
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label className="muted" style={{ fontSize: 12 }}>Import CSV (gateway_id, profile_id, name, tags, asset_id){' '}
+          <input type="file" accept=".csv,text/csv" onChange={e => { void pickFile(e.target.files?.[0]); e.target.value = ''; }} />
+        </label>
+        {imp && <span> Valid: {imp.would} devices. <button onClick={confirmImport}>Create {imp.would}</button> <button className="ghost" onClick={() => setImp(null)}>Cancel</button></span>}
+        {impMsg && <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{impMsg}</p>}
       </div>
       {allTags.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>

@@ -28,7 +28,7 @@ from the code, not from intent.
 | Secrets management | Ignition 8.3 | Env vars and vault-free config | Missing |
 | Edge rules, edge compute | Losant, ThingsBoard Edge | Allowlisted commands, edge gate (expiry, replay, TTL), ack path, simulated actuator only | Partial (no real actuator drivers, by design until hazard analysis) |
 | Mobile app | ThingsBoard | Responsive web only | Missing |
-| Bulk device provisioning | AWS | CSV import `POST /v1/devices/bulk` (gateway_id, profile_id, name, tags, asset_id; all-or-nothing, dry run, 500 rows, line-numbered errors). Integration-tested; no UI button yet | Built (API) |
+| Bulk device provisioning | AWS | CSV import `POST /v1/devices/bulk` (gateway_id, profile_id, name, tags, asset_id; all-or-nothing, dry run, 500 rows, line-numbered errors). Devices page file picker with dry-run preview (API integration-tested, UI not browser-tested). | Built |
 | AI access | none of the above natively | MCP server, 12 tools (read tools, flow drafts, forecast, related signals; none actuate) | Have |
 | Air-gapped deploy | ThingsBoard (self-host) | Offline bundle, self-hosted assets, verified install scripts | Have (dry-run on a clean VM still pending) |
 | Read caching, HA | ThingsBoard microservices | Per-replica response cache, leader election for scheduler | Partial |
