@@ -89,6 +89,7 @@ export function TableWidget({ w }: { w: Widget }) {
     <div className="card" style={{ minWidth: 0 }}>
       <div className="muted" style={{ marginBottom: 8 }}>{w.title}</div>
       {err && <div className="muted" style={{ fontSize: 12 }}>{err}</div>}
+      <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', fontSize: 13 }}>
         <thead><tr><th style={{ textAlign: 'left' }}>Point</th><th style={{ textAlign: 'right' }}>Value</th><th style={{ textAlign: 'left' }}>Quality</th></tr></thead>
         <tbody>
@@ -101,6 +102,7 @@ export function TableWidget({ w }: { w: Widget }) {
           ))}
         </tbody>
       </table>
+      </div>
       {pts.length === 0 && !err && <div className="muted">no data yet</div>}
     </div>
   );

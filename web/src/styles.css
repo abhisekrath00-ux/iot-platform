@@ -80,7 +80,8 @@ code, pre { font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace; fo
 pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow: auto; }
 .recharts-wrapper text { fill: var(--chart-axis); }
 @media (max-width: 900px) {
-  .shell { grid-template-columns: 1fr; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  main { min-width: 0; }
   nav { position: static; height: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
   nav .brand { width: 100%; margin-bottom: 8px; }
   main { padding: 22px 18px; }
@@ -127,6 +128,7 @@ form.grid2 { display: grid; grid-template-columns: 160px 240px; gap: 8px 12px; a
 /* dashboard board, wall mode */
 .board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 1000px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } .board-item { grid-column: span 1 !important; } }
+@media (max-width: 600px) { .board { grid-template-columns: minmax(0, 1fr); } }
 .board-item.dragging { opacity: .45; }
 .board-item[draggable='true'] { cursor: grab; outline: 1px dashed var(--line); outline-offset: 4px; border-radius: var(--radius); }
 .board-tools { display: flex; gap: 4px; justify-content: flex-end; margin-top: 6px; }

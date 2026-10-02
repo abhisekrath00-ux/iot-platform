@@ -116,7 +116,7 @@ function SlaveTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile
   const [names, setNames] = useState<Record<number, string>>({});
   if (slaves.length === 0) return <p className="muted">No slave answered. Check wiring (A/B swap), baud, parity and the address range. A device that rejects the probed registers is not detected.</p>;
   return (
-    <table><thead><tr><th>Address</th><th>Suggested</th><th>Profile</th><th>Name</th><th /></tr></thead><tbody>
+    <div style={{ overflowX: "auto" }}><table><thead><tr><th>Address</th><th>Suggested</th><th>Profile</th><th>Name</th><th /></tr></thead><tbody>
       {slaves.map(sl => {
         const best = sl.matches[0];
         const pid = sel[sl.address] ?? best?.profile_id ?? '';
@@ -131,7 +131,7 @@ function SlaveTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile
           </tr>
         );
       })}
-    </tbody></table>
+    </tbody></table></div>
   );
 }
 
@@ -143,7 +143,7 @@ function HostTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[
   return (
     <>
       <p className="muted">An open port means something is listening, not that it is a supported device.</p>
-      <table><thead><tr><th>Host</th><th>Port</th><th>Looks like</th><th>Profile</th><th>Unit / address</th><th /></tr></thead><tbody>
+      <div style={{ overflowX: "auto" }}><table><thead><tr><th>Host</th><th>Port</th><th>Looks like</th><th>Profile</th><th>Unit / address</th><th /></tr></thead><tbody>
         {hosts.map(h => {
           const key = `${h.Addr}:${h.Port}`;
           const drv = PORT_DRIVER[h.Port];
@@ -160,7 +160,7 @@ function HostTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[
             </tr>
           );
         })}
-      </tbody></table>
+      </tbody></table></div>
     </>
   );
 }
@@ -170,7 +170,7 @@ function BacTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[]
   const [sel, setSel] = useState<Record<string, string>>({});
   if (devs.length === 0) return <p className="muted">No BACnet device answered. Broadcasts do not cross routers or VLANs; use the subnet's broadcast address.</p>;
   return (
-    <table><thead><tr><th>Address</th><th>Device</th><th>Vendor id</th><th>Profile</th><th /></tr></thead><tbody>
+    <div style={{ overflowX: "auto" }}><table><thead><tr><th>Address</th><th>Device</th><th>Vendor id</th><th>Profile</th><th /></tr></thead><tbody>
       {devs.map(d => {
         const key = d.Addr;
         const pid = sel[key] ?? profiles[0]?.id ?? '';
@@ -182,6 +182,6 @@ function BacTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[]
           </tr>
         );
       })}
-    </tbody></table>
+    </tbody></table></div>
   );
 }
