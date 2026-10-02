@@ -1,7 +1,16 @@
 name: ci
 on:
-  push: { branches: [main] }
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
+    paths-ignore: ['docs/**', '**/*.md']
+  workflow_dispatch:
+
+# a newer push to the same ref cancels the older run to save Actions minutes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   go:
