@@ -107,3 +107,34 @@ firmware signing for end devices.
 | MCP text-to-flow | Built: `describe_flow_nodes`, `validate_flow_graph`, `draft_flow_graph`. The calling LLM writes the graph; the server validates it. Drafts only: never published or enabled, operator/admin token required, no function nodes. Tested. |
 | Natural-language text to graph inside the UI | **Not built.** An air-gapped install has no language model to call. Use any MCP-capable assistant against `/mcp`. |
 | Visual graph editor | See the Flows page status in the changelog below. |
+
+## Microsoft Report Builder parity (added 2026-10-02)
+
+Reference: Microsoft Report Builder / SSRS paginated reports. Sources:
+https://learn.microsoft.com/en-us/sql/reporting-services/report-design/tables-matrices-and-lists-report-builder-and-ssrs?view=sql-server-ver17 ,
+https://learn.microsoft.com/en-us/sql/reporting-services/report-design/report-parameters-report-builder-and-report-designer?view=sql-server-ver17 ,
+https://learn.microsoft.com/en-us/sql/reporting-services/report-builder/export-reports-report-builder-and-ssrs?view=sql-server-ver17
+(export targets listed there: PDF, Accessible PDF, Word, Excel, PowerPoint, image, CSV, XML/Atom).
+
+Status is from this repo's code. Nothing here is "Have" unless built and tested.
+
+| Report Builder capability | This product | Status | Value rank |
+|---|---|---|---|
+| Report parameters (date range, asset, device, threshold) | Builder takes range, bucket and points | Partial (no named reusable parameters, no cascading or multi-value) | 1 |
+| Export to PDF | HTML and CSV only | Missing | 2 |
+| Export to Excel (.xlsx) | CSV only | Missing | 3 |
+| Tables with row groups and subtotals | Flat table per point | Missing | 4 |
+| Matrix (cross-tab, e.g. device by day) | None | Missing | 5 |
+| Charts embedded in a report | Preview chart in builder UI | Partial (not rendered into delivered output) | 6 |
+| Expressions (computed columns, formatting, conditionals) | None | Missing | 7 |
+| Page header/footer, page numbers, hard page breaks | HTML only | Missing | 8 |
+| Scheduled delivery to email/Slack | Cron delivery wired | Have | - |
+| Saved, versioned report definitions | Saved reports exist | Partial (no versions) | 9 |
+| Drill-through and subreports | None | Missing | 10 |
+| Word, PowerPoint, image export | None | Missing, not planned (PDF and Excel cover the need) | - |
+
+Build order: parameters, PDF, Excel, grouped tables with subtotals, matrix,
+embedded charts, expressions. PDF must work air-gapped, so it is generated
+server-side with a Go library or a pure-Go renderer; no browser or cloud
+service. Expressions will be a small safe expression language, not the
+function node sandbox.
