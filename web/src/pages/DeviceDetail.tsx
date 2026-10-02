@@ -7,13 +7,15 @@ import { api, LatestPoint } from '../lib/api';
 import DeviceTwin, { Health } from '../components/DeviceTwin';
 import ForecastCard from '../components/ForecastCard';
 
-interface SeriesPoint { t: string; v: number; quality: string; }
+interface SeriesPoint { t: string; v: number; quality?: string; aggregated?: boolean; }
+const RANGES: [string, number][] = [['24 hours', 24], ['7 days', 168], ['30 days', 720], ['90 days', 2160], ['1 year', 8760]];
 
 export default function DeviceDetail() {
   const { id } = useParams();
   const [latest, setLatest] = useState<LatestPoint[]>([]);
   const [point, setPoint] = useState('');
   const [series, setSeries] = useState<SeriesPoint[]>([]);
+  const [hours, setHours] = useState(24);
   const [anom, setAnom] = useState<{ samples: number; enough_data: boolean; min_samples: number; anomalies: { t: number; value: number; score: number; median: number }[] } | null>(null);
   const [err, setErr] = useState('');
   const [health, setHealth] = useState<Health | null>(null);
@@ -33,13 +35,13 @@ export default function DeviceDetail() {
 
   useEffect(() => {
     if (!id || !point) return;
-    api<SeriesPoint[]>(`/v1/telemetry/series?device_id=${id}&point_id=${point}`)
+    api<SeriesPoint[]>(`/v1/telemetry/series?device_id=${id}&point_id=${point}&hours=${hours}`)
       .then(setSeries).catch(e => setErr(String(e)));
     api<NonNullable<typeof anom>>(`/v1/telemetry/anomalies?device_id=${id}&point_id=${point}`)
       .then(setAnom).catch(() => setAnom(null));
-  }, [id, point]);
+  }, [id, point, hours]);
 
-  const chart = series.map(p => ({ t: new Date(p.t).toLocaleTimeString(), v: p.v }));
+  const chart = series.map(p => ({ t: hours > 48 ? new Date(p.t).toLocaleDateString() + (hours <= 336 ? ' ' + new Date(p.t).getHours() + 'h' : '') : new Date(p.t).toLocaleTimeString(), v: p.v }));
 
   return (
     <>
@@ -59,10 +61,14 @@ export default function DeviceDetail() {
       {latest.length > 0 && (
         <>
           <div style={{ margin: '18px 0 8px' }}>
-            <label>Point (last 24h)</label>
+            <label>Point</label>
             <select value={point} onChange={e => setPoint(e.target.value)} style={{ maxWidth: 220 }}>
               {latest.map(p => <option key={p.point_id} value={p.point_id}>{p.point_id}</option>)}
             </select>
+            <select value={hours} onChange={e => setHours(+e.target.value)} aria-label="Time range" style={{ maxWidth: 140, marginLeft: 8 }}>
+              {RANGES.map(([l, h]) => <option key={h} value={h}>{l}</option>)}
+            </select>
+            {hours > 48 && <span className="muted" style={{ marginLeft: 8 }}>averages per {hours > 336 ? 'day' : 'hour'}, from rollups where raw data was purged</span>}
           </div>
           <div style={{ width: '100%', height: 300, background: 'var(--panel)', borderRadius: 12, padding: 12 }}>
             <ResponsiveContainer>

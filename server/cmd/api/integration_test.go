@@ -43,6 +43,7 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("GET /v1/gateways/{id}/edge-config", s.gatewayEdgeConfig)
 	mux.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
 	mux.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
+	mux.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
 	mux.HandleFunc("POST /v1/reports/preview", s.previewReport)
 	mux.HandleFunc("POST /v1/reports", s.createReport)
 	mux.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
@@ -309,5 +310,40 @@ func TestIntegrationAutoScanFromEdge(t *testing.T) {
 	s.st.Pool.QueryRow(ctx, `SELECT count(*) FROM gateway_scans WHERE tenant_id='itest-as'`).Scan(&n)
 	if n > 20 {
 		t.Fatalf("kept %d auto rows, want at most 20", n)
+	}
+}
+
+func TestIntegrationSeriesRanges(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-sr")
+	ctx := context.Background()
+	for _, q := range []string{
+		`DELETE FROM telemetry_rollup_daily WHERE tenant_id='itest-sr'`,
+		`DELETE FROM telemetry_rollup_hourly WHERE tenant_id='itest-sr'`,
+		`INSERT INTO telemetry_rollup_daily(tenant_id,device_id,point_id,bucket,n,sum,min,max) VALUES('itest-sr','itest-sr-dev','temp',date_trunc('day', now()) - interval '60 days',10,200,15,25)`,
+	} {
+		if _, err := s.st.Pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+	}
+	get := func(qs string) *httptest.ResponseRecorder {
+		return call(h, "itest-sr", "viewer", "GET", "/v1/telemetry/series?device_id=itest-sr-dev&point_id=temp"+qs, "")
+	}
+	if w := get(""); w.Code != 200 || strings.Contains(w.Body.String(), "aggregated") {
+		t.Fatalf("default stays raw: %d %s", w.Code, w.Body.String())
+	}
+	w := get("&hours=2160")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"aggregated":true`) || !strings.Contains(w.Body.String(), `"v":20`) || !strings.Contains(w.Body.String(), `"min":15`) {
+		t.Fatalf("90 day range should read the daily rollup: %d %s", w.Code, w.Body.String())
+	}
+	for _, bad := range []string{"&hours=0", "&hours=9000", "&hours=abc"} {
+		if w := get(bad); w.Code != 400 {
+			t.Errorf("%s: %d", bad, w.Code)
+		}
+	}
+	// another tenant sees nothing
+	w = call(h, "itest-sr2", "viewer", "GET", "/v1/telemetry/series?device_id=itest-sr-dev&point_id=temp&hours=2160", "")
+	if w.Code != 200 || strings.Contains(w.Body.String(), `"v":20`) {
+		t.Fatalf("tenant isolation: %d %s", w.Code, w.Body.String())
 	}
 }

@@ -512,14 +512,49 @@ func (s *server) countTelemetry(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"device_id": dev, "since": since, "count": n})
 }
 
+// seriesTelemetry returns one point's series. Default and up to 48 hours: raw
+// samples (max 5000). Longer ranges (hours up to 8760) come back aggregated from
+// raw plus the hourly and daily rollups - hourly buckets up to 14 days, daily
+// beyond - as {t, v (average), min, max, n, aggregated:true}, so they still work
+// after raw retention has purged old samples.
 func (s *server) seriesTelemetry(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	hours := 24
+	if h := q.Get("hours"); h != "" {
+		n, err := strconv.Atoi(h)
+		if err != nil || n < 1 || n > 8760 {
+			http.Error(w, "hours must be 1-8760", 400)
+			return
+		}
+		hours = n
+	}
+	if hours > 48 {
+		gb := "hour"
+		if hours > 14*24 {
+			gb = "day"
+		}
+		store := s.ts
+		if store == nil {
+			store = tsstore.NewPostgres(s.st.Pool)
+		}
+		bs, err := store.Aggregate(r.Context(), tsstore.SeriesQuery{Tenant: auth.Tenant(r), DeviceID: q.Get("device_id"), PointID: q.Get("point_id"), WindowHours: hours, GroupBy: gb})
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		out := make([]map[string]any, 0, len(bs))
+		for _, b := range bs {
+			out = append(out, map[string]any{"t": b.Start, "v": b.Avg, "min": b.Min, "max": b.Max, "n": b.Count, "aggregated": true})
+		}
+		writeJSON(w, 200, out)
+		return
+	}
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT observed_at, value, quality FROM telemetry
 		 WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
-		   AND observed_at > now() - interval '24 hours'
+		   AND observed_at > now() - make_interval(hours => $4)
 		 ORDER BY observed_at LIMIT 5000`,
-		auth.Tenant(r), q.Get("device_id"), q.Get("point_id"))
+		auth.Tenant(r), q.Get("device_id"), q.Get("point_id"), hours)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
