@@ -31,6 +31,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/retention"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/search"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/secrets"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/tsstore"
 	"github.com/golang-jwt/jwt/v5"
@@ -38,13 +39,14 @@ import (
 )
 
 type server struct {
-	st     *store.Store
-	secret []byte
-	es     *search.Client
-	oidc   *auth.OIDCProvider
-	states oidcstate.Store // memory single-replica, Redis when REDIS_URL set
-	cache  *respcache.Cache
-	ts     tsstore.Store // nil = Postgres; see internal/tsstore
+	st      *store.Store
+	secret  []byte
+	es      *search.Client
+	oidc    *auth.OIDCProvider
+	states  oidcstate.Store // memory single-replica, Redis when REDIS_URL set
+	cache   *respcache.Cache
+	secrets *secrets.Store // nil or empty key = disabled (503)
+	ts      tsstore.Store  // nil = Postgres; see internal/tsstore
 }
 
 func main() {
@@ -72,6 +74,11 @@ func main() {
 	}
 
 	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET")), es: search.New(os.Getenv("ELASTICSEARCH_URL"))}
+	if k, err := secrets.KeyFromEnv(os.Getenv("SECRETS_KEY")); err != nil {
+		log.Fatalf("%v", err)
+	} else if k != nil {
+		s.secrets = &secrets.Store{Pool: st.Pool, Key: k}
+	}
 	var redisCli *redisx.Client
 	if ru := os.Getenv("REDIS_URL"); ru != "" {
 		// redis://[:password@]host:port - shared OIDC state for multi-replica HA
@@ -128,6 +135,9 @@ func main() {
 	api.HandleFunc("POST /v1/commands", s.requestCommand)
 	api.HandleFunc("POST /v1/commands/{id}/approve", s.approveCommand)
 	api.HandleFunc("GET /v1/commands", s.listCommands)
+	api.HandleFunc("GET /v1/secrets", s.listSecrets)
+	api.HandleFunc("PUT /v1/secrets/{name}", s.putSecret)
+	api.HandleFunc("DELETE /v1/secrets/{name}", s.deleteSecret)
 	api.HandleFunc("PUT /v1/devices/{id}/tags", s.setDeviceTags)
 	api.HandleFunc("PUT /v1/devices/{id}/asset", s.setDeviceAsset)
 	api.HandleFunc("GET /v1/assets", s.listAssets)

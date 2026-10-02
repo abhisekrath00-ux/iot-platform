@@ -25,7 +25,7 @@ from the code, not from intent.
 | Desired/reported state (shadow, twin) | AWS, Azure | None | Missing |
 | Data retention and downsampling | Ignition (QuestDB historian), ThingsBoard | Hourly and stored daily rollups, per-tenant raw and hourly retention API, reports read rollups for purged ranges | Partial (24h series API still reads raw; no compression; no UI page for the policy yet) |
 | API keys / service tokens | all | Hashed, expiring, revocable keys; viewer/operator role; endpoint-group scopes; per-key rate limit; never able to approve commands; audited | Have (coarse scopes, per-replica limit) |
-| Secrets management | Ignition 8.3 | Env vars and vault-free config | Missing |
+| Secrets management | Ignition 8.3 | Per-tenant encrypted store: AES-256-GCM, master key from `SECRETS_KEY` (never in the DB), tenant+name bound so copied ciphertext fails, write-only admin API, audited without values. No connector consumes it yet (the HTTP request node is the planned first user); no key rotation tooling, no external KMS/Vault | Partial |
 | Edge rules, edge compute | Losant, ThingsBoard Edge | Allowlisted commands, edge gate (expiry, replay, TTL), ack path, simulated actuator only | Partial (no real actuator drivers, by design until hazard analysis) |
 | Mobile app | ThingsBoard | Responsive web only | Missing |
 | Bulk device provisioning | AWS | CSV import `POST /v1/devices/bulk` (gateway_id, profile_id, name, tags, asset_id; all-or-nothing, dry run, 500 rows, line-numbered errors). Devices page file picker with dry-run preview (API integration-tested, UI not browser-tested). | Built |

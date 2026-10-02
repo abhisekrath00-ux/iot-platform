@@ -21,6 +21,7 @@ On-prem must run fully without the vendor cloud.
    `t/{tenant}/g/{gateway}/cmd`. No wildcards across tenants.
 3. **Secrets.** All secrets from environment or a secrets manager. Never in
    images, never in git. Rotate `JWT_SIGNING_SECRET` and DB creds on schedule.
+   `SECRETS_KEY` (base64, 32 bytes) enables the per-tenant encrypted secrets store; back it up separately from the database, since without it stored secrets cannot be read.
 4. **Database.** Automated `pg_dump` (or WAL archiving) with a tested restore
    drill; document RPO/RTO with the customer. Telemetry partitions by month —
    see migrations; set retention per contract.
