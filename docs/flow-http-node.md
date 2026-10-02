@@ -18,8 +18,8 @@ Calls an HTTP(S) endpoint from inside a flow and puts the answer into a variable
 - Dry runs (the editor's Test button) never send the request; the node takes output 2 and the debug line says so.
 
 Not built: custom request headers and authentication (needs a place to keep secrets; use a gateway or proxy that
-adds them), PUT/DELETE, response headers, Node-RED import/export mapping for `http request`, a toggle for the
-feature in the UI (API only for now). Requests run inline while the reading is processed, so a slow endpoint delays
+adds them), PUT/DELETE, response headers, Node-RED import/export mapping for `http request`.
+The switch is in Settings > Flow node features (admin). Requests run inline while the reading is processed, so a slow endpoint delays
 that flow's evaluation by up to 5 s per call; combine with a rate-limit node on busy points.
 
 Tested with a fake HTTP client (routing, extraction, failures, per-run cap, validation), the SSRF-safe client against a
