@@ -202,3 +202,18 @@ readings; nested objects flatten with `_`, booleans map to 0/1, strings and arra
 exist as registered points for that device are stored. The network server's timestamp is used when valid and plausible.
 Status: integration-tested with both JSON shapes, bad/missing tokens and payloads with no numeric fields. Not tested
 against a real ChirpStack/TTS instance or real sensors. Downlinks (commands to LoRaWAN devices) are not built.
+
+## Kafka and AMQP notification channels (outbound)
+
+Alerts and report-ready events can be published to a message bus, as notification channel types `kafka` and `amqp`
+(admin-only, created in Notifications like webhooks). The body is the same JSON envelope as the webhook channel
+(`event`, `sent_at`, `data`).
+
+- Kafka target: `kafka://host1:9092,host2:9092/<topic>`. Produces with acks=all through `segmentio/kafka-go`. The topic must already exist.
+- AMQP target: `amqp://host:5672/<vhost>?exchange=<name>&key=<routing-key>`. RabbitMQ and other AMQP 0-9-1 brokers, persistent messages with publisher confirms. Credentials come from `AMQP_USERNAME` / `AMQP_PASSWORD` in the server environment, never from the target (targets are listed back to admins).
+- Like webhooks, the dial is checked at connect time: loopback, link-local (cloud metadata) and multicast addresses are refused.
+
+Status: target validation, the address guard and channel creation are tested. The Kafka and AMQP wire protocols come from
+those libraries and were NOT tested against a real broker here. Not built: TLS, Kafka SASL, AMQP over TLS (so use only
+on a trusted network segment), schema registry, keyed partitioning beyond the event name, and a bus as an *ingest* source
+(telemetry in over Kafka/AMQP) or a bulk telemetry sink. Those are the next steps if you need them.

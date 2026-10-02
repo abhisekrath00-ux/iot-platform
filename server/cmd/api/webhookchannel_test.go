@@ -22,6 +22,16 @@ func TestIntegrationWebhookChannelValidation(t *testing.T) {
 			t.Fatalf("%s -> %d", bad, c)
 		}
 	}
+	for _, ok := range []string{`{"type":"kafka","target":"kafka://k1:9092/alerts"}`, `{"type":"amqp","target":"amqp://mq:5672/v?exchange=iot&key=a"}`} {
+		if c := post("admin", ok); c != 201 {
+			t.Fatalf("%s -> %d", ok, c)
+		}
+	}
+	for _, bad := range []string{`{"type":"kafka","target":"kafka://k/alerts"}`, `{"type":"amqp","target":"amqp://u:p@mq/v?key=a"}`, `{"type":"mqtt","target":"x"}`} {
+		if c := post("admin", bad); c != 400 {
+			t.Fatalf("%s -> %d", bad, c)
+		}
+	}
 	if c := post("operator", `{"type":"webhook","target":"https://hooks.example.com/iot"}`); c != 403 {
 		t.Fatalf("operator created a channel: %d", c)
 	}

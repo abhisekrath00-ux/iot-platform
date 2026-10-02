@@ -258,6 +258,18 @@ func dispatch(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, sev
 			}); ok {
 				err = wh.Webhook(cctx, target, "alert.raised", map[string]any{"severity": severity, "message": msg})
 			}
+		case "kafka":
+			if b, ok := n.(interface {
+				Kafka(context.Context, string, string, map[string]any) error
+			}); ok {
+				err = b.Kafka(cctx, target, "alert.raised", map[string]any{"severity": severity, "message": msg})
+			}
+		case "amqp":
+			if b, ok := n.(interface {
+				AMQP(context.Context, string, string, map[string]any) error
+			}); ok {
+				err = b.AMQP(cctx, target, "alert.raised", map[string]any{"severity": severity, "message": msg})
+			}
 		}
 		cancel()
 		if err != nil {
