@@ -42,7 +42,7 @@ func Rollup(ctx context.Context, pool *pgxpool.Pool, from, to time.Time) (int64,
 func Purge(ctx context.Context, pool *pgxpool.Pool, cutoff time.Time) (int64, error) {
 	cutoff = cutoff.UTC().Truncate(time.Hour)
 	var oldest *time.Time
-	if err := pool.QueryRow(ctx, `SELECT min(observed_at) FROM telemetry WHERE observed_at < $1`, cutoff).Scan(&oldest); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT min(observed_at) FROM telemetry WHERE observed_at < $1 AND tenant_id NOT IN (SELECT tenant_id FROM tenant_retention WHERE raw_days IS NOT NULL)`, cutoff).Scan(&oldest); err != nil {
 		return 0, err
 	}
 	if oldest == nil {
@@ -62,7 +62,8 @@ func Purge(ctx context.Context, pool *pgxpool.Pool, cutoff time.Time) (int64, er
 	for ctx.Err() == nil {
 		ct, err := pool.Exec(ctx, `
 			DELETE FROM telemetry t USING (
-			  SELECT event_id, observed_at FROM telemetry WHERE observed_at < $1 LIMIT 5000) d
+			  SELECT event_id, observed_at FROM telemetry WHERE observed_at < $1
+			    AND tenant_id NOT IN (SELECT tenant_id FROM tenant_retention WHERE raw_days IS NOT NULL) LIMIT 5000) d
 			WHERE t.event_id = d.event_id AND t.observed_at = d.observed_at`, cutoff)
 		if err != nil {
 			return total, err
@@ -91,6 +92,12 @@ func Job(pool *pgxpool.Pool, retentionDays int, every time.Duration) func(contex
 			} else {
 				log.Printf("retention: rolled up %d buckets", n)
 			}
+			if n, err := RollupDaily(ctx, pool, now.Add(-72*time.Hour), now); err != nil {
+				log.Printf("retention: daily rollup: %v", err)
+			} else if n > 0 {
+				log.Printf("retention: rolled up %d daily buckets", n)
+			}
+			ApplyTenantPolicies(ctx, pool, now)
 			if retentionDays > 0 {
 				n, err := Purge(ctx, pool, now.Add(-time.Duration(retentionDays)*24*time.Hour))
 				if err != nil {

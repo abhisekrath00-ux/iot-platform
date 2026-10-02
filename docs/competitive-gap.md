@@ -23,7 +23,7 @@ from the code, not from intent.
 | Digital twin: assets, hierarchy, relations | ThingsBoard, Azure | Site, gateway, device plus a per-device twin card with health score (2.5D SVG, not 3D) | Partial (no asset hierarchy or relations) |
 | Device attributes, tags, groups, fleet search | AWS, ThingsBoard | Tags, fleet search and filters | Partial (tags only; no groups or typed attributes) |
 | Desired/reported state (shadow, twin) | AWS, Azure | None | Missing |
-| Data retention and downsampling | Ignition (QuestDB historian), ThingsBoard | Hourly rollups, optional raw purge, reports read rollups for purged ranges | Partial (daily view merges hourly rows via `bucket=day`, no stored daily table; no per-tenant retention; 24h series API still reads raw) |
+| Data retention and downsampling | Ignition (QuestDB historian), ThingsBoard | Hourly and stored daily rollups, per-tenant raw and hourly retention API, reports read rollups for purged ranges | Partial (24h series API still reads raw; no compression; no UI page for the policy yet) |
 | API keys / service tokens | all | Hashed, expiring, revocable keys; viewer/operator role; endpoint-group scopes; per-key rate limit; never able to approve commands; audited | Have (coarse scopes, per-replica limit) |
 | Secrets management | Ignition 8.3 | Env vars and vault-free config | Missing |
 | Edge rules, edge compute | Losant, ThingsBoard Edge | Allowlisted commands, edge gate (expiry, replay, TTL), ack path, simulated actuator only | Partial (no real actuator drivers, by design until hazard analysis) |
@@ -121,8 +121,8 @@ Status is from this repo's code. Nothing here is "Have" unless built and tested.
 | Report Builder capability | This product | Status | Value rank |
 |---|---|---|---|
 | Report parameters (date range, asset, device, threshold) | Builder takes range, bucket and points | Partial (no named reusable parameters, no cascading or multi-value) | 1 |
-| Export to PDF | HTML and CSV only | Missing | 2 |
-| Export to Excel (.xlsx) | CSV only | Missing | 3 |
+| Export to PDF | Paginated PDF (built-in font, page numbers, repeating headers), unit and API tested | Have (basic: no charts, ASCII text only) | 2 |
+| Export to Excel (.xlsx) | Single-sheet workbook, stdlib writer, validated as a zip with escaped cells | Have (basic: no styles, formulas or multiple sheets; not opened in real Excel) | 3 |
 | Tables with row groups and subtotals | Flat table per point | Missing | 4 |
 | Matrix (cross-tab, e.g. device by day) | None | Missing | 5 |
 | Charts embedded in a report | Preview chart in builder UI | Partial (not rendered into delivered output) | 6 |

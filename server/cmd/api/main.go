@@ -164,6 +164,8 @@ func main() {
 	api.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
 	s.cached(api, "GET /v1/points", s.listPoints)
 	api.HandleFunc("GET /v1/export/telemetry.csv", s.exportTelemetryCSV)
+	api.HandleFunc("GET /v1/retention", s.getRetention)
+	api.HandleFunc("PUT /v1/retention", s.putRetention)
 	api.HandleFunc("GET /v1/flows", s.listFlows)
 	api.HandleFunc("GET /v1/flows/{id}/export", s.exportFlow)
 	api.HandleFunc("POST /v1/flows/import", s.importFlow)
@@ -1225,11 +1227,18 @@ func (s *server) buildSeries(ctx context.Context, tenant string, def report.Defi
 			   UNION ALL
 			   SELECT bucket, n, sum, min, max FROM telemetry_rollup_hourly
 			   WHERE $6 AND tenant_id=$1 AND device_id=$2 AND point_id=$3
-			     AND bucket >= date_trunc('hour', now() - ($4 || ' hours')::interval) AND bucket < $5)
+			     AND bucket >= date_trunc('hour', now() - ($4 || ' hours')::interval) AND bucket < $5
+			   UNION ALL
+			   SELECT bucket, n, sum, min, max FROM telemetry_rollup_daily
+			   WHERE $7 AND tenant_id=$1 AND device_id=$2 AND point_id=$3
+			     AND bucket >= date_trunc('day', now() - ($4 || ' hours')::interval)
+			     AND bucket < date_trunc('day', COALESCE((SELECT min(bucket) FROM telemetry_rollup_hourly
+			         WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3
+			           AND bucket >= date_trunc('hour', now() - ($4 || ' hours')::interval)), $5)))
 			 SELECT `+bucketExpr+` AS bucket,
 			        sum(s)/sum(n), min(mn), max(mx), sum(s), sum(n)
 			 FROM parts GROUP BY bucket ORDER BY bucket`,
-			tenant, m.DeviceID, m.PointID, window, boundary, useRollup)
+			tenant, m.DeviceID, m.PointID, window, boundary, useRollup, def.GroupBy == "day" || def.GroupBy == "week")
 		if err != nil {
 			return nil, 0, err
 		}

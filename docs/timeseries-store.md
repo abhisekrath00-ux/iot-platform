@@ -1,7 +1,9 @@
 # Time-series store: options, tradeoffs, plan
 
-Status: evaluation and plan. Nothing here is migrated. No benchmark numbers
-exist yet; do not quote any until the harness below has run.
+Status: evaluation and plan. Nothing here is migrated. The harness
+(`server/cmd/tsbench`) exists and runs; no result from target hardware exists
+yet, so do not quote a throughput figure. A smoke run on the dev sandbox
+(144k rows, one machine) only proves the harness works.
 
 ## What we run today
 
@@ -10,8 +12,11 @@ hourly rollups, optional raw purge, reports reading rollups for purged ranges.
 Everything is tenant-scoped in SQL. One database, one backup story, works
 air-gapped.
 
-Known limits (from the gap table): no stored daily rollup, no per-tenant
-retention, the 24h series API reads raw rows, no compression of old raw data.
+Built since the first draft (tested): stored daily rollups built from hourly,
+per-tenant retention (`GET/PUT /v1/retention`, admin only, audited) for raw and
+hourly data, daily rows used by day/week reports once hourly rows are purged.
+Still open: the 24h series API reads raw rows, no compression of old raw data,
+no `TelemetryStore` interface yet (reads and writes call SQL directly).
 
 ## Options
 
@@ -64,7 +69,7 @@ Apache 2.0 (https://raw.githubusercontent.com/ClickHouse/ClickHouse/master/LICEN
    against the targets below, and, for B, only after licence review.
 
 ## Benchmark plan (not yet run)
-Harness: `bench/tsbench`, one binary, same data generator for every engine.
+Harness: `server/cmd/tsbench` (Postgres only today), one binary, same data generator for every engine.
 - Load: N devices x M points, 1 s to 60 s intervals; ingest in batches.
 - Measure: sustained ingest rows/s at p99 batch latency under 1 s; storage
   bytes per point after compression or rollups; query latency p50/p95 for

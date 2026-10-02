@@ -1,9 +1,11 @@
 package main
 
 import (
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestIntegrationAlertLifecycle(t *testing.T) {
@@ -73,5 +75,72 @@ func TestIntegrationAlertLifecycle(t *testing.T) {
 	}
 	if w := call(api, "itest-al1", "viewer", "GET", "/v1/alerts?status=bogus", ""); w.Code != 400 {
 		t.Fatalf("bad status = %d, want 400", w.Code)
+	}
+}
+
+func TestIntegrationRetentionPolicyAPI(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-ret")
+	seed(t, s, "itest-ret2")
+	s.st.Pool.Exec(t.Context(), `DELETE FROM tenant_retention WHERE tenant_id LIKE 'itest-ret%'`)
+	api := http.NewServeMux()
+	api.HandleFunc("GET /v1/retention", s.getRetention)
+	api.HandleFunc("PUT /v1/retention", s.putRetention)
+	if w := call(api, "itest-ret", "viewer", "PUT", "/v1/retention", `{"raw_days":30}`); w.Code != 403 {
+		t.Fatalf("viewer PUT = %d, want 403", w.Code)
+	}
+	for _, body := range []string{`{"raw_days":0}`, `{"hourly_days":10}`, `{"raw_days":90,"hourly_days":60}`} {
+		if w := call(api, "itest-ret", "admin", "PUT", "/v1/retention", body); w.Code != 400 {
+			t.Fatalf("%s = %d, want 400", body, w.Code)
+		}
+	}
+	if w := call(api, "itest-ret", "admin", "PUT", "/v1/retention", `{"raw_days":30,"hourly_days":400}`); w.Code != 200 {
+		t.Fatalf("valid PUT = %d %s", w.Code, w.Body.String())
+	}
+	w := call(api, "itest-ret", "viewer", "GET", "/v1/retention", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"raw_days":30`) {
+		t.Fatalf("GET = %d %s", w.Code, w.Body.String())
+	}
+	if w := call(api, "itest-ret2", "viewer", "GET", "/v1/retention", ""); !strings.Contains(w.Body.String(), `"raw_days":null`) {
+		t.Fatalf("other tenant sees policy: %s", w.Body.String())
+	}
+}
+
+func TestIntegrationReportUsesDailyRollupAfterHourlyPurge(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-dly")
+	ctx := t.Context()
+	exec := func(q string, a ...any) {
+		if _, err := s.st.Pool.Exec(ctx, q, a...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`DELETE FROM telemetry_rollup_hourly WHERE tenant_id='itest-dly'`)
+	exec(`DELETE FROM telemetry_rollup_daily WHERE tenant_id='itest-dly'`)
+	day := time.Now().UTC().Truncate(24 * time.Hour).Add(-30 * 24 * time.Hour)
+	// 30 days ago only a daily row exists (hourly purged); yesterday has hourly rows.
+	exec(`INSERT INTO telemetry_rollup_daily(tenant_id,device_id,point_id,bucket,n,sum,min,max) VALUES('itest-dly','d1','p1',$1,24,240,5,15)`, day)
+	yday := time.Now().UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
+	exec(`INSERT INTO telemetry_rollup_hourly(tenant_id,device_id,point_id,bucket,n,sum,min,max) VALUES('itest-dly','d1','p1',$1,2,40,10,30)`, yday.Add(time.Hour))
+	def := report.Definition{Metrics: []report.Metric{{DeviceID: "d1", PointID: "p1"}}, WindowHours: 24 * 45, GroupBy: "day"}
+	series, total, err := s.buildSeries(ctx, "itest-dly", def)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := series[def.Metrics[0]]
+	if total != 2 || len(rows) != 2 {
+		t.Fatalf("rows = %d %+v", len(rows), rows)
+	}
+	if rows[0].Count != 24 || rows[0].Sum != 240 || rows[0].Min != 5 || rows[0].Max != 15 {
+		t.Fatalf("daily bucket wrong: %+v", rows[0])
+	}
+	if rows[1].Count != 2 || rows[1].Avg != 20 {
+		t.Fatalf("hourly-derived bucket wrong: %+v", rows[1])
+	}
+	// hourly grouping must NOT pull daily rows
+	def.GroupBy = "hour"
+	series, _, _ = s.buildSeries(ctx, "itest-dly", def)
+	if len(series[def.Metrics[0]]) != 1 {
+		t.Fatalf("hour grouping used daily rows: %+v", series[def.Metrics[0]])
 	}
 }
