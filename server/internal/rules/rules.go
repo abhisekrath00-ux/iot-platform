@@ -245,36 +245,41 @@ func dispatch(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, sev
 		if err := rows.Scan(&typ, &target); err != nil {
 			continue
 		}
-		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		var err error
-		switch typ {
-		case "email":
-			err = n.Email(cctx, []string{target}, "[Hexmon IoT] "+severity+" alert", msg)
-		case "slack":
-			err = n.Slack(cctx, target, "["+severity+"] "+msg)
-		case "webhook":
-			if wh, ok := n.(interface {
-				Webhook(context.Context, string, string, map[string]any) error
-			}); ok {
-				err = wh.Webhook(cctx, target, "alert.raised", map[string]any{"severity": severity, "message": msg})
-			}
-		case "kafka":
-			if b, ok := n.(interface {
-				Kafka(context.Context, string, string, map[string]any) error
-			}); ok {
-				err = b.Kafka(cctx, target, "alert.raised", map[string]any{"severity": severity, "message": msg})
-			}
-		case "amqp":
-			if b, ok := n.(interface {
-				AMQP(context.Context, string, string, map[string]any) error
-			}); ok {
-				err = b.AMQP(cctx, target, "alert.raised", map[string]any{"severity": severity, "message": msg})
-			}
+		dispatchOne(ctx, n, typ, target, severity, msg, "alert.raised")
+	}
+}
+
+// dispatchOne sends one message to one channel with a 10s limit; failures are logged.
+func dispatchOne(ctx context.Context, n Notifier, typ, target, severity, msg, event string) {
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	var err error
+	switch typ {
+	case "email":
+		err = n.Email(cctx, []string{target}, "[Hexmon IoT] "+severity+" alert", msg)
+	case "slack":
+		err = n.Slack(cctx, target, "["+severity+"] "+msg)
+	case "webhook":
+		if wh, ok := n.(interface {
+			Webhook(context.Context, string, string, map[string]any) error
+		}); ok {
+			err = wh.Webhook(cctx, target, event, map[string]any{"severity": severity, "message": msg})
 		}
-		cancel()
-		if err != nil {
-			log.Printf("notify %s -> %s: %v", typ, target, err)
+	case "kafka":
+		if b, ok := n.(interface {
+			Kafka(context.Context, string, string, map[string]any) error
+		}); ok {
+			err = b.Kafka(cctx, target, event, map[string]any{"severity": severity, "message": msg})
 		}
+	case "amqp":
+		if b, ok := n.(interface {
+			AMQP(context.Context, string, string, map[string]any) error
+		}); ok {
+			err = b.AMQP(cctx, target, event, map[string]any{"severity": severity, "message": msg})
+		}
+	}
+	cancel()
+	if err != nil {
+		log.Printf("notify %s -> %s: %v", typ, target, err)
 	}
 }
 

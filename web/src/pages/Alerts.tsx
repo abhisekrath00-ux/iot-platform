@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, AlertRow, AlertDetail } from '../lib/api';
 import Empty from '../components/Empty';
+import EscalationPolicy from '../components/EscalationPolicy';
 
 const FILTERS = ['open', 'acknowledged', 'resolved', 'all'] as const;
 type Filter = typeof FILTERS[number];
@@ -85,6 +86,7 @@ export default function Alerts() {
           </div>
         </div>
       )}
+      <EscalationPolicy />
     </>
   );
 }

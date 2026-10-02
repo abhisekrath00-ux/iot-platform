@@ -165,6 +165,8 @@ func main() {
 	api.HandleFunc("GET /v1/alerts", s.listAlerts)
 	api.HandleFunc("GET /v1/alerts/{id}", s.getAlert)
 	api.HandleFunc("POST /v1/alerts/{id}/ack", s.ackAlert)
+	api.HandleFunc("GET /v1/escalation", s.getEscalation)
+	api.HandleFunc("PUT /v1/escalation", s.putEscalation)
 	api.HandleFunc("POST /v1/alerts/{id}/resolve", s.resolveAlert)
 	api.HandleFunc("POST /v1/alerts/{id}/comments", s.commentAlert)
 	api.HandleFunc("GET /v1/dashboards", s.listDashboards)
@@ -288,6 +290,7 @@ func main() {
 				return
 			case <-t.C:
 				rules.EvaluateKPIs(c, st.Pool, fn)
+				rules.EvaluateEscalations(c, st.Pool, fn)
 				if tick++; tick%15 == 0 {
 					rules.EvaluateForecasts(c, st.Pool, fn)
 				}

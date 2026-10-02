@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,6 +45,8 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
 	mux.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
 	mux.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
+	mux.HandleFunc("GET /v1/escalation", s.getEscalation)
+	mux.HandleFunc("PUT /v1/escalation", s.putEscalation)
 	mux.HandleFunc("POST /v1/reports/preview", s.previewReport)
 	mux.HandleFunc("POST /v1/reports", s.createReport)
 	mux.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
@@ -345,5 +348,76 @@ func TestIntegrationSeriesRanges(t *testing.T) {
 	w = call(h, "itest-sr2", "viewer", "GET", "/v1/telemetry/series?device_id=itest-sr-dev&point_id=temp&hours=2160", "")
 	if w.Code != 200 || strings.Contains(w.Body.String(), `"v":20`) {
 		t.Fatalf("tenant isolation: %d %s", w.Code, w.Body.String())
+	}
+}
+
+type fakeNotifier struct{ emails []string }
+
+func (f *fakeNotifier) Email(_ context.Context, to []string, subject, body string) error {
+	f.emails = append(f.emails, to[0]+"|"+body)
+	return nil
+}
+func (f *fakeNotifier) Slack(context.Context, string, string) error { return nil }
+
+func TestIntegrationEscalation(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-es")
+	seed(t, s, "itest-es2")
+	ctx := context.Background()
+	for _, q := range []string{
+		`DELETE FROM escalation_steps WHERE tenant_id IN ('itest-es','itest-es2')`,
+		`DELETE FROM alerts WHERE tenant_id='itest-es'`,
+		`DELETE FROM notification_channels WHERE tenant_id IN ('itest-es','itest-es2')`,
+		`INSERT INTO notification_channels(id,tenant_id,type,target) VALUES('itest-es-ch','itest-es','email','boss@example.com')`,
+		`INSERT INTO notification_channels(id,tenant_id,type,target) VALUES('itest-es2-ch','itest-es2','email','other@example.com')`,
+		`INSERT INTO alerts(id,tenant_id,severity,message,created_at) VALUES('itest-es-a1','itest-es','warning','Boiler hot', now() - interval '20 minutes')`,
+		`INSERT INTO alerts(id,tenant_id,severity,message,created_at) VALUES('itest-es-a2','itest-es','warning','Fan stuck', now() - interval '20 minutes')`,
+	} {
+		if _, err := s.st.Pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+	}
+	policy := `{"steps":[{"severity":"","step":1,"after_minutes":10,"channel_id":"itest-es-ch"},{"severity":"","step":2,"after_minutes":60,"channel_id":"itest-es-ch"}]}`
+	if w := call(h, "itest-es", "viewer", "PUT", "/v1/escalation", policy); w.Code != 403 {
+		t.Fatalf("viewer may not change the policy: %d", w.Code)
+	}
+	if w := call(h, "itest-es", "admin", "PUT", "/v1/escalation", `{"steps":[{"step":1,"after_minutes":10,"channel_id":"itest-es2-ch"}]}`); w.Code != 400 {
+		t.Fatalf("another tenant's channel must be refused: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(h, "itest-es", "admin", "PUT", "/v1/escalation", policy); w.Code != 200 {
+		t.Fatalf("put: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(h, "itest-es", "viewer", "GET", "/v1/escalation", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"after_minutes":60`) {
+		t.Fatalf("get: %d %s", w.Code, w.Body.String())
+	}
+	// acknowledge a2: it must never escalate
+	if _, err := s.st.Pool.Exec(ctx, `UPDATE alerts SET status='acknowledged' WHERE id='itest-es-a2'`); err != nil {
+		t.Fatal(err)
+	}
+	fn := &fakeNotifier{}
+	rules.EvaluateEscalations(ctx, s.st.Pool, fn)
+	if len(fn.emails) != 1 || !strings.Contains(fn.emails[0], "boss@example.com") || !strings.Contains(fn.emails[0], "ESCALATION step 1") || !strings.Contains(fn.emails[0], "Boiler hot") {
+		t.Fatalf("emails = %v", fn.emails)
+	}
+	rules.EvaluateEscalations(ctx, s.st.Pool, fn)
+	if len(fn.emails) != 1 {
+		t.Fatalf("step 1 repeated or step 2 sent early: %v", fn.emails)
+	}
+	// later: step 2 is due
+	if _, err := s.st.Pool.Exec(ctx, `UPDATE alerts SET created_at = now() - interval '90 minutes' WHERE id='itest-es-a1'`); err != nil {
+		t.Fatal(err)
+	}
+	rules.EvaluateEscalations(ctx, s.st.Pool, fn)
+	if len(fn.emails) != 2 || !strings.Contains(fn.emails[1], "ESCALATION step 2") {
+		t.Fatalf("emails = %v", fn.emails)
+	}
+	var lvl int
+	s.st.Pool.QueryRow(ctx, `SELECT escalation_level FROM alerts WHERE id='itest-es-a1'`).Scan(&lvl)
+	if lvl != 2 {
+		t.Fatalf("level = %d", lvl)
+	}
+	rules.EvaluateEscalations(ctx, s.st.Pool, fn)
+	if len(fn.emails) != 2 {
+		t.Fatal("no steps left, nothing more to send")
 	}
 }
