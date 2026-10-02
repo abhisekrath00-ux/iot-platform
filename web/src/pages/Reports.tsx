@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
 
 interface Metric { device_id: string; point_id: string; }
-interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; }
+interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; computed?: { name: string; expr: string }[]; }
 interface ReportRow { id: string; name: string; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
@@ -16,6 +16,7 @@ export default function Reports() {
   const [groupBy, setGroupBy] = useState('hour');
   const [layout, setLayout] = useState('');
   const [agg, setAgg] = useState('avg');
+  const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
   const [pw, setPw] = useState<Record<string, { w?: string; g?: string }>>({});
   const [cron, setCron] = useState('');
   const [channelId, setChannelId] = useState('');
@@ -43,7 +44,7 @@ export default function Reports() {
         method: 'POST',
         body: JSON.stringify({
           name,
-          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg },
+          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined },
           schedule_cron: cron || '',
           channel_id: channelId || ''
         })
@@ -58,7 +59,7 @@ export default function Reports() {
     try {
       const r = await api<{ html: string; rows: number }>('/v1/reports/preview', {
         method: 'POST',
-        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg } })
+        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined } })
       });
       setPreviewHTML(r.html); setPreviewRows(r.rows);
     } catch (e2) { setMsg(String(e2)); }
@@ -110,6 +111,16 @@ export default function Reports() {
           {layout === 'matrix' && <select value={agg} onChange={e => setAgg(e.target.value)} aria-label="Matrix value">
             <option value="avg">Average</option><option value="min">Min</option><option value="max">Max</option><option value="sum">Sum</option>
           </select>}
+          {layout === 'matrix' && <div>
+            <label>Computed columns (use {'{device.point}'} with + - * /, e.g. {'{meter-1.kwh} / {line-a.units}'})</label>
+            {computed.map((c, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <input placeholder="column name" aria-label={`Computed name ${i + 1}`} value={c.name} onChange={e => setComputed(computed.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                <input placeholder="{device.point} / {device.point}" aria-label={`Computed expression ${i + 1}`} value={c.expr} onChange={e => setComputed(computed.map((x, j) => j === i ? { ...x, expr: e.target.value } : x))} />
+                <button type="button" className="ghost" onClick={() => setComputed(computed.filter((_, j) => j !== i))}>Remove</button>
+              </div>))}
+            {computed.length < 5 && <button type="button" className="ghost" onClick={() => setComputed([...computed, { name: '', expr: '' }])}>Add computed column</button>}
+          </div>}
           <label>Schedule (5-field cron, empty = on demand)</label>
           <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
             {[['', 'On demand'], ['0 8 * * *', 'Daily 8:00'], ['0 8 * * 1', 'Mondays 8:00'], ['0 8 1 * *', 'Monthly 1st 8:00']].map(([c, l]) => (

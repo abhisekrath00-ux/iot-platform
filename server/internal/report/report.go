@@ -6,7 +6,9 @@ package report
 import (
 	"errors"
 	"fmt"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/kpi"
 	"html"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +26,15 @@ type Definition struct {
 	GroupBy     string   `json:"group_by"`         // 15min|hour|day|week
 	Layout      string   `json:"layout,omitempty"` // "" (one table per metric) or "matrix" (bucket rows x metric columns)
 	Agg         string   `json:"agg,omitempty"`    // matrix cell value: avg (default), min, max, sum
+	// Computed adds derived columns to a matrix, e.g. "{meter-1.kwh} / {line-a.units}".
+	// The expression language is the KPI one (numbers, + - * /, point references): no
+	// functions, no loops. References must be metrics of this report.
+	Computed []Computed `json:"computed,omitempty"`
+}
+
+type Computed struct {
+	Name string `json:"name"`
+	Expr string `json:"expr"`
 }
 
 var (
@@ -73,6 +84,32 @@ func Validate(d Definition) error {
 	case "", "avg", "min", "max", "sum":
 	default:
 		return ErrBadLayout
+	}
+	if len(d.Computed) > 0 {
+		if d.Layout != "matrix" {
+			return fmt.Errorf("computed columns need the matrix layout")
+		}
+		if len(d.Computed) > 5 {
+			return fmt.Errorf("at most 5 computed columns")
+		}
+		have := map[string]bool{}
+		for _, m := range d.Metrics {
+			have[m.DeviceID+"."+m.PointID] = true
+		}
+		for _, c := range d.Computed {
+			if n := strings.TrimSpace(c.Name); n == "" || len(n) > 64 {
+				return fmt.Errorf("computed column name must be 1-64 characters")
+			}
+			e, err := kpi.Parse(c.Expr)
+			if err != nil {
+				return fmt.Errorf("computed %q: %v", c.Name, err)
+			}
+			for _, r := range e.Refs {
+				if !have[r.String()] {
+					return fmt.Errorf("computed %q refers to %s, which is not a metric of this report", c.Name, r)
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -256,18 +293,40 @@ func Matrix(d Definition, series map[Metric][]Bucket) (header []string, rows [][
 			idx[i][b.Start.UTC()] = b
 		}
 	}
+	exprs := make([]*kpi.Expr, len(d.Computed))
+	for i, c := range d.Computed {
+		header = append(header, c.Name)
+		exprs[i], _ = kpi.Parse(c.Expr) // validated by Validate; nil means no column value
+	}
+	compute := func(vals map[string]float64) []string {
+		out := make([]string, len(exprs))
+		for i, e := range exprs {
+			out[i] = "-"
+			if e == nil {
+				continue
+			}
+			if v, err := e.Eval(vals); err == nil && !math.IsNaN(v) && !math.IsInf(v, 0) {
+				out[i] = fmt.Sprintf("%.3f", v)
+			}
+		}
+		return out
+	}
 	for _, t := range ts {
 		r := []string{t.Format("2006-01-02 15:04")}
-		for i := range d.Metrics {
+		vals := map[string]float64{}
+		for i, m := range d.Metrics {
 			if b, ok := idx[i][t]; ok {
-				r = append(r, fmt.Sprintf("%.3f", aggOf(d, b)))
+				v := aggOf(d, b)
+				vals[m.DeviceID+"."+m.PointID] = v
+				r = append(r, fmt.Sprintf("%.3f", v))
 			} else {
 				r = append(r, "-")
 			}
 		}
-		rows = append(rows, r)
+		rows = append(rows, append(r, compute(vals)...))
 	}
 	total = []string{"overall"}
+	tvals := map[string]float64{}
 	for _, m := range d.Metrics {
 		a, mn, mx, sm, n := Summary(series[m])
 		if n == 0 {
@@ -283,8 +342,10 @@ func Matrix(d Definition, series map[Metric][]Bucket) (header []string, rows [][
 		case "sum":
 			v = sm
 		}
+		tvals[m.DeviceID+"."+m.PointID] = v
 		total = append(total, fmt.Sprintf("%.3f", v))
 	}
+	total = append(total, compute(tvals)...)
 	return
 }
 

@@ -173,3 +173,41 @@ func TestApplyParamsAndCSVMatrix(t *testing.T) {
 		t.Fatalf("csv matrix: %s", csv)
 	}
 }
+
+func TestComputedMatrixColumns(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	kwh, units := Metric{"meter-1", "kwh"}, Metric{"line-a", "units"}
+	d := Definition{Metrics: []Metric{kwh, units}, WindowHours: 24, GroupBy: "hour", Layout: "matrix", Agg: "sum",
+		Computed: []Computed{{Name: "kWh per unit", Expr: "{meter-1.kwh} / {line-a.units}"}}}
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+	s := map[Metric][]Bucket{
+		kwh:   {{Start: t0, Sum: 50, Count: 1}, {Start: t0.Add(time.Hour), Sum: 30, Count: 1}},
+		units: {{Start: t0, Sum: 10, Count: 1}, {Start: t0.Add(time.Hour), Sum: 0, Count: 1}},
+	}
+	hdr, rows, total := Matrix(d, s)
+	if hdr[2] != "kWh per unit" || rows[0][3] != "5.000" {
+		t.Fatalf("computed cell: %v %v", hdr, rows)
+	}
+	if rows[1][3] != "-" { // divide by zero is shown as missing, never as Inf
+		t.Fatalf("div by zero cell = %q", rows[1][3])
+	}
+	if total[3] != "8.000" { // 80 kWh / 10 units
+		t.Fatalf("total computed = %q", total[3])
+	}
+	if !strings.Contains(Render("t", d, s, t0), "kWh per unit") || !strings.Contains(RenderCSV(d, s), "kWh per unit") {
+		t.Fatal("computed column missing from output")
+	}
+	bad := []Definition{
+		{Metrics: d.Metrics, WindowHours: 1, GroupBy: "hour", Computed: []Computed{{"x", "1"}}},                                   // not matrix
+		{Metrics: d.Metrics, WindowHours: 1, GroupBy: "hour", Layout: "matrix", Computed: []Computed{{"x", "{other.thing} * 2"}}}, // foreign ref
+		{Metrics: d.Metrics, WindowHours: 1, GroupBy: "hour", Layout: "matrix", Computed: []Computed{{"x", "{meter-1.kwh} ^ 2"}}}, // bad grammar
+		{Metrics: d.Metrics, WindowHours: 1, GroupBy: "hour", Layout: "matrix", Computed: []Computed{{"", "{meter-1.kwh}"}}},      // no name
+	}
+	for i, b := range bad {
+		if Validate(b) == nil {
+			t.Fatalf("bad definition %d accepted", i)
+		}
+	}
+}

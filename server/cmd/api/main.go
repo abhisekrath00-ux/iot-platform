@@ -114,6 +114,7 @@ func main() {
 	}
 	s.cached(api, "GET /v1/devices", s.listDevices)
 	api.HandleFunc("POST /v1/devices", s.createDevice) // UI onboarding entry point
+	api.HandleFunc("POST /v1/devices/bulk", s.bulkCreateDevices)
 	s.cached(api, "GET /v1/telemetry/latest", s.latestTelemetry)
 	api.HandleFunc("GET /v1/telemetry/count", s.countTelemetry)
 	api.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
