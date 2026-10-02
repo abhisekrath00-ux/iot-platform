@@ -1,12 +1,28 @@
-# Direct MQTT devices (design, not implemented)
+# Direct MQTT devices (certificate path built, telemetry-only)
 
 Status: **proposal**. Today every device reaches the platform through an edge
 agent (serial, Modbus, OPC UA). Network-capable microcontrollers (ESP32,
 STM32 with an Ethernet or Wi-Fi stack) could publish straight to the broker.
-This note records the design and what must be decided first. Nothing here is
-built or tested; do not treat it as a supported path.
+This note records the design and what must be decided first. The certificate path is now built (see below); the rest is still design.
 
-## Why it is not a small change
+## Built and tested (certificate path)
+
+- `POST /v1/enrollment/tokens` accepts `"kind":"direct"`; the gateway row stores `kind` (migration 0025, default `edge`).
+  The claim flow is the same as for gateways (claim code + CSR, CN = serial).
+- The broker ACL for a direct device allows only `write t/<tenant>/g/<gateway>/telemetry`: no reads, no cmd, diag or fleet topics.
+  Unit-tested, including that edge gateways keep their command topics.
+- Ingest already takes tenant and gateway from the broker-enforced topic and rejects a payload that names a different one (tested).
+  A payload with no `observed_at` is now stamped with receive time and quality `estimated` (tested).
+- No command path exists for direct devices.
+
+## Not built
+
+- Username + secret fallback for MCUs that cannot hold a key (needs the owner decision below; off until decided).
+- Per-client publish rate and payload size limits at the broker (set them in the broker config; not generated or tested here).
+- Onboarding UI "Network device" flow (the API takes `kind`; the UI does not offer it yet).
+- Any test against a real ESP32/STM32 or a real broker with TLS: UNTESTED on hardware.
+
+## Why it needed a design first
 
 The broker ACL today is generated per claimed gateway from the certificate CN
 (`server/internal/brokeracl`). A direct device is a new kind of broker

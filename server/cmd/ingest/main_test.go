@@ -92,3 +92,17 @@ func TestSubTopicShared(t *testing.T) {
 		t.Fatalf("shared topic wrong: %s", got)
 	}
 }
+
+func TestMissingObservedAtIsStampedEstimated(t *testing.T) {
+	p := []byte(`{"schema_version":1,"event_id":"e1","device_id":"d","point_id":"p","value":1}`)
+	now := time.Now()
+	e, err := resolveEnvelope("t/acme/g/gw1/telemetry", p, now)
+	if err != nil || e.Quality != "estimated" || !e.ObservedAt.Equal(now) {
+		t.Fatalf("%+v %v", e, err)
+	}
+	// topic identity still wins over a spoofed payload tenant
+	p = []byte(`{"schema_version":1,"event_id":"e1","tenant_id":"evil","device_id":"d","point_id":"p","value":1}`)
+	if _, err := resolveEnvelope("t/acme/g/gw1/telemetry", p, now); err == nil {
+		t.Fatal("spoofed tenant accepted")
+	}
+}

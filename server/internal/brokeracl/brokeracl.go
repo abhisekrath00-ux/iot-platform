@@ -18,6 +18,7 @@ type Entry struct {
 	Serial    string // cert CN = broker username
 	TenantID  string
 	GatewayID string // topic identity (t/<tenant>/g/<gateway_id>/...)
+	Direct    bool   // network device publishing straight to the broker: telemetry only, no reads
 }
 
 // Header is the static preamble: server-side service users (ingest, api)
@@ -46,6 +47,11 @@ func Generate(entries []Entry) string {
 		base := fmt.Sprintf("t/%s/g/%s", e.TenantID, e.GatewayID)
 		fmt.Fprintf(&b, "\nuser %s\n", e.Serial)
 		fmt.Fprintf(&b, "topic write %s/telemetry\n", base)
+		if e.Direct {
+			// No command, diagnostic or fleet subtree: control for direct
+			// devices needs its own hazard analysis first (docs/mqtt-direct.md).
+			continue
+		}
 		fmt.Fprintf(&b, "topic write %s/diag/result\n", base)
 		fmt.Fprintf(&b, "topic write %s/cmd/ack\n", base)
 		fmt.Fprintf(&b, "topic write %s/fleet/ack\n", base)

@@ -83,3 +83,19 @@ func TestGenerateGrantsEdgeTopics(t *testing.T) {
 		t.Error("gateway must not write its own command topic")
 	}
 }
+
+func TestDirectDeviceIsTelemetryOnly(t *testing.T) {
+	blk := strings.TrimPrefix(Generate([]Entry{{Serial: "MCU-1", TenantID: "acme", GatewayID: "g1", Direct: true}}), Header)
+	if !strings.Contains(blk, "topic write t/acme/g/g1/telemetry") {
+		t.Errorf("direct device cannot publish telemetry:\n%s", blk)
+	}
+	for _, bad := range []string{"topic read", "cmd", "diag", "fleet"} {
+		if strings.Contains(blk, bad) {
+			t.Errorf("direct device got %q:\n%s", bad, blk)
+		}
+	}
+	edge := Generate([]Entry{{Serial: "GW-1", TenantID: "acme", GatewayID: "g2"}})
+	if !strings.Contains(edge, "topic read t/acme/g/g2/cmd") {
+		t.Errorf("edge gateway lost its command topic")
+	}
+}

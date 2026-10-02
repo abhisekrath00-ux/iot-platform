@@ -20,7 +20,7 @@ func (s *server) regenerateBrokerACL(ctx context.Context) {
 		return
 	}
 	rows, err := s.st.Pool.Query(ctx,
-		`SELECT serial, tenant_id, id FROM gateways
+		`SELECT serial, tenant_id, id, kind='direct' FROM gateways
 		 WHERE status='active' AND cert_fingerprint IS NOT NULL AND cert_fingerprint<>''`)
 	if err != nil {
 		log.Printf("brokeracl: query: %v", err)
@@ -30,7 +30,7 @@ func (s *server) regenerateBrokerACL(ctx context.Context) {
 	entries := []brokeracl.Entry{}
 	for rows.Next() {
 		var e brokeracl.Entry
-		if err := rows.Scan(&e.Serial, &e.TenantID, &e.GatewayID); err == nil {
+		if err := rows.Scan(&e.Serial, &e.TenantID, &e.GatewayID, &e.Direct); err == nil {
 			entries = append(entries, e)
 		}
 	}

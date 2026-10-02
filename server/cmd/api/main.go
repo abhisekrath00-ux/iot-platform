@@ -768,9 +768,17 @@ func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 		SiteID   string `json:"site_id"`
 		Serial   string `json:"serial"`
 		TTLHours int    `json:"ttl_hours"`
+		Kind     string `json:"kind"` // edge (default) | direct (network device, telemetry-only)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.SiteID == "" || in.Serial == "" {
 		http.Error(w, "site_id and serial required", 400)
+		return
+	}
+	if in.Kind == "" {
+		in.Kind = "edge"
+	}
+	if in.Kind != "edge" && in.Kind != "direct" {
+		http.Error(w, "kind must be edge or direct", 400)
 		return
 	}
 	if in.TTLHours <= 0 || in.TTLHours > 24*30 {
@@ -790,9 +798,9 @@ func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	if _, err := tx.Exec(r.Context(),
-		`INSERT INTO gateways(id,tenant_id,site_id,serial,status)
-		 SELECT $1,$2,$3,$4,'pending' WHERE EXISTS (SELECT 1 FROM sites WHERE id=$3 AND tenant_id=$2)`,
-		gwID, tenant, in.SiteID, in.Serial); err != nil {
+		`INSERT INTO gateways(id,tenant_id,site_id,serial,status,kind)
+		 SELECT $1,$2,$3,$4,'pending',$5 WHERE EXISTS (SELECT 1 FROM sites WHERE id=$3 AND tenant_id=$2)`,
+		gwID, tenant, in.SiteID, in.Serial, in.Kind); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -808,9 +816,9 @@ func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.audit(r, "enrollment.mint", gwID, map[string]any{"serial": in.Serial, "site_id": in.SiteID})
+	s.audit(r, "enrollment.mint", gwID, map[string]any{"serial": in.Serial, "site_id": in.SiteID, "kind": in.Kind})
 	writeJSON(w, 201, map[string]any{
-		"gateway_id": gwID, "claim_code": code, "expires_at": expires,
+		"gateway_id": gwID, "kind": in.Kind, "claim_code": code, "expires_at": expires,
 		"note": "show this code to the installer once; it is not stored",
 	})
 }

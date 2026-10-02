@@ -233,6 +233,11 @@ func resolveEnvelope(topic string, payload []byte, now time.Time) (envelope, err
 	if e.SchemaVersion != 1 || e.EventID == "" || e.DeviceID == "" || e.PointID == "" {
 		return envelope{}, fmt.Errorf("invalid envelope fields (event=%s)", e.EventID)
 	}
+	if e.ObservedAt.IsZero() {
+		// MCUs without a trusted clock omit observed_at: stamp receive time
+		// and never present it as a measured timestamp.
+		e.ObservedAt, e.Quality = now, "estimated"
+	}
 	if e.ObservedAt.After(now.Add(5*time.Minute)) || now.Sub(e.ObservedAt) > 30*24*time.Hour {
 		return envelope{}, fmt.Errorf("implausible observed_at %s (event=%s)", e.ObservedAt, e.EventID)
 	}
