@@ -61,7 +61,7 @@ a skipped port test still ends `live` once data flows.
   or across VLANs. Multicast is often blocked between subnets; type `-claim-api` then.
 - `edge-agent -scan-lan 192.168.1.0/24` TCP-connects to Modbus TCP (502), OPC UA (4840), IEC 104 (2404), DNP3 (20000),
   102, and MQTT (1883/8883). Private ranges only, /22 or smaller. An open port means something listens, not that it is
-  a supported device. No BACnet Who-Is or SNMP probe yet. The scan runs on the edge box, because only it can see the
+  a supported device. `edge-agent -scan-bacnet 192.168.1.255` broadcasts a BACnet Who-Is and lists the I-Am answers (device instance, vendor id); parser tested with hand-built I-Am frames incl. routed ones, not against real devices, and broadcasts do not cross routers or VLANs. No SNMP probe yet. The scan runs on the edge box, because only it can see the
   plant network; the dashboard cannot scan on its behalf. The serial Modbus slave scan is `-scan-port`.
 
 ## Onboarding the later network drivers from the dashboard

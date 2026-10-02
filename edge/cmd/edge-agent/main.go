@@ -69,8 +69,20 @@ func main() {
 	identityDir := flag.String("identity-dir", paths.Data(), "directory holding identity.json")
 	discoverFlag := flag.Bool("discover", false, "look for Hexmon servers advertising on the local network (mDNS), print their addresses, then exit; nothing is enrolled")
 	scanLAN := flag.String("scan-lan", "", "probe a private IPv4 range (e.g. 192.168.1.0/24, max /22) for open industrial ports (Modbus TCP, OPC UA, IEC 104, DNP3, MQTT), print results, then exit")
+	whoIs := flag.String("scan-bacnet", "", "broadcast a BACnet Who-Is to this subnet broadcast address (e.g. 192.168.1.255, or 255.255.255.255) and list devices that answer, then exit")
 	flag.Parse()
 
+	if *whoIs != "" {
+		ds, err := discover.FindBACnet(context.Background(), *whoIs, 3*time.Second)
+		if err != nil {
+			log.Fatalf("scan-bacnet: %v", err)
+		}
+		for _, d := range ds {
+			fmt.Printf("%s  device,%d  vendor %d\n", d.Addr, d.Instance, d.Vendor)
+		}
+		fmt.Printf("%d BACnet device(s) answered. Use host=<address> in a bacnet profile.\n", len(ds))
+		return
+	}
 	if *scanLAN != "" {
 		hits, err := discover.ScanLAN(context.Background(), *scanLAN, 400*time.Millisecond)
 		if err != nil {
