@@ -4,6 +4,10 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -11,7 +15,17 @@ import (
 type Store struct{ Pool *pgxpool.Pool }
 
 func Connect(ctx context.Context, url string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("pg config: %w", err)
+	}
+	// Each leader-elected background job holds one connection for its whole
+	// life (advisory lock). pgx defaults to max(4, NumCPU), which a small host
+	// exhausts with no connection left for requests, so every request hangs.
+	if !strings.Contains(url, "pool_max_conns") {
+		cfg.MaxConns = PoolSize(os.Getenv("DB_MAX_CONNS"), runtime.NumCPU())
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("pg connect: %w", err)
 	}
@@ -19,6 +33,23 @@ func Connect(ctx context.Context, url string) (*Store, error) {
 		return nil, fmt.Errorf("pg ping: %w", err)
 	}
 	return &Store{Pool: pool}, nil
+}
+
+// MinPoolSize leaves room for every leader job (they pin connections) plus
+// request traffic. Keep it above the number of leader.Run jobs in cmd/api.
+const MinPoolSize = 20
+
+// PoolSize returns DB_MAX_CONNS when it is a sane number, else the larger of
+// MinPoolSize and 4 per CPU. A value below MinPoolSize is raised to it.
+func PoolSize(env string, cpus int) int32 {
+	n := 4 * cpus
+	if v, err := strconv.Atoi(strings.TrimSpace(env)); err == nil && v > 0 {
+		n = v
+	}
+	if n < MinPoolSize {
+		n = MinPoolSize
+	}
+	return int32(n)
 }
 
 func (s *Store) Close() { s.Pool.Close() }

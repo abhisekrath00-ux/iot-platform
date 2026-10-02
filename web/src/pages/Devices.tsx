@@ -3,6 +3,19 @@ import { Link } from 'react-router-dom';
 import { api, Device } from '../lib/api';
 import Empty from '../components/Empty';
 
+// The bulk endpoint answers 400 with {"problems":["line 3: ..."]}; show one problem per line.
+function importProblems(e: unknown): string {
+  const msg = String(e instanceof Error ? e.message : e);
+  const i = msg.indexOf('{');
+  if (i >= 0) {
+    try {
+      const j = JSON.parse(msg.slice(i));
+      if (Array.isArray(j.problems)) return j.problems.join('\n');
+    } catch { /* fall through */ }
+  }
+  return msg;
+}
+
 export default function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [q, setQ] = useState('');
@@ -19,13 +32,13 @@ export default function Devices() {
     try {
       const r = await api<{ would_create: number }>('/v1/devices/bulk?dry_run=1', { method: 'POST', body: text, headers: { 'Content-Type': 'text/csv' } });
       setImp({ text, would: r.would_create });
-    } catch (e) { setImp(null); setImpMsg(`Import rejected, nothing was created. ${e}`); }
+    } catch (e) { setImp(null); setImpMsg(`Import rejected, nothing was created.\n${importProblems(e)}`); }
   };
   const confirmImport = () => {
     if (!imp) return;
     api<{ created: number }>('/v1/devices/bulk', { method: 'POST', body: imp.text, headers: { 'Content-Type': 'text/csv' } })
       .then(r => { setImpMsg(`Created ${r.created} devices.`); setImp(null); load(); })
-      .catch(e => setImpMsg(`Import failed, nothing was created. ${e}`));
+      .catch(e => setImpMsg(`Import failed, nothing was created.\n${importProblems(e)}`));
   };
 
   const load = () => {

@@ -1,11 +1,12 @@
 import AnomalyRuleForm from './AnomalyRuleForm';
+import { flowSummary, FlowSummaryDef } from '../lib/flowsummary';
 import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
 import { Link } from 'react-router-dom';
 import { api, download } from '../lib/api';
 
 interface Rule { id: string; name: string; definition: any; version: number; enabled: boolean; }
-interface FlowDef { trigger: { device_id: string; point_id: string; op: string; value: number }; steps: any[]; cooldown_seconds?: number; latch?: boolean; }
+type FlowDef = FlowSummaryDef;
 interface FlowRow { id: string; name: string; definition: FlowDef; enabled: boolean; published_version?: number | null; }
 interface Channel { id: string; type: string; target: string; }
 
@@ -133,7 +134,7 @@ export default function Flows() {
           {rules.map(r => (
             <tr key={r.id}>
               <td>{r.name}</td>
-              <td className="muted">{r.definition?.kind === 'sigma' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of ${r.definition.window_minutes} min history` : r.definition?.kind === 'kpi_band' ? `KPI band ${r.definition.min ?? '-'} to ${r.definition.max ?? '-'}` : `${r.definition?.point_id} ${r.definition?.op} ${r.definition?.threshold}`}{r.definition?.device_id ? ` on ${r.definition.device_id}` : ''}</td>
+              <td className="muted">{r.definition?.kind === 'sigma' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of ${r.definition.window_minutes} min history` : r.definition?.kind === 'kpi_band' ? `KPI band ${r.definition.min ?? '-'} to ${r.definition.max ?? '-'}` : r.definition?.kind === 'seasonal' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of its usual ${r.definition.season === 'hour_of_week' ? 'hour of week' : 'hour of day'} (${r.definition.window_days} days)` : r.definition?.kind === 'forecast_limit' ? `${r.definition.point_id} forecast ${r.definition.op} ${r.definition.threshold} within ${r.definition.horizon_hours} h` : `${r.definition?.point_id} ${r.definition?.op} ${r.definition?.threshold}`}{r.definition?.device_id ? ` on ${r.definition.device_id}` : ''}</td>
               <td><span className={`pill ${r.definition?.severity === 'critical' ? 'bad' : r.definition?.severity === 'warning' ? 'warn' : 'ok'}`}>{r.definition?.severity}</span></td>
               <td className="muted">{r.enabled ? 'enabled' : 'disabled'}</td>
             </tr>
@@ -208,7 +209,7 @@ export default function Flows() {
       </div>
       {flows.map(f => (
         <div key={f.id} className="card" style={{ marginBottom: 10 }}>
-          <b>{f.name}</b> <span className="muted">{f.definition.trigger.device_id}/{f.definition.trigger.point_id} {f.definition.trigger.op} {f.definition.trigger.value} - {f.definition.steps.length} steps{f.definition.cooldown_seconds ? ` - quiet for ${Math.round(f.definition.cooldown_seconds / 60)} min after a notification` : ''}{f.definition.latch ? ' - latched' : ''}</span>
+          <b>{f.name}</b> <span className="muted">{flowSummary(f.definition)}</span>
           <div className="muted">{f.enabled ? 'enabled' : 'disabled'}{f.published_version ? '' : ' - draft, not published'}</div>
           {f.published_version ? <button className="ghost" style={{ marginTop: 8 }} onClick={() => download(`/v1/flows/${f.id}/export`, `${f.name}.hexmon.json`).catch(e => setImportMsg(String(e)))}>Export</button> : null}
         </div>
