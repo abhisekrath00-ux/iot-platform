@@ -20,21 +20,15 @@ the edge agent on an Ubuntu or Windows box with a USB-RS485 adapter (`/dev/ttyUS
 | apparent_power | 0x08 (8) | 30008 | kVA |
 | power_factor | 0x0A (10) | 30010 | - |
 | frequency | 0x0C (12) | 30012 | Hz |
-| energy_kwh (total active energy) | 0x5A (90) | 30090 | kWh |
 
-Word order is the leaflet's default "mid-little endian" = `cdab`. The leaflet's worked example (1234.12 kWh as
-0x449A43D7, low word 0x43D7 at 30090 and high word 0x449A at 30091) confirms that order, and a unit test decodes it.
-**Open conflict:** the config table (second photo, item 13, display `End.I`) lists Endianness as LSRF/MSRF with factory
-setting MSRF (most significant register first, which would be `abcd`), while the worked example calls mid-little
-endian (low word first, `cdab`) the default. Both cannot be the factory state. Do one live read of voltage and
-check the value is sane (about 230 V); if it is garbage, switch `word_order` to `abcd`. Switching the meter to big-endian (holding register 40070) means changing `word_order` to `abcd`.
+Word order: this sheet's example box calls "mid-little endian" (`cdab`) the default, but its config table gives factory endianness as MSRF (most significant register first = `abcd`), and the sister MFM383A manual states big endian (`abcd`, MSRF) is the default. Two of three statements say `abcd`, so the profile now uses `abcd` and the live read decides. Holding register 40070 changes the order on the meter (0 = LSRF, 1 = MSRF).
 
-The third photo shows the leaflet section "Example to read data from input register": total active energy,
-start address 30090, 2 registers, 1234.12 kWh. That confirms the energy register and that these are input
-registers (FC 04). The big-endian example in the same box stores 0x449A at 30090 and 0x43D7 at 30091 (`abcd`).
-Mapping 30090 to protocol address 90 follows the same 3xxxx-to-zero-based rule as the 30000 = 0x00 rows; that rule
-is an inference, so confirm it with the first live read. Unverified: power units (kW/kvar/kVA as printed, but the
-leaflet resolution table is in W) and the energy register's reset/rollover behaviour.
+CORRECTION (Oct 2, after the full OP987-V02 PDF and the sister MFM383A manual): the "Example to read data from
+input register" box (total active energy 1234.12 kWh at 30090) is generic text that Selec prints in several manuals.
+The MX300's own readable-parameter table has NO energy register (only V, I, kW, kvar, kVA, PF, Hz, serial number), so
+this profile does not read energy. Input registers (FC 04) are still the right function, per that box.
+Unverified: power units (kW/kvar/kVA as printed, but the
+leaflet resolution table is in W) 
 
 ## Edge agent config
 
@@ -49,14 +43,13 @@ leaflet resolution table is in W) and the energy register's reset/rollover behav
     address: 1
     interval: 10s
     points:
-      - {id: voltage,        register: 0,  func: 4, type: f32, word_order: cdab, unit: V,    min: 0, max: 600000}
-      - {id: current,        register: 2,  func: 4, type: f32, word_order: cdab, unit: A,    min: 0, max: 10000}
-      - {id: active_power,   register: 4,  func: 4, type: f32, word_order: cdab, unit: kW,   min: 0, max: 1000000}
-      - {id: reactive_power, register: 6,  func: 4, type: f32, word_order: cdab, unit: kvar, min: -1000000, max: 1000000}
-      - {id: apparent_power, register: 8,  func: 4, type: f32, word_order: cdab, unit: kVA,  min: 0, max: 1000000}
-      - {id: power_factor,   register: 10, func: 4, type: f32, word_order: cdab, unit: "",   min: 0, max: 1}
-      - {id: energy_kwh,     register: 90, func: 4, type: f32, word_order: cdab, unit: kWh,  min: 0, max: 1e9}
-      - {id: frequency,      register: 12, func: 4, type: f32, word_order: cdab, unit: Hz,   min: 40, max: 70}
+      - {id: voltage,        register: 0,  func: 4, type: f32, word_order: abcd, unit: V,    min: 0, max: 600000}
+      - {id: current,        register: 2,  func: 4, type: f32, word_order: abcd, unit: A,    min: 0, max: 10000}
+      - {id: active_power,   register: 4,  func: 4, type: f32, word_order: abcd, unit: kW,   min: 0, max: 1000000}
+      - {id: reactive_power, register: 6,  func: 4, type: f32, word_order: abcd, unit: kvar, min: -1000000, max: 1000000}
+      - {id: apparent_power, register: 8,  func: 4, type: f32, word_order: abcd, unit: kVA,  min: 0, max: 1000000}
+      - {id: power_factor,   register: 10, func: 4, type: f32, word_order: abcd, unit: "",   min: 0, max: 1}
+      - {id: frequency,      register: 12, func: 4, type: f32, word_order: abcd, unit: Hz,   min: 40, max: 70}
 ```
 
 ## Not done on purpose
@@ -70,5 +63,4 @@ plus four-eyes path and are not implemented.
 DIP keys 1-3 pick the display parameter: 000 auto/manual scroll, 001 voltage, 010 current, 011 power factor,
 100 active power, 101 reactive power, 110 apparent power, 111 frequency. Config pages 11.3-15 cover current
 hysteresis, current trip time, frequency over/under limits (45-65 Hz, factory 60/50), frequency hysteresis,
-endianness, trip/alarm mode and factory default. The energy-register section of the leaflet is cut off in the photo,
-so the energy register stays unverified.
+endianness, trip/alarm mode and factory default. 
