@@ -14,7 +14,9 @@ func TestIntegrationDeviceTokens(t *testing.T) {
 	seed(t, s, "itest-dt1")
 	seed(t, s, "itest-dt2")
 	pool := s.st.Pool
-	clean := func() { pool.Exec(context.Background(), `DELETE FROM device_tokens WHERE tenant_id IN ('itest-dt1','itest-dt2')`) }
+	clean := func() {
+		pool.Exec(context.Background(), `DELETE FROM device_tokens WHERE tenant_id IN ('itest-dt1','itest-dt2')`)
+	}
 	clean()
 	t.Cleanup(clean)
 	pool.Exec(context.Background(), `INSERT INTO devices(id,tenant_id,gateway_id,profile,name) SELECT 'itest-dt1-other',tenant_id,gateway_id,profile,'other' FROM devices WHERE id='itest-dt1-dev' ON CONFLICT DO NOTHING`)
