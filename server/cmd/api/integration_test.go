@@ -353,8 +353,12 @@ func TestIntegrationSeriesRanges(t *testing.T) {
 
 type fakeNotifier struct{ emails []string }
 
+// Email records only messages to this test's own recipient: the sweeper is
+// global, so other tenants' policies in a shared database must not leak in.
 func (f *fakeNotifier) Email(_ context.Context, to []string, subject, body string) error {
-	f.emails = append(f.emails, to[0]+"|"+body)
+	if to[0] == "boss@example.com" {
+		f.emails = append(f.emails, to[0]+"|"+body)
+	}
 	return nil
 }
 func (f *fakeNotifier) Slack(context.Context, string, string) error { return nil }
