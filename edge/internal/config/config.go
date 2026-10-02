@@ -40,6 +40,15 @@ type Config struct {
 
 	Devices []Device `yaml:"devices"`
 
+	// Outputs is the per-gateway allowlist of physical outputs that local
+	// rules may drive (siren, buzzer, beacon). Rules refer to outputs by name
+	// and can drive nothing else. See docs/edge-rules.md.
+	Outputs []Output `yaml:"outputs"`
+	// Rules run on the edge box itself, with or without the server. Rules
+	// from the server ride in this file (config download or fleet config
+	// artifact); the operator can add more in local-rules.yaml next to it.
+	Rules []Rule `yaml:"rules"`
+
 	// Commands: only these actions may execute on this gateway.
 	AllowedCommands []string `yaml:"allowed_commands"`
 	CommandMode     string   `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
@@ -142,4 +151,59 @@ func (c *Config) DefaultIdentityFiles(dir string) {
 	fill(&c.MQTT.CAFile, "ca.pem")
 	fill(&c.MQTT.CertFile, "identity.crt")
 	fill(&c.MQTT.KeyFile, "identity.key")
+}
+
+// Output is one allowlisted annunciator. Only class "alarm" outputs may be
+// driven by local rules; anything that moves process equipment stays on the
+// approval + four-eyes command path.
+type Output struct {
+	Name  string `yaml:"name"`
+	Class string `yaml:"class"` // must be "alarm"
+	Kind  string `yaml:"kind"`  // gpio_file | modbus_coil | simulate
+	// gpio_file: absolute path written with 1/0 (e.g. /sys/class/gpio/gpio17/value,
+	// /sys/class/leds/siren/brightness). active_low inverts it.
+	Path      string `yaml:"path"`
+	ActiveLow bool   `yaml:"active_low"`
+	// modbus_coil: a write point (id) of a device whose `writes` allowlist
+	// has it with min 0 and max 1.
+	Device string `yaml:"device"`
+	Point  string `yaml:"point"`
+	// MaxOn caps how long a siren can sound continuously (default 10m, max 1h);
+	// after that it goes quiet until the alarm clears and re-triggers.
+	MaxOn time.Duration `yaml:"max_on"`
+}
+
+// Rule is one edge-local alarm rule.
+type Rule struct {
+	ID   string `yaml:"id"`
+	Name string `yaml:"name"`
+	// Type: link_down (broker connection lost), threshold (device point vs
+	// value), stale (device not read for `for`).
+	Type    string        `yaml:"type"`
+	For     time.Duration `yaml:"for"` // hold time before the rule fires (stale: the staleness window)
+	Device  string        `yaml:"device"`
+	Point   string        `yaml:"point"`
+	Op      string        `yaml:"op"` // > >= < <= == !=
+	Value   float64       `yaml:"value"`
+	Output  string        `yaml:"output"`
+	Pattern string        `yaml:"pattern"` // steady (default) | pulse
+}
+
+// LoadLocalRules reads operator-added rules (rules: [...]) from a file next to
+// the main config. A missing file means no local rules.
+func LoadLocalRules(path string) ([]Rule, error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var f struct {
+		Rules []Rule `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal(b, &f); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return f.Rules, nil
 }

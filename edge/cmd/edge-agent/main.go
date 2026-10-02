@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/claim"
@@ -17,6 +18,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/driver"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/fleetctl"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/localrules"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/localui"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/mqttc"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/paths"
@@ -60,9 +62,23 @@ func main() {
 	scanTo := flag.Int("scan-to", 247, "scan: last slave address")
 	scanFunc := flag.Int("scan-func", 4, "scan: Modbus function, 3 or 4 (reads only)")
 	scanReg := flag.Int("scan-register", 0, "scan: a register the meter model implements")
+	silenceOut := flag.String("silence", "", "silence this alarm output on the running agent for -for, then exit")
+	testOut := flag.String("test-output", "", "sound this alarm output for a few seconds on the running agent, then exit")
+	forDur := flag.Duration("for", 10*time.Minute, "duration for -silence (max 24h)")
 	identityDir := flag.String("identity-dir", paths.Data(), "directory holding identity.json")
 	flag.Parse()
 
+	if *silenceOut != "" || *testOut != "" {
+		action, out, d := "silence", *silenceOut, *forDur
+		if *testOut != "" {
+			action, out, d = "test", *testOut, 5*time.Second
+		}
+		if err := localrules.WriteControl(controlPath(*identityDir), action, out, d); err != nil {
+			log.Fatalf("%s: %v", action, err)
+		}
+		fmt.Printf("%s requested for %s; the running agent applies it within a second\n", action, out)
+		return
+	}
 	if *scanPort != "" {
 		found, err := driver.ScanModbusRTU(context.Background(), nil, driver.ScanRequest{
 			Port: *scanPort, Baud: *scanBaud, DataBits: 8, StopBits: 1, Parity: *scanParity,
@@ -129,10 +145,11 @@ func main() {
 		actuator = &modbusActuator{reg: writers}
 		log.Printf("command mode: MODBUS - allowlisted registers can be written after four-eyes approval")
 	}
-	var mc *mqttc.Client
+	var mcp atomic.Pointer[mqttc.Client]
 	onCmd := func(_ mqtt.Client, m mqtt.Message) {
 		ack, ok := cmdexec.Handle(ctx, gate, actuator, m.Payload(), time.Now())
 		log.Printf("cmd %s: %s %s", ack.RequestID, ack.State, ack.Detail)
+		mc := mcp.Load()
 		if !ok || mc == nil {
 			return
 		}
@@ -142,14 +159,13 @@ func main() {
 		}
 	}
 
-	mc, err = mqttc.Connect(cfg, onCmd)
-	if err != nil {
-		log.Fatalf("mqtt: %v", err)
-	}
-	defer mc.Close()
-
 	tracker := localui.NewTracker()
-	startLocalUI(ctx, cfg, q, mc, tracker)
+	startLocalUI(ctx, cfg, q, func() bool { c := mcp.Load(); return c != nil && c.Connected() }, tracker)
+
+	// Edge-local alarm rules run independently of the broker connection, so a
+	// siren still sounds if the server or network is gone (also at boot).
+	rulesEng := startLocalRules(ctx, cfg, *cfgPath, *identityDir, func() bool { c := mcp.Load(); return c != nil && c.Connected() })
+	_ = rulesEng
 
 	telemetryTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/telemetry"
 	diagTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/diag"
@@ -159,83 +175,108 @@ func main() {
 	sup := startSupervisor(cfg, q, telemetryTopic, tracker)
 	defer sup.stop()
 
-	// Fleet manifests: retained release assignments. Verify the staged
-	// artifact, then ACK (or fail with the exact reason) on fleet/ack.
-	fleetTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/fleet"
-	artifactDir := cfg.ArtifactDir
-	if artifactDir == "" {
-		artifactDir = paths.Artifacts()
-	}
-	if err := mc.Subscribe(fleetTopic, func(_ mqtt.Client, m mqtt.Message) {
-		ack := fleetctl.HandleManifest(m.Payload(), artifactDir, cfg.Serial)
-		if ack.State == "acked" {
-			// Verified: apply the config artifact with backup + health check +
-			// automatic rollback. The supervisor restarts poll loops on the
-			// new config; any failure restores the previous one.
-			var mfst fleetctl.Manifest
-			if json.Unmarshal(m.Payload(), &mfst) == nil && mfst.ArtifactSHA256 != nil {
-				ack = applyFleetConfig(mfst, artifactDir, *cfgPath, cfg, sup, q, telemetryTopic, tracker)
-			}
-		}
-		b, _ := json.Marshal(ack)
-		if err := mc.Publish(fleetTopic+"/ack", b); err != nil {
-			log.Printf("fleet: ack publish: %v", err)
-			return
-		}
-		log.Printf("fleet: campaign %s -> %s (%s)", ack.CampaignID, ack.State, ack.Detail)
-	}); err != nil {
-		log.Fatalf("fleet subscribe: %v", err)
-	}
-
-	// Commissioning probes: read-only port tests, answered on diag/result.
-	// Runs inline; a probe is a single register read with a bounded timeout.
-	if err := mc.Subscribe(diagTopic, func(_ mqtt.Client, m mqtt.Message) {
-		var req driver.ProbeRequest
-		if err := json.Unmarshal(m.Payload(), &req); err != nil {
-			log.Printf("diag: bad payload: %v", err)
-			return
-		}
-		timeout := time.Duration(req.TimeoutMs) * time.Millisecond
-		if timeout <= 0 || timeout > 30*time.Second {
-			timeout = 3 * time.Second
-		}
-		pctx, cancel := context.WithTimeout(ctx, timeout)
-		res := driver.RunProbe(pctx, nil, req)
-		cancel()
-		b, _ := json.Marshal(res)
-		if err := mc.Publish(diagTopic+"/result", b); err != nil {
-			log.Printf("diag: result publish: %v", err)
-			return
-		}
-		log.Printf("diag: probe for session %s: ok=%v (%dms)", res.SessionID, res.OK, res.LatencyMs)
-	}); err != nil {
-		log.Fatalf("diag subscribe: %v", err)
-	}
-
-	// Drain loop: publish buffered items, delete only after broker ACK.
+	// The broker connection comes up in the background: polling, buffering and
+	// local rules must not wait for the server.
 	go func() {
-		t := time.NewTicker(2 * time.Second)
-		defer t.Stop()
+		var mc *mqttc.Client
 		for {
+			c, err := mqttc.Connect(cfg, onCmd)
+			if err == nil {
+				mc = c
+				break
+			}
+			log.Printf("mqtt: %v (retrying in 30s; running offline)", err)
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
-				items, err := q.Next(ctx, 100)
-				if err != nil {
-					log.Printf("queue next: %v", err)
-					continue
+			case <-time.After(30 * time.Second):
+			}
+		}
+		mcp.Store(mc)
+		// Fleet manifests: retained release assignments. Verify the staged
+		// artifact, then ACK (or fail with the exact reason) on fleet/ack.
+		fleetTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/fleet"
+		artifactDir := cfg.ArtifactDir
+		if artifactDir == "" {
+			artifactDir = paths.Artifacts()
+		}
+		if err := mc.Subscribe(fleetTopic, func(_ mqtt.Client, m mqtt.Message) {
+			ack := fleetctl.HandleManifest(m.Payload(), artifactDir, cfg.Serial)
+			if ack.State == "acked" {
+				// Verified: apply the config artifact with backup + health check +
+				// automatic rollback. The supervisor restarts poll loops on the
+				// new config; any failure restores the previous one.
+				var mfst fleetctl.Manifest
+				if json.Unmarshal(m.Payload(), &mfst) == nil && mfst.ArtifactSHA256 != nil {
+					ack = applyFleetConfig(mfst, artifactDir, *cfgPath, cfg, sup, q, telemetryTopic, tracker)
 				}
-				for _, it := range items {
-					if err := mc.Publish(it.Topic, it.Payload); err != nil {
-						log.Printf("publish: %v (keeping %d buffered)", err, it.ID)
-						break
+			}
+			b, _ := json.Marshal(ack)
+			if err := mc.Publish(fleetTopic+"/ack", b); err != nil {
+				log.Printf("fleet: ack publish: %v", err)
+				return
+			}
+			log.Printf("fleet: campaign %s -> %s (%s)", ack.CampaignID, ack.State, ack.Detail)
+		}); err != nil {
+			log.Printf("fleet subscribe: %v", err)
+		}
+
+		// Commissioning probes: read-only port tests, answered on diag/result.
+		// Runs inline; a probe is a single register read with a bounded timeout.
+		if err := mc.Subscribe(diagTopic, func(_ mqtt.Client, m mqtt.Message) {
+			var req driver.ProbeRequest
+			if err := json.Unmarshal(m.Payload(), &req); err != nil {
+				log.Printf("diag: bad payload: %v", err)
+				return
+			}
+			timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+			if timeout <= 0 || timeout > 30*time.Second {
+				timeout = 3 * time.Second
+			}
+			pctx, cancel := context.WithTimeout(ctx, timeout)
+			res := driver.RunProbe(pctx, nil, req)
+			cancel()
+			b, _ := json.Marshal(res)
+			if err := mc.Publish(diagTopic+"/result", b); err != nil {
+				log.Printf("diag: result publish: %v", err)
+				return
+			}
+			log.Printf("diag: probe for session %s: ok=%v (%dms)", res.SessionID, res.OK, res.LatencyMs)
+		}); err != nil {
+			log.Printf("diag subscribe: %v", err)
+		}
+
+		// Drain loop: publish buffered items, delete only after broker ACK.
+		go func() {
+			t := time.NewTicker(2 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					items, err := q.Next(ctx, 100)
+					if err != nil {
+						log.Printf("queue next: %v", err)
+						continue
 					}
-					if err := q.Ack(ctx, it.ID); err != nil {
-						log.Printf("queue ack: %v", err)
+					for _, it := range items {
+						if err := mc.Publish(it.Topic, it.Payload); err != nil {
+							log.Printf("publish: %v (keeping %d buffered)", err, it.ID)
+							break
+						}
+						if err := q.Ack(ctx, it.ID); err != nil {
+							log.Printf("queue ack: %v", err)
+						}
 					}
 				}
 			}
+		}()
+
+	}()
+	defer func() {
+		if c := mcp.Load(); c != nil {
+			c.Close()
 		}
 	}()
 
@@ -294,6 +335,9 @@ func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string, 
 							vals[r.PointID] = r.Value
 						}
 						tr.RecordRead(dev.ID, dev.Profile, vals)
+						if e := ruleObs.Load(); e != nil {
+							e.Observe(dev.ID, vals)
+						}
 						for _, r := range readings {
 							e := envelope{
 								EventID: uuid.NewString(), TenantID: cfg.TenantID,
@@ -343,6 +387,10 @@ func applyFleetConfig(m fleetctl.Manifest, artifactDir, cfgPath string, cfg *con
 		return ack
 	}
 
+	if err := validateRulesFor(newCfg, cfgPath); err != nil {
+		ack.State, ack.Detail = "failed", "new config's local rules invalid: "+err.Error()
+		return ack
+	}
 	sup.stop()
 	res := fleetctl.ApplyConfig(artPath, cfgPath)
 	if !res.Applied {
@@ -365,13 +413,16 @@ func applyFleetConfig(m fleetctl.Manifest, artifactDir, cfgPath string, cfg *con
 	}
 	*cfg = *installed
 	*sup = *startSupervisor(cfg, q, telemetryTopic, tracker)
+	if _, err := restartLocalRules(cfg); err != nil {
+		log.Printf("fleet: local rules restart: %v", err)
+	}
 	ack.State = "acked"
 	ack.Detail = fmt.Sprintf("release %s applied: %d devices polling (backup %s)", m.Version, res.Devices, res.BackupPath)
 	return ack
 }
 
 // startLocalUI serves the read-only status page unless disabled in config.
-func startLocalUI(ctx context.Context, cfg *config.Config, q *queue.Queue, mc *mqttc.Client, tr *localui.Tracker) {
+func startLocalUI(ctx context.Context, cfg *config.Config, q *queue.Queue, connected func() bool, tr *localui.Tracker) {
 	addr := cfg.UI.Listen
 	if addr == "off" {
 		return
@@ -382,7 +433,7 @@ func startLocalUI(ctx context.Context, cfg *config.Config, q *queue.Queue, mc *m
 	h := localui.Handler(localui.Info{
 		GatewayID: cfg.GatewayID, TenantID: cfg.TenantID, Version: version,
 		BrokerHost: fmt.Sprintf("%s:%d", cfg.MQTT.Host, cfg.MQTT.Port), BrokerTLS: cfg.MQTT.TLS,
-		Connected: mc.Connected, QueueDepth: q.Depth,
+		Connected: connected, QueueDepth: q.Depth,
 	}, tr)
 	go func() {
 		if err := localui.Serve(ctx, addr, h); err != nil {

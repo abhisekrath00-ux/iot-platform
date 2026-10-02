@@ -236,5 +236,9 @@ func (s *server) gatewayEdgeConfig(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "gateway.edge_config.download", gw, nil)
 	w.Header().Set("Content-Type", "application/x-yaml")
 	w.Header().Set("Content-Disposition", `attachment; filename="edge-agent.yaml"`)
-	fmt.Fprint(w, renderEdgeYAML(tenant, gw, serial, devs))
+	yml := renderEdgeYAML(tenant, gw, serial, devs)
+	if outs, rules, ok := s.loadEdgeRules(r, gw); ok {
+		yml += renderRulesYAML(outs, rules)
+	}
+	fmt.Fprint(w, yml)
 }
