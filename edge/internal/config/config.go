@@ -93,6 +93,7 @@ type Point struct {
 	Unit      string  `yaml:"unit"`
 	Key       string  `yaml:"key"`     // serial-json: field name / key=value key / CSV column index
 	NodeID    string  `yaml:"node_id"` // opcua: e.g. ns=2;s=Boiler.Temp
+	IOA       int     `yaml:"ioa"`     // iec104: information object address (1..16777215)
 	OID       string  `yaml:"oid"`     // snmp: numeric OID, e.g. .1.3.6.1.2.1.1.3.0
 	Min       float64 `yaml:"min"`     // validation range
 	Max       float64 `yaml:"max"`
