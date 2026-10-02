@@ -1,0 +1,12 @@
+Package: hexmon-edge
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Hexmon <noreply@hexmon.invalid>
+Section: net
+Priority: optional
+Depends: adduser
+Description: Hexmon edge gateway agent
+ Reads industrial devices (Modbus, OPC UA, BACnet, SNMP and more), buffers
+ readings locally and forwards them to the Hexmon IoT platform over MQTT.
+ Installs a systemd service but does not start it: edit
+ /etc/hexmon/edge-agent.yaml or claim the gateway first.

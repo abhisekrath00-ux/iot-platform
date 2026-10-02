@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+  getent passwd hexmon >/dev/null || adduser --system --group --home /var/lib/hexmon-edge --no-create-home --shell /usr/sbin/nologin hexmon
+  usermod -aG dialout hexmon 2>/dev/null || true
+  install -d -o hexmon -g hexmon -m 750 /var/lib/hexmon-edge
+  chown root:hexmon /etc/hexmon/edge-agent.yaml; chmod 640 /etc/hexmon/edge-agent.yaml
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable hexmon-edge >/dev/null 2>&1 || true
+  if [ -n "$2" ] && systemctl is-active --quiet hexmon-edge 2>/dev/null; then
+    systemctl restart hexmon-edge || true   # upgrade: restart only if it was running
+  else
+    echo "hexmon-edge installed, not started. Check: edge-agent -check-config   Then: systemctl start hexmon-edge"
+  fi
+fi
+exit 0

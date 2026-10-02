@@ -1,0 +1,21 @@
+[Unit]
+Description=Hexmon edge agent
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+[Service]
+User=hexmon
+Group=hexmon
+SupplementaryGroups=dialout
+ExecStartPre=/usr/bin/edge-agent -check-config -config /etc/hexmon/edge-agent.yaml -identity-dir /var/lib/hexmon-edge
+ExecStart=/usr/bin/edge-agent -config /etc/hexmon/edge-agent.yaml -identity-dir /var/lib/hexmon-edge
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/hexmon-edge /etc/hexmon
+[Install]
+WantedBy=multi-user.target

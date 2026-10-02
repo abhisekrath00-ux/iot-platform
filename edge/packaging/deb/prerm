@@ -1,0 +1,4 @@
+#!/bin/sh
+set -e
+case "$1" in remove|deconfigure) systemctl stop hexmon-edge >/dev/null 2>&1 || true; systemctl disable hexmon-edge >/dev/null 2>&1 || true ;; esac
+exit 0

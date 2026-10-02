@@ -46,3 +46,10 @@ func rootContext() (context.Context, context.CancelFunc, func()) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	return ctx, stop, func() {}
 }
+
+func runningAsService() bool {
+	ok, err := svc.IsWindowsService()
+	return err == nil && ok
+}
+
+func syscallNoCtty() int { return 0 }

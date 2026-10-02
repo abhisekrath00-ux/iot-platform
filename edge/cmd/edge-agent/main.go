@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -72,7 +73,25 @@ func main() {
 	scanLAN := flag.String("scan-lan", "", "probe a private IPv4 range (e.g. 192.168.1.0/24, max /22) for open industrial ports (Modbus TCP, OPC UA, IEC 104, DNP3, MQTT), print results, then exit")
 	whoIs := flag.String("scan-bacnet", "", "broadcast a BACnet Who-Is to this subnet broadcast address (e.g. 192.168.1.255, or 255.255.255.255) and list devices that answer, then exit")
 	scanSNMP := flag.String("scan-snmp", "", "probe a private IPv4 range for SNMPv2c devices (reads sysName/sysDescr only); the community comes from $SNMP_SCAN_COMMUNITY, then exit")
+	showVersion := flag.Bool("version", false, "print the agent version and exit")
+	checkCfg := flag.Bool("check-config", false, "load and lint -config, print findings, exit 1 on errors")
+	listPortsFlag := flag.Bool("list-ports", false, "list serial ports this OS sees, then exit")
+	healthFlag := flag.Bool("health", false, "ask the running agent's local status page; exit 0 ok, 1 down, 2 not connected to broker")
+	logFileFlag := flag.String("log-file", "", "also write logs to this rotating file (default on a Windows service: <data>/logs/edge-agent.log; env HEXMON_LOG_FILE)")
 	flag.Parse()
+
+	switch {
+	case *showVersion:
+		fmt.Printf("hexmon-edge-agent %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
+		return
+	case *checkCfg:
+		os.Exit(checkConfig(*cfgPath, *identityDir, os.Stdout))
+	case *listPortsFlag:
+		os.Exit(listPorts(os.Stdout))
+	case *healthFlag:
+		os.Exit(healthCheck(*cfgPath, os.Stdout))
+	}
+	defer setupLogFile(*logFileFlag)()
 
 	if *scanSNMP != "" {
 		hs, err := discover.ScanSNMP(context.Background(), *scanSNMP, os.Getenv("SNMP_SCAN_COMMUNITY"), 800*time.Millisecond)

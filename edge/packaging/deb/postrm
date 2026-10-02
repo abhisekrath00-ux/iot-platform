@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+if [ "$1" = purge ]; then
+  rm -rf /var/lib/hexmon-edge /etc/hexmon
+  userdel hexmon 2>/dev/null || true
+fi
+systemctl daemon-reload >/dev/null 2>&1 || true
+exit 0
