@@ -301,6 +301,24 @@ func main() {
 			log.Printf("diag subscribe: %v", err)
 		}
 
+		// Dashboard discovery scans (read-only): answered on scan/result. Runs in
+		// its own goroutine; scanMu keeps it to one at a time.
+		scanTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/scan"
+		if err := mc.Subscribe(scanTopic, func(_ mqtt.Client, m mqtt.Message) {
+			payload := append([]byte(nil), m.Payload()...)
+			go func() {
+				res := runScanRequest(ctx, payload, nil)
+				b, _ := json.Marshal(res)
+				if err := mc.Publish(scanTopic+"/result", b); err != nil {
+					log.Printf("scan: result publish: %v", err)
+					return
+				}
+				log.Printf("scan %s (%s): ok=%v", res.ScanID, res.Kind, res.OK)
+			}()
+		}); err != nil {
+			log.Printf("scan subscribe: %v", err)
+		}
+
 		// Drain loop: publish buffered items, delete only after broker ACK.
 		go func() {
 			t := time.NewTicker(2 * time.Second)

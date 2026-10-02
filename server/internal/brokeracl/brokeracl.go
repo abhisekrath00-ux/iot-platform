@@ -36,6 +36,7 @@ topic read t/#
 
 user api
 topic write t/+/g/+/diag
+topic write t/+/g/+/scan
 topic read t/#
 
 # Per-gateway blocks follow, keyed by certificate CN (= serial).
@@ -63,6 +64,8 @@ func Generate(entries []Entry) string {
 		fmt.Fprintf(&b, "topic read %s/fleet\n", base)
 		fmt.Fprintf(&b, "topic read %s/cmd\n", base)
 		fmt.Fprintf(&b, "topic read %s/diag\n", base)
+		fmt.Fprintf(&b, "topic write %s/scan/result\n", base)
+		fmt.Fprintf(&b, "topic read %s/scan\n", base)
 	}
 	return b.String()
 }

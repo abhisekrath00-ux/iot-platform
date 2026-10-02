@@ -72,3 +72,33 @@ shape and renders the gateway config; the agent re-validates. SNMP secrets are n
 name of an environment variable set on the gateway. Status is unchanged: these drivers are tested against simulators
 I wrote, not real devices, and the read-only port test and live preview still only cover Modbus RTU. Not exposed in the
 UI: DNP3/IEC 104 unsolicited reporting, BACnet COV, per-driver TLS options.
+
+## Scan, then one-click add (dashboard)
+
+Open **Scan** in the dashboard, pick a gateway and what to scan:
+
+- **Serial Modbus**: the gateway sweeps slave addresses on one serial port (read functions only). Every responder is then
+  probed with the first registers of each of your Modbus profiles (up to 20, first 3 points each). A suggestion is
+  shown when those registers answered inside the profile's min/max range, e.g. "Selec MFM383A (100% of 3 registers
+  plausible)". That is a plausibility score, not proof of the model: two meters with similar ranges can both score
+  well, so you confirm the profile. A slave that rejects the probed registers with a Modbus exception is not detected.
+- **Network**: private range, Modbus TCP / OPC UA / IEC 104 / DNP3 / IEC 61850-102 / MQTT ports. Pick a profile of the
+  matching driver and add. Open port only means "something listens".
+- **BACnet/IP**: Who-Is broadcast; list devices, pick a bacnet profile, add.
+
+Nothing is added until you press Add. The server checks that the device you add was in that scan's results, that the
+connection is valid for the profile's driver, and that the same port/address (or host) is not already on the gateway.
+After adding, download the gateway config again (or push it as a fleet config) so the agent starts polling.
+
+How it works: API validates and publishes a read-only request on `t/<tenant>/g/<gw>/scan`; the agent re-validates, runs
+one scan at a time (8 minute limit) and answers on `scan/result`; ingest stores it in `gateway_scans` under the same
+topic-identity rule as diagnostics. Scan requests need the admin or operator role.
+
+Limits, honestly:
+- Tested with fake serial buses and unit/DB tests; never run against a real RS-485 bus, Selec meter or BACnet device.
+  The page is type-checked and built but I have not looked at it in a browser.
+- A serial scan fails with a clear error if another device on the gateway is already polling that port (the agent opens
+  the port per probe). Stop that device or scan before adding devices to the port.
+- Existing gateways need a regenerated broker ACL (the `scan` topics) and an agent upgrade before scans work.
+- A wide serial range is slow: up to 5 register probes per address at 400 ms each.
+- No SNMP scan from the dashboard (it needs a community secret); use `-scan-snmp` on the box.

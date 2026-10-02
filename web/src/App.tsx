@@ -8,6 +8,7 @@ import Fleet from './pages/Fleet';
 import Devices from './pages/Devices';
 import DeviceDetail from './pages/DeviceDetail';
 import Onboarding from './pages/Onboarding';
+import Scan from './pages/Scan';
 import Dashboards from './pages/Dashboards';
 import Flows from './pages/Flows';
 import FlowEditor from './pages/FlowEditor';
@@ -36,7 +37,7 @@ const icons: Record<string, JSX.Element> = {
   'Settings': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 00-2.2-1.3L14 3h-4l-.4 2.5a7 7 0 00-2.2 1.3l-2.3-1-2 3.4 2 1.5a7 7 0 000 2.6l-2 1.5 2 3.4 2.3-1a7 7 0 002.2 1.3L10 21h4l.4-2.5a7 7 0 002.2-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3z"/></svg>,
 };
 
-const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/kpis", "KPIs"], ["/onboarding", "Add device"], ["/dashboards", "Dashboards"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
+const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/kpis", "KPIs"], ["/onboarding", "Add device"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
 
 export default function App() {
   const [theme, toggle] = useTheme();
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="/devices" element={<Devices />} />
           <Route path="/devices/:id" element={<DeviceDetail />} />
           <Route path="/onboarding" element={<Onboarding />} />
+          <Route path="/scan" element={<Scan />} />
           <Route path="/dashboards" element={<Dashboards />} />
           <Route path="/flows" element={<Flows />} />
           <Route path="/flows/editor" element={<FlowEditor />} />
