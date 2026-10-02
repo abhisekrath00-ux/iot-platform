@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"math"
 	"testing"
 	"time"
 
@@ -130,5 +131,57 @@ func TestGenericDriverRejectsOutOfRange(t *testing.T) {
 	}}}
 	if _, err := d.Poll(context.Background()); err == nil {
 		t.Fatal("out-of-range value accepted")
+	}
+}
+
+// Selec MX300-1-C-CE (single-phase meter) register map from its datasheet:
+// input registers at protocol addresses 0x00.. (documented 30000..), float32,
+// default word order "mid-little endian" (C-D-A-B). Frame path only: this has
+// not been run against a real meter.
+func TestMX300MapDecodesCDAB(t *testing.T) {
+	put := func(regs map[int]uint16, addr int, v float32) {
+		b := math.Float32bits(v)
+		regs[addr] = uint16(b)         // C-D word first
+		regs[addr+1] = uint16(b >> 16) // then A-B
+	}
+	regs := map[int]uint16{}
+	put(regs, 0x00, 230.5) // voltage
+	put(regs, 0x02, 4.25)  // current
+	put(regs, 0x04, 0.9)   // active kW
+	put(regs, 0x0A, 0.97)  // PF
+	put(regs, 0x0C, 50.01) // frequency
+	fp := &fakePort{regs: regs}
+	pt := func(id string, reg int, unit string, max float64) config.Point {
+		return config.Point{ID: id, Register: reg, Func: 4, Type: "f32", WordOrder: "cdab", Scale: 1, Unit: unit, Min: 0, Max: max}
+	}
+	d := &modbusGeneric{port: fp, dev: config.Device{ID: "mx300", Address: 1, Points: []config.Point{
+		pt("voltage", 0x00, "V", 600000), pt("current", 0x02, "A", 10000), pt("active_power", 0x04, "kW", 1e6),
+		pt("power_factor", 0x0A, "", 1), pt("frequency", 0x0C, "Hz", 65),
+	}}}
+	got, err := d.Poll(context.Background())
+	if err != nil || len(got) != 5 {
+		t.Fatalf("poll: %v %d", err, len(got))
+	}
+	want := []float64{230.5, 4.25, 0.9, 0.97, 50.01}
+	for i, w := range want {
+		if d := got[i].Value - w; d > 1e-4 || d < -1e-4 {
+			t.Errorf("%s = %v want %v", got[i].PointID, got[i].Value, w)
+		}
+	}
+}
+
+// Datasheet example: 1234.12 kWh is stored at 30090 = 0x43D7 and 30091 = 0x449A
+// (default mid-little endian), i.e. float32 0x449A43D7.
+func TestMX300DatasheetEnergyExample(t *testing.T) {
+	fp := &fakePort{regs: map[int]uint16{90: 0x43D7, 91: 0x449A}}
+	d := &modbusGeneric{port: fp, dev: config.Device{ID: "mx300", Address: 1, Points: []config.Point{
+		{ID: "energy_kwh", Register: 90, Func: 4, Type: "f32", WordOrder: "cdab", Scale: 1, Unit: "kWh", Min: 0, Max: 1e9},
+	}}}
+	got, err := d.Poll(context.Background())
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%v %d", err, len(got))
+	}
+	if d := got[0].Value - 1234.12; d > 0.01 || d < -0.01 {
+		t.Fatalf("got %v", got[0].Value)
 	}
 }
