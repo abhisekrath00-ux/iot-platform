@@ -36,6 +36,11 @@ type Definition struct {
 	Sigma         float64 `json:"sigma,omitempty"`          // 2 to 10 standard deviations
 	WindowMinutes int     `json:"window_minutes,omitempty"` // history used as the baseline, 10 to 10080
 	Direction     string  `json:"direction,omitempty"`      // both (default) | above | below
+	// seasonal: like sigma, but the baseline is the same hour of the day (or
+	// hour of the week) over the last WindowDays days, so a daily peak is not
+	// an anomaly. Uses Sigma and Direction. Statistical, not learned.
+	WindowDays int    `json:"window_days,omitempty"` // 3 to 28
+	Season     string `json:"season,omitempty"`      // hour_of_day (default) | hour_of_week
 	// forecast_limit: fire when the statistical forecast crosses Threshold (in
 	// direction Op) within HorizonHours. Needs DeviceID and PointID, and only
 	// fires when the model beat repeating yesterday in its backtest.
@@ -71,6 +76,22 @@ func (d Definition) Validate() error {
 		}
 		if d.WindowMinutes < 10 || d.WindowMinutes > 10080 {
 			return fmt.Errorf("window_minutes must be between 10 and 10080")
+		}
+		if d.Direction != "" && d.Direction != "both" && d.Direction != "above" && d.Direction != "below" {
+			return fmt.Errorf("direction must be both, above or below")
+		}
+	case "seasonal":
+		if d.PointID == "" {
+			return fmt.Errorf("seasonal rule needs point_id")
+		}
+		if d.Sigma < 2 || d.Sigma > 10 {
+			return fmt.Errorf("sigma must be between 2 and 10")
+		}
+		if d.WindowDays < 3 || d.WindowDays > 28 {
+			return fmt.Errorf("window_days must be between 3 and 28")
+		}
+		if d.Season != "" && d.Season != "hour_of_day" && d.Season != "hour_of_week" {
+			return fmt.Errorf("season must be hour_of_day or hour_of_week")
 		}
 		if d.Direction != "" && d.Direction != "both" && d.Direction != "above" && d.Direction != "below" {
 			return fmt.Errorf("direction must be both, above or below")
@@ -166,6 +187,12 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 		switch d.Kind {
 		case "kpi_band", "forecast_limit":
 			continue // evaluated periodically (EvaluateKPIs, EvaluateForecasts), not per reading
+		case "seasonal":
+			if msg, hit := seasonalHit(ctx, pool, tenantID, d, deviceID, pointID, value); hit {
+				d.Message = firstNonEmpty(d.Message, msg)
+				fire(ctx, pool, n, tenantID, id, d, deviceID, pointID, value)
+			}
+			continue
 		case "sigma":
 			if msg, hit := sigmaHit(ctx, pool, tenantID, d, deviceID, pointID, value); hit {
 				d.Message = firstNonEmpty(d.Message, msg)
@@ -282,6 +309,50 @@ func sigmaHit(ctx context.Context, pool *pgxpool.Pool, tenantID string, d Defini
 	}
 	return fmt.Sprintf("%s/%s value %.4g is %.1f standard deviations %s its %d-minute mean %.4g (std %.3g, %d samples)",
 		deviceID, pointID, value, math.Abs(z), side, d.WindowMinutes, mean, std, len(base)), true
+}
+
+// SeasonalHit is the pure decision shared with tests: z-score of value against
+// the same-season history, honouring direction.
+func SeasonalHit(base []float64, value, sigma float64, direction string) (z float64, hit bool) {
+	z, _, _, ok := SigmaDeviation(base, value)
+	if !ok {
+		return 0, false
+	}
+	if direction == "" {
+		direction = "both"
+	}
+	return z, (direction != "below" && z >= sigma) || (direction != "above" && z <= -sigma)
+}
+
+func seasonalHit(ctx context.Context, pool *pgxpool.Pool, tenantID string, d Definition, deviceID, pointID string, value float64) (string, bool) {
+	cond := `extract(hour from observed_at AT TIME ZONE 'UTC') = extract(hour from now() AT TIME ZONE 'UTC')`
+	label := "hour of day"
+	if d.Season == "hour_of_week" {
+		cond += ` AND extract(dow from observed_at AT TIME ZONE 'UTC') = extract(dow from now() AT TIME ZONE 'UTC')`
+		label = "hour of week"
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT value FROM telemetry
+		 WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND quality='measured'
+		   AND observed_at > now() - make_interval(days => $4) AND observed_at < date_trunc('hour', now())
+		   AND `+cond+` ORDER BY observed_at DESC LIMIT 5000`, tenantID, deviceID, pointID, d.WindowDays)
+	if err != nil {
+		return "", false
+	}
+	defer rows.Close()
+	var base []float64
+	for rows.Next() {
+		var v float64
+		if rows.Scan(&v) == nil {
+			base = append(base, v)
+		}
+	}
+	z, hit := SeasonalHit(base, value, d.Sigma, d.Direction)
+	if !hit {
+		return "", false
+	}
+	return fmt.Sprintf("%s/%s value %.4g is %.1f standard deviations from its usual level for this %s (UTC) over %d days (%d samples)",
+		deviceID, pointID, value, math.Abs(z), label, d.WindowDays, len(base)), true
 }
 
 // EvaluateKPIs checks every enabled kpi_band rule against the KPI's current
