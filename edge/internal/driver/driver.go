@@ -49,6 +49,8 @@ func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
 		return newDNP3(d)
 	case "coap":
 		return newCoAP(d)
+	case "iec61850":
+		return newIEC61850(d)
 	case "iec104":
 		return newIEC104(d)
 	}
