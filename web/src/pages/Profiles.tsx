@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { api, EXTRA_DRIVERS } from '../lib/api';
 
-interface PointDef { id: string; register?: number; key?: string; node_id?: string; func?: number; type?: string; word_order?: string; scale?: number; unit?: string; min?: number; max?: number; }
+interface PointDef { id: string; register?: number; key?: string; node_id?: string; oid?: string; ioa?: number; func?: number; type?: string; word_order?: string; scale?: number; unit?: string; min?: number; max?: number; }
 interface ProfileRow { id: string; name: string; driver_profile: string; points: PointDef[]; created_at: string; }
 
 const emptyPoint: PointDef = { id: '', register: 0, func: 4, type: 'u16', word_order: 'abcd', scale: 1, unit: '', min: 0, max: 1000000 };
@@ -13,19 +13,21 @@ export default function Profiles() {
   const [points, setPoints] = useState<PointDef[]>([{ ...emptyPoint }]);
   const [msg, setMsg] = useState('');
   const isModbus = driver.startsWith('modbus');
-  const cols = isModbus ? 'minmax(0,1.2fr) minmax(0,.7fr) minmax(0,.6fr) minmax(0,.7fr) minmax(0,.8fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : driver === 'opcua' ? 'minmax(0,1fr) minmax(0,2fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : 'minmax(0,1fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px';
+  const extra = EXTRA_DRIVERS[driver];
+  const cols = extra ? (extra.reg ? 'minmax(0,1fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : 'minmax(0,1fr) minmax(0,1.6fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px') : isModbus ? 'minmax(0,1.2fr) minmax(0,.7fr) minmax(0,.6fr) minmax(0,.7fr) minmax(0,.8fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : driver === 'opcua' ? 'minmax(0,1fr) minmax(0,2fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : 'minmax(0,1fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px';
 
   const load = () => api<ProfileRow[]>('/v1/profiles').then(setProfiles).catch(e => setMsg(String(e)));
   useEffect(() => { load(); }, []);
 
   function setPoint(i: number, k: keyof PointDef, v: string) {
-    setPoints(ps => ps.map((p, j) => (j === i ? { ...p, [k]: ['register', 'func', 'scale', 'min', 'max'].includes(k) ? +v : v } : p)));
+    setPoints(ps => ps.map((p, j) => (j === i ? { ...p, [k]: ['register', 'func', 'scale', 'min', 'max', 'ioa'].includes(k) ? +v : v } : p)));
   }
 
   // Send only the fields the chosen driver understands.
   function clean(p: PointDef): PointDef {
     const base = { id: p.id, scale: p.scale, unit: p.unit, min: p.min, max: p.max };
     if (driver === 'opcua') return { ...base, node_id: p.node_id };
+    if (extra) return { ...base, ...(extra.f === 'oid' ? { oid: p.oid } : extra.f === 'ioa' ? { ioa: p.ioa } : { key: p.key }), ...(extra.reg ? { register: p.register } : {}) };
     if (driver === 'serial-json') return { ...base, ...(p.key ? { key: p.key } : {}) };
     return { ...base, register: p.register, func: p.func, type: p.type, word_order: p.word_order };
   }
@@ -56,6 +58,7 @@ export default function Profiles() {
             <option value="modbus-tcp">Modbus TCP (PLC, meter, SCADA RTU)</option>
             <option value="opcua">OPC UA (SCADA, Siemens, Beckhoff, Kepware, Ignition)</option>
             <option value="serial-json">STM32 / Arduino / ESP32 over UART or USB (JSON, key=value, CSV)</option>
+            {Object.entries(EXTRA_DRIVERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             <option value="door-contact">Door contact (legacy)</option>
           </select>
           <label>Points</label>
@@ -63,6 +66,8 @@ export default function Profiles() {
             <span>id</span>
             {driver === 'opcua' && <span>node id</span>}
             {driver === 'serial-json' && <span>field</span>}
+            {extra && <span>{extra.f === 'oid' ? 'OID' : extra.f === 'ioa' ? 'IOA' : 'key'}</span>}
+            {extra?.reg && <span>index</span>}
             {isModbus && <><span>register</span><span>function</span><span>type</span><span>word order</span></>}
             <span>scale</span><span>unit</span><span>min</span><span>max</span><span />
           </div>
@@ -70,6 +75,8 @@ export default function Profiles() {
             <div key={i} style={{ display: 'grid', gridTemplateColumns: cols, gap: 4, marginBottom: 6 }}>
               <input value={p.id} onChange={e => setPoint(i, 'id', e.target.value)} placeholder="temp" required />
               {driver === 'opcua' && <input value={p.node_id ?? ''} onChange={e => setPoint(i, 'node_id', e.target.value)} placeholder="ns=2;s=Boiler.Temp" required />}
+              {extra && <input value={extra.f === 'oid' ? (p.oid ?? '') : extra.f === 'ioa' ? (p.ioa ?? '') : (p.key ?? '')} onChange={e => setPoint(i, extra.f, e.target.value)} placeholder={extra.ph} required />}
+              {extra?.reg && <input type="number" value={p.register ?? 0} onChange={e => setPoint(i, 'register', e.target.value)} title="point index" />}
               {driver === 'serial-json' && <input value={p.key ?? ''} onChange={e => setPoint(i, 'key', e.target.value)} placeholder="field name (default: id)" />}
               {isModbus && <input type="number" value={p.register ?? 0} onChange={e => setPoint(i, 'register', e.target.value)} title="register" />}
               {isModbus && (
@@ -102,7 +109,7 @@ export default function Profiles() {
       {profiles.map(p => (
         <div key={p.id} className="card" style={{ marginBottom: 10 }}>
           <b>{p.name}</b> <span className="muted">{p.driver_profile} - {p.points.length} points</span>
-          <div className="muted">{p.points.map(pt => pt.node_id ? `${pt.id}@${pt.node_id}` : pt.key ? `${pt.id}:${pt.key}` : `${pt.id}@r${pt.register}:${pt.type ?? 'u16'}`).join(', ')}</div>
+          <div className="muted">{p.points.map(pt => pt.oid ? `${pt.id}@${pt.oid}` : pt.ioa ? `${pt.id}@ioa${pt.ioa}` : pt.node_id ? `${pt.id}@${pt.node_id}` : pt.key ? `${pt.id}:${pt.key}` : `${pt.id}@r${pt.register}:${pt.type ?? 'u16'}`).join(', ')}</div>
         </div>
       ))}
       {profiles.length === 0 && <p className="muted">No profiles yet.</p>}

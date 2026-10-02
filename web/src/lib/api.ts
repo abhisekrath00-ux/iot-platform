@@ -31,4 +31,13 @@ export async function download(path: string, filename: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-export const NETWORK_DRIVERS = ['modbus-tcp', 'opcua'];
+export const NETWORK_DRIVERS = ['modbus-tcp', 'opcua', 'snmp', 'bacnet', 'iec104', 'dnp3', 'coap', 'iec61850'];
+// Later network drivers: tested against simulators only (docs/connectors.md). f = the point address field.
+export const EXTRA_DRIVERS: Record<string, { label: string; f: 'oid' | 'ioa' | 'key'; ph: string; reg?: boolean; unit?: boolean }> = {
+  snmp: { label: 'SNMP v2c/v3 (switches, UPS, PDUs)', f: 'oid', ph: '.1.3.6.1.2.1.1.3.0' },
+  bacnet: { label: 'BACnet/IP (building automation)', f: 'key', ph: 'ai:1' },
+  iec104: { label: 'IEC 60870-5-104 (utility RTU)', f: 'ioa', ph: '100', unit: true },
+  dnp3: { label: 'DNP3 master (utility)', f: 'key', ph: 'ai | bi | ctr | bo', reg: true, unit: true },
+  coap: { label: 'CoAP (constrained devices)', f: 'key', ph: 'sensors/temp#v' },
+  iec61850: { label: 'IEC 61850 MMS (partial, read-only)', f: 'key', ph: 'LD0/MMXU1.TotW.mag.f' },
+};

@@ -63,3 +63,12 @@ a skipped port test still ends `live` once data flows.
   102, and MQTT (1883/8883). Private ranges only, /22 or smaller. An open port means something listens, not that it is
   a supported device. No BACnet Who-Is or SNMP probe yet. The scan runs on the edge box, because only it can see the
   plant network; the dashboard cannot scan on its behalf. The serial Modbus slave scan is `-scan-port`.
+
+## Onboarding the later network drivers from the dashboard
+
+SNMP, BACnet/IP, IEC 60870-5-104, DNP3, CoAP and IEC 61850 can now be chosen in Sensor profiles (point addressing per
+driver: OID, key, IOA, or key + index) and Onboarding (host, port, address, SNMP version). The server validates the
+shape and renders the gateway config; the agent re-validates. SNMP secrets are never entered in the UI: you give the
+name of an environment variable set on the gateway. Status is unchanged: these drivers are tested against simulators
+I wrote, not real devices, and the read-only port test and live preview still only cover Modbus RTU. Not exposed in the
+UI: DNP3/IEC 104 unsolicited reporting, BACnet COV, per-driver TLS options.

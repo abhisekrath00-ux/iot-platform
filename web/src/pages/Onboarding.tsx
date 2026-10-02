@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { api, download, NETWORK_DRIVERS } from '../lib/api';
+import { api, download, EXTRA_DRIVERS, NETWORK_DRIVERS } from '../lib/api';
 
 // Guided commissioning wizard: site+serial -> QR claim -> profile ->
 // read-only port test -> live preview. Each step polls the session, whose
@@ -41,7 +41,7 @@ export default function Onboarding() {
   const [profileId, setProfileId] = useState('');
   const [deviceName, setDeviceName] = useState('');
   const [probe, setProbe] = useState({ port: '/dev/ttyUSB0', baud: 9600, data_bits: 8, stop_bits: 1, parity: 'none', address: 1, func: 3, register: 0, count: 2, type: 'f32', word_order: 'abcd', timeout_ms: 3000 });
-  const [conn, setConn] = useState({ port: '/dev/ttyUSB0', baud: 9600, address: 1, host: '', net_port: 502, endpoint: 'opc.tcp://', interval_seconds: 10 });
+  const [conn, setConn] = useState<Record<string, any>>({ port: '/dev/ttyUSB0', baud: 9600, address: 1, host: '', net_port: 0, endpoint: 'opc.tcp://', interval_seconds: 10 }); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [preview, setPreview] = useState<PreviewPoint[]>([]);
   const [msg, setMsg] = useState('');
   const driver = profiles.find(p => p.id === profileId)?.driver_profile ?? '';
@@ -97,7 +97,18 @@ export default function Onboarding() {
     if (!driver) return undefined;
     const base = { interval_seconds: +conn.interval_seconds };
     if (driver === 'opcua') return { ...base, endpoint: conn.endpoint };
-    if (driver === 'modbus-tcp') return { ...base, host: conn.host, net_port: +conn.net_port, address: +conn.address };
+    if (EXTRA_DRIVERS[driver]) {
+      const x: Record<string, unknown> = { ...base, host: conn.host };
+      if (+conn.net_port > 0) x.net_port = +conn.net_port;
+      if (driver === 'iec104' || driver === 'dnp3') x.address = +conn.address;
+      if (driver === 'snmp') {
+        x.snmp_version = conn.snmp_version || '2c';
+        if (conn.community_env) x.community_env = conn.community_env;
+        if (x.snmp_version === '3') { x.snmp_auth = conn.snmp_auth || 'sha256'; x.snmp_auth_pass_env = conn.snmp_auth_pass_env; if (conn.snmp_priv_pass_env) { x.snmp_priv = conn.snmp_priv || 'aes'; x.snmp_priv_pass_env = conn.snmp_priv_pass_env; } }
+      }
+      return x;
+    }
+    if (driver === 'modbus-tcp') return { ...base, host: conn.host, net_port: +conn.net_port || 502, address: +conn.address };
     return { ...base, port: conn.port, baud: +conn.baud, address: +conn.address };
   }
 
@@ -167,9 +178,24 @@ export default function Onboarding() {
             <>
               <h3 style={{ marginTop: 20 }}>Connection</h3>
               {driver === 'opcua' && (<><label>OPC UA endpoint</label><input value={conn.endpoint} onChange={e => setConn({ ...conn, endpoint: e.target.value })} placeholder="opc.tcp://192.168.1.60:4840" required /></>)}
+              {EXTRA_DRIVERS[driver] && (<>
+                <label>Host / IP</label><input value={conn.host} onChange={e => setConn({ ...conn, host: e.target.value })} placeholder="192.168.1.50" required />
+                <label>Port (blank = protocol default)</label><input type="number" value={conn.net_port || ''} onChange={e => setConn({ ...conn, net_port: +e.target.value })} />
+                {(driver === 'iec104' || driver === 'dnp3') && (<><label>{driver === 'iec104' ? 'Common address (ASDU)' : 'Outstation address'}</label><input type="number" min={0} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} /></>)}
+                {driver === 'snmp' && (<>
+                  <label>SNMP version</label>
+                  <select value={conn.snmp_version || '2c'} onChange={e => setConn({ ...conn, snmp_version: e.target.value })}><option value="2c">v2c</option><option value="3">v3</option></select>
+                  <label>Community env var name on the gateway (v2c)</label><input value={conn.community_env || ''} onChange={e => setConn({ ...conn, community_env: e.target.value })} placeholder="SNMP_COMMUNITY" />
+                  {conn.snmp_version === '3' && (<>
+                    <label>Auth password env var name</label><input value={conn.snmp_auth_pass_env || ''} onChange={e => setConn({ ...conn, snmp_auth_pass_env: e.target.value })} placeholder="SNMP_AUTH_PASS" required />
+                    <label>Privacy password env var name (optional)</label><input value={conn.snmp_priv_pass_env || ''} onChange={e => setConn({ ...conn, snmp_priv_pass_env: e.target.value })} placeholder="SNMP_PRIV_PASS" />
+                  </>)}
+                  <p className="muted">Secrets are set as environment variables on the gateway. Only their names are stored here.</p>
+                </>)}
+              </>)}
               {driver === 'modbus-tcp' && (<>
                 <label>Host / IP</label><input value={conn.host} onChange={e => setConn({ ...conn, host: e.target.value })} placeholder="192.168.1.50" required />
-                <label>TCP port</label><input type="number" value={conn.net_port} onChange={e => setConn({ ...conn, net_port: +e.target.value })} />
+                <label>TCP port</label><input type="number" value={conn.net_port || 502} onChange={e => setConn({ ...conn, net_port: +e.target.value })} />
                 <label>Unit / slave id</label><input type="number" min={0} max={255} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} />
               </>)}
               {!isNet && (<>

@@ -126,3 +126,44 @@ rules:
 		t.Fatalf("%v %v", rs, err)
 	}
 }
+
+// Same shape the server's renderEdgeYAML emits for the later network drivers.
+func TestLoadServerRenderedNetworkDrivers(t *testing.T) {
+	y := `gateway_id: "g"
+tenant_id: "t"
+serial: "s"
+mqtt:
+  host: "localhost"
+  port: 8883
+  tls: true
+allowed_commands: []
+devices:
+  - id: "sw1"
+    profile: "snmp"
+    interval: 10s
+    host: "10.0.0.9"
+    snmp_version: "3"
+    snmp_auth: "sha256"
+    snmp_auth_pass_env: "SNMP_AUTH"
+    points:
+      - {id: "up", oid: ".1.3.6.1.2.1.1.3.0", scale: 1, min: 0, max: 100}
+  - id: "rtu"
+    profile: "iec104"
+    interval: 10s
+    address: 1
+    host: "10.0.0.8"
+    points:
+      - {id: "v", ioa: 100, min: 0, max: 500}
+`
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte(y), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Devices[0].SNMPVersion != "3" || c.Devices[0].AuthPassEnv != "SNMP_AUTH" || c.Devices[0].Points[0].OID != ".1.3.6.1.2.1.1.3.0" || c.Devices[1].Points[0].IOA != 100 {
+		t.Fatalf("%+v", c.Devices)
+	}
+}

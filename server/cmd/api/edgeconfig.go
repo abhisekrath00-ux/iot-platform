@@ -18,6 +18,8 @@ import (
 var driverKinds = map[string]string{
 	"modbus-generic": "serial", "modbus-energy-meter": "serial", "door-contact": "serial",
 	"serial-json": "serial", "modbus-tcp": "net", "opcua": "net",
+	// Network drivers added later. Tested against simulators only; see docs/connectors.md.
+	"snmp": "net", "bacnet": "net", "iec104": "net", "dnp3": "net", "coap": "net", "iec61850": "net",
 }
 
 var (
@@ -25,12 +27,15 @@ var (
 	portRe = regexp.MustCompile(`^(/dev/[A-Za-z0-9._/-]{1,64}|COM[0-9]{1,3})$`)
 	epRe   = regexp.MustCompile(`^opc\.tcp://[A-Za-z0-9._:\-\[\]]{1,253}(/[A-Za-z0-9._~/\-]{0,128})?$`)
 	nodeRe = regexp.MustCompile(`^(ns=[0-9]{1,5};)?[isgb]=[A-Za-z0-9._:/\- \[\]]{1,128}$`)
+	oidRe  = regexp.MustCompile(`^\.[0-9]{1,10}(\.[0-9]{1,10}){2,30}$`)
+	envRe  = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+	pkeyRe = regexp.MustCompile(`^[A-Za-z0-9_.:/#\-\[\]$ ]{1,200}$`)
 	keyRe  = regexp.MustCompile(`^[A-Za-z0-9_.\-]{1,64}$`)
 )
 
 // validateProfilePoints checks points against the driver family's schema.
 func validateProfilePointsFor(driver string, pts []map[string]any) error {
-	if driver == "opcua" || driver == "serial-json" || driver == "modbus-tcp" {
+	if driver == "opcua" || driver == "serial-json" || driver == "modbus-tcp" || netExtra[driver] {
 		// The edge agent refuses points without a validation range; fail here,
 		// not on the gateway after deployment.
 		for _, p := range pts {
@@ -40,6 +45,9 @@ func validateProfilePointsFor(driver string, pts []map[string]any) error {
 				return fmt.Errorf("point %v: min and max required (max > min)", p["id"])
 			}
 		}
+	}
+	if netExtra[driver] {
+		return validateExtraPoints(driver, pts)
 	}
 	switch driver {
 	case "opcua":
@@ -75,6 +83,50 @@ func validateProfilePointsFor(driver string, pts []map[string]any) error {
 	return validProfilePoints(pts)
 }
 
+var netExtra = map[string]bool{"snmp": true, "bacnet": true, "iec104": true, "dnp3": true, "coap": true, "iec61850": true}
+
+// validateExtraPoints checks the point addressing for the later network
+// drivers. The edge agent re-validates everything; this only fails early.
+func validateExtraPoints(driver string, pts []map[string]any) error {
+	if len(pts) == 0 || len(pts) > 64 {
+		return fmt.Errorf("1-64 points required")
+	}
+	for _, p := range pts {
+		id, _ := p["id"].(string)
+		if !profilePointOK.MatchString(id) {
+			return fmt.Errorf("point id %q invalid", id)
+		}
+		key, _ := p["key"].(string)
+		switch driver {
+		case "snmp":
+			if o, _ := p["oid"].(string); !oidRe.MatchString(o) {
+				return fmt.Errorf("point %s: oid must be numeric like .1.3.6.1.2.1.1.3.0", id)
+			}
+		case "iec104":
+			if v, ok := p["ioa"].(float64); !ok || v < 1 || v > 16777215 || v != float64(int(v)) {
+				return fmt.Errorf("point %s: ioa must be 1-16777215", id)
+			}
+		case "dnp3":
+			switch key {
+			case "ai", "bi", "ctr", "bo":
+			default:
+				return fmt.Errorf("point %s: key must be ai|bi|ctr|bo", id)
+			}
+			if v, ok := p["register"].(float64); !ok || v < 0 || v > 65535 {
+				return fmt.Errorf("point %s: register (point index) must be 0-65535", id)
+			}
+		default: // bacnet, coap, iec61850 address by key
+			if !pkeyRe.MatchString(key) {
+				return fmt.Errorf("point %s: key required (bacnet ai:1, coap path#field, iec61850 domain/item)", id)
+			}
+			if driver == "iec61850" && !strings.Contains(key, "/") {
+				return fmt.Errorf("point %s: iec61850 key must be domain/item", id)
+			}
+		}
+	}
+	return nil
+}
+
 // validConnection whitelists per-device connection settings.
 func validConnection(driver string, c map[string]any) error {
 	kind := driverKinds[driver]
@@ -83,6 +135,14 @@ func validConnection(driver string, c map[string]any) error {
 	for k := range c {
 		switch k {
 		case "port", "baud", "data_bits", "stop_bits", "parity", "address", "host", "net_port", "endpoint", "interval_seconds":
+		case "snmp_version", "community_env", "snmp_auth", "snmp_auth_pass_env", "snmp_priv", "snmp_priv_pass_env":
+			if driver != "snmp" {
+				return fmt.Errorf("%s is only valid for snmp", k)
+			}
+			v, _ := c[k].(string)
+			if !snmpFieldOK(k, v) {
+				return fmt.Errorf("%s invalid", k)
+			}
 		default:
 			return fmt.Errorf("unknown connection field %q", k)
 		}
@@ -125,6 +185,18 @@ func validConnection(driver string, c map[string]any) error {
 	return nil
 }
 
+func snmpFieldOK(k, v string) bool {
+	switch k {
+	case "snmp_version":
+		return v == "2c" || v == "3"
+	case "snmp_auth":
+		return v == "sha" || v == "sha256" || v == "sha512"
+	case "snmp_priv":
+		return v == "aes" || v == "aes256"
+	}
+	return envRe.MatchString(v) // secrets are env var NAMES on the box, never values
+}
+
 func q(v any) string { b, _ := json.Marshal(v); return string(b) } // JSON scalars are valid YAML
 
 // renderEdgeYAML turns devices + profiles into the agent's config file.
@@ -152,7 +224,7 @@ func renderEdgeYAML(tenant, gateway, serial string, devs []edgeDev) string {
 			iv = int(v)
 		}
 		fmt.Fprintf(&b, "    interval: %ds\n", iv)
-		for _, k := range []string{"port", "parity", "host", "endpoint"} {
+		for _, k := range []string{"port", "parity", "host", "endpoint", "snmp_version", "community_env", "snmp_auth", "snmp_auth_pass_env", "snmp_priv", "snmp_priv_pass_env"} {
 			if v, ok := d.Conn[k].(string); ok && v != "" {
 				fmt.Fprintf(&b, "    %s: %s\n", k, q(v))
 			}
@@ -174,7 +246,7 @@ func renderEdgeYAML(tenant, gateway, serial string, devs []edgeDev) string {
 		for _, p := range d.Points {
 			b.WriteString("      - {")
 			first := true
-			for _, k := range []string{"id", "register", "func", "type", "word_order", "key", "node_id", "scale", "unit", "min", "max"} {
+			for _, k := range []string{"id", "register", "func", "type", "word_order", "key", "node_id", "oid", "ioa", "scale", "unit", "min", "max"} {
 				if v, ok := p[k]; ok {
 					if !first {
 						b.WriteString(", ")

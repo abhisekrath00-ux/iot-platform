@@ -84,3 +84,60 @@ func TestRenderEdgeYAMLParses(t *testing.T) {
 		t.Fatal("empty device list must still be valid")
 	}
 }
+
+func TestExtraDriverPointsAndConnection(t *testing.T) {
+	rng := map[string]any{"min": 0.0, "max": 100.0}
+	pt := func(kv map[string]any) []map[string]any {
+		m := map[string]any{"id": "p1"}
+		for k, v := range rng {
+			m[k] = v
+		}
+		for k, v := range kv {
+			m[k] = v
+		}
+		return []map[string]any{m}
+	}
+	ok := map[string][]map[string]any{
+		"snmp":     pt(map[string]any{"oid": ".1.3.6.1.2.1.1.3.0"}),
+		"iec104":   pt(map[string]any{"ioa": 100.0}),
+		"dnp3":     pt(map[string]any{"key": "ai", "register": 3.0}),
+		"bacnet":   pt(map[string]any{"key": "ai:1"}),
+		"coap":     pt(map[string]any{"key": "sensors/temp#v"}),
+		"iec61850": pt(map[string]any{"key": "LD0/MMXU1.TotW.mag.f"}),
+	}
+	for d, p := range ok {
+		if err := validateProfilePointsFor(d, p); err != nil {
+			t.Errorf("%s good point rejected: %v", d, err)
+		}
+	}
+	bad := map[string][]map[string]any{
+		"snmp":     pt(map[string]any{"oid": "sysUpTime"}),
+		"iec104":   pt(map[string]any{"ioa": 0.0}),
+		"dnp3":     pt(map[string]any{"key": "zz", "register": 1.0}),
+		"bacnet":   pt(map[string]any{"key": "bad\x00"}),
+		"iec61850": pt(map[string]any{"key": "nodomain"}),
+		"coap":     {{"id": "p1", "key": "a"}}, // no range
+	}
+	for d, p := range bad {
+		if err := validateProfilePointsFor(d, p); err == nil {
+			t.Errorf("%s bad point accepted", d)
+		}
+	}
+	if err := validConnection("snmp", map[string]any{"host": "10.0.0.9", "snmp_version": "3", "snmp_auth": "sha256", "snmp_auth_pass_env": "SNMP_AUTH"}); err != nil {
+		t.Error(err)
+	}
+	for _, c := range []map[string]any{
+		{"host": "h", "snmp_version": "1"}, {"host": "h", "snmp_auth": "md5"}, {"host": "h", "community_env": "public secret"},
+	} {
+		if validConnection("snmp", c) == nil {
+			t.Errorf("accepted %v", c)
+		}
+	}
+	if validConnection("bacnet", map[string]any{"host": "h", "community_env": "X"}) == nil {
+		t.Error("snmp field accepted on bacnet")
+	}
+	y := renderEdgeYAML("t", "g", "s", []edgeDev{{ID: "d", Profile: "snmp", Conn: map[string]any{"host": "10.0.0.9", "snmp_version": "3"}, Points: ok["snmp"]}})
+	if !strings.Contains(y, `snmp_version: "3"`) || !strings.Contains(y, `oid: ".1.3.6.1.2.1.1.3.0"`) {
+		t.Errorf("yaml missing fields:\n%s", y)
+	}
+}
