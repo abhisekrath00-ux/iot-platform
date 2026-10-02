@@ -242,7 +242,8 @@ func main() {
 	if rpm > 0 {
 		auth.SetKeyLimiter(auth.NewLimiter(rpm, rpm/5+1))
 	}
-	mux.HandleFunc("POST /v1/device/ingest", s.deviceIngest) // device token auth, outside the session middleware
+	mux.HandleFunc("POST /v1/lorawan/uplink", s.lorawanUplink) // device token auth, like /v1/device/ingest
+	mux.HandleFunc("POST /v1/device/ingest", s.deviceIngest)   // device token auth, outside the session middleware
 	mux.Handle("/v1/", auth.Middleware(s.secret, s.resolveAPIKey)(s.invalidateOnWrite(api)))
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).

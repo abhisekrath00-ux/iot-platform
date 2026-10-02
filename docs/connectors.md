@@ -189,3 +189,14 @@ and boolean metrics. It is OFF unless `SPARKPLUG_TENANT=<tenant id>` is set on t
 - Status: decoder and mapping tested with a protobuf encoder written for the tests (types Int8-64/UInt8-64/Float/
   Double/Boolean, aliases, truncation fuzz, timestamp plausibility). NOT tested against a real Sparkplug node or
   Ignition/Cirrus Link; the encoder and decoder share one author's reading of the spec.
+
+## LoRaWAN (via your network server's HTTP integration)
+
+The platform does not run a LoRaWAN network server and does not touch radio frames. Use ChirpStack or The Things Stack
+(or any server with an HTTP uplink webhook) to join, decrypt and decode the payload, then point its HTTP integration at
+`POST /v1/lorawan/uplink` with the header `Authorization: Bearer hxd_...` (one per-device token, minted as in the
+direct HTTPS section). The decoded fields (ChirpStack v4 `object`, TTS v3 `uplink_message.decoded_payload`) become
+readings; nested objects flatten with `_`, booleans map to 0/1, strings and arrays are ignored, and only fields that
+exist as registered points for that device are stored. The network server's timestamp is used when valid and plausible.
+Status: integration-tested with both JSON shapes, bad/missing tokens and payloads with no numeric fields. Not tested
+against a real ChirpStack/TTS instance or real sensors. Downlinks (commands to LoRaWAN devices) are not built.
