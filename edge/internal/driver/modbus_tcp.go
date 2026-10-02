@@ -28,6 +28,7 @@ func newModbusTCP(d config.Device) (Driver, error) {
 	t := &tcpConn{addr: addr, unit: byte(d.Address)}
 	g := &modbusGeneric{dev: d}
 	g.read = t.read
+	g.write = t.writeFrame
 	g.close = t.close
 	return g, nil
 }
@@ -99,4 +100,49 @@ func (t *tcpConn) exchange(fn, reg, count int) ([]byte, error) {
 		return nil, fmt.Errorf("malformed response")
 	}
 	return pdu[2:], nil
+}
+
+func (t *tcpConn) writeFrame(fn, reg int, body []byte) error {
+	if t.conn == nil {
+		c, err := net.DialTimeout("tcp", t.addr, 3*time.Second)
+		if err != nil {
+			return err
+		}
+		t.conn = c
+	}
+	err := t.exchangeWrite(fn, reg, body)
+	if err != nil {
+		t.close()
+	}
+	return err
+}
+
+func (t *tcpConn) exchangeWrite(fn, reg int, body []byte) error {
+	tid := uint16(t.tid.Add(1))
+	pdu := append([]byte{byte(fn), byte(reg >> 8), byte(reg)}, body...)
+	req := make([]byte, 7, 7+len(pdu))
+	binary.BigEndian.PutUint16(req[0:], tid)
+	binary.BigEndian.PutUint16(req[4:], uint16(1+len(pdu)))
+	req[6] = t.unit
+	req = append(req, pdu...)
+	t.conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := t.conn.Write(req); err != nil {
+		return err
+	}
+	hdr := make([]byte, 7)
+	if _, err := io.ReadFull(t.conn, hdr); err != nil {
+		return err
+	}
+	if binary.BigEndian.Uint16(hdr[0:]) != tid {
+		return fmt.Errorf("transaction id mismatch")
+	}
+	l := int(binary.BigEndian.Uint16(hdr[4:]))
+	if l < 2 || l > 260 {
+		return fmt.Errorf("bad MBAP length %d", l)
+	}
+	resp := make([]byte, l-1)
+	if _, err := io.ReadFull(t.conn, resp); err != nil {
+		return err
+	}
+	return checkWriteEcho(fn, pdu, resp)
 }

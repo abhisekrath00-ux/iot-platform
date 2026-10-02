@@ -91,9 +91,15 @@ func main() {
 	// command_mode every command is rejected and acked as rejected.
 	gate := cmdexec.NewGate(cfg.AllowedCommands)
 	var actuator cmdexec.Actuator
-	if cfg.CommandMode == "simulate" {
+	switch cfg.CommandMode {
+	case "simulate":
 		actuator = &cmdexec.Simulated{}
 		log.Printf("command mode: SIMULATE - no hardware will be actuated")
+	case "modbus":
+		// Real writes. Still behind approval + four-eyes on the server, the
+		// gate's allowlist (modbus.write must be listed) and per-device `writes`.
+		actuator = &modbusActuator{reg: writers}
+		log.Printf("command mode: MODBUS - allowlisted registers can be written after four-eyes approval")
 	}
 	var mc *mqttc.Client
 	onCmd := func(_ mqtt.Client, m mqtt.Message) {
@@ -211,6 +217,8 @@ func main() {
 }
 
 // supervisor owns the per-device poll goroutines for one loaded config.
+var writers = &writerRegistry{}
+
 type supervisor struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -218,6 +226,7 @@ type supervisor struct {
 
 func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string, tr *localui.Tracker) *supervisor {
 	tr.Reset()
+	writers.reset()
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &supervisor{cancel: cancel, done: make(chan struct{})}
 	go func() {
@@ -233,6 +242,9 @@ func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string, 
 				continue
 			}
 			defer d.Close()
+			if w, ok := d.(driver.Writer); ok && len(dev.Writes) > 0 {
+				writers.set(dev.ID, w)
+			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()

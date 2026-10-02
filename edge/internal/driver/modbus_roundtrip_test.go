@@ -16,13 +16,16 @@ import (
 // real RTU device. It lets the full frame path (request build, CRC verify,
 // byte-count check, decode) run without hardware.
 type fakePort struct {
-	regs    map[int]uint16 // input/holding registers
-	coils   map[int]bool
-	sawAddr byte
-	sawFn   byte
-	gotReq  []byte
-	readBuf *bytes.Reader
-	corrupt bool
+	regs      map[int]uint16 // input/holding registers
+	coils     map[int]bool
+	sawAddr   byte
+	sawFn     byte
+	gotReq    []byte
+	readBuf   *bytes.Reader
+	corrupt   bool
+	writes    [][]byte
+	exception byte
+	badEcho   bool
 }
 
 func (f *fakePort) SetMode(*serial.Mode) error         { return nil }
@@ -44,6 +47,30 @@ func (f *fakePort) Write(p []byte) (int, error) {
 	reg := int(binary.BigEndian.Uint16(p[2:4]))
 	count := int(binary.BigEndian.Uint16(p[4:6]))
 	f.sawAddr, f.sawFn = addr, fn
+	if fn == 5 || fn == 6 || fn == 16 {
+		f.writes = append(f.writes, append([]byte(nil), p...))
+		if fn == 6 {
+			f.regs[reg] = uint16(count)
+		}
+		if fn == 16 {
+			for i := 0; i < count; i++ {
+				f.regs[reg+i] = binary.BigEndian.Uint16(p[7+2*i:])
+			}
+		}
+		if f.exception != 0 {
+			resp := []byte{addr, fn | 0x80, f.exception}
+			c := crc16(resp)
+			f.readBuf = bytes.NewReader(append(resp, byte(c), byte(c>>8)))
+			return len(p), nil
+		}
+		resp := append([]byte{addr}, p[1:6]...)
+		if f.badEcho {
+			resp[5] ^= 1
+		}
+		c := crc16(resp)
+		f.readBuf = bytes.NewReader(append(resp, byte(c), byte(c>>8)))
+		return len(p), nil
+	}
 	var data []byte
 	switch fn {
 	case 1, 2:

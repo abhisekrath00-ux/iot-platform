@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
@@ -18,13 +19,18 @@ type modbusGeneric struct {
 	port serial.Port // nil for Modbus TCP
 	dev  config.Device
 	// read performs one Modbus read; RTU-over-serial or TCP framing.
-	read  func(fn, reg, count int) ([]byte, error)
+	read func(fn, reg, count int) ([]byte, error)
+	// write performs one Modbus write (fn 5, 6 or 16); body is the bytes after
+	// the register address. It returns nil only when the device echoed the request.
+	write func(fn, reg int, body []byte) error
 	close func() error
+	mu    sync.Mutex // one bus transaction sequence at a time (poll vs write)
 }
 
 func newModbusGeneric(port serial.Port, dev config.Device) *modbusGeneric {
 	g := &modbusGeneric{port: port, dev: dev}
 	g.read = g.readRegisters
+	g.write = g.writeRTU
 	g.close = port.Close
 	return g
 }
@@ -133,6 +139,8 @@ func (g *modbusGeneric) readRegisters(fn, reg, count int) ([]byte, error) {
 }
 
 func (g *modbusGeneric) Poll(ctx context.Context) ([]Reading, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.read == nil {
 		g.read = g.readRegisters
 	}

@@ -68,6 +68,11 @@ type Device struct {
 	PasswordEnv string        `yaml:"password_env"`
 	Interval    time.Duration `yaml:"interval"`
 	Points      []Point       `yaml:"points"`
+	// Writes is the explicit allowlist of writable registers/coils for this
+	// device. Nothing outside it can ever be written. Each entry needs a finite
+	// min < max range, enforced before any frame is sent. Func: 5 coil,
+	// 6 single register, 16 multiple registers.
+	Writes []Point `yaml:"writes"`
 }
 
 type Point struct {

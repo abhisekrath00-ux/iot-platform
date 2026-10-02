@@ -141,3 +141,30 @@ sha256 is stored. Same validation as the MQTT path: registered points only, min/
 max 500 readings per request. Status: integration-tested (mint, ingest, cross-device, revoke, expiry, no secret in
 list or storage). Not tested: real devices, TLS termination (put it behind the platform's TLS proxy), and there is no
 per-token rate limit yet, so rely on the proxy for that.
+
+## Modbus writes (off by default, safety-gated)
+
+A gateway writes to a device only when ALL of these hold: the command was requested by one person and approved by a
+different person in an interactive session (API keys can never approve); the envelope is unexpired (5 min), not replayed,
+and `modbus.write` is in the gateway's `allowed_commands`; the agent runs with `command_mode: modbus`; and the
+register is listed under that device's `writes:` with a finite `min < max` (values outside it are refused before any
+frame is built). Supported: coil (func 5), single register (6), multiple registers (16), u16/i16/u32/i32/f32 with word
+order and scale. The device's echo is verified; an exception or mismatched echo is reported as failed.
+
+```yaml
+command_mode: modbus
+allowed_commands: [modbus.write]
+devices:
+  - id: vfd1
+    profile: modbus-tcp
+    host: 10.0.0.20
+    address: 1
+    writes:
+      - {id: speed_setpoint, register: 100, func: 6, type: u16, scale: 0.1, unit: Hz, min: 0, max: 50}
+```
+
+Request: `POST /v1/commands {"device_id":"vfd1","gateway_id":"...","action":"modbus.write","parameters":{"point":"speed_setpoint","value":42.5}}`,
+then approve by a second user. Status: tested with fake serial and TCP peers and the real gate (allowlist, replay,
+expiry, malformed parameters, refusals). NOT tested on real equipment; no read-back verification beyond the echo;
+the maintenance interlock and measured-outcome items in docs/hazard-analysis.md are not built. Do not use on
+safety-relevant equipment yet.

@@ -75,6 +75,13 @@ analysis governs what must be true before the first executor merges.
 
 ## 6. Residual risk statement
 
+**Update, Oct 2:** a Modbus write executor now exists (`command_mode: modbus`, action `modbus.write`).
+It is off by default and only reachable after server-side four-eyes approval, the gateway's `allowed_commands`
+allowlist and a per-device `writes` register allowlist with a mandatory min/max range. It has been tested only
+against fake serial ports and a fake TCP server, never against real equipment. Items 3 to 6 above (measured-outcome
+publish, maintenance-mode interlock, approval UI context, FMEA row with independent sign-off) are NOT done, so
+do not enable it on equipment that can hurt people or product. The statement below is the old one and no longer true:
+
 With the executor unshipped, residual actuation risk is zero by absence.
 After section 5 lands, the highest residual hazards are H8 (maintenance
 lockout discipline, S5) and H1 (credential theft), both mitigated to
