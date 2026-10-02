@@ -51,3 +51,15 @@ a skipped port test still ends `live` once data flows.
 - **Still manual:** the server address in `API_PUBLIC_URL`, DNS or a fixed IP for the server, site CA and TLS certificates,
   and each device's serial settings (port, baud, parity) or IP. Not built: mDNS discovery of the server, LAN discovery of
   IP devices, and a no-code zero-touch enrollment (deliberately not offered: a claim code or QR is the minimum safe step).
+
+## Finding the server and devices on the local network
+
+- `edge-agent -discover` sends one mDNS query for `_hexmon-api._tcp` and prints the addresses that answer. The server
+  advertises only when `MDNS_ADVERTISE=true`. It suggests an address; it never enrolls or sends a claim code, because
+  anything on the LAN can answer multicast. Confirm the address, then enroll with the claim code as usual.
+  Tested with hand-built packets (query, compressed names, truncation, pointer loops); not tested against Avahi/Bonjour
+  or across VLANs. Multicast is often blocked between subnets; type `-claim-api` then.
+- `edge-agent -scan-lan 192.168.1.0/24` TCP-connects to Modbus TCP (502), OPC UA (4840), IEC 104 (2404), DNP3 (20000),
+  102, and MQTT (1883/8883). Private ranges only, /22 or smaller. An open port means something listens, not that it is
+  a supported device. No BACnet Who-Is or SNMP probe yet. The scan runs on the edge box, because only it can see the
+  plant network; the dashboard cannot scan on its behalf. The serial Modbus slave scan is `-scan-port`.

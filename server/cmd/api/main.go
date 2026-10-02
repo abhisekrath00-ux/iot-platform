@@ -22,6 +22,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/leader"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/mdns"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/oidcstate"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/pki"
@@ -293,6 +294,19 @@ func main() {
 	retDays, _ := strconv.Atoi(os.Getenv("RAW_RETENTION_DAYS"))
 	go leader.Run(ctx, st.Pool, leaderRetention, "retention", 30*time.Second, retention.Job(st.Pool, retDays, time.Hour))
 	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: auth.SecurityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
+	if os.Getenv("MDNS_ADVERTISE") == "true" {
+		port, _ := strconv.Atoi(envOr("API_PORT", "8000"))
+		scheme := "https"
+		if strings.HasPrefix(envOr("API_PUBLIC_URL", ""), "http://") {
+			scheme = "http"
+		}
+		host, _ := os.Hostname()
+		if err := mdns.Advertise("hexmon", host, port, []string{"scheme=" + scheme}, ctx.Done()); err != nil {
+			log.Printf("mdns advertise disabled: %v", err)
+		} else {
+			log.Printf("advertising %s on the local network", mdns.Service)
+		}
+	}
 	go func() {
 		log.Printf("api listening on %s", srv.Addr)
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {

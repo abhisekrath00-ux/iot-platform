@@ -16,6 +16,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/claim"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/cmdexec"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/discover"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/driver"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/fleetctl"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/localrules"
@@ -66,7 +67,36 @@ func main() {
 	testOut := flag.String("test-output", "", "sound this alarm output for a few seconds on the running agent, then exit")
 	forDur := flag.Duration("for", 10*time.Minute, "duration for -silence (max 24h)")
 	identityDir := flag.String("identity-dir", paths.Data(), "directory holding identity.json")
+	discoverFlag := flag.Bool("discover", false, "look for Hexmon servers advertising on the local network (mDNS), print their addresses, then exit; nothing is enrolled")
+	scanLAN := flag.String("scan-lan", "", "probe a private IPv4 range (e.g. 192.168.1.0/24, max /22) for open industrial ports (Modbus TCP, OPC UA, IEC 104, DNP3, MQTT), print results, then exit")
 	flag.Parse()
+
+	if *scanLAN != "" {
+		hits, err := discover.ScanLAN(context.Background(), *scanLAN, 400*time.Millisecond)
+		if err != nil {
+			log.Fatalf("scan-lan: %v", err)
+		}
+		for _, h := range hits {
+			fmt.Printf("%s:%d  %s\n", h.Addr, h.Port, h.Service)
+		}
+		fmt.Printf("%d open port(s). An open port means something is listening, not that it is a supported device.\n", len(hits))
+		return
+	}
+	if *discoverFlag {
+		ss, err := discover.FindServers(context.Background(), 3*time.Second)
+		if err != nil {
+			log.Fatalf("discover: %v", err)
+		}
+		if len(ss) == 0 {
+			fmt.Println("no server answered. Multicast may be blocked on this network; type -claim-api by hand.")
+			return
+		}
+		for _, s := range ss {
+			fmt.Printf("%s  (host %s, answered by %s)\n", s.URL(), s.Host, s.From)
+		}
+		fmt.Println("Confirm the address with your administrator, then use: -claim-api <url> -claim-serial <serial> -claim-code <code>")
+		return
+	}
 
 	if *silenceOut != "" || *testOut != "" {
 		action, out, d := "silence", *silenceOut, *forDur
