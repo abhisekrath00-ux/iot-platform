@@ -31,3 +31,19 @@ func TestDiscoveriesCLIEmptyAndFilled(t *testing.T) {
 		}
 	}
 }
+
+func TestIgnoreCLI(t *testing.T) {
+	t.Setenv("HEXMON_DATA_DIR", t.TempDir())
+	s := autodetect.OpenStore(discoveriesPath())
+	s.Merge(time.Now(), []autodetect.Finding{{Key: "k1", Kind: "lan", Host: "10.0.0.5", NetPort: 502}}, nil)
+	var b bytes.Buffer
+	if ignoreCLI("nope", false, &b) != 1 {
+		t.Fatal("unknown key should fail")
+	}
+	if ignoreCLI("k1", false, &b) != 0 || autodetect.OpenStore(discoveriesPath()).Snapshot().Findings[0].State != "ignored" {
+		t.Fatal("not ignored")
+	}
+	if ignoreCLI("k1", true, &b) != 0 || autodetect.OpenStore(discoveriesPath()).Snapshot().Findings[0].State != "suggested" {
+		t.Fatal("not restored")
+	}
+}

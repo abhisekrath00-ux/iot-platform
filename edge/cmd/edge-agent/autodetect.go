@@ -103,7 +103,18 @@ func startAutodetect(ctx context.Context, cfg *config.Config, store *autodetect.
 			snap := cfgSnapshot(cfg)
 			from, to := snap.Autodetect.Range()
 			n := 0
-			for _, p := range autodetect.Payloads(res.Findings, from, to, time.Now()) {
+			keep := store.Snapshot().Findings
+			state := map[string]string{}
+			for _, f := range keep {
+				state[f.Key] = f.State
+			}
+			var visible []autodetect.Finding
+			for _, f := range res.Findings {
+				if state[f.Key] != "ignored" {
+					visible = append(visible, f)
+				}
+			}
+			for _, p := range autodetect.Payloads(visible, from, to, time.Now()) {
 				if store.PublishedHash(p.Scope()) == p.Sum() {
 					continue
 				}
@@ -161,6 +172,26 @@ func discoveriesCLI(out io.Writer) int {
 	return 0
 }
 
+// ignoreCLI is `edge-agent -ignore KEY`. Keys are printed by -discoveries.
+func ignoreCLI(key string, undo bool, out io.Writer) int {
+	store := autodetect.OpenStore(discoveriesPath())
+	found := false
+	for _, f := range store.Snapshot().Findings {
+		found = found || f.Key == key
+	}
+	if !found {
+		fmt.Fprintln(out, "no such proposal; keys are listed by -discoveries")
+		return 1
+	}
+	st := "ignored"
+	if undo {
+		st = "suggested"
+	}
+	store.MarkState(key, st)
+	fmt.Fprintf(out, "%s: %s\n", key, st)
+	return 0
+}
+
 func printState(out io.Writer, st autodetect.State) {
 	fmt.Fprintf(out, "last run %s, %d proposal(s)\n", st.LastRun.Local().Format(time.RFC3339), len(st.Findings))
 	for _, f := range st.Findings {
@@ -183,7 +214,7 @@ func printState(out io.Writer, st autodetect.State) {
 		if f.Confident {
 			conf = " [confident]"
 		}
-		fmt.Fprintf(out, "  %-10s %s%s\n", f.State, line, conf)
+		fmt.Fprintf(out, "  %-10s %s%s\n             key: %s\n", f.State, line, conf, f.Key)
 	}
 	for _, n := range st.LastNote {
 		fmt.Fprintln(out, "  note:", n)

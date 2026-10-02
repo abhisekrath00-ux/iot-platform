@@ -81,6 +81,8 @@ func main() {
 	logFileFlag := flag.String("log-file", "", "also write logs to this rotating file (default on a Windows service: <data>/logs/edge-agent.log; env HEXMON_LOG_FILE)")
 	detectNow := flag.Bool("detect-now", false, "run one read-only auto-detect pass (serial, local network, BACnet), print the proposals, then exit")
 	discoveriesFlag := flag.Bool("discoveries", false, "print the proposals the last auto-detect pass found, then exit")
+	ignoreKey := flag.String("ignore", "", "mark an auto-detect proposal (key as printed by -discoveries) as ignored: it is never auto-added or sent to the server again; use -ignore-undo to reverse")
+	ignoreUndo := flag.Bool("ignore-undo", false, "with -ignore: put the proposal back to suggested")
 	flag.Parse()
 
 	switch {
@@ -93,6 +95,8 @@ func main() {
 		os.Exit(listPorts(os.Stdout))
 	case *detectNow:
 		os.Exit(detectNowCLI(*cfgPath, os.Stdout))
+	case *ignoreKey != "":
+		os.Exit(ignoreCLI(*ignoreKey, *ignoreUndo, os.Stdout))
 	case *discoveriesFlag:
 		os.Exit(discoveriesCLI(os.Stdout))
 	case *healthFlag:

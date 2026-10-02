@@ -85,3 +85,13 @@ which was blamed on the pseudo-terminal. Fixed with an explicit mapping (0 or 1 
   pty ignores baud and parity), real LAN or BACnet devices, Windows, arm64 hardware.
 - Sweep time: with no device on a port it takes up to about 40 seconds per setting at 32 addresses, so a silent port
   costs about 5 minutes. The pass has a 25 minute limit. Raising `serial_to` raises this proportionally.
+
+## Ignoring a proposal
+
+`edge-agent -ignore KEY` (key shown by `-discoveries`) marks it ignored: it is not auto-added and not sent to the server
+again. `-ignore KEY -ignore-undo` reverses it. The local page is read-only, so this is a CLI action.
+
+## Not built
+
+SNMP is not part of the loop (it needs a community string from the environment; `-scan-snmp` still works by hand).
+mDNS in this repo finds the Hexmon server, not devices, so it is not a device pass.
