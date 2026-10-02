@@ -99,3 +99,20 @@ func TestDirectDeviceIsTelemetryOnly(t *testing.T) {
 		t.Errorf("edge gateway lost its command topic")
 	}
 }
+
+func TestPasswordHashRoundTrip(t *testing.T) {
+	h, err := PasswordHash("s3cret")
+	if err != nil || !strings.HasPrefix(h, "$7$101$") {
+		t.Fatal(h, err)
+	}
+	if !VerifyPassword("s3cret", h) || VerifyPassword("s3cret!", h) || VerifyPassword("s3cret", "garbage") {
+		t.Fatal("verify")
+	}
+	h2, _ := PasswordHash("s3cret")
+	if h == h2 {
+		t.Fatal("salt not random")
+	}
+	if got := GeneratePasswd([]PasswdEntry{{"b", "H2"}, {"a", "H1"}}); got != "a:H1\nb:H2\n" {
+		t.Fatalf("%q", got)
+	}
+}

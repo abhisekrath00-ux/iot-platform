@@ -14,6 +14,7 @@ interface Session {
   device_id: string | null;
   state: string;
   claim_code?: string;
+  enroll_string?: string;
   qr_payload?: string;
   port_test?: { result?: { ok: boolean; error?: string; readings?: { point_id: string; value: number }[]; latency_ms?: number } } | null;
 }
@@ -146,6 +147,7 @@ export default function Onboarding() {
           <h2>Claim the gateway</h2>
           <p>Show this to the installer once. It expires in 72 hours and is stored only as a hash.</p>
           <p><strong>Claim code:</strong> <code>{session.claim_code}</code></p>
+          {session.enroll_string && <p>Or on the gateway run <code>edge-agent -enroll '{session.enroll_string}'</code> (one value: server address, code and serial). It contains the one-time code, so treat it as a secret.</p>}
           <canvas ref={qrRef} />
           <p className="muted">Waiting for gateway {session.serial} to claim... this advances automatically.</p>
         </div>

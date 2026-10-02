@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import ApiKeys from '../components/ApiKeys';
 import RetentionCard from '../components/RetentionCard';
+import DirectDevices from '../components/DirectDevices';
 
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
 
@@ -67,6 +68,7 @@ export default function Settings() {
         {bMsg && <p className="muted" role="status">{bMsg}</p>}
       </div>
       <RetentionCard />
+      <DirectDevices />
       <ApiKeys />
       <div className="cards">
         <div className="card"><b>Users & roles</b><p className="muted">Admin, operator, installer, viewer. Tenant-scoped; SSO/OIDC before GA.</p></div>

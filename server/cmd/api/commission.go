@@ -86,8 +86,9 @@ func (s *server) createCommissionSession(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 201, map[string]any{
 		"session_id": sessionID, "gateway_id": gwID,
 		"claim_code": code, "expires_at": expires,
-		"qr_payload": commission.QRPayload(apiBase, code, in.Serial),
-		"note":       "show the claim code to the installer once; only its hash is stored",
+		"qr_payload":    commission.QRPayload(apiBase, code, in.Serial),
+		"enroll_string": enrollString(apiBase, code, in.Serial),
+		"note":          "show the claim code to the installer once; only its hash is stored",
 	})
 }
 

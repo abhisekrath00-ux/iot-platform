@@ -21,7 +21,9 @@ func (s *server) regenerateBrokerACL(ctx context.Context) {
 	}
 	rows, err := s.st.Pool.Query(ctx,
 		`SELECT serial, tenant_id, id, kind='direct' FROM gateways
-		 WHERE status='active' AND cert_fingerprint IS NOT NULL AND cert_fingerprint<>''`)
+		 WHERE status='active' AND ((cert_fingerprint IS NOT NULL AND cert_fingerprint<>'')
+		   OR (auth_mode='password' AND kind='direct' AND broker_pw_hash IS NOT NULL
+		       AND EXISTS (SELECT 1 FROM tenant_direct_auth a WHERE a.tenant_id=gateways.tenant_id AND a.password_enabled)))`)
 	if err != nil {
 		log.Printf("brokeracl: query: %v", err)
 		return
@@ -37,6 +39,26 @@ func (s *server) regenerateBrokerACL(ctx context.Context) {
 	if err := brokeracl.WriteAtomic(path, brokeracl.Generate(entries)); err != nil {
 		log.Printf("brokeracl: write %s: %v", path, err)
 		return
+	}
+	if pw := os.Getenv("BROKER_DIRECT_PASSWD_FILE"); pw != "" {
+		prow, err := s.st.Pool.Query(ctx, `SELECT g.serial, g.broker_pw_hash FROM gateways g
+			JOIN tenant_direct_auth a ON a.tenant_id=g.tenant_id AND a.password_enabled
+			WHERE g.status='active' AND g.kind='direct' AND g.auth_mode='password' AND g.broker_pw_hash IS NOT NULL`)
+		if err != nil {
+			log.Printf("brokeracl: passwd query: %v", err)
+		} else {
+			var pe []brokeracl.PasswdEntry
+			for prow.Next() {
+				var e brokeracl.PasswdEntry
+				if prow.Scan(&e.Username, &e.Hash) == nil {
+					pe = append(pe, e)
+				}
+			}
+			prow.Close()
+			if err := brokeracl.WriteAtomic(pw, brokeracl.GeneratePasswd(pe)); err != nil {
+				log.Printf("brokeracl: write %s: %v", pw, err)
+			}
+		}
 	}
 	log.Printf("brokeracl: wrote %d gateway blocks to %s (reload broker with SIGHUP)", len(entries), path)
 }

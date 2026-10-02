@@ -52,9 +52,37 @@ func main() {
 	claimAPI := flag.String("claim-api", "", "control-plane API base URL for enrollment (e.g. https://api.hexmon.example)")
 	claimCode := flag.String("claim-code", "", "one-time enrollment claim code from the dashboard")
 	claimSerial := flag.String("claim-serial", "", "gateway serial to claim")
+	enrollStr := flag.String("enroll", "", "enroll string from the dashboard (server URL, code and serial in one value)")
+	scanPort := flag.String("scan-port", "", "read-only Modbus RTU slave scan on this serial port (COM3 or /dev/ttyUSB0), prints responding addresses, then exits")
+	scanBaud := flag.Int("scan-baud", 9600, "scan: baud rate")
+	scanParity := flag.String("scan-parity", "none", "scan: none|even|odd")
+	scanFrom := flag.Int("scan-from", 1, "scan: first slave address")
+	scanTo := flag.Int("scan-to", 247, "scan: last slave address")
+	scanFunc := flag.Int("scan-func", 4, "scan: Modbus function, 3 or 4 (reads only)")
+	scanReg := flag.Int("scan-register", 0, "scan: a register the meter model implements")
 	identityDir := flag.String("identity-dir", paths.Data(), "directory holding identity.json")
 	flag.Parse()
 
+	if *scanPort != "" {
+		found, err := driver.ScanModbusRTU(context.Background(), nil, driver.ScanRequest{
+			Port: *scanPort, Baud: *scanBaud, DataBits: 8, StopBits: 1, Parity: *scanParity,
+			From: *scanFrom, To: *scanTo, Func: *scanFunc, Register: *scanReg})
+		if err != nil {
+			log.Fatalf("scan: %v", err)
+		}
+		for _, f := range found {
+			fmt.Printf("slave %d answered register %d with %d\n", f.Address, *scanReg, f.Value)
+		}
+		fmt.Printf("%d device(s) found\n", len(found))
+		return
+	}
+	if *enrollStr != "" {
+		e, err := claim.ParseEnroll(*enrollStr)
+		if err != nil {
+			log.Fatalf("enroll: %v", err)
+		}
+		*claimAPI, *claimCode, *claimSerial = e.API, e.Code, e.Serial
+	}
 	if *claimCode != "" {
 		// Enrollment mode: redeem the claim code, persist identity, exit.
 		if *claimAPI == "" || *claimSerial == "" {

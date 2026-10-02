@@ -7,6 +7,11 @@
 package brokeracl
 
 import (
+	"crypto/pbkdf2"
+	"crypto/rand"
+	"crypto/sha512"
+	"crypto/subtle"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"sort"
@@ -70,4 +75,52 @@ func WriteAtomic(path, content string) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// PasswordHash returns a mosquitto_passwd-compatible PBKDF2-SHA512 entry
+// ("$7$101$<salt>$<hash>", 12-byte salt, 64-byte key) for the secret. Only the
+// hash is ever stored; the secret is shown once at mint/rotate time.
+func PasswordHash(secret string) (string, error) {
+	salt := make([]byte, 12)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	return passwordHashWithSalt(secret, salt)
+}
+
+func passwordHashWithSalt(secret string, salt []byte) (string, error) {
+	dk, err := pbkdf2.Key(sha512.New, secret, salt, 101, 64)
+	if err != nil {
+		return "", err
+	}
+	return "$7$101$" + base64.StdEncoding.EncodeToString(salt) + "$" + base64.StdEncoding.EncodeToString(dk), nil
+}
+
+// VerifyPassword checks a secret against a PasswordHash value.
+func VerifyPassword(secret, hash string) bool {
+	parts := strings.Split(hash, "$") // "", "7", "101", salt, hash
+	if len(parts) != 5 || parts[1] != "7" || parts[2] != "101" {
+		return false
+	}
+	salt, err := base64.StdEncoding.DecodeString(parts[3])
+	if err != nil {
+		return false
+	}
+	want, err := passwordHashWithSalt(secret, salt)
+	return err == nil && subtle.ConstantTimeCompare([]byte(want), []byte(hash)) == 1
+}
+
+// PasswdEntry is one direct device that authenticates with a username (its
+// serial) and a secret instead of a client certificate.
+type PasswdEntry struct{ Username, Hash string }
+
+// GeneratePasswd renders mosquitto password-file lines for the entries.
+func GeneratePasswd(entries []PasswdEntry) string {
+	sorted := append([]PasswdEntry(nil), entries...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Username < sorted[j].Username })
+	var b strings.Builder
+	for _, e := range sorted {
+		b.WriteString(e.Username + ":" + e.Hash + "\n")
+	}
+	return b.String()
 }

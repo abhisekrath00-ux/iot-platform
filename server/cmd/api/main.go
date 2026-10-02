@@ -144,6 +144,12 @@ func main() {
 	api.HandleFunc("PUT /v1/devices/{id}/tags", s.setDeviceTags)
 	api.HandleFunc("PUT /v1/devices/{id}/asset", s.setDeviceAsset)
 	api.HandleFunc("GET /v1/assets", s.listAssets)
+	api.HandleFunc("GET /v1/direct-auth/policy", s.getDirectAuthPolicy)
+	api.HandleFunc("PUT /v1/direct-auth/policy", s.putDirectAuthPolicy)
+	api.HandleFunc("GET /v1/direct-devices", s.listDirectDevices)
+	api.HandleFunc("POST /v1/direct-devices/password", s.createPasswordDevice)
+	api.HandleFunc("POST /v1/direct-devices/{id}/rotate", s.rotatePasswordDevice)
+	api.HandleFunc("POST /v1/direct-devices/{id}/revoke", s.revokeDirectDevice)
 	api.HandleFunc("GET /v1/branding", s.getBranding)
 	api.HandleFunc("PUT /v1/branding", s.putBranding)
 	api.HandleFunc("GET /v1/kpis", s.listKPIs)
@@ -819,7 +825,8 @@ func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "enrollment.mint", gwID, map[string]any{"serial": in.Serial, "site_id": in.SiteID, "kind": in.Kind})
 	writeJSON(w, 201, map[string]any{
 		"gateway_id": gwID, "kind": in.Kind, "claim_code": code, "expires_at": expires,
-		"note": "show this code to the installer once; it is not stored",
+		"enroll_string": enrollString(envOr("API_PUBLIC_URL", "http://localhost:8000"), code, in.Serial),
+		"note":          "show this code to the installer once; it is not stored",
 	})
 }
 

@@ -1,4 +1,4 @@
-# Direct MQTT devices (certificate path built, telemetry-only)
+# Direct MQTT devices (certificate and password auth built, telemetry-only)
 
 Status: **proposal**. Today every device reaches the platform through an edge
 agent (serial, Modbus, OPC UA). Network-capable microcontrollers (ESP32,
@@ -14,12 +14,19 @@ This note records the design and what must be decided first. The certificate pat
 - Ingest already takes tenant and gateway from the broker-enforced topic and rejects a payload that names a different one (tested).
   A payload with no `observed_at` is now stamped with receive time and quality `estimated` (tested).
 - No command path exists for direct devices.
+- **Password option (owner decision: offer both, admin chooses).** Off by default per tenant. An admin turns it on in
+  Settings > Direct MQTT devices (with a security warning shown), then can create a device with username = serial and a
+  random secret shown once. Only a PBKDF2-SHA512 hash (mosquitto `$7$` format) is stored. Rotate and revoke are in the UI;
+  turning the policy off removes the tenant's password devices from the broker files. Same telemetry-only ACL as the
+  certificate path. Endpoints: `GET/PUT /v1/direct-auth/policy`, `POST /v1/direct-devices/password`,
+  `POST /v1/direct-devices/{id}/rotate|revoke`, `GET /v1/direct-devices`. Server env `BROKER_DIRECT_PASSWD_FILE` is the
+  generated password file; it must be loaded by the broker (mosquitto allows one password file per listener, so merge it
+  with the service-user file in your deploy hook, then SIGHUP). The hash format follows mosquitto's documented `$7$`
+  layout but was NOT verified against a running mosquitto here. Use TLS on the listener: the secret is otherwise sent in clear.
 
 ## Not built
 
-- Username + secret fallback for MCUs that cannot hold a key (needs the owner decision below; off until decided).
 - Per-client publish rate and payload size limits at the broker (set them in the broker config; not generated or tested here).
-- Onboarding UI "Network device" flow (the API takes `kind`; the UI does not offer it yet).
 - Any test against a real ESP32/STM32 or a real broker with TLS: UNTESTED on hardware.
 
 ## Why it needed a design first
@@ -59,8 +66,7 @@ Security is first-class here, so the identity model comes before any code.
 
 ## Open decisions (need the owner)
 
-- Is the password fallback acceptable for this client's environment, or is
-  certificate-only a hard requirement?
+- (Decided: both are offered, admin chooses.)
 - Which MCU families and TLS stacks are in scope (mbedTLS on STM32, ESP-IDF)?
 - Time source: NTP on site, or accept receive-time stamps?
 

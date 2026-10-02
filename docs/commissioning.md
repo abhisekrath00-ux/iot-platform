@@ -37,3 +37,17 @@ Everything runs on-prem; no step needs internet access (air-gap safe).
 `GET /v1/commissioning/sessions/{id}` derives the authoritative state from
 evidence (gateway status, device linkage, test result, first telemetry), so
 a skipped port test still ends `live` once data flows.
+
+## Easier onboarding (enroll string, slave scan)
+
+- **Enroll string.** Creating a claim code now also returns `enroll_string` (`hexmon-enroll:1:...`), shown once in the
+  wizard and in Settings > Direct MQTT devices. On the gateway, `edge-agent -enroll '<string>'` redeems it: no server URL,
+  code or serial to type. The string contains the one-time code, so treat it as a secret. The server URL comes from
+  `API_PUBLIC_URL`, which must be set to the address the edge box can reach. Tested (encode/parse, server output).
+- **Modbus slave scan (edge, read-only).** `edge-agent -scan-port COM3 -scan-baud 9600 -scan-from 1 -scan-to 247
+  -scan-func 4 -scan-register 0` tries one single-register read per address and lists the ones that answer. It never
+  writes. Use a register the meter model really has (for the Selec meters see their device pages); a slave that rejects the
+  register is not listed. Tested against a simulated bus only. Not wired into the dashboard; run it on the edge box.
+- **Still manual:** the server address in `API_PUBLIC_URL`, DNS or a fixed IP for the server, site CA and TLS certificates,
+  and each device's serial settings (port, baud, parity) or IP. Not built: mDNS discovery of the server, LAN discovery of
+  IP devices, and a no-code zero-touch enrollment (deliberately not offered: a claim code or QR is the minimum safe step).
