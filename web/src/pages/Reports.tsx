@@ -138,6 +138,8 @@ export default function Reports() {
             <button onClick={() => runNow(r.id)}>Run now</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?format=csv`, `${r.name}.csv`).catch(e => setMsg(String(e)))}>CSV</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?format=html`, `${r.name}.html`).catch(e => setMsg(String(e)))}>HTML</button>
+            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?format=pdf`, `${r.name}.pdf`).catch(e => setMsg(String(e)))}>PDF</button>
+            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?format=xlsx`, `${r.name}.xlsx`).catch(e => setMsg(String(e)))}>Excel</button>
           </div>
         </div>
       ))}

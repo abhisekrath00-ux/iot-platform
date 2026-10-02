@@ -178,8 +178,18 @@ func TestIntegrationReportPreviewAndDownload(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "itest-d-dev,temp,") {
 		t.Fatalf("download %d %s", w.Code, w.Body.String())
 	}
-	if w = call(h, "itest-other", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv", ""); w.Code != 404 {
-		t.Fatalf("cross-tenant report download = %d", w.Code)
+	w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=pdf", "")
+	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "%PDF-1.4") || w.Header().Get("Content-Type") != "application/pdf" {
+		t.Fatalf("pdf download %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+	w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=xlsx", "")
+	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "PK") {
+		t.Fatalf("xlsx download %d", w.Code)
+	}
+	for _, f := range []string{"csv", "pdf", "xlsx"} {
+		if w = call(h, "itest-other", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format="+f, ""); w.Code != 404 {
+			t.Fatalf("cross-tenant %s download = %d", f, w.Code)
+		}
 	}
 }
 

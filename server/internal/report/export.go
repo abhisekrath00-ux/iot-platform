@@ -1,0 +1,180 @@
+package report
+
+import (
+	"archive/zip"
+	"bytes"
+	"encoding/xml"
+	"fmt"
+	"strings"
+	"time"
+)
+
+// RenderXLSX writes a minimal, valid .xlsx workbook using only the standard
+// library (no new dependency, works air-gapped). One sheet, header row, one row
+// per bucket. Text goes in as inline strings, which Excel never evaluates as
+// formulas, so there is no formula-injection path.
+func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	add := func(name, body string) error {
+		w, err := zw.Create(name)
+		if err != nil {
+			return err
+		}
+		_, err = w.Write([]byte(body))
+		return err
+	}
+	const hdr = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n"
+	files := []struct{ n, b string }{
+		{"[Content_Types].xml", hdr + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`},
+		{"_rels/.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+		{"xl/workbook.xml", hdr + `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>`},
+		{"xl/_rels/workbook.xml.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`},
+	}
+	for _, f := range files {
+		if err := add(f.n, f.b); err != nil {
+			return nil, err
+		}
+	}
+	var sb strings.Builder
+	sb.WriteString(hdr + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`)
+	row := 0
+	str := func(s string) string {
+		var e bytes.Buffer
+		xml.EscapeText(&e, []byte(s))
+		return `<c t="inlineStr"><is><t>` + e.String() + `</t></is></c>`
+	}
+	num := func(f float64) string { return fmt.Sprintf(`<c><v>%.10g</v></c>`, f) }
+	row++
+	fmt.Fprintf(&sb, `<row r="%d">`, row)
+	for _, h := range []string{"device_id", "point_id", "bucket_start", "avg", "min", "max", "count", "sum"} {
+		sb.WriteString(str(h))
+	}
+	sb.WriteString(`</row>`)
+	for _, m := range d.Metrics {
+		for _, k := range series[m] {
+			row++
+			fmt.Fprintf(&sb, `<row r="%d">`, row)
+			sb.WriteString(str(m.DeviceID) + str(m.PointID) + str(k.Start.UTC().Format(time.RFC3339)))
+			sb.WriteString(num(k.Avg) + num(k.Min) + num(k.Max) + num(float64(k.Count)) + num(k.Sum))
+			sb.WriteString(`</row>`)
+		}
+	}
+	sb.WriteString(`</sheetData></worksheet>`)
+	if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// RenderPDF writes a paginated PDF with a built-in font (no fonts or
+// libraries to ship, works air-gapped): title block, one table per metric,
+// a repeating column header, and "Page n of m" on every page. Text is limited
+// to printable ASCII; other characters become '?'.
+func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated time.Time) []byte {
+	const perPage = 52
+	type line struct {
+		text string
+		bold bool
+	}
+	var pages [][]line
+	cur := []line{}
+	flush := func() {
+		if len(cur) > 0 {
+			pages = append(pages, cur)
+		}
+		cur = nil
+	}
+	put := func(s string, bold bool) {
+		if len(cur) >= perPage {
+			flush()
+		}
+		cur = append(cur, line{s, bold})
+	}
+	put(title, true)
+	put(fmt.Sprintf("Generated %s  window %dh  grouped by %s", generated.UTC().Format(time.RFC3339), d.WindowHours, d.GroupBy), false)
+	put("", false)
+	colHdr := fmt.Sprintf("%-17s %10s %10s %10s %12s %8s", "bucket (UTC)", "avg", "min", "max", "sum", "samples")
+	for _, m := range d.Metrics {
+		rows := series[m]
+		put(m.DeviceID+" / "+m.PointID, true)
+		if len(rows) == 0 {
+			put("no data in window", false)
+			put("", false)
+			continue
+		}
+		put(colHdr, true)
+		for _, r := range rows {
+			if len(cur) >= perPage {
+				flush()
+				put(m.DeviceID+" / "+m.PointID+" (cont.)", true)
+				put(colHdr, true)
+			}
+			put(fmt.Sprintf("%-17s %10.3f %10.3f %10.3f %12.3f %8d", r.Start.UTC().Format("2006-01-02 15:04"), r.Avg, r.Min, r.Max, r.Sum, r.Count), false)
+		}
+		a, mn, mx, sm, n := Summary(rows)
+		put(fmt.Sprintf("%-17s %10.3f %10.3f %10.3f %12.3f %8d", "overall", a, mn, mx, sm, n), true)
+		put("", false)
+	}
+	flush()
+	if len(pages) == 0 {
+		pages = [][]line{{{"no data", false}}}
+	}
+
+	esc := func(s string) string {
+		var b strings.Builder
+		for _, r := range s {
+			switch {
+			case r == '(' || r == ')' || r == '\\':
+				b.WriteByte('\\')
+				b.WriteRune(r)
+			case r >= 32 && r < 127:
+				b.WriteRune(r)
+			default:
+				b.WriteByte('?')
+			}
+		}
+		return b.String()
+	}
+	var out bytes.Buffer
+	var offs []int
+	obj := func(body string) {
+		offs = append(offs, out.Len())
+		fmt.Fprintf(&out, "%d 0 obj\n%s\nendobj\n", len(offs), body)
+	}
+	out.WriteString("%PDF-1.4\n")
+	// objects: 1 catalog, 2 pages, 3 font, 4 bold font, then per page (page, content)
+	obj("<< /Type /Catalog /Pages 2 0 R >>")
+	var kids []string
+	for i := range pages {
+		kids = append(kids, fmt.Sprintf("%d 0 R", 5+i*2))
+	}
+	obj(fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(pages)))
+	obj("<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>")
+	obj("<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold /Encoding /WinAnsiEncoding >>")
+	for i, pg := range pages {
+		var c strings.Builder
+		y := 800
+		for _, l := range pg {
+			f := "F1"
+			if l.bold {
+				f = "F2"
+			}
+			fmt.Fprintf(&c, "BT /%s 9 Tf 40 %d Td (%s) Tj ET\n", f, y, esc(l.text))
+			y -= 14
+		}
+		fmt.Fprintf(&c, "BT /F1 8 Tf 40 24 Td (Page %d of %d) Tj ET\n", i+1, len(pages))
+		obj(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents %d 0 R >>", 6+i*2))
+		obj(fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", c.Len(), c.String()))
+	}
+	xref := out.Len()
+	fmt.Fprintf(&out, "xref\n0 %d\n0000000000 65535 f \n", len(offs)+1)
+	for _, o := range offs {
+		fmt.Fprintf(&out, "%010d 00000 n \n", o)
+	}
+	fmt.Fprintf(&out, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(offs)+1, xref)
+	return out.Bytes()
+}

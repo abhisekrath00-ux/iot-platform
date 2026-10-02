@@ -1305,6 +1305,23 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, report.Render(name, def, series, time.Now()))
 		return
 	}
+	switch r.URL.Query().Get("format") {
+	case "pdf":
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.pdf"`)
+		w.Write(report.RenderPDF(name, def, series, time.Now()))
+		return
+	case "xlsx":
+		b, err := report.RenderXLSX(def, series)
+		if err != nil {
+			http.Error(w, "xlsx build failed", 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.xlsx"`)
+		w.Write(b)
+		return
+	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.csv"`)
 	fmt.Fprint(w, report.RenderCSV(def, series))
