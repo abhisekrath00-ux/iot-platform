@@ -217,3 +217,55 @@ func TestIntegrationReportBucketSizes(t *testing.T) {
 		}
 	}
 }
+
+// Rollup by asset and by site: names come from the database, scoped to the
+// caller's tenant, and unassigned devices are grouped separately.
+func TestIntegrationReportRollup(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-rg")
+	seed(t, s, "itest-rg2")
+	ctx := context.Background()
+	for _, q := range []string{
+		`DELETE FROM assets WHERE tenant_id='itest-rg'`,
+		`INSERT INTO assets(id,tenant_id,name) VALUES('itest-rg-asset','itest-rg','Line A')`,
+		`UPDATE devices SET asset_id='itest-rg-asset' WHERE id='itest-rg-dev'`,
+	} {
+		if _, err := s.st.Pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+	}
+	def := func(rollup string, dev string) string {
+		return `{"metrics":[{"device_id":"` + dev + `","point_id":"temp"}],"window_hours":2,"group_by":"hour","rollup":"` + rollup + `"}`
+	}
+	w := call(h, "itest-rg", "viewer", "POST", "/v1/reports/preview", `{"name":"P","definition":`+def("asset", "itest-rg-dev")+`}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Summary by asset") || !strings.Contains(w.Body.String(), "Line A") || !strings.Contains(w.Body.String(), "Total (all groups)") {
+		t.Fatalf("asset rollup: %d %s", w.Code, w.Body.String())
+	}
+	w = call(h, "itest-rg", "viewer", "POST", "/v1/reports/preview", `{"name":"P","definition":`+def("site", "itest-rg-dev")+`}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Summary by site") || !strings.Contains(w.Body.String(), `\u003ctd\u003eS\u003c/td\u003e`) {
+		t.Fatalf("site rollup: %d %s", w.Code, w.Body.String())
+	}
+	// a device with no asset lands in (unassigned)
+	w = call(h, "itest-rg2", "viewer", "POST", "/v1/reports/preview", `{"name":"P","definition":`+def("asset", "itest-rg2-dev")+`}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "(unassigned)") || strings.Contains(w.Body.String(), "Line A") {
+		t.Fatalf("unassigned: %d %s", w.Code, w.Body.String())
+	}
+	// another tenant naming this tenant's device sees neither data nor the asset name
+	w = call(h, "itest-rg2", "viewer", "POST", "/v1/reports/preview", `{"name":"P","definition":`+def("asset", "itest-rg-dev")+`}`)
+	if w.Code != 200 || strings.Contains(w.Body.String(), "Line A") {
+		t.Fatalf("cross-tenant leak: %d %s", w.Code, w.Body.String())
+	}
+	if w = call(h, "itest-rg", "viewer", "POST", "/v1/reports/preview", `{"name":"P","definition":`+def("floor", "itest-rg-dev")+`}`); w.Code != 400 {
+		t.Fatalf("bad rollup = %d, want 400", w.Code)
+	}
+	// stored reports keep the rollup and downloads include it
+	w = call(h, "itest-rg", "admin", "POST", "/v1/reports", `{"name":"R","definition":`+def("asset", "itest-rg-dev")+`}`)
+	var rep struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &rep)
+	w = call(h, "itest-rg", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"Line A","temp","1","5"`) {
+		t.Fatalf("csv rollup %d %s", w.Code, w.Body.String())
+	}
+}

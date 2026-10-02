@@ -46,6 +46,24 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		return `<c t="inlineStr"><is><t>` + e.String() + `</t></is></c>`
 	}
 	num := func(f float64) string { return fmt.Sprintf(`<c><v>%.10g</v></c>`, f) }
+	rollupRows := func() {
+		if d.Rollup == "" {
+			return
+		}
+		row += 2 // blank row, then the section
+		fmt.Fprintf(&sb, `<row r="%d">`, row)
+		for _, h := range RollupHeader(d) {
+			sb.WriteString(str(h))
+		}
+		sb.WriteString(`</row>`)
+		for _, r := range BuildRollup(d, series) {
+			row++
+			fmt.Fprintf(&sb, `<row r="%d">`, row)
+			sb.WriteString(str(r.Group) + str(r.Point))
+			sb.WriteString(num(float64(r.Devices)) + num(float64(r.Samples)) + num(r.Avg) + num(r.Min) + num(r.Max) + num(r.Sum))
+			sb.WriteString(`</row>`)
+		}
+	}
 	if d.Layout == "matrix" {
 		hdr, rows, total := Matrix(d, series)
 		emit := func(cells []string, numeric bool) {
@@ -66,6 +84,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			emit(r, true)
 		}
 		emit(total, true)
+		rollupRows()
 		sb.WriteString(`</sheetData></worksheet>`)
 		if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
 			return nil, err
@@ -90,6 +109,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			sb.WriteString(`</row>`)
 		}
 	}
+	rollupRows()
 	sb.WriteString(`</sheetData></worksheet>`)
 	if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
 		return nil, err
@@ -213,6 +233,31 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 		a, mn, mx, sm, n := Summary(rows)
 		put(fmt.Sprintf("%-17s %10.3f %10.3f %10.3f %12.3f %8d", "overall", a, mn, mx, sm, n), true)
 		put("", false)
+	}
+	if rr := BuildRollup(d, series); d.Rollup != "" {
+		put("Summary by "+d.Rollup, true)
+		if len(rr) == 0 {
+			put("no data in window", false)
+		} else {
+			rh := fmt.Sprintf("%-20s %-12s %4s %8s %10s %10s %10s %12s", d.Rollup, "point", "dev", "samples", "avg", "min", "max", "sum")
+			put(rh, true)
+			for _, r := range rr {
+				if len(cur) >= perPage {
+					flush()
+					put(rh, true)
+				}
+				g := r.Group
+				if len(g) > 20 {
+					g = g[:20]
+				}
+				p := r.Point
+				if len(p) > 12 {
+					p = p[:12]
+				}
+				put(fmt.Sprintf("%-20s %-12s %4d %8d %10.3f %10.3f %10.3f %12.3f", g, p, r.Devices, r.Samples, r.Avg, r.Min, r.Max, r.Sum), r.Group == TotalLabel)
+			}
+			put("Each row totals one point across the devices of one group; points are never added to each other.", false)
+		}
 	}
 	flush()
 	if len(pages) == 0 {

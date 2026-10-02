@@ -30,6 +30,12 @@ type Definition struct {
 	// The expression language is the KPI one (numbers, + - * /, point references): no
 	// functions, no loops. References must be metrics of this report.
 	Computed []Computed `json:"computed,omitempty"`
+	// Rollup adds a summary section grouped by "asset" or "site" with a subtotal
+	// per group and point and a grand total per point. Empty means off.
+	Rollup string `json:"rollup,omitempty"`
+	// GroupLabels maps device_id to its asset or site name. Filled by the server
+	// at render time from the database, never stored or read from a request.
+	GroupLabels map[string]string `json:"-"`
 }
 
 type Computed struct {
@@ -42,6 +48,7 @@ var (
 	ErrBadWindow  = errors.New("window_hours must be between 1 and 24*90")
 	ErrBadGroupBy = errors.New("group_by must be 15min, hour, day or week")
 	ErrBadLayout  = errors.New("layout must be empty or matrix; agg must be avg, min, max or sum")
+	ErrBadRollup  = errors.New("rollup must be empty, asset or site")
 	ErrBadID      = errors.New("device_id and point_id: lowercase letters, digits, - _ only")
 )
 
@@ -84,6 +91,11 @@ func Validate(d Definition) error {
 	case "", "avg", "min", "max", "sum":
 	default:
 		return ErrBadLayout
+	}
+	switch d.Rollup {
+	case "", "asset", "site":
+	default:
+		return ErrBadRollup
 	}
 	if len(d.Computed) > 0 {
 		if d.Layout != "matrix" {
@@ -191,6 +203,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 			b.WriteString(`<td>` + html.EscapeString(c) + `</td>`)
 		}
 		b.WriteString(`</tr></table>`)
+		writeRollupHTML(&b, d, series)
 		return b.String()
 	}
 	keys := make([]Metric, 0, len(series))
@@ -219,7 +232,37 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		fmt.Fprintf(&b, `<tr style="font-weight:600;background:#fafafa"><td>overall</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`, ta, tmin, tmax, tsum, tn)
 		b.WriteString(`</table>`)
 	}
+	writeRollupHTML(&b, d, series)
 	return b.String()
+}
+
+func writeRollupHTML(b *strings.Builder, d Definition, series map[Metric][]Bucket) {
+	rows := BuildRollup(d, series)
+	if d.Rollup == "" {
+		return
+	}
+	b.WriteString(`<h2>Summary by ` + html.EscapeString(d.Rollup) + `</h2>`)
+	if len(rows) == 0 {
+		b.WriteString(`<p class="meta">no data in window</p>`)
+		return
+	}
+	b.WriteString(`<table><tr>`)
+	for _, h := range RollupHeader(d) {
+		b.WriteString(`<th>` + html.EscapeString(h) + `</th>`)
+	}
+	b.WriteString(`</tr>`)
+	for i, c := range RollupCells(rows) {
+		style := ""
+		if rows[i].Group == TotalLabel {
+			style = ` style="font-weight:600;background:#fafafa"`
+		}
+		b.WriteString(`<tr` + style + `>`)
+		for _, v := range c {
+			b.WriteString(`<td>` + html.EscapeString(v) + `</td>`)
+		}
+		b.WriteString(`</tr>`)
+	}
+	b.WriteString(`</table><p class="meta">Each row totals one point across the devices of one group; points are never added to each other.</p>`)
 }
 
 // CSVSafe neutralizes spreadsheet formula injection: a cell starting with
@@ -244,6 +287,7 @@ func RenderCSV(d Definition, series map[Metric][]Bucket) string {
 		for _, r := range append(rows, total) {
 			b.WriteString(strings.Join(r, ",") + "\n")
 		}
+		writeRollupCSV(&b, d, series)
 		return b.String()
 	}
 	b.WriteString("device_id,point_id,bucket_start,avg,min,max,count,sum\n")
@@ -253,7 +297,28 @@ func RenderCSV(d Definition, series map[Metric][]Bucket) string {
 				k.Start.UTC().Format(time.RFC3339), k.Avg, k.Min, k.Max, k.Count, k.Sum)
 		}
 	}
+	writeRollupCSV(&b, d, series)
 	return b.String()
+}
+
+func writeRollupCSV(b *strings.Builder, d Definition, series map[Metric][]Bucket) {
+	if d.Rollup == "" {
+		return
+	}
+	b.WriteString("\n")
+	q := func(s string) string { return `"` + strings.ReplaceAll(CSVSafe(s), `"`, `""`) + `"` }
+	cells := []string{}
+	for _, h := range RollupHeader(d) {
+		cells = append(cells, q(h))
+	}
+	b.WriteString(strings.Join(cells, ",") + "\n")
+	for _, r := range RollupCells(BuildRollup(d, series)) {
+		cells = cells[:0]
+		for _, v := range r {
+			cells = append(cells, q(v))
+		}
+		b.WriteString(strings.Join(cells, ",") + "\n")
+	}
 }
 
 func aggOf(d Definition, b Bucket) float64 {

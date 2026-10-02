@@ -1215,6 +1215,9 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 	if err != nil {
 		return fail(err)
 	}
+	if def, err = s.withGroupLabels(ctx, tenant, def); err != nil {
+		return fail(err)
+	}
 	htmlDoc := report.Render(name, def, series, time.Now())
 	if channelID != nil {
 		var ctype, target string
@@ -1282,6 +1285,42 @@ func (s *server) buildSeries(ctx context.Context, tenant string, def report.Defi
 	return series, total, nil
 }
 
+// withGroupLabels fills def.GroupLabels (device id -> asset or site name) for a
+// rollup report. Tenant-scoped; devices with no asset or site get no label and
+// land under "(unassigned)".
+func (s *server) withGroupLabels(ctx context.Context, tenant string, def report.Definition) (report.Definition, error) {
+	var q string
+	switch def.Rollup {
+	case "asset":
+		q = `SELECT d.id, a.name FROM devices d JOIN assets a ON a.id=d.asset_id AND a.tenant_id=d.tenant_id
+		       WHERE d.tenant_id=$1 AND d.id = ANY($2)`
+	case "site":
+		q = `SELECT d.id, st.name FROM devices d JOIN gateways g ON g.id=d.gateway_id AND g.tenant_id=d.tenant_id
+		       JOIN sites st ON st.id=g.site_id AND st.tenant_id=d.tenant_id
+		       WHERE d.tenant_id=$1 AND d.id = ANY($2)`
+	default:
+		return def, nil
+	}
+	ids := make([]string, 0, len(def.Metrics))
+	for _, m := range def.Metrics {
+		ids = append(ids, m.DeviceID)
+	}
+	rows, err := s.st.Pool.Query(ctx, q, tenant, ids)
+	if err != nil {
+		return def, err
+	}
+	defer rows.Close()
+	def.GroupLabels = map[string]string{}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return def, err
+		}
+		def.GroupLabels[id] = name
+	}
+	return def, rows.Err()
+}
+
 // previewReport renders a definition without storing or delivering it.
 func (s *server) previewReport(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -1301,6 +1340,9 @@ func (s *server) previewReport(w http.ResponseWriter, r *http.Request) {
 		name = "Preview"
 	}
 	series, total, err := s.buildSeries(r.Context(), auth.Tenant(r), in.Definition)
+	if err == nil {
+		in.Definition, err = s.withGroupLabels(r.Context(), auth.Tenant(r), in.Definition)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -1329,6 +1371,9 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	series, _, err := s.buildSeries(r.Context(), auth.Tenant(r), def)
+	if err == nil {
+		def, err = s.withGroupLabels(r.Context(), auth.Tenant(r), def)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

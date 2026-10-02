@@ -123,7 +123,7 @@ Status is from this repo's code. Nothing here is "Have" unless built and tested.
 | Report parameters (date range, asset, device, threshold) | Run-time overrides of window, grouping, layout and aggregate on every download, validated, stored definition untouched | Partial (no device/asset parameters, no cascading or multi-value) | 1 |
 | Export to PDF | Paginated PDF (built-in font, page numbers, repeating headers) with a vector line chart per metric (avg line, min and max lines, value range, first and last bucket time; first 4 metrics in matrix layout), unit tested and inspected as a rendered page | Have (basic: line charts only, ASCII text only, no bar or stacked charts, charts are PDF only: HTML and Excel have none) | 2 |
 | Export to Excel (.xlsx) | Single-sheet workbook, stdlib writer, validated as a zip with escaped cells | Have (basic: no styles, formulas or multiple sheets; not opened in real Excel) | 3 |
-| Tables with row groups and subtotals | Flat table per point | Missing | 4 |
+| Tables with row groups and subtotals | Optional summary by asset or site: per (group, point) rows with devices/samples/avg/min/max/sum and per-point grand totals; HTML, CSV, XLSX, PDF. Points are never added together | Have (tested; one grouping level, not nested; not opened in real Excel) | 4 |
 | Matrix (cross-tab, e.g. device by day) | Matrix layout: time rows by point columns, avg/min/max/sum, column totals; HTML, PDF, Excel, CSV | Have (basic: one measure, one level of grouping) | 5 |
 | Charts embedded in a report | Preview chart in builder UI | Partial (not rendered into delivered output) | 6 |
 | Expressions (computed columns, formatting, conditionals) | None | Missing | 7 |
