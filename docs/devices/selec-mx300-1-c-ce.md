@@ -20,6 +20,7 @@ the edge agent on an Ubuntu or Windows box with a USB-RS485 adapter (`/dev/ttyUS
 | apparent_power | 0x08 (8) | 30008 | kVA |
 | power_factor | 0x0A (10) | 30010 | - |
 | frequency | 0x0C (12) | 30012 | Hz |
+| energy_kwh (total active energy) | 0x5A (90) | 30090 | kWh |
 
 Word order is the leaflet's default "mid-little endian" = `cdab`. The leaflet's worked example (1234.12 kWh as
 0x449A43D7, low word 0x43D7 at 30090 and high word 0x449A at 30091) confirms that order, and a unit test decodes it.
@@ -28,9 +29,12 @@ setting MSRF (most significant register first, which would be `abcd`), while the
 endian (low word first, `cdab`) the default. Both cannot be the factory state. Do one live read of voltage and
 check the value is sane (about 230 V); if it is garbage, switch `word_order` to `abcd`. Switching the meter to big-endian (holding register 40070) means changing `word_order` to `abcd`.
 
-Unverified: function code (30xxx suggests FC 04, input registers), unit of power (kW/kvar/kVA as printed, but the
-leaflet resolution table is in W), and whether the total-energy register at 30090 exists on this model (it appears
-only in the worked example, not in the register table). Check with one live read before relying on them.
+The third photo shows the leaflet section "Example to read data from input register": total active energy,
+start address 30090, 2 registers, 1234.12 kWh. That confirms the energy register and that these are input
+registers (FC 04). The big-endian example in the same box stores 0x449A at 30090 and 0x43D7 at 30091 (`abcd`).
+Mapping 30090 to protocol address 90 follows the same 3xxxx-to-zero-based rule as the 30000 = 0x00 rows; that rule
+is an inference, so confirm it with the first live read. Unverified: power units (kW/kvar/kVA as printed, but the
+leaflet resolution table is in W) and the energy register's reset/rollover behaviour.
 
 ## Edge agent config
 
@@ -51,6 +55,7 @@ only in the worked example, not in the register table). Check with one live read
       - {id: reactive_power, register: 6,  func: 4, type: f32, word_order: cdab, unit: kvar, min: -1000000, max: 1000000}
       - {id: apparent_power, register: 8,  func: 4, type: f32, word_order: cdab, unit: kVA,  min: 0, max: 1000000}
       - {id: power_factor,   register: 10, func: 4, type: f32, word_order: cdab, unit: "",   min: 0, max: 1}
+      - {id: energy_kwh,     register: 90, func: 4, type: f32, word_order: cdab, unit: kWh,  min: 0, max: 1e9}
       - {id: frequency,      register: 12, func: 4, type: f32, word_order: cdab, unit: Hz,   min: 40, max: 70}
 ```
 
