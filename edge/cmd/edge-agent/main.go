@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,8 +71,20 @@ func main() {
 	discoverFlag := flag.Bool("discover", false, "look for Hexmon servers advertising on the local network (mDNS), print their addresses, then exit; nothing is enrolled")
 	scanLAN := flag.String("scan-lan", "", "probe a private IPv4 range (e.g. 192.168.1.0/24, max /22) for open industrial ports (Modbus TCP, OPC UA, IEC 104, DNP3, MQTT), print results, then exit")
 	whoIs := flag.String("scan-bacnet", "", "broadcast a BACnet Who-Is to this subnet broadcast address (e.g. 192.168.1.255, or 255.255.255.255) and list devices that answer, then exit")
+	scanSNMP := flag.String("scan-snmp", "", "probe a private IPv4 range for SNMPv2c devices (reads sysName/sysDescr only); the community comes from $SNMP_SCAN_COMMUNITY, then exit")
 	flag.Parse()
 
+	if *scanSNMP != "" {
+		hs, err := discover.ScanSNMP(context.Background(), *scanSNMP, os.Getenv("SNMP_SCAN_COMMUNITY"), 800*time.Millisecond)
+		if err != nil {
+			log.Fatalf("scan-snmp: %v", err)
+		}
+		for _, h := range hs {
+			fmt.Printf("%s  %s  %s\n", h.Addr, h.Name, h.Descr)
+		}
+		fmt.Printf("%d SNMP device(s) answered.\n", len(hs))
+		return
+	}
 	if *whoIs != "" {
 		ds, err := discover.FindBACnet(context.Background(), *whoIs, 3*time.Second)
 		if err != nil {
