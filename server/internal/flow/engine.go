@@ -64,6 +64,9 @@ func EvaluateWith(ctx context.Context, pool *pgxpool.Pool, n Notifier, fn Functi
 				opt.Functions = fn
 			}
 		}
+		if HTTPClient != nil && d.HasHTTPNodes() && tenantFeature(ctx, pool, tenantID, "http_nodes") {
+			opt.HTTP = HTTPClient
+		}
 		er := d.Exec(value, deviceID, pointID, opt)
 		actions, ok := er.Actions, er.Matched
 		detail := debugDetail(er.Debug)
@@ -196,7 +199,11 @@ func RunScheduled(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 	}
 	rows.Close()
 	for _, f := range list {
-		er := f.d.Exec(0, "", "", ExecOptions{Scheduled: true, Limiter: sharedLimiter, LimitKey: f.id})
+		sopt := ExecOptions{Scheduled: true, Limiter: sharedLimiter, LimitKey: f.id}
+		if HTTPClient != nil && f.d.HasHTTPNodes() && tenantFeature(ctx, pool, f.tenant, "http_nodes") {
+			sopt.HTTP = HTTPClient
+		}
+		er := f.d.Exec(0, "", "", sopt)
 		outcome := "notified"
 		if len(er.Actions) == 0 {
 			outcome = "skipped_condition"
@@ -224,4 +231,13 @@ func RunScheduled(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 			go dispatch(pool, n, f.tenant, f.id, f.name, did, pid, val, er.Actions)
 		}
 	}
+}
+
+// HTTPClient performs the outbound requests of http nodes. The API and ingest
+// services set it at startup (notify.Notifier); nil disables http nodes everywhere.
+var HTTPClient HTTPDoer
+
+func tenantFeature(ctx context.Context, pool *pgxpool.Pool, tenant, feature string) bool {
+	var on bool
+	return pool.QueryRow(ctx, `SELECT enabled FROM tenant_features WHERE tenant_id=$1 AND feature=$2`, tenant, feature).Scan(&on) == nil && on
 }

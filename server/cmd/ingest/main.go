@@ -45,6 +45,7 @@ func main() {
 	defer st.Close()
 
 	notifier := notify.FromEnv()
+	flow.HTTPClient = notifier
 
 	opts := mqtt.NewClientOptions().
 		AddBroker("tcp://" + mustEnv("MQTT_HOST") + ":" + envOr("MQTT_PORT", "1883")).

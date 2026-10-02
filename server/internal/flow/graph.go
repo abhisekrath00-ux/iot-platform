@@ -1,9 +1,11 @@
 package flow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -61,6 +63,11 @@ type Node struct {
 	OutMin float64 `json:"out_min,omitempty"`
 	OutMax float64 `json:"out_max,omitempty"`
 	Clamp  bool    `json:"clamp,omitempty"`
+	// http: outbound request whose answer lands in vars.<Target>. Port 0 = success, port 1 = failure.
+	Method  string `json:"method,omitempty"`  // GET | POST
+	URL     string `json:"url,omitempty"`     // static http(s) URL, no credentials, no templating
+	Body    string `json:"body,omitempty"`    // POST body template ({value}, {vars.x}), sent as application/json
+	Extract string `json:"extract,omitempty"` // dot path into a JSON response, e.g. main.temp; empty = whole body
 }
 
 type SwitchRule struct {
@@ -114,7 +121,20 @@ type ExecOptions struct {
 	Limiter   Limiter        // nil: rate-limit nodes pass everything (simulation)
 	LimitKey  string         // scopes limiter state, e.g. tenant/flow id
 	Scheduled bool           // run an inject-started graph (the scheduler sets this)
+	HTTP      HTTPDoer       // nil: http nodes are disabled (feature off, or a dry run)
 }
+
+// HTTPDoer performs one outbound request for an http node. Implementations must
+// enforce the SSRF rules (no loopback/link-local/metadata addresses, no redirects),
+// a short timeout and a response size cap.
+type HTTPDoer interface {
+	HTTPDo(ctx context.Context, method, url string, body []byte) (status int, resp []byte, err error)
+}
+
+const (
+	maxHTTPPerRun = 2
+	maxHTTPResp   = 16 << 10
+)
 
 // Limiter decides whether a rate-limit node lets a message through. State is
 // per process: with several API replicas each keeps its own window.
@@ -263,7 +283,11 @@ func render(tpl string, m Msg) string {
 				b.WriteString(fmt.Sprint(v))
 			}
 		} else {
-			b.WriteString(tpl[i : i+j+1])
+			// Not a placeholder: emit the brace and rescan after it, so JSON
+			// bodies like {"v":{value}} still resolve the inner placeholder.
+			b.WriteByte('{')
+			tpl = tpl[i+1:]
+			continue
 		}
 		tpl = tpl[i+j+1:]
 	}
@@ -405,6 +429,7 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 	}
 	push(start.ID, "0", root, 0)
 	visits := 0
+	httpCalls := 0
 	dbg := func(n *Node, s string) { res.Debug = append(res.Debug, DebugEntry{Node: n.ID, Message: s}) }
 	for len(queue) > 0 {
 		v := queue[0]
@@ -490,6 +515,46 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 			if !drop {
 				push(n.ID, "0", nm, v.delay)
 			}
+		case "http":
+			if opt.HTTP == nil {
+				dbg(n, "http request not sent: http nodes are disabled for this tenant or this is a dry run")
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			if httpCalls++; httpCalls > maxHTTPPerRun {
+				dbg(n, "http request skipped: per-run limit reached")
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			var body []byte
+			if n.Method == "POST" {
+				body = []byte(render(n.Body, m))
+			}
+			cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			status, resp, err := opt.HTTP.HTTPDo(cctx, n.Method, n.URL, body)
+			cancel()
+			if err != nil || status < 200 || status > 299 {
+				if err != nil {
+					dbg(n, "http failed: "+err.Error())
+				} else {
+					dbg(n, fmt.Sprintf("http status %d", status))
+				}
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			val, perr := httpResult(resp, n.Extract)
+			if perr != nil {
+				dbg(n, "http response unusable: "+perr.Error())
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			m = m.clone()
+			if setVar(&m, "vars."+n.Target, val) != nil || setVar(&m, "vars."+n.Target+"_status", float64(status)) != nil {
+				dbg(n, "http result could not be stored (too long or too many variables)")
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			push(n.ID, "0", m, v.delay)
 		case "debug":
 			tpl := n.Message
 			if tpl == "" {
@@ -561,6 +626,9 @@ func validateGraph(g *Graph) error {
 		max := 1
 		if from.Type == "switch" {
 			max = len(from.Rules)
+		}
+		if from.Type == "http" {
+			max = 2
 		}
 		pn, err := strconv.Atoi(p)
 		if err != nil || pn < 0 || pn >= max {
@@ -730,6 +798,22 @@ func validateNode(n *Node) error {
 		if !validProp("vars."+n.Target, true) || n.Target == "" {
 			return fmt.Errorf("target must be a variable name")
 		}
+	case "http":
+		if n.Method != "GET" && n.Method != "POST" {
+			return fmt.Errorf("method must be GET or POST")
+		}
+		if err := validHTTPNodeURL(n.URL); err != nil {
+			return err
+		}
+		if len(n.Body) > 500 || (n.Method == "GET" && n.Body != "") {
+			return fmt.Errorf("body only for POST, max 500 bytes")
+		}
+		if n.Target == "" || !validProp("vars."+n.Target, true) {
+			return fmt.Errorf("target must be a variable name")
+		}
+		if len(n.Extract) > 100 || !extractRe.MatchString(n.Extract) {
+			return fmt.Errorf("extract must be a dot path like main.temp")
+		}
 	case "range":
 		if n.InMin == n.InMax {
 			return fmt.Errorf("in_min and in_max must differ")
@@ -768,3 +852,56 @@ func ToGraph(d Definition) Graph {
 
 // MarshalGraph is a convenience for tests and tools.
 func MarshalGraph(g Graph) []byte { b, _ := json.Marshal(g); return b }
+
+var extractRe = regexp.MustCompile(`^[A-Za-z0-9_.\-]*$`)
+
+func validHTTPNodeURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || len(raw) > 512 || strings.ContainsAny(raw, "{}\x00 ") {
+		return fmt.Errorf("url must be a static http(s) address without credentials or placeholders")
+	}
+	return nil
+}
+
+// httpResult turns a response body into one flow value: the number, string or
+// boolean at the dot path, or the trimmed body when no path is given.
+func httpResult(body []byte, path string) (any, error) {
+	if len(body) > maxHTTPResp {
+		return nil, fmt.Errorf("response over %d bytes", maxHTTPResp)
+	}
+	if path == "" {
+		t := strings.TrimSpace(string(body))
+		if len(t) > maxStringSize {
+			return nil, fmt.Errorf("response longer than %d bytes: set an extract path", maxStringSize)
+		}
+		return t, nil
+	}
+	var cur any
+	if err := json.Unmarshal(body, &cur); err != nil {
+		return nil, fmt.Errorf("response is not JSON")
+	}
+	for _, k := range strings.Split(path, ".") {
+		switch x := cur.(type) {
+		case map[string]any:
+			cur = x[k]
+		case []any:
+			i, err := strconv.Atoi(k)
+			if err != nil || i < 0 || i >= len(x) {
+				return nil, fmt.Errorf("path %q not found", path)
+			}
+			cur = x[i]
+		default:
+			return nil, fmt.Errorf("path %q not found", path)
+		}
+	}
+	switch x := cur.(type) {
+	case float64, bool:
+		return x, nil
+	case string:
+		if len(x) > maxStringSize {
+			return nil, fmt.Errorf("value longer than %d bytes", maxStringSize)
+		}
+		return x, nil
+	}
+	return nil, fmt.Errorf("path %q is missing or not a number, string or boolean", path)
+}

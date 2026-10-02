@@ -73,3 +73,21 @@ func TestWebhookDeliversSignedJSONAndRefusesRedirect(t *testing.T) {
 		t.Fatal("a 302 must not count as success or be followed")
 	}
 }
+
+func TestHTTPDoRefusesLoopbackAndReadsBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		w.Write([]byte(r.Method + ":" + string(b)))
+	}))
+	defer srv.Close()
+	if _, _, err := (&Notifier{}).HTTPDo(context.Background(), "GET", srv.URL, nil); err == nil {
+		t.Fatal("loopback must be refused")
+	}
+	st, b, err := (&Notifier{allowLoopback: true}).HTTPDo(context.Background(), "POST", srv.URL, []byte("hi"))
+	if err != nil || st != 200 || string(b) != "POST:hi" {
+		t.Fatalf("%d %q %v", st, b, err)
+	}
+	if _, _, err := (&Notifier{allowLoopback: true}).HTTPDo(context.Background(), "DELETE", srv.URL, nil); err == nil {
+		t.Error("DELETE accepted")
+	}
+}

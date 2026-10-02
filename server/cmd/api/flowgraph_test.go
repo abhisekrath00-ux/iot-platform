@@ -174,3 +174,34 @@ func fw2id(t *testing.T, w *httptest.ResponseRecorder) string {
 	json.Unmarshal(w.Body.Bytes(), &m)
 	return m["id"].(string)
 }
+
+func TestIntegrationHTTPNodeGate(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-hn1")
+	t.Cleanup(func() { s.st.Pool.Exec(t.Context(), `DELETE FROM tenant_features WHERE tenant_id='itest-hn1'`) })
+	api := http.NewServeMux()
+	api.HandleFunc("PUT /v1/features/{feature}", s.putFeature)
+	api.HandleFunc("GET /v1/features", s.getFeatures)
+	api.HandleFunc("POST /v1/flows/graph/test", s.testFlowGraph)
+	def := `{"definition":{"graph":{"nodes":[{"id":"t","type":"trigger","device_id":"d","point_id":"p","op":">","value":1},
+	  {"id":"h","type":"http","method":"GET","url":"http://10.0.0.7/x","target":"r"},
+	  {"id":"n","type":"notify","channel_id":"c","message":"ok {vars.r}"},{"id":"f","type":"notify","channel_id":"c","message":"failed"}],
+	  "edges":[{"from":"t","to":"h"},{"from":"h","port":"0","to":"n"},{"from":"h","port":"1","to":"f"}]}},"value":5}`
+	// A dry run never sends the request: it takes the failure port and says why.
+	w := call(api, "itest-hn1", "operator", "POST", "/v1/flows/graph/test", def)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "failed") || !strings.Contains(w.Body.String(), "dry run") {
+		t.Fatalf("test run: %d %s", w.Code, w.Body.String())
+	}
+	if c := call(api, "itest-hn1", "operator", "PUT", "/v1/features/http_nodes", `{"enabled":true}`).Code; c != 403 {
+		t.Errorf("operator enabled http nodes: %d", c)
+	}
+	if c := call(api, "itest-hn1", "admin", "PUT", "/v1/features/http_nodes", `{"enabled":true}`).Code; c != 200 {
+		t.Errorf("admin enable: %d", c)
+	}
+	if w := call(api, "itest-hn1", "viewer", "GET", "/v1/features", ""); !strings.Contains(w.Body.String(), `"http_nodes":true`) {
+		t.Errorf("features: %s", w.Body.String())
+	}
+	if c := call(api, "itest-hn1", "admin", "PUT", "/v1/features/other_thing", `{"enabled":true}`).Code; c != 404 {
+		t.Errorf("unknown feature: %d", c)
+	}
+}

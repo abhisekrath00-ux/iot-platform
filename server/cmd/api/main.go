@@ -264,6 +264,7 @@ func main() {
 	// Timed flows (inject nodes): same single-replica rule, checked every 30s.
 	go leader.Run(ctx, st.Pool, leaderFlowScheduler, "flow-scheduler", 10*time.Second, func(c context.Context) {
 		fn := notify.FromEnv()
+		flow.HTTPClient = fn
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
 		for {

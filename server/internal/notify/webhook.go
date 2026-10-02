@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -86,4 +87,38 @@ func (n *Notifier) Webhook(ctx context.Context, target, event string, data map[s
 		return fmt.Errorf("webhook: status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// HTTPDo is the outbound request used by flow http nodes: same SSRF-safe client
+// as webhooks (blocked address classes checked at dial time, no redirects), JSON
+// body for POST, response capped at 16 KiB.
+func (n *Notifier) HTTPDo(ctx context.Context, method, target string, body []byte) (int, []byte, error) {
+	if err := ValidateWebhookURL(target); err != nil {
+		return 0, nil, err
+	}
+	var rd io.Reader
+	if method == "POST" {
+		rd = bytes.NewReader(body)
+	} else if method != "GET" {
+		return 0, nil, errors.New("method must be GET or POST")
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, rd)
+	if err != nil {
+		return 0, nil, err
+	}
+	if method == "POST" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("User-Agent", "hexmon-iot-flow/1")
+	req.Header.Set("Accept", "application/json, text/plain")
+	resp, err := safeClient(n.allowLoopback).Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 16<<10+1))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, b, nil
 }

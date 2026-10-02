@@ -29,6 +29,7 @@ export default function FlowEditor() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [flows, setFlows] = useState<FlowRow[]>([]);
   const [fnOn, setFnOn] = useState(false);
+  const [httpOn, setHttpOn] = useState(false);
   const [mgrMsg, setMgrMsg] = useState('');
   const [link, setLink] = useState<{ from: string; port: number } | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -56,7 +57,7 @@ export default function FlowEditor() {
   useEffect(() => {
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
     loadFlows();
-    api<{ function_nodes: boolean }>('/v1/features').then(f => setFnOn(f.function_nodes)).catch(() => {});
+    api<{ function_nodes: boolean; http_nodes?: boolean }>('/v1/features').then(f => { setFnOn(f.function_nodes); setHttpOn(!!f.http_nodes); }).catch(() => {});
   }, []);
 
   const node = g.nodes.find(n => n.id === tab.sel) ?? null;
@@ -157,7 +158,7 @@ export default function FlowEditor() {
   const hints = problems(g);
   const width = Math.max(900, ...g.nodes.map(n => n.x + NODE_W + 60));
   const height = Math.max(460, ...g.nodes.map(n => n.y + NODE_H + 60));
-  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', 'rate_limit', ...(fnOn ? ['function' as NodeType] : [])];
+  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', 'rate_limit', ...(fnOn ? ['function' as NodeType] : []), ...(httpOn ? ['http' as NodeType] : [])];
   const status = (f: FlowRow) => (f.published_version ? `published v${f.published_version}${f.latest_version && f.latest_version > f.published_version ? ` (draft v${f.latest_version} pending)` : ''}` : 'draft, not published') + (f.enabled ? '' : ' - disabled');
 
   return (
@@ -301,6 +302,7 @@ function summary(n: GNode): string {
     case 'template': return `vars.${n.target}`;
     case 'range': return `${n.in_min}-${n.in_max} to ${n.out_min}-${n.out_max}`;
     case 'function': return 'JavaScript';
+    case 'http': return `${n.method} ${n.url}`;
   }
 }
 
@@ -413,6 +415,19 @@ function Props({ n, g, channels, upd, connectTo, remove, setStartKind }: {
             <input id={`np-${k}`} type="number" step="any" value={n[k] ?? 0} onChange={e => upd({ [k]: parseFloat(e.target.value) || 0 })} /></div>
         ))}
         <label><input type="checkbox" checked={!!n.clamp} onChange={e => upd({ clamp: e.target.checked })} style={{ width: 'auto' }} /> Clamp to output range</label>
+      </>}
+      {n.type === 'http' && <>
+        <label htmlFor="np-hm">Method</label>
+        <select id="np-hm" value={n.method ?? 'GET'} onChange={e => upd({ method: e.target.value })}><option>GET</option><option>POST</option></select>
+        <label htmlFor="np-hu">URL (fixed address, no placeholders)</label>
+        <input id="np-hu" maxLength={512} value={n.url ?? ''} onChange={e => upd({ url: e.target.value })} />
+        {n.method === 'POST' && <><label htmlFor="np-hb">JSON body ({'{value}'}, {'{vars.x}'})</label>
+          <input id="np-hb" maxLength={500} value={n.body ?? ''} onChange={e => upd({ body: e.target.value })} /></>}
+        <label htmlFor="np-he">Pick from JSON response (e.g. main.temp; blank = whole body, max 256 bytes)</label>
+        <input id="np-he" maxLength={100} value={n.extract ?? ''} onChange={e => upd({ extract: e.target.value })} />
+        <label htmlFor="np-ht">Store in variable (also sets vars.NAME_status)</label>
+        <input id="np-ht" maxLength={32} value={n.target ?? ''} onChange={e => upd({ target: e.target.value })} />
+        <p className="muted">Output 1 = success (2xx), output 2 = failure or timeout. Dry runs never send the request. Loopback and link-local addresses are blocked; private networks are allowed.</p>
       </>}
       {n.type === 'function' && <>
         <label htmlFor="np-code">JavaScript (admin only; runs in a sandbox)</label>
