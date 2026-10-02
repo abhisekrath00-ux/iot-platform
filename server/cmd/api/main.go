@@ -124,6 +124,9 @@ func main() {
 	s.cached(api, "GET /v1/devices", s.listDevices)
 	api.HandleFunc("POST /v1/devices", s.createDevice) // UI onboarding entry point
 	api.HandleFunc("POST /v1/devices/bulk", s.bulkCreateDevices)
+	api.HandleFunc("POST /v1/devices/{id}/tokens", s.createDeviceToken)
+	api.HandleFunc("GET /v1/devices/{id}/tokens", s.listDeviceTokens)
+	api.HandleFunc("DELETE /v1/devices/{id}/tokens/{tid}", s.revokeDeviceToken)
 	s.cached(api, "GET /v1/telemetry/latest", s.latestTelemetry)
 	api.HandleFunc("GET /v1/telemetry/count", s.countTelemetry)
 	api.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
@@ -239,6 +242,7 @@ func main() {
 	if rpm > 0 {
 		auth.SetKeyLimiter(auth.NewLimiter(rpm, rpm/5+1))
 	}
+	mux.HandleFunc("POST /v1/device/ingest", s.deviceIngest) // device token auth, outside the session middleware
 	mux.Handle("/v1/", auth.Middleware(s.secret, s.resolveAPIKey)(s.invalidateOnWrite(api)))
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).

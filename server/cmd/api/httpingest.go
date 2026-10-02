@@ -56,7 +56,17 @@ func (s *server) ingestHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("batch too large (max %d)", maxIngestBatch), http.StatusRequestEntityTooLarge)
 		return
 	}
-	ctx, tenant := r.Context(), auth.Tenant(r)
+	s.ingestBatch(w, r, auth.Tenant(r), in.DeviceID, in.Readings)
+}
+
+// ingestBatch validates and stores readings for one device of one tenant. The
+// caller has already authenticated the request and fixed tenant and device.
+func (s *server) ingestBatch(w http.ResponseWriter, r *http.Request, tenant, deviceID string, readings []ingestReading) {
+	var in = struct {
+		DeviceID string
+		Readings []ingestReading
+	}{deviceID, readings}
+	ctx := r.Context()
 	var gw string
 	if err := s.st.Pool.QueryRow(ctx, `SELECT gateway_id FROM devices WHERE id=$1 AND tenant_id=$2`, in.DeviceID, tenant).Scan(&gw); err != nil {
 		http.Error(w, "unknown device", 404)

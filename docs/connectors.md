@@ -123,3 +123,21 @@ command path with approval and four-eyes gating described in `security.md`.
 2. Add device wizard: claim the gateway, choose the profile, enter the connection (COM/port/host/endpoint).
 3. Download `edge-agent.yaml` (`GET /v1/gateways/{id}/edge-config`), or push it as a fleet config release.
 4. The live preview shows readings as soon as the gateway polls.
+
+## Direct HTTPS devices (per-device token)
+
+Devices that can make HTTPS calls (ESP32, cellular modems, third-party bridges) can post readings without an edge agent.
+An admin mints a token for one device (`POST /v1/devices/{id}/tokens`, shown once, 1-730 days, revocable with
+`DELETE /v1/devices/{id}/tokens/{tid}`); the device sends:
+
+```
+POST /v1/device/ingest
+Authorization: Bearer hxd_<id>.<secret>
+{"readings":[{"point":"temp","value":21.5,"event_id":"abc-1","ts":"2026-10-02T09:00:00Z"}]}
+```
+
+The token fixes tenant and device (a body naming another device is ignored), can do nothing else, and only its
+sha256 is stored. Same validation as the MQTT path: registered points only, min/max range check, idempotent event ids,
+max 500 readings per request. Status: integration-tested (mint, ingest, cross-device, revoke, expiry, no secret in
+list or storage). Not tested: real devices, TLS termination (put it behind the platform's TLS proxy), and there is no
+per-token rate limit yet, so rely on the proxy for that.
