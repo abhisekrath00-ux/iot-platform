@@ -22,6 +22,8 @@ type Info struct {
 	// Live probes, called per request. Must be cheap and non-blocking.
 	Connected  func() bool
 	QueueDepth func(context.Context) (int, error)
+	// Discoveries returns the auto-detect proposals (read-only view).
+	Discoveries func() any
 }
 
 type statusDoc struct {
@@ -57,6 +59,14 @@ func Handler(info Info, t *Tracker) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(doc)
+	})
+	mux.HandleFunc("/api/discoveries", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if info.Discoveries == nil {
+			_, _ = w.Write([]byte(`{"findings":[]}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(info.Discoveries())
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {

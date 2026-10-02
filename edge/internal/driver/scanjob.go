@@ -92,7 +92,7 @@ func SweepModbusRTU(ctx context.Context, open PortOpener, req SweepRequest) Swee
 	}
 	// Fail loudly if the port cannot be opened (most often another process, such
 	// as this agent's own poller, holds it).
-	p, err := open(req.Port, &serial.Mode{BaudRate: req.Baud, DataBits: req.DataBits, StopBits: serial.StopBits(req.StopBits)})
+	p, err := open(req.Port, &serial.Mode{BaudRate: req.Baud, DataBits: req.DataBits, StopBits: stopBitsMode(req.StopBits)})
 	if err != nil {
 		res.Error = fmt.Sprintf("cannot open %s: %v (is a polling device already using this port?)", req.Port, err)
 		return res

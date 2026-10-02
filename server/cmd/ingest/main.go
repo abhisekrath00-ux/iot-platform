@@ -138,6 +138,13 @@ func main() {
 			log.Printf("scan drop: bad payload")
 			return
 		}
+		if strings.HasPrefix(res.ScanID, "auto-") {
+			// Edge-initiated discovery: stored as a finished proposal, never as an answer to a request.
+			if err := st.StoreAutoScan(ctx, parts[1], parts[3], m.Payload()); err != nil {
+				log.Printf("scan drop: auto result from %s/%s: %v", parts[1], parts[3], err)
+			}
+			return
+		}
 		tag, err := st.Pool.Exec(ctx,
 			`UPDATE gateway_scans SET result=$1::jsonb, status=CASE WHEN $2 THEN 'done' ELSE 'failed' END, updated_at=now()
 			 WHERE id=$3 AND tenant_id=$4 AND gateway_id=$5 AND status='requested'`,

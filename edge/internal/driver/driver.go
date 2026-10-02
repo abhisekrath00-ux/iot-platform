@@ -54,7 +54,7 @@ func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
 	case "iec104":
 		return newIEC104(d)
 	}
-	mode := &serial.Mode{BaudRate: d.Baud, DataBits: d.DataBits, StopBits: serial.StopBits(d.StopBits)}
+	mode := &serial.Mode{BaudRate: d.Baud, DataBits: d.DataBits, StopBits: stopBitsMode(d.StopBits)}
 	switch d.Parity {
 	case "none", "":
 		mode.Parity = serial.NoParity
@@ -85,4 +85,15 @@ func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
 		port.Close()
 		return nil, fmt.Errorf("device %s: unknown profile %q", d.ID, d.Profile)
 	}
+}
+
+// stopBitsMode maps a stop-bit count (1 or 2; 0 means the default of 1) to the
+// serial library's enum. The enum is NOT the count: serial.StopBits(1) is 1.5
+// stop bits, which most adapters reject or misread, so a plain conversion of
+// "stop_bits: 1" would break every real serial link.
+func stopBitsMode(n int) serial.StopBits {
+	if n == 2 {
+		return serial.TwoStopBits
+	}
+	return serial.OneStopBit
 }

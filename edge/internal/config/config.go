@@ -40,6 +40,10 @@ type Config struct {
 
 	Devices []Device `yaml:"devices"`
 
+	// Autodetect lets the gateway find devices by itself (read-only) and
+	// propose them. See docs/edge-autodetect.md.
+	Autodetect Autodetect `yaml:"autodetect"`
+
 	// Outputs is the per-gateway allowlist of physical outputs that local
 	// rules may drive (siren, buzzer, beacon). Rules refer to outputs by name
 	// and can drive nothing else. See docs/edge-rules.md.
@@ -52,6 +56,45 @@ type Config struct {
 	// Commands: only these actions may execute on this gateway.
 	AllowedCommands []string `yaml:"allowed_commands"`
 	CommandMode     string   `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
+}
+
+// Autodetect configures edge-side discovery. Everything defaults to on except
+// auto_add: the agent proposes devices, a person confirms them in the dashboard
+// (or here, with auto_add, for confident matches only).
+type Autodetect struct {
+	Enabled     *bool         `yaml:"enabled"`      // default true; false turns the whole thing off
+	Interval    time.Duration `yaml:"interval"`     // between scans, default 6h, minimum 15m
+	Serial      *bool         `yaml:"serial"`       // sweep serial ports (default true)
+	LAN         *bool         `yaml:"lan"`          // probe the local private subnets (default true)
+	BACnet      *bool         `yaml:"bacnet"`       // BACnet Who-Is broadcast (default true)
+	SerialFrom  int           `yaml:"serial_from"`  // first slave address to try, default 1
+	SerialTo    int           `yaml:"serial_to"`    // last slave address to try, default 32
+	SerialPorts []string      `yaml:"serial_ports"` // extra ports to sweep besides the ones the OS lists (e.g. a custom udev name)
+	LANCIDRs    []string      `yaml:"lan_cidrs"`    // explicit ranges instead of the local subnets
+	AutoAdd     bool          `yaml:"auto_add"`     // add confident matches to polling on this gateway (default false)
+}
+
+func on(p *bool) bool { return p == nil || *p }
+
+func (a Autodetect) IsEnabled() bool { return on(a.Enabled) }
+func (a Autodetect) DoSerial() bool  { return on(a.Serial) }
+func (a Autodetect) DoLAN() bool     { return on(a.LAN) }
+func (a Autodetect) DoBACnet() bool  { return on(a.BACnet) }
+func (a Autodetect) Every() time.Duration {
+	if a.Interval <= 0 {
+		return 6 * time.Hour
+	}
+	return a.Interval
+}
+func (a Autodetect) Range() (int, int) {
+	f, t := a.SerialFrom, a.SerialTo
+	if f == 0 {
+		f = 1
+	}
+	if t == 0 {
+		t = 32
+	}
+	return f, t
 }
 
 type Device struct {
@@ -122,6 +165,16 @@ func Load(path string) (*Config, error) {
 	}
 	if c.QueuePath == "" {
 		c.QueuePath = paths.Queue()
+	}
+	if a := c.Autodetect; a.Interval != 0 && a.Interval < 15*time.Minute {
+		return nil, fmt.Errorf("autodetect.interval must be at least 15m")
+	}
+	f, t := c.Autodetect.Range()
+	if f < 1 || t > 247 || f > t {
+		return nil, fmt.Errorf("autodetect serial_from/serial_to must be within 1-247")
+	}
+	if c.Autodetect.AutoAdd {
+		c.mergeOverlay()
 	}
 	for _, d := range c.Devices {
 		if d.Interval <= 0 {
@@ -206,4 +259,64 @@ func LoadLocalRules(path string) ([]Rule, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	return f.Rules, nil
+}
+
+// OverlayPath is where auto-added devices are kept, apart from the operator's
+// own config file so a person never has their file rewritten by the agent.
+func OverlayPath() string { return filepath.Join(paths.Data(), "autodetected-devices.yaml") }
+
+type overlayFile struct {
+	Devices []Device `yaml:"devices"`
+}
+
+// LoadOverlay reads the auto-added devices. A missing file is not an error.
+func LoadOverlay(path string) ([]Device, error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var o overlayFile
+	if err := yaml.Unmarshal(b, &o); err != nil {
+		return nil, err
+	}
+	return o.Devices, nil
+}
+
+// SaveOverlay writes the overlay atomically.
+func SaveOverlay(path string, devs []Device) error {
+	b, err := yaml.Marshal(overlayFile{Devices: devs})
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append([]byte("# written by the edge agent's auto-add; delete a device here to stop polling it\n"), b...), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// mergeOverlay appends overlay devices that do not collide with configured ones
+// (same id, or same serial port and address). Only used when auto_add is on.
+func (c *Config) mergeOverlay() {
+	devs, err := LoadOverlay(OverlayPath())
+	if err != nil {
+		return
+	}
+	for _, o := range devs {
+		dup := false
+		for _, d := range c.Devices {
+			if d.ID == o.ID || (o.Port != "" && d.Port == o.Port && d.Address == o.Address) {
+				dup = true
+			}
+		}
+		if !dup && o.Interval > 0 {
+			c.Devices = append(c.Devices, o)
+		}
+	}
 }

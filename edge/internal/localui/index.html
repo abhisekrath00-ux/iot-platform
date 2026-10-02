@@ -28,6 +28,7 @@ h2{font-size:17px;margin:0 0 10px}
 <div class="card"><div class="k">Version</div><div class="v" id="ver">-</div></div>
 </div>
 <div class="card"><h2>Devices</h2><div id="devs"><div class="empty">Loading...</div></div></div>
+<div class="card" style="margin-top:12px"><h2>Detected by this gateway</h2><div class="dm" id="dsub">Read-only proposals. Nothing is polled until someone adds it.</div><div id="found"><div class="empty">Loading...</div></div></div>
 </main>
 <script>
 function ago(s){if(!s||s.startsWith("0001"))return"never";var d=(Date.now()-new Date(s))/1000;return d<60?Math.round(d)+"s ago":d<3600?Math.round(d/60)+"m ago":Math.round(d/3600)+"h ago"}
@@ -47,5 +48,15 @@ var chips=Object.keys(x.last_values||{}).sort().map(function(k){return'<span cla
 h+='<div class="dev"><div><div class="dn"><span class="dot '+cls+'"></span>'+esc(x.id)+'</div><div class="dm">'+esc(x.driver)+" \u00b7 last read "+ago(x.last_ok)+" \u00b7 "+x.reads+" reads, "+x.errors+" errors</div>"+(chips?'<div class="vals">'+chips+"</div>":"")+(x.last_error?'<div class="err">'+esc(x.last_error)+"</div>":"")+"</div></div>"});
 document.getElementById("devs").innerHTML=h||'<div class="empty">No devices configured. Commission this gateway from the control plane.</div>'
 }).catch(function(){document.getElementById("bs").textContent="Agent unreachable"})}
-tick();setInterval(tick,3000)
+function found(){fetch("/api/discoveries").then(function(r){return r.json()}).then(function(d){
+var fs=d.findings||[];document.getElementById("dsub").textContent="Read-only proposals. Last scan: "+ago(d.last_run)+". Nothing is polled until someone adds it.";
+var h="";fs.forEach(function(f){var t="";
+if(f.kind==="modbus-rtu"){t="Serial "+esc(f.port)+" "+esc(f.baud)+"/"+esc(f.parity)+", address "+esc(f.address);var m=(f.matches||[])[0];t+=m?" \u2013 looks like "+esc(m.name)+" ("+Math.round(m.score*100)+"% of "+m.probed+" registers plausible)":" \u2013 answers, no profile matched"}
+else if(f.kind==="lan"){t="Network "+esc(f.host)+":"+esc(f.net_port)+" ("+esc(f.service)+")"}
+else{t="BACnet "+esc(f.host)+" device "+esc(f.instance)+" vendor "+esc(f.vendor)}
+h+='<div class="dev"><div><div class="dn">'+t+'</div><div class="dm">'+esc(f.state)+(f.confident?" \u00b7 confident match":"")+" \u00b7 first seen "+ago(f.first_seen)+"</div></div></div>"});
+document.getElementById("found").innerHTML=h||'<div class="empty">Nothing detected yet. The first scan starts shortly after the agent does.</div>';
+var n=(d.last_notes||[]).map(function(x){return'<div class="dm">'+esc(x)+"</div>"}).join("");if(n)document.getElementById("found").innerHTML+=n
+}).catch(function(){})}
+tick();found();setInterval(tick,3000);setInterval(found,15000)
 </script></body></html>

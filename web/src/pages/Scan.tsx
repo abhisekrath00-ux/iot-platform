@@ -9,7 +9,7 @@ interface Host { Addr: string; Port: number; Service: string; }
 interface Bac { Addr: string; Instance: number; Vendor: number; }
 interface ScanRow {
   id: string; kind: 'modbus-rtu' | 'lan' | 'bacnet'; status: string; created_at: string;
-  params: { port?: string; baud?: number; parity?: string };
+  params: { port?: string; baud?: number; parity?: string; auto?: boolean };
   result?: { ok: boolean; error?: string; note?: string; slaves?: Slave[]; hosts?: Host[]; bacnet?: Bac[] };
 }
 
@@ -34,7 +34,9 @@ export default function Scan() {
   }, []);
   const load = () => gw ? api<ScanRow[]>(`/v1/gateways/${gw}/scans`).then(setScans).catch(e => setMsg(String(e))) : undefined;
   useEffect(() => { load(); }, [gw]); // eslint-disable-line react-hooks/exhaustive-deps
-  const latest = scans[0];
+  const manual = scans.filter(x => !x.params.auto);
+  const autos = scans.filter(x => x.params.auto && x.status === 'done');
+  const latest = manual[0];
   const running = latest?.status === 'requested';
   useEffect(() => {
     if (!running) return;
@@ -87,6 +89,21 @@ export default function Scan() {
         {msg && <p className="muted" role="alert">{msg}</p>}
       </div>
 
+      {autos.length > 0 && (
+        <div className="card" style={{ maxWidth: 900, marginBottom: 20 }}>
+          <b>Detected by the gateway on its own</b>
+          <p className="muted">The gateway scans by itself (read-only) and proposes what it found. Nothing is added until you pick a profile and press Add. A match shows how plausible a profile is, not proof of the model.</p>
+          {autos.slice(0, 4).map(a => (
+            <div key={a.id} style={{ marginTop: 12 }}>
+              <span className="muted">{a.kind === 'modbus-rtu' ? `Serial ${a.params.port ?? ''} ${a.params.baud ?? ''}/${a.params.parity ?? ''}` : a.kind === 'lan' ? 'Local network' : 'BACnet'} - {new Date(a.created_at).toLocaleString()}</span>
+              {a.kind === 'modbus-rtu' && <SlaveTable s={a} profiles={profiles.filter(p => p.driver_profile.startsWith('modbus'))} added={added} add={add} />}
+              {a.kind === 'lan' && <HostTable s={a} profiles={profiles} added={added} add={add} />}
+              {a.kind === 'bacnet' && <BacTable s={a} profiles={profiles.filter(p => p.driver_profile === 'bacnet')} added={added} add={add} />}
+            </div>
+          ))}
+        </div>
+      )}
+
       {latest && (
         <div className="card" style={{ maxWidth: 900 }}>
           <b>Latest scan: {latest.kind}</b> <span className="muted">{latest.status === 'requested' ? 'running, waiting for the gateway...' : latest.status}</span>
@@ -119,12 +136,13 @@ function SlaveTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile
     <div style={{ overflowX: "auto" }}><table><thead><tr><th>Address</th><th>Suggested</th><th>Profile</th><th>Name</th><th /></tr></thead><tbody>
       {slaves.map(sl => {
         const best = sl.matches[0];
-        const pid = sel[sl.address] ?? best?.profile_id ?? '';
-        const key = `rtu-${sl.address}`;
+        const known = best && profiles.some(p => p.id === best.profile_id) ? best.profile_id : '';
+        const pid = sel[sl.address] ?? known;
+        const key = `rtu-${s.id}-${sl.address}`;
         return (
           <tr key={sl.address}>
             <td>{sl.address}</td>
-            <td className="muted">{best ? `${best.name} (${Math.round(best.score * 100)}% of ${best.probed} registers plausible)` : 'no profile matched'}</td>
+            <td className="muted">{best ? `${best.name} (${Math.round(best.score * 100)}% of ${best.probed} registers plausible)${best.profile_id.startsWith('builtin:') ? ', gateway built-in; choose a matching profile to add' : ''}` : 'no profile matched'}</td>
             <td><select value={pid} onChange={e => setSel({ ...sel, [sl.address]: e.target.value })}><option value="">Choose...</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
             <td><input value={names[sl.address] ?? `Slave ${sl.address}`} onChange={e => setNames({ ...names, [sl.address]: e.target.value })} aria-label={`Name for slave ${sl.address}`} /></td>
             <td>{added[key] ? <span className="muted">Added</span> : <button disabled={!pid} onClick={() => add(s, key, pid, names[sl.address] ?? `Slave ${sl.address}`, { port: s.params.port, baud: s.params.baud, parity: s.params.parity ?? 'none', address: sl.address, interval_seconds: 10 })}>Add</button>}</td>
@@ -145,7 +163,7 @@ function HostTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[
       <p className="muted">An open port means something is listening, not that it is a supported device.</p>
       <div style={{ overflowX: "auto" }}><table><thead><tr><th>Host</th><th>Port</th><th>Looks like</th><th>Profile</th><th>Unit / address</th><th /></tr></thead><tbody>
         {hosts.map(h => {
-          const key = `${h.Addr}:${h.Port}`;
+          const key = `${s.id}-${h.Addr}:${h.Port}`;
           const drv = PORT_DRIVER[h.Port];
           const opts = profiles.filter(p => p.driver_profile === drv);
           const pid = sel[key] ?? opts[0]?.id ?? '';
@@ -172,7 +190,7 @@ function BacTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[]
   return (
     <div style={{ overflowX: "auto" }}><table><thead><tr><th>Address</th><th>Device</th><th>Vendor id</th><th>Profile</th><th /></tr></thead><tbody>
       {devs.map(d => {
-        const key = d.Addr;
+        const key = `${s.id}-${d.Addr}`;
         const pid = sel[key] ?? profiles[0]?.id ?? '';
         return (
           <tr key={key}>

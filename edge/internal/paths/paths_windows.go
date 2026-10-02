@@ -19,4 +19,10 @@ func base() string {
 func Config() string { return filepath.Join(base(), "edge-agent.yaml") }
 
 // Data is the default state directory (identity, queue, artifacts).
-func Data() string { return filepath.Join(base(), "data") }
+// HEXMON_DATA_DIR overrides it (portable installs, tests).
+func Data() string {
+	if d := os.Getenv("HEXMON_DATA_DIR"); d != "" {
+		return d
+	}
+	return filepath.Join(base(), "data")
+}

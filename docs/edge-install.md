@@ -109,3 +109,10 @@ SmartScreen or antivirus may complain.
 ## Local status page
 
 The agent serves a read-only page at `http://127.0.0.1:8088` (broker connection, buffered message count, per-device last read, values and errors). It has no control or config-write paths and sends a strict CSP. Change or disable it with `ui.listen` (`off` disables). Binding to a non-loopback address exposes status to that network; firewall it. On a headless gateway use an SSH tunnel: `ssh -L 8088:127.0.0.1:8088 user@gateway`.
+
+
+## Auto-detect
+
+The agent looks for devices by itself (serial, local network, BACnet), read-only, and lists proposals on the local
+page, with `edge-agent -discoveries`, and on the dashboard Scan page. `edge-agent -detect-now` runs a pass now.
+`HEXMON_DATA_DIR` overrides the data directory. See `docs/edge-autodetect.md`.

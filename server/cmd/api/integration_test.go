@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,6 +42,7 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("GET /v1/points", s.listPoints)
 	mux.HandleFunc("GET /v1/gateways/{id}/edge-config", s.gatewayEdgeConfig)
 	mux.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
+	mux.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
 	mux.HandleFunc("POST /v1/reports/preview", s.previewReport)
 	mux.HandleFunc("POST /v1/reports", s.createReport)
 	mux.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
@@ -267,5 +269,45 @@ func TestIntegrationReportRollup(t *testing.T) {
 	w = call(h, "itest-rg", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv", "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"Line A","temp","1","5"`) {
 		t.Fatalf("csv rollup %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestIntegrationAutoScanFromEdge(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-as")
+	seed(t, s, "itest-as2")
+	ctx := context.Background()
+	if _, err := s.st.Pool.Exec(ctx, `DELETE FROM gateway_scans WHERE tenant_id IN ('itest-as','itest-as2')`); err != nil {
+		t.Fatal(err)
+	}
+	pay := func(id, kind string) []byte {
+		return []byte(`{"scan_id":"` + id + `","kind":"` + kind + `","ok":true,"auto":true,"params":{"port":"/dev/ttyUSB0","baud":9600,"parity":"none"},"slaves":[{"address":3,"matches":[]}],"finished_at":"2026-10-02T00:00:00Z"}`)
+	}
+	if err := s.st.StoreAutoScan(ctx, "itest-as", "itest-as-gw", pay("auto-abc-1", "modbus-rtu")); err != nil {
+		t.Fatal(err)
+	}
+	// refused: wrong tenant for that gateway, bad prefix, unknown kind, duplicate id
+	for name, err := range map[string]error{
+		"cross tenant": s.st.StoreAutoScan(ctx, "itest-as2", "itest-as-gw", pay("auto-abc-2", "modbus-rtu")),
+		"not auto":     s.st.StoreAutoScan(ctx, "itest-as", "itest-as-gw", pay("scan-abc-3", "modbus-rtu")),
+		"bad kind":     s.st.StoreAutoScan(ctx, "itest-as", "itest-as-gw", pay("auto-abc-4", "control")),
+		"duplicate":    s.st.StoreAutoScan(ctx, "itest-as", "itest-as-gw", pay("auto-abc-1", "modbus-rtu")),
+	} {
+		if err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	w := call(h, "itest-as", "viewer", "GET", "/v1/gateways/itest-as-gw/scans", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"auto":true`) || !strings.Contains(w.Body.String(), `"status":"done"`) || strings.Contains(w.Body.String(), "auto-abc-2") {
+		t.Fatalf("list: %d %s", w.Code, w.Body.String())
+	}
+	// volume cap: the 30th in an hour passes, the 31st does not
+	for i := 0; i < 40; i++ {
+		_ = s.st.StoreAutoScan(ctx, "itest-as", "itest-as-gw", pay(fmt.Sprintf("auto-cap-%d", i), "lan"))
+	}
+	var n int
+	s.st.Pool.QueryRow(ctx, `SELECT count(*) FROM gateway_scans WHERE tenant_id='itest-as'`).Scan(&n)
+	if n > 20 {
+		t.Fatalf("kept %d auto rows, want at most 20", n)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/autodetect"
 	"sync"
 	"time"
 
@@ -65,6 +66,7 @@ func runScanRequest(ctx context.Context, payload []byte, open driver.PortOpener)
 	switch req.Kind {
 	case "modbus-rtu":
 		r := req.SweepRequest
+		autodetect.SaveCandidates(candidatesPath(), r.Candidates) // lets the edge keep matching offline
 		sr := driver.SweepModbusRTU(sctx, open, r)
 		res.Slaves, res.Note = sr.Slaves, sr.Note
 		if sr.Error != "" {

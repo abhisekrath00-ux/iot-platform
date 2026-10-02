@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/autodetect"
 	"log"
 	"os"
 	"runtime"
@@ -78,6 +79,8 @@ func main() {
 	listPortsFlag := flag.Bool("list-ports", false, "list serial ports this OS sees, then exit")
 	healthFlag := flag.Bool("health", false, "ask the running agent's local status page; exit 0 ok, 1 down, 2 not connected to broker")
 	logFileFlag := flag.String("log-file", "", "also write logs to this rotating file (default on a Windows service: <data>/logs/edge-agent.log; env HEXMON_LOG_FILE)")
+	detectNow := flag.Bool("detect-now", false, "run one read-only auto-detect pass (serial, local network, BACnet), print the proposals, then exit")
+	discoveriesFlag := flag.Bool("discoveries", false, "print the proposals the last auto-detect pass found, then exit")
 	flag.Parse()
 
 	switch {
@@ -88,6 +91,10 @@ func main() {
 		os.Exit(checkConfig(*cfgPath, *identityDir, os.Stdout))
 	case *listPortsFlag:
 		os.Exit(listPorts(os.Stdout))
+	case *detectNow:
+		os.Exit(detectNowCLI(*cfgPath, os.Stdout))
+	case *discoveriesFlag:
+		os.Exit(discoveriesCLI(os.Stdout))
 	case *healthFlag:
 		os.Exit(healthCheck(*cfgPath, os.Stdout))
 	}
@@ -234,7 +241,8 @@ func main() {
 	}
 
 	tracker := localui.NewTracker()
-	startLocalUI(ctx, cfg, q, func() bool { c := mcp.Load(); return c != nil && c.Connected() }, tracker)
+	detectStore := autodetect.OpenStore(discoveriesPath())
+	startLocalUI(ctx, cfg, q, detectStore, func() bool { c := mcp.Load(); return c != nil && c.Connected() }, tracker)
 
 	// Edge-local alarm rules run independently of the broker connection, so a
 	// siren still sounds if the server or network is gone (also at boot).
@@ -248,6 +256,30 @@ func main() {
 	// them without restarting the agent (or dropping the MQTT connection).
 	sup := startSupervisor(cfg, q, telemetryTopic, tracker)
 	defer sup.stop()
+
+	// Edge-side auto-detect: finds devices with no server and no broker; when the
+	// broker is reachable the proposals are also offered as "auto-" scan results.
+	startAutodetect(ctx, cfg, detectStore,
+		func(b []byte) error {
+			mc := mcp.Load()
+			if mc == nil || !mc.Connected() {
+				return fmt.Errorf("broker not connected")
+			}
+			return mc.Publish("t/"+cfg.TenantID+"/g/"+cfg.GatewayID+"/scan/result", b)
+		},
+		func() {
+			cfgMu.Lock()
+			defer cfgMu.Unlock()
+			sup.stop()
+			nc, err := config.Load(*cfgPath)
+			if err != nil {
+				log.Printf("autodetect: reload failed, keeping the current config: %v", err)
+			} else {
+				*cfg = *nc
+			}
+			*sup = *startSupervisor(cfg, q, telemetryTopic, tracker)
+			log.Printf("autodetect: polling restarted with %d device(s)", len(cfg.Devices))
+		})
 
 	// The broker connection comes up in the background: polling, buffering and
 	// local rules must not wait for the server.
@@ -483,6 +515,8 @@ func applyFleetConfig(m fleetctl.Manifest, artifactDir, cfgPath string, cfg *con
 		ack.State, ack.Detail = "failed", "new config's local rules invalid: "+err.Error()
 		return ack
 	}
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
 	sup.stop()
 	res := fleetctl.ApplyConfig(artPath, cfgPath)
 	if !res.Applied {
@@ -514,7 +548,7 @@ func applyFleetConfig(m fleetctl.Manifest, artifactDir, cfgPath string, cfg *con
 }
 
 // startLocalUI serves the read-only status page unless disabled in config.
-func startLocalUI(ctx context.Context, cfg *config.Config, q *queue.Queue, connected func() bool, tr *localui.Tracker) {
+func startLocalUI(ctx context.Context, cfg *config.Config, q *queue.Queue, ds *autodetect.Store, connected func() bool, tr *localui.Tracker) {
 	addr := cfg.UI.Listen
 	if addr == "off" {
 		return
@@ -526,6 +560,7 @@ func startLocalUI(ctx context.Context, cfg *config.Config, q *queue.Queue, conne
 		GatewayID: cfg.GatewayID, TenantID: cfg.TenantID, Version: version,
 		BrokerHost: fmt.Sprintf("%s:%d", cfg.MQTT.Host, cfg.MQTT.Port), BrokerTLS: cfg.MQTT.TLS,
 		Connected: connected, QueueDepth: q.Depth,
+		Discoveries: func() any { return ds.Snapshot() },
 	}, tr)
 	go func() {
 		if err := localui.Serve(ctx, addr, h); err != nil {
