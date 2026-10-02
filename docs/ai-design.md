@@ -11,9 +11,12 @@ Status: design plus what exists. Every feature carries one label:
 | N-sigma deviation rule | Statistical | Mean and standard deviation of the point's recent history; off until a rule exists |
 | KPI outside user band | Statistical | Fixed band |
 | Outlier card on device page | Statistical | Median and MAD, can disagree with the sigma rule |
+| Holt-Winters forecast with 95% interval and backtest (`GET /v1/telemetry/forecast`, device page card) | Statistical | Season 24h on hourly averages; shown as a prediction only if it beats repeating yesterday by 5% on the last 24h; refuses when under 80% of hours have data; tested on synthetic data, not on real plant data |
+| CUSUM level-shift detection (in the forecast response) | Statistical | Run on the series after removing the hour-of-day profile; fixed limit h=8, so it can still raise a false alarm; no alert rule uses it yet |
+| Related signals (`GET /v1/telemetry/related`) | Statistical | Lagged Pearson correlation among points of the same device; says "correlated with", never "caused by"; same device only, not across assets yet |
 | MCP server, 7 read-only tools | LLM client, deterministic tools | The model lives in the user's client; tools only read, tenant-scoped |
 
-No forecasting, no learned models, no root-cause feature exists yet.
+No learned models and no natural-language query tools beyond the 7 existing MCP tools exist yet. Not built: seasonal-baseline alert rules, forecast-based alert rules, cross-device and cross-asset root-cause ranking.
 
 ## Planned, in order
 1. **Seasonal baseline** (Statistical): per-point hour-of-week profile, alert

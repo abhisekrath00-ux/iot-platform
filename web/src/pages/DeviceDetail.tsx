@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, LatestPoint } from '../lib/api';
 import DeviceTwin, { Health } from '../components/DeviceTwin';
+import ForecastCard from '../components/ForecastCard';
 
 interface SeriesPoint { t: string; v: number; quality: string; }
 
@@ -74,6 +75,7 @@ export default function DeviceDetail() {
               </LineChart>
             </ResponsiveContainer>
           </div>
+          {id && point && <ForecastCard device={id} point={point} />}
           {anom && (
             <div className="card" style={{ marginTop: 14 }} role="region" aria-label="Anomalies">
               <b>Anomalies (24h)</b>

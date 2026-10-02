@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
@@ -142,5 +144,51 @@ func TestIntegrationReportUsesDailyRollupAfterHourlyPurge(t *testing.T) {
 	series, _, _ = s.buildSeries(ctx, "itest-dly", def)
 	if len(series[def.Metrics[0]]) != 1 {
 		t.Fatalf("hour grouping used daily rows: %+v", series[def.Metrics[0]])
+	}
+}
+
+func TestIntegrationForecastAndRelated(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-fc")
+	seed(t, s, "itest-fc2")
+	ctx := t.Context()
+	s.st.Pool.Exec(ctx, `DELETE FROM telemetry_rollup_hourly WHERE tenant_id IN ('itest-fc','itest-fc2')`)
+	end := time.Now().UTC().Truncate(time.Hour)
+	for i := 1; i <= 24*14; i++ {
+		b := end.Add(-time.Duration(i) * time.Hour)
+		a := 50 + 10*math.Sin(2*math.Pi*float64(b.Hour())/24) + float64((i*7919)%11)/20 + 0.05*float64(24*14-i)
+		lead := 5 * math.Cos(float64(i)/5)
+		for _, q := range []struct {
+			tenant, pt string
+			v          float64
+		}{{"itest-fc", "temp", a}, {"itest-fc", "noise", float64((i * 7919) % 13)}, {"itest-fc", "lead", lead}} {
+			if _, err := s.st.Pool.Exec(ctx, `INSERT INTO telemetry_rollup_hourly(tenant_id,device_id,point_id,bucket,n,sum,min,max) VALUES($1,'d1',$2,$3,1,$4,$4,$4)`, q.tenant, q.pt, b, q.v); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	api := http.NewServeMux()
+	api.HandleFunc("GET /v1/telemetry/forecast", s.forecastTelemetry)
+	api.HandleFunc("GET /v1/telemetry/related", s.relatedTelemetry)
+	w := call(api, "itest-fc", "viewer", "GET", "/v1/telemetry/forecast?device_id=d1&point_id=temp&horizon_hours=12", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"useful":true`) || !strings.Contains(w.Body.String(), `"label":"statistical"`) {
+		t.Fatalf("forecast %d %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Forecast []struct{ Value, Lower, Upper float64 } `json:"forecast"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &out)
+	if len(out.Forecast) != 12 || out.Forecast[0].Lower >= out.Forecast[0].Value || out.Forecast[0].Upper <= out.Forecast[0].Value {
+		t.Fatalf("forecast shape %+v", out.Forecast)
+	}
+	if w := call(api, "itest-fc2", "viewer", "GET", "/v1/telemetry/forecast?device_id=d1&point_id=temp", ""); !strings.Contains(w.Body.String(), `"enough_data":false`) {
+		t.Fatalf("other tenant got a forecast: %s", w.Body.String())
+	}
+	if w := call(api, "itest-fc", "viewer", "GET", "/v1/telemetry/forecast?device_id=d1&point_id=temp&horizon_hours=500", ""); w.Code != 400 {
+		t.Fatalf("bad horizon = %d", w.Code)
+	}
+	w = call(api, "itest-fc", "viewer", "GET", "/v1/telemetry/related?device_id=d1&point_id=temp", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "correlated with, not caused by") {
+		t.Fatalf("related %d %s", w.Code, w.Body.String())
 	}
 }
