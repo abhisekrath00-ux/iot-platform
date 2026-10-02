@@ -31,7 +31,7 @@ a read seam exists for report aggregation only (`internal/tsstore.Store.Aggregat
   careful batching and more hardware.
 
 ### B. TimescaleDB
-Licence read from the official files on 2026-10-02:
+See also docs/timescale-evaluation.md for the sourced comparison. Licence read from the official files on 2026-10-02:
 https://raw.githubusercontent.com/timescale/timescaledb/main/tsl/LICENSE-TIMESCALE
 and https://docs.timescale.com/about/latest/timescaledb-editions/
 - The core is Apache 2.0. The advanced features (the editions page puts the

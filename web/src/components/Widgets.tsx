@@ -128,8 +128,10 @@ export function StatWidget({ w }: { w: Widget }) {
       {s ? (
         <>
           <div className="kpi">{formatValue(s.last)}</div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            24h min {formatValue(s.min)} / avg {formatValue(s.avg)} / max {formatValue(s.max)}
+          <div style={{ display: 'flex', gap: 14, fontSize: 12, marginTop: 4 }}>
+            {([['min', s.min], ['avg', s.avg], ['max', s.max]] as const).map(([k, v]) => (
+              <div key={k}><div className="muted">24h {k}</div><div>{formatValue(v)}</div></div>
+            ))}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>change {s.delta >= 0 ? '+' : ''}{formatValue(s.delta)} over {s.n} samples</div>
         </>

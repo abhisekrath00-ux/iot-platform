@@ -63,7 +63,7 @@ export default function Scan() {
     <>
       <h1>Scan for devices</h1>
       <p className="muted">The gateway looks for devices on its own serial port or network (read-only), then you pick a profile and add. Nothing is added automatically. Needs a connected gateway; a serial scan fails if another device is already polling that port.</p>
-      <div className="card" style={{ maxWidth: 760, marginBottom: 20 }}>
+      <div className="card" style={{ maxWidth: 900, marginBottom: 20 }}>
         <form onSubmit={start}>
           <label>Gateway</label>
           <select value={gw} onChange={e => setGw(e.target.value)}>{gws.map(g => <option key={g.id} value={g.id}>{g.serial} ({g.status})</option>)}</select>
