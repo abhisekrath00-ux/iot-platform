@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/forecast"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/kpi"
 )
 
@@ -35,6 +36,10 @@ type Definition struct {
 	Sigma         float64 `json:"sigma,omitempty"`          // 2 to 10 standard deviations
 	WindowMinutes int     `json:"window_minutes,omitempty"` // history used as the baseline, 10 to 10080
 	Direction     string  `json:"direction,omitempty"`      // both (default) | above | below
+	// forecast_limit: fire when the statistical forecast crosses Threshold (in
+	// direction Op) within HorizonHours. Needs DeviceID and PointID, and only
+	// fires when the model beat repeating yesterday in its backtest.
+	HorizonHours int `json:"horizon_hours,omitempty"` // 1 to 72
 	// kpi_band
 	KPIID string   `json:"kpi_id,omitempty"`
 	Min   *float64 `json:"min,omitempty"`
@@ -69,6 +74,13 @@ func (d Definition) Validate() error {
 		}
 		if d.Direction != "" && d.Direction != "both" && d.Direction != "above" && d.Direction != "below" {
 			return fmt.Errorf("direction must be both, above or below")
+		}
+	case "forecast_limit":
+		if d.DeviceID == "" || d.PointID == "" || (d.Op != ">" && d.Op != "<") {
+			return fmt.Errorf("forecast_limit rule needs device_id, point_id and op > or <")
+		}
+		if d.HorizonHours < 1 || d.HorizonHours > 72 {
+			return fmt.Errorf("horizon_hours must be between 1 and 72")
 		}
 	case "kpi_band":
 		if d.KPIID == "" {
@@ -152,8 +164,8 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 			}
 		}
 		switch d.Kind {
-		case "kpi_band":
-			continue // evaluated by EvaluateKPIs, not per reading
+		case "kpi_band", "forecast_limit":
+			continue // evaluated periodically (EvaluateKPIs, EvaluateForecasts), not per reading
 		case "sigma":
 			if msg, hit := sigmaHit(ctx, pool, tenantID, d, deviceID, pointID, value); hit {
 				d.Message = firstNonEmpty(d.Message, msg)
@@ -337,4 +349,64 @@ func kpiValue(ctx context.Context, pool *pgxpool.Pool, tenant, expr string) (flo
 		return 0, false
 	}
 	return v, true
+}
+
+// ForecastCrossing is the pure decision: does the forecast cross the limit
+// within the horizon, and was the model good enough to say so?
+func ForecastCrossing(fc []forecast.Point, op string, limit float64, horizon int, useful bool) (step int, hit bool) {
+	if !useful || horizon < 1 {
+		return 0, false
+	}
+	if horizon < len(fc) {
+		fc = fc[:horizon]
+	}
+	st := forecast.FirstCrossing(fc, limit, op == ">")
+	return st, st > 0
+}
+
+// EvaluateForecasts checks every enabled forecast_limit rule. Run it every
+// 15 minutes or so from one replica. Too little data, or a model that did not
+// beat the seasonal-naive backtest, never raises an alert.
+func EvaluateForecasts(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
+	rows, err := pool.Query(ctx, `SELECT id, tenant_id, definition FROM rules WHERE enabled AND definition->>'kind'='forecast_limit'`)
+	if err != nil {
+		log.Printf("rules: forecast load: %v", err)
+		return
+	}
+	type item struct {
+		id, tenant string
+		d          Definition
+	}
+	var list []item
+	for rows.Next() {
+		var it item
+		var raw json.RawMessage
+		if rows.Scan(&it.id, &it.tenant, &raw) == nil && json.Unmarshal(raw, &it.d) == nil {
+			list = append(list, it)
+		}
+	}
+	rows.Close()
+	for _, it := range list {
+		_, vals, ok, err := forecast.HourlySeries(ctx, pool, it.tenant, it.d.DeviceID, it.d.PointID, 14*24)
+		if err != nil || !ok {
+			continue
+		}
+		m, err := forecast.Fit(vals, 24)
+		if err != nil {
+			continue
+		}
+		bt, err := forecast.RunBacktest(vals, 24, 24)
+		if err != nil {
+			continue
+		}
+		fc := m.Forecast(it.d.HorizonHours)
+		step, hit := ForecastCrossing(fc, it.d.Op, it.d.Threshold, it.d.HorizonHours, bt.Useful)
+		if !hit {
+			continue
+		}
+		d := it.d
+		d.Message = firstNonEmpty(d.Message, fmt.Sprintf("%s/%s is forecast to go %s %.4g in about %dh (statistical forecast, backtest error %.3g vs %.3g for repeating yesterday)",
+			d.DeviceID, d.PointID, map[string]string{">": "above", "<": "below"}[d.Op], d.Threshold, step, bt.MAE, bt.NaiveMAE))
+		fire(ctx, pool, n, it.tenant, it.id, d, d.DeviceID, d.PointID, fc[step-1].Value)
+	}
 }

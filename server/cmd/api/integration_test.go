@@ -178,6 +178,13 @@ func TestIntegrationReportPreviewAndDownload(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "itest-d-dev,temp,") {
 		t.Fatalf("download %d %s", w.Code, w.Body.String())
 	}
+	w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv&layout=matrix&agg=max&group_by=day", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"itest-d-dev / temp"`) {
+		t.Fatalf("matrix csv %d %s", w.Code, w.Body.String())
+	}
+	if w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv&group_by=year", ""); w.Code != 400 {
+		t.Fatalf("bad parameter = %d, want 400", w.Code)
+	}
 	w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=pdf", "")
 	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "%PDF-1.4") || w.Header().Get("Content-Type") != "application/pdf" {
 		t.Fatalf("pdf download %d %q", w.Code, w.Header().Get("Content-Type"))

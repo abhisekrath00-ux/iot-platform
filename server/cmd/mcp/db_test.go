@@ -6,10 +6,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
@@ -191,3 +193,37 @@ func TestDraftFlowGraphIsDraftOnlyAndGuarded(t *testing.T) {
 }
 
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+func TestAnalyticsToolsTenantScopedAndHonest(t *testing.T) {
+	s := dbServer(t)
+	seedMCP(t, s, "mcp-fa")
+	seedMCP(t, s, "mcp-fb")
+	ctx := context.Background()
+	s.st.Pool.Exec(ctx, `DELETE FROM telemetry_rollup_hourly WHERE tenant_id IN ('mcp-fa','mcp-fb')`)
+	end := time.Now().UTC().Truncate(time.Hour)
+	for i := 1; i <= 24*14; i++ {
+		b := end.Add(-time.Duration(i) * time.Hour)
+		v := 50 + 10*math.Sin(2*math.Pi*float64(b.Hour())/24) + float64((i*7919)%11)/20 + 0.05*float64(24*14-i)
+		s.st.Pool.Exec(ctx, `INSERT INTO telemetry_rollup_hourly(tenant_id,device_id,point_id,bucket,n,sum,min,max) VALUES('mcp-fa','mcp-fa-dev','temp',$1,1,$2,$2,$2)`, b, v)
+	}
+	out, err := tool(t, s, "mcp-fa", "forecast_time_series", map[string]any{"device_id": "mcp-fa-dev", "point_id": "temp", "horizon_hours": float64(6)})
+	b, _ := json.Marshal(out)
+	if err != nil || !strings.Contains(string(b), `"useful":true`) || !strings.Contains(string(b), `"label":"statistical"`) {
+		t.Fatalf("forecast: %v %s", err, b)
+	}
+	if m := out.(map[string]any); len(m["forecast"].([]map[string]any)) != 6 {
+		t.Fatalf("horizon not honoured: %s", b)
+	}
+	// another tenant must get "not enough data", never this tenant's numbers
+	out, _ = tool(t, s, "mcp-fb", "forecast_time_series", map[string]any{"device_id": "mcp-fa-dev", "point_id": "temp"})
+	if b, _ := json.Marshal(out); !strings.Contains(string(b), `"enough_data":false`) || strings.Contains(string(b), `"forecast":`) {
+		t.Fatalf("forecast leaks across tenants: %s", b)
+	}
+	if _, err := tool(t, s, "mcp-fa", "forecast_time_series", map[string]any{"device_id": "x"}); err == nil {
+		t.Fatal("missing point_id must be rejected")
+	}
+	out, err = tool(t, s, "mcp-fa", "related_signals", map[string]any{"device_id": "mcp-fa-dev", "point_id": "temp"})
+	if b, _ := json.Marshal(out); err != nil || !strings.Contains(string(b), "correlated with, not caused by") {
+		t.Fatalf("related: %v %s", err, b)
+	}
+}

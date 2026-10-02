@@ -249,12 +249,16 @@ func main() {
 		fn := notify.FromEnv()
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()
+		tick := 0
 		for {
 			select {
 			case <-c.Done():
 				return
 			case <-t.C:
 				rules.EvaluateKPIs(c, st.Pool, fn)
+				if tick++; tick%15 == 0 {
+					rules.EvaluateForecasts(c, st.Pool, fn)
+				}
 			}
 		}
 	})
@@ -1296,6 +1300,11 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 	var def report.Definition
 	if err := json.Unmarshal(defBytes, &def); err != nil {
 		http.Error(w, "report definition corrupt", 500)
+		return
+	}
+	def, perr := report.ApplyParams(def, r.URL.Query().Get)
+	if perr != nil {
+		http.Error(w, perr.Error(), 400)
 		return
 	}
 	series, _, err := s.buildSeries(r.Context(), auth.Tenant(r), def)

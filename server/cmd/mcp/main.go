@@ -139,6 +139,9 @@ func (s *server) callTool(r *http.Request, name string, args map[string]any) (an
 	if out, handled, err := s.flowTool(r, name, args); handled {
 		return out, err
 	}
+	if out, handled, err := s.analyticsTool(r, name, args); handled {
+		return out, err
+	}
 	switch name {
 	case "list_sites":
 		rows, err := s.st.Pool.Query(ctx, `

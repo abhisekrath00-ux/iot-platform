@@ -101,3 +101,75 @@ func TestPDFEmptyDefinition(t *testing.T) {
 }
 
 func fmtSscan(s string, v *int) (int, error) { return fmt.Sscan(s, v) }
+
+func TestMatrixLayoutAcrossFormats(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	a, b := Metric{"d1", "kw"}, Metric{"d2", "kw"}
+	d := Definition{Metrics: []Metric{a, b}, WindowHours: 24, GroupBy: "hour", Layout: "matrix", Agg: "max"}
+	s := map[Metric][]Bucket{
+		a: {{Start: t0, Avg: 1, Min: 1, Max: 5, Sum: 2, Count: 2}, {Start: t0.Add(time.Hour), Avg: 2, Min: 2, Max: 7, Sum: 4, Count: 2}},
+		b: {{Start: t0.Add(time.Hour), Avg: 3, Min: 3, Max: 9, Sum: 6, Count: 2}},
+	}
+	hdr, rows, total := Matrix(d, s)
+	if len(hdr) != 2 || len(rows) != 2 {
+		t.Fatalf("shape %v %v", hdr, rows)
+	}
+	if rows[0][2] != "-" || rows[0][1] != "5.000" || rows[1][2] != "9.000" {
+		t.Fatalf("cells %v", rows)
+	}
+	if total[1] != "7.000" || total[2] != "9.000" {
+		t.Fatalf("totals %v", total)
+	}
+	h := Render("t", d, s, t0)
+	if strings.Count(h, "<table>") != 1 || !strings.Contains(h, "d1 / kw") {
+		t.Fatal("html matrix")
+	}
+	if p := string(RenderPDF("t", d, s, t0)); !strings.Contains(p, "d2 / kw") || !strings.Contains(p, "overall") {
+		t.Fatal("pdf matrix")
+	}
+	x, err := RenderXLSX(d, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, _ := zip.NewReader(bytes.NewReader(x), int64(len(x)))
+	var sheet string
+	for _, f := range zr.File {
+		if f.Name == "xl/worksheets/sheet1.xml" {
+			rc, _ := f.Open()
+			bb, _ := io.ReadAll(rc)
+			sheet = string(bb)
+		}
+	}
+	if strings.Count(sheet, "<row ") != 4 || !strings.Contains(sheet, "<v>9</v>") {
+		t.Fatalf("xlsx matrix: %s", sheet)
+	}
+	d.Layout, d.Agg = "pivot", ""
+	if Validate(Definition{Metrics: d.Metrics, WindowHours: 1, GroupBy: "hour", Layout: "pivot"}) == nil {
+		t.Fatal("bad layout accepted")
+	}
+	if Validate(Definition{Metrics: d.Metrics, WindowHours: 1, GroupBy: "hour", Agg: "median"}) == nil {
+		t.Fatal("bad agg accepted")
+	}
+}
+
+func TestApplyParamsAndCSVMatrix(t *testing.T) {
+	d := Definition{Metrics: []Metric{{"d1", "kw"}}, WindowHours: 24, GroupBy: "hour"}
+	q := map[string]string{"window_hours": "48", "group_by": "day", "layout": "matrix", "agg": "sum"}
+	got, err := ApplyParams(d, func(k string) string { return q[k] })
+	if err != nil || got.WindowHours != 48 || got.GroupBy != "day" || got.Layout != "matrix" || got.Agg != "sum" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if d.WindowHours != 24 {
+		t.Fatal("stored definition mutated")
+	}
+	for _, bad := range []map[string]string{{"window_hours": "0"}, {"window_hours": "x"}, {"group_by": "year"}, {"layout": "cube"}, {"agg": "p99"}} {
+		if _, err := ApplyParams(d, func(k string) string { return bad[k] }); err == nil {
+			t.Fatalf("accepted %v", bad)
+		}
+	}
+	got.Layout = "matrix"
+	csv := RenderCSV(got, map[Metric][]Bucket{{"d1", "kw"}: {{Start: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Sum: 4, Count: 1}}})
+	if !strings.Contains(csv, `"d1 / kw"`) || !strings.Contains(csv, "4.000") {
+		t.Fatalf("csv matrix: %s", csv)
+	}
+}

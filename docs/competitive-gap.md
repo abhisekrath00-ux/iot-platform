@@ -29,7 +29,7 @@ from the code, not from intent.
 | Edge rules, edge compute | Losant, ThingsBoard Edge | Allowlisted commands, edge gate (expiry, replay, TTL), ack path, simulated actuator only | Partial (no real actuator drivers, by design until hazard analysis) |
 | Mobile app | ThingsBoard | Responsive web only | Missing |
 | Bulk device provisioning | AWS | One device at a time via onboarding | Missing |
-| AI access | none of the above natively | MCP server, 7 read-only tools | Have |
+| AI access | none of the above natively | MCP server, 12 tools (read tools, flow drafts, forecast, related signals; none actuate) | Have |
 | Air-gapped deploy | ThingsBoard (self-host) | Offline bundle, self-hosted assets, verified install scripts | Have (dry-run on a clean VM still pending) |
 | Read caching, HA | ThingsBoard microservices | Per-replica response cache, leader election for scheduler | Partial |
 
@@ -120,11 +120,11 @@ Status is from this repo's code. Nothing here is "Have" unless built and tested.
 
 | Report Builder capability | This product | Status | Value rank |
 |---|---|---|---|
-| Report parameters (date range, asset, device, threshold) | Builder takes range, bucket and points | Partial (no named reusable parameters, no cascading or multi-value) | 1 |
+| Report parameters (date range, asset, device, threshold) | Run-time overrides of window, grouping, layout and aggregate on every download, validated, stored definition untouched | Partial (no device/asset parameters, no cascading or multi-value) | 1 |
 | Export to PDF | Paginated PDF (built-in font, page numbers, repeating headers), unit and API tested | Have (basic: no charts, ASCII text only) | 2 |
 | Export to Excel (.xlsx) | Single-sheet workbook, stdlib writer, validated as a zip with escaped cells | Have (basic: no styles, formulas or multiple sheets; not opened in real Excel) | 3 |
 | Tables with row groups and subtotals | Flat table per point | Missing | 4 |
-| Matrix (cross-tab, e.g. device by day) | None | Missing | 5 |
+| Matrix (cross-tab, e.g. device by day) | Matrix layout: time rows by point columns, avg/min/max/sum, column totals; HTML, PDF, Excel, CSV | Have (basic: one measure, one level of grouping) | 5 |
 | Charts embedded in a report | Preview chart in builder UI | Partial (not rendered into delivered output) | 6 |
 | Expressions (computed columns, formatting, conditionals) | None | Missing | 7 |
 | Page header/footer, page numbers, hard page breaks | HTML only | Missing | 8 |

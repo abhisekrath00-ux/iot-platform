@@ -45,6 +45,35 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		return `<c t="inlineStr"><is><t>` + e.String() + `</t></is></c>`
 	}
 	num := func(f float64) string { return fmt.Sprintf(`<c><v>%.10g</v></c>`, f) }
+	if d.Layout == "matrix" {
+		hdr, rows, total := Matrix(d, series)
+		emit := func(cells []string, numeric bool) {
+			row++
+			fmt.Fprintf(&sb, `<row r="%d">`, row)
+			for i, c := range cells {
+				var f float64
+				if _, err := fmt.Sscanf(c, "%g", &f); numeric && i > 0 && err == nil && c != "-" {
+					sb.WriteString(num(f))
+				} else {
+					sb.WriteString(str(c))
+				}
+			}
+			sb.WriteString(`</row>`)
+		}
+		emit(append([]string{d.GroupBy}, hdr...), false)
+		for _, r := range rows {
+			emit(r, true)
+		}
+		emit(total, true)
+		sb.WriteString(`</sheetData></worksheet>`)
+		if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
+			return nil, err
+		}
+		if err := zw.Close(); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
 	row++
 	fmt.Fprintf(&sb, `<row r="%d">`, row)
 	for _, h := range []string{"device_id", "point_id", "bucket_start", "avg", "min", "max", "count", "sum"} {
@@ -97,8 +126,50 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 	put(title, true)
 	put(fmt.Sprintf("Generated %s  window %dh  grouped by %s", generated.UTC().Format(time.RFC3339), d.WindowHours, d.GroupBy), false)
 	put("", false)
+	if d.Layout == "matrix" {
+		hdr, rows, total := Matrix(d, series)
+		const chunk = 5
+		for c0 := 0; c0 < len(hdr) || c0 == 0; c0 += chunk {
+			c1 := c0 + chunk
+			if c1 > len(hdr) {
+				c1 = len(hdr)
+			}
+			fmtRow := func(r []string) string {
+				var sb strings.Builder
+				fmt.Fprintf(&sb, "%-17s", r[0])
+				for _, c := range r[1:][c0:c1] {
+					fmt.Fprintf(&sb, " %16s", c)
+				}
+				return sb.String()
+			}
+			head := []string{d.GroupBy}
+			for _, h := range hdr {
+				if len(h) > 16 {
+					h = h[:16]
+				}
+				head = append(head, h)
+			}
+			put(fmt.Sprintf("columns %d-%d of %d", c0+1, c1, len(hdr)), true)
+			put(fmtRow(head), true)
+			for _, r := range rows {
+				if len(cur) >= perPage {
+					flush()
+					put(fmtRow(head), true)
+				}
+				put(fmtRow(r), false)
+			}
+			put(fmtRow(total), true)
+			put("", false)
+			if len(hdr) == 0 {
+				break
+			}
+		}
+	}
 	colHdr := fmt.Sprintf("%-17s %10s %10s %10s %12s %8s", "bucket (UTC)", "avg", "min", "max", "sum", "samples")
 	for _, m := range d.Metrics {
+		if d.Layout == "matrix" {
+			break
+		}
 		rows := series[m]
 		put(m.DeviceID+" / "+m.PointID, true)
 		if len(rows) == 0 {

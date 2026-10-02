@@ -14,9 +14,10 @@ Status: design plus what exists. Every feature carries one label:
 | Holt-Winters forecast with 95% interval and backtest (`GET /v1/telemetry/forecast`, device page card) | Statistical | Season 24h on hourly averages; shown as a prediction only if it beats repeating yesterday by 5% on the last 24h; refuses when under 80% of hours have data; tested on synthetic data, not on real plant data |
 | CUSUM level-shift detection (in the forecast response) | Statistical | Run on the series after removing the hour-of-day profile; fixed limit h=8, so it can still raise a false alarm; no alert rule uses it yet |
 | Related signals (`GET /v1/telemetry/related`) | Statistical | Lagged Pearson correlation among points of the same device; says "correlated with", never "caused by"; same device only, not across assets yet |
-| MCP server, 7 read-only tools | LLM client, deterministic tools | The model lives in the user's client; tools only read, tenant-scoped |
+| Forecast-limit alert rule (`forecast_limit`) | Statistical | Alert when the forecast crosses a limit within 1-72h; checked every 15 min by one replica; only fires if the backtest beat repeating yesterday; off until a rule is created |
+| MCP: 7 read tools, 2 flow-draft tools, `forecast_time_series`, `related_signals` (12 tools total, none actuate) | LLM client, deterministic tools | The model lives in the user's client; tools only read, tenant-scoped |
 
-No learned models and no natural-language query tools beyond the 7 existing MCP tools exist yet. Not built: seasonal-baseline alert rules, forecast-based alert rules, cross-device and cross-asset root-cause ranking.
+No learned models and no free-form natural-language query tool exists yet (the MCP client's own model chooses among validated tools). Not built: seasonal-baseline alert rules (forecast-limit rules exist), cross-device and cross-asset root-cause ranking.
 
 ## Planned, in order
 1. **Seasonal baseline** (Statistical): per-point hour-of-week profile, alert

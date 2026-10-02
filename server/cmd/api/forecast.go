@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"math"
 	"net/http"
 	"strconv"
@@ -10,71 +9,6 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/forecast"
 )
-
-// hourlySeries returns one average per UTC hour for the last `hours` complete
-// hours, reading hourly rollups plus raw rows for hours not rolled up yet. Missing
-// hours are linearly interpolated; if more than 20% are missing ok=false, since a
-// forecast over mostly invented data would be a false claim.
-func (s *server) hourlySeries(ctx context.Context, tenant, dev, pt string, hours int) (start time.Time, vals []float64, ok bool, err error) {
-	end := time.Now().UTC().Truncate(time.Hour)
-	start = end.Add(-time.Duration(hours) * time.Hour)
-	rows, err := s.st.Pool.Query(ctx, `
-		WITH parts AS (
-		  SELECT bucket AS h, sum AS s, n FROM telemetry_rollup_hourly
-		   WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND bucket >= $4 AND bucket < $5
-		  UNION ALL
-		  SELECT date_trunc('hour', observed_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC', value, 1 FROM telemetry
-		   WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND quality IN ('measured','estimated')
-		     AND observed_at >= $4 AND observed_at < $5
-		     AND NOT EXISTS (SELECT 1 FROM telemetry_rollup_hourly r WHERE r.tenant_id=$1 AND r.device_id=$2 AND r.point_id=$3
-		                      AND r.bucket = date_trunc('hour', observed_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'))
-		SELECT h, sum(s)/sum(n) FROM parts GROUP BY h ORDER BY h`, tenant, dev, pt, start, end)
-	if err != nil {
-		return start, nil, false, err
-	}
-	defer rows.Close()
-	have := make([]*float64, hours)
-	got := 0
-	for rows.Next() {
-		var h time.Time
-		var v float64
-		if rows.Scan(&h, &v) != nil {
-			continue
-		}
-		i := int(h.UTC().Sub(start) / time.Hour)
-		if i >= 0 && i < hours {
-			x := v
-			have[i] = &x
-			got++
-		}
-	}
-	if got < hours*8/10 || got < 2 {
-		return start, nil, false, nil
-	}
-	vals = make([]float64, hours)
-	prev := -1
-	for i := 0; i < hours; i++ {
-		if have[i] == nil {
-			continue
-		}
-		vals[i] = *have[i]
-		if prev >= 0 && i-prev > 1 {
-			for j := prev + 1; j < i; j++ {
-				vals[j] = vals[prev] + (vals[i]-vals[prev])*float64(j-prev)/float64(i-prev)
-			}
-		}
-		if prev < 0 {
-			for j := 0; j < i; j++ {
-				vals[j] = vals[i]
-			}
-		}
-		prev = i
-	}
-	for j := prev + 1; j < hours; j++ {
-		vals[j] = vals[prev]
-	}
-	return start, vals, true, nil
-}
 
 func intParam(r *http.Request, name string, def, lo, hi int) (int, bool) {
 	v := r.URL.Query().Get(name)
@@ -104,7 +38,7 @@ func (s *server) forecastTelemetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "history_days must be 4-60, horizon_hours 1-72", 400)
 		return
 	}
-	start, vals, ok, err := s.hourlySeries(r.Context(), auth.Tenant(r), dev, pt, days*24)
+	start, vals, ok, err := forecast.HourlySeries(r.Context(), s.st.Pool, auth.Tenant(r), dev, pt, days*24)
 	if err != nil {
 		http.Error(w, "db", 500)
 		return
@@ -167,7 +101,7 @@ func (s *server) relatedTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenant := auth.Tenant(r)
-	_, target, ok, err := s.hourlySeries(r.Context(), tenant, dev, pt, days*24)
+	_, target, ok, err := forecast.HourlySeries(r.Context(), s.st.Pool, tenant, dev, pt, days*24)
 	if err != nil {
 		http.Error(w, "db", 500)
 		return
@@ -194,7 +128,7 @@ func (s *server) relatedTelemetry(w http.ResponseWriter, r *http.Request) {
 	rows.Close()
 	series := map[string][]float64{}
 	for _, p := range others {
-		if _, v, ok, err := s.hourlySeries(r.Context(), tenant, dev, p, days*24); err == nil && ok {
+		if _, v, ok, err := forecast.HourlySeries(r.Context(), s.st.Pool, tenant, dev, p, days*24); err == nil && ok {
 			series[p] = v
 		}
 	}

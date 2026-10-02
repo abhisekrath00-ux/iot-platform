@@ -6,7 +6,7 @@ interface Kpi { id: string; name: string; unit: string }
 // Two rule kinds beyond a fixed threshold: a point drifting from its own
 // recent history (N standard deviations), and a KPI leaving a band you set.
 export default function AnomalyRuleForm({ onCreated }: { onCreated: () => void }) {
-  const [kind, setKind] = useState<'sigma' | 'kpi_band'>('sigma');
+  const [kind, setKind] = useState<'sigma' | 'kpi_band' | 'forecast_limit'>('sigma');
   const [name, setName] = useState('');
   const [deviceId, setDeviceId] = useState('');
   const [pointId, setPointId] = useState('');
@@ -17,6 +17,9 @@ export default function AnomalyRuleForm({ onCreated }: { onCreated: () => void }
   const [kpiId, setKpiId] = useState('');
   const [min, setMin] = useState('');
   const [max, setMax] = useState('');
+  const [op, setOp] = useState('>');
+  const [limit, setLimit] = useState('');
+  const [horizon, setHorizon] = useState('24');
   const [severity, setSeverity] = useState('warning');
   const [msg, setMsg] = useState('');
 
@@ -25,7 +28,9 @@ export default function AnomalyRuleForm({ onCreated }: { onCreated: () => void }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMsg('');
-    const definition = kind === 'sigma'
+    const definition = kind === 'forecast_limit'
+      ? { kind, device_id: deviceId, point_id: pointId, op, threshold: parseFloat(limit), horizon_hours: parseInt(horizon), severity }
+      : kind === 'sigma'
       ? { kind, device_id: deviceId || undefined, point_id: pointId, sigma: parseFloat(sigma), window_minutes: parseInt(windowMin), direction, severity }
       : { kind, kpi_id: kpiId, min: min === '' ? undefined : parseFloat(min), max: max === '' ? undefined : parseFloat(max), severity };
     try {
@@ -42,13 +47,26 @@ export default function AnomalyRuleForm({ onCreated }: { onCreated: () => void }
       <p className="muted">Nothing runs until you create one. Sigma rules need at least 30 recent readings before they can fire. KPI rules are checked once a minute, and a stale KPI never alerts.</p>
       <form onSubmit={submit}>
         <label htmlFor="ar-kind">Type</label>
-        <select id="ar-kind" value={kind} onChange={e => setKind(e.target.value as 'sigma' | 'kpi_band')}>
+        <select id="ar-kind" value={kind} onChange={e => setKind(e.target.value as 'sigma' | 'kpi_band' | 'forecast_limit')}>
           <option value="sigma">Reading far from its own recent history</option>
           <option value="kpi_band">KPI outside a band</option>
+          <option value="forecast_limit">Forecast to cross a limit (statistical)</option>
         </select>
         <label htmlFor="ar-name">Rule name</label>
         <input id="ar-name" value={name} onChange={e => setName(e.target.value)} required />
-        {kind === 'sigma' ? <>
+        {kind === 'forecast_limit' ? <>
+          <label htmlFor="ar-dev">Device id</label>
+          <input id="ar-dev" value={deviceId} onChange={e => setDeviceId(e.target.value)} required />
+          <label htmlFor="ar-pt">Point</label>
+          <input id="ar-pt" value={pointId} onChange={e => setPointId(e.target.value)} required />
+          <label htmlFor="ar-op">Alert when forecast goes</label>
+          <select id="ar-op" value={op} onChange={e => setOp(e.target.value)}><option value=">">above</option><option value="<">below</option></select>
+          <label htmlFor="ar-lim">Limit</label>
+          <input id="ar-lim" type="number" step="any" value={limit} onChange={e => setLimit(e.target.value)} required />
+          <label htmlFor="ar-hor">Within hours (1 to 72)</label>
+          <input id="ar-hor" type="number" min={1} max={72} value={horizon} onChange={e => setHorizon(e.target.value)} required />
+          <p className="muted" style={{ fontSize: 12 }}>Checked every 15 minutes. Only fires when the forecast beat repeating yesterday in its backtest and the point has about 3 days of hourly data.</p>
+        </> : kind === 'sigma' ? <>
           <label htmlFor="ar-dev">Device id (blank for any device with the point)</label>
           <input id="ar-dev" value={deviceId} onChange={e => setDeviceId(e.target.value)} />
           <label htmlFor="ar-pt">Point</label>

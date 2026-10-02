@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 )
@@ -95,5 +98,45 @@ func TestIntegrationSigmaAndKPIBandRules(t *testing.T) {
 	}
 	if c := post("itest-an1", "viewer", `{"kind":"sigma","point_id":"vib","sigma":3,"window_minutes":60,"severity":"info"}`); c != 403 {
 		t.Fatalf("viewer %d", c)
+	}
+}
+
+func TestIntegrationForecastLimitRule(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-fl")
+	ctx := t.Context()
+	pool := s.st.Pool
+	pool.Exec(ctx, `DELETE FROM telemetry_rollup_hourly WHERE tenant_id='itest-fl'`)
+	pool.Exec(ctx, `DELETE FROM alerts WHERE tenant_id='itest-fl'`)
+	pool.Exec(ctx, `DELETE FROM rules WHERE tenant_id='itest-fl'`)
+	end := time.Now().UTC().Truncate(time.Hour)
+	for i := 1; i <= 24*14; i++ {
+		b := end.Add(-time.Duration(i) * time.Hour)
+		v := 50 + 10*math.Sin(2*math.Pi*float64(b.Hour())/24) + float64((i*7919)%11)/20 + 0.05*float64(24*14-i)
+		pool.Exec(ctx, `INSERT INTO telemetry_rollup_hourly(tenant_id,device_id,point_id,bucket,n,sum,min,max) VALUES('itest-fl','d1','temp',$1,1,$2,$2,$2)`, b, v)
+	}
+	mk := func(id string, limit float64) {
+		pool.Exec(ctx, `INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES($1,'itest-fl',$1,$2::jsonb,true,'test-user')`, id,
+			fmt.Sprintf(`{"kind":"forecast_limit","device_id":"d1","point_id":"temp","op":">","threshold":%v,"horizon_hours":24,"severity":"warning"}`, limit))
+	}
+	mk("fl-far", 1000)
+	mk("fl-near", 60)
+	rules.EvaluateForecasts(ctx, pool, nil)
+	rules.EvaluateForecasts(ctx, pool, nil) // deduped
+	count := func(rule string) int {
+		var n int
+		pool.QueryRow(ctx, `SELECT count(*) FROM alerts WHERE rule_id=$1`, rule).Scan(&n)
+		return n
+	}
+	if count("fl-far") != 0 {
+		t.Fatal("unreachable limit alerted")
+	}
+	if count("fl-near") != 1 {
+		t.Fatalf("near-limit alerts = %d, want 1", count("fl-near"))
+	}
+	// the per-reading path must ignore this kind entirely
+	rules.Evaluate(ctx, pool, nil, "itest-fl", "d1", "temp", 9999)
+	if count("fl-far") != 0 {
+		t.Fatal("forecast rule fired on a raw reading")
 	}
 }

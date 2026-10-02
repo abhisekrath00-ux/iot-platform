@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
 
 interface Metric { device_id: string; point_id: string; }
-interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; }
+interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; }
 interface ReportRow { id: string; name: string; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
@@ -14,6 +14,9 @@ export default function Reports() {
   const [metrics, setMetrics] = useState<Metric[]>([{ device_id: '', point_id: '' }]);
   const [windowHours, setWindowHours] = useState(24);
   const [groupBy, setGroupBy] = useState('hour');
+  const [layout, setLayout] = useState('');
+  const [agg, setAgg] = useState('avg');
+  const [pw, setPw] = useState<Record<string, { w?: string; g?: string }>>({});
   const [cron, setCron] = useState('');
   const [channelId, setChannelId] = useState('');
   const [msg, setMsg] = useState('');
@@ -40,7 +43,7 @@ export default function Reports() {
         method: 'POST',
         body: JSON.stringify({
           name,
-          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy },
+          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg },
           schedule_cron: cron || '',
           channel_id: channelId || ''
         })
@@ -55,7 +58,7 @@ export default function Reports() {
     try {
       const r = await api<{ html: string; rows: number }>('/v1/reports/preview', {
         method: 'POST',
-        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy } })
+        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg } })
       });
       setPreviewHTML(r.html); setPreviewRows(r.rows);
     } catch (e2) { setMsg(String(e2)); }
@@ -67,6 +70,7 @@ export default function Reports() {
     catch (e2) { setMsg(String(e2)); }
   }
 
+  const qs = (id: string) => `${pw[id]?.w ? `window_hours=${encodeURIComponent(pw[id].w!)}&` : ''}${pw[id]?.g ? `group_by=${pw[id].g}&` : ''}`;
   return (
     <>
       <h1>Reports</h1>
@@ -99,6 +103,13 @@ export default function Reports() {
           <select value={groupBy} onChange={e => setGroupBy(e.target.value)}>
             <option value="15min">15 minutes</option><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week</option>
           </select>
+          <label>Layout</label>
+          <select value={layout} onChange={e => setLayout(e.target.value)}>
+            <option value="">One table per point</option><option value="matrix">Matrix (time rows, point columns)</option>
+          </select>
+          {layout === 'matrix' && <select value={agg} onChange={e => setAgg(e.target.value)} aria-label="Matrix value">
+            <option value="avg">Average</option><option value="min">Min</option><option value="max">Max</option><option value="sum">Sum</option>
+          </select>}
           <label>Schedule (5-field cron, empty = on demand)</label>
           <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
             {[['', 'On demand'], ['0 8 * * *', 'Daily 8:00'], ['0 8 * * 1', 'Mondays 8:00'], ['0 8 1 * *', 'Monthly 1st 8:00']].map(([c, l]) => (
@@ -134,12 +145,20 @@ export default function Reports() {
             {r.schedule_cron ? <>schedule {r.schedule_cron} - </> : 'on demand - '}
             {r.last_run_at ? `last run ${new Date(r.last_run_at).toLocaleString()}` : 'never run'}
           </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }} aria-label="Run parameters">
+            <span className="muted">Parameters for downloads:</span>
+            <input type="number" min={1} max={2160} style={{ width: 90 }} placeholder={`${r.definition.window_hours}h`} aria-label="Window hours"
+              value={pw[r.id]?.w ?? ''} onChange={e => setPw({ ...pw, [r.id]: { ...pw[r.id], w: e.target.value } })} />
+            <select aria-label="Group by override" value={pw[r.id]?.g ?? ''} onChange={e => setPw({ ...pw, [r.id]: { ...pw[r.id], g: e.target.value } })}>
+              <option value="">{r.definition.group_by}</option><option value="15min">15 minutes</option><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week</option>
+            </select>
+          </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button onClick={() => runNow(r.id)}>Run now</button>
-            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?format=csv`, `${r.name}.csv`).catch(e => setMsg(String(e)))}>CSV</button>
-            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?format=html`, `${r.name}.html`).catch(e => setMsg(String(e)))}>HTML</button>
-            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?format=pdf`, `${r.name}.pdf`).catch(e => setMsg(String(e)))}>PDF</button>
-            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?format=xlsx`, `${r.name}.xlsx`).catch(e => setMsg(String(e)))}>Excel</button>
+            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=csv`, `${r.name}.csv`).catch(e => setMsg(String(e)))}>CSV</button>
+            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=html`, `${r.name}.html`).catch(e => setMsg(String(e)))}>HTML</button>
+            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=pdf`, `${r.name}.pdf`).catch(e => setMsg(String(e)))}>PDF</button>
+            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=xlsx`, `${r.name}.xlsx`).catch(e => setMsg(String(e)))}>Excel</button>
           </div>
         </div>
       ))}
