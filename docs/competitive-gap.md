@@ -157,3 +157,4 @@ function node sandbox.
 ### 2026-10-03 later: KPI history and widgets
 - KPI history: `GET /v1/kpis/{id}/history?hours=` (1-720), hourly averages of each input from rollups plus raw, then the expression. Computed on read, nothing stored. Trend chart with 24 h / 7 d / 30 d on the KPIs page. Tested against a real DB.
 - Widgets are now 10 types: added an open-alerts list and a plain-text note (never rendered as HTML). UI only, covered by type checks; no new server logic.
+- Asset files: upload/list/download/delete per asset (`cmd/api/assetfiles.go`, migration 0045). Stored in Postgres, 5 MB and 50 files per asset, extension allowlist (pdf, png, jpg, txt, csv) with a content check, always served as an attachment with nosniff and a sandbox CSP. Operators and admins write, anyone reads, audited. Tested against a real DB. No virus scanning (none available air-gapped); the file is never rendered by the app.
