@@ -4,7 +4,7 @@ import { Graph, GNode, GEdge, isStart } from '../lib/graph';
 
 interface Frag { id: string; name: string; nodes: number; }
 
-/** Reusable flow pieces. Insert copies the nodes into this flow; later edits to a saved fragment do not change flows that already use it. */
+/** Reusable flow pieces. Insert copies the nodes into this flow. Insert as subflow adds a live reference: the server expands it when you save a draft and pins the fragment version, so editing the fragment never changes a published flow until you refresh and publish. */
 export default function FragmentBar({ g, setG }: { g: Graph; setG: (fn: (g: Graph) => Graph) => void }) {
   const [frags, setFrags] = useState<Frag[]>([]);
   const [pick, setPick] = useState('');
@@ -24,6 +24,14 @@ export default function FragmentBar({ g, setG }: { g: Graph; setG: (fn: (g: Grap
       setMsg(`Inserted. Connect an arrow into "${r.entry}" and out of the last node.`);
     } catch (e) { setMsg(String(e)); }
   };
+  const insertRef = () => {
+    setMsg('');
+    let n = 1;
+    while (g.nodes.some(x => x.id === `sf${n}` || x.id.startsWith(`sf${n}_`))) n++;
+    const maxX = Math.max(60, ...g.nodes.map(x => x.x + 170));
+    setG(cur => ({ nodes: [...cur.nodes, { id: `sf${n}`, type: 'subflow', fragment_id: pick, x: maxX, y: 40 } as GNode], edges: cur.edges }));
+    setMsg(`Added subflow "sf${n}" (latest version, pinned when you save the draft). Connect arrows into and out of it.`);
+  };
   const save = async () => {
     setMsg('');
     const starts = new Set(g.nodes.filter(isStart).map(x => x.id));
@@ -39,7 +47,8 @@ export default function FragmentBar({ g, setG }: { g: Graph; setG: (fn: (g: Grap
         <option value="">Pick one</option>
         {frags.map(f => <option key={f.id} value={f.id}>{f.name} ({f.nodes} nodes)</option>)}
       </select>
-      <button type="button" className="ghost" disabled={!pick} onClick={insert}>Insert</button>
+      <button type="button" className="ghost" disabled={!pick} onClick={insert}>Insert copy</button>
+      <button type="button" className="ghost" disabled={!pick} onClick={insertRef}>Insert as subflow</button>
       <button type="button" className="ghost" disabled={!pick} onClick={() => api(`/v1/flow-fragments/${pick}`, { method: 'DELETE' }).catch(() => {}).then(() => { setPick(''); load(); })}>Delete</button>
       <input aria-label="New fragment name" value={name} onChange={e => setName(e.target.value)} placeholder="Save this flow (minus the start node) as..." style={{ maxWidth: 300 }} maxLength={80} />
       <button type="button" className="ghost" disabled={!name.trim()} onClick={save}>Save fragment</button>

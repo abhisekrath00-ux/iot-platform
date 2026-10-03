@@ -31,6 +31,9 @@ func ValidateFragment(g Graph) (string, error) {
 		if isStart(n.Type) {
 			return "", fmt.Errorf("a fragment cannot contain a start node (%s)", n.ID)
 		}
+		if n.Type == "subflow" {
+			return "", fmt.Errorf("a fragment cannot contain a subflow (%s)", n.ID)
+		}
 		if len(n.Name) > 64 || strings.ContainsAny(n.Name, "<>\x00") {
 			return "", fmt.Errorf("node %s: bad name", n.ID)
 		}

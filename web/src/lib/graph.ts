@@ -2,7 +2,7 @@
 // The server is the authority on validity; these keep the editor from building
 // graphs it already knows will be refused.
 
-export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range' | 'rate_limit' | 'inject' | 'http' | 'control' | 'split' | 'join' | 'context';
+export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range' | 'rate_limit' | 'inject' | 'http' | 'control' | 'split' | 'join' | 'context' | 'subflow';
 
 export interface GNode {
   id: string; type: NodeType; name?: string; x: number; y: number;
@@ -12,6 +12,7 @@ export interface GNode {
   seconds?: number; channel_id?: string; message?: string; code?: string;
   template?: string; target?: string; in_min?: number; in_max?: number; out_min?: number; out_max?: number; clamp?: boolean;
   method?: string; url?: string; body?: string; extract?: string; target_id?: string; use_value?: boolean; scope?: string; key?: string;
+  fragment_id?: string; fragment_version?: number;
 }
 export interface GEdge { from: string; port: string; to: string; }
 export interface Graph { nodes: GNode[]; edges: GEdge[]; }
@@ -21,7 +22,7 @@ export const NODE_H = 52;
 
 export const LABELS: Record<NodeType, string> = {
   trigger: 'Reading', switch: 'Switch', change: 'Change', condition: 'Condition',
-  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range', rate_limit: 'Rate limit', inject: 'Timer', http: 'HTTP request', control: 'Control request', split: 'Split list', join: 'Join', context: 'Context'
+  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range', rate_limit: 'Rate limit', inject: 'Timer', http: 'HTTP request', control: 'Control request', split: 'Split list', join: 'Join', context: 'Context', subflow: 'Subflow'
 };
 
 export function portCount(n: GNode): number {

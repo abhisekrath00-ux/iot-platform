@@ -38,6 +38,10 @@ type Node struct {
 	X    float64 `json:"x,omitempty"` // editor position only
 	Y    float64 `json:"y,omitempty"`
 
+	// subflow: a live reference to a saved fragment, expanded by the server before storing (see subflow.go)
+	FragmentID      string `json:"fragment_id,omitempty"`
+	FragmentVersion int    `json:"fragment_version,omitempty"`
+
 	// trigger and condition
 	DeviceID string  `json:"device_id,omitempty"`
 	PointID  string  `json:"point_id,omitempty"`

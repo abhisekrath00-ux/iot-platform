@@ -127,6 +127,9 @@ func main() {
 		s.cache.UseShared(redisCli)
 		log.Printf("response cache: shared via redis")
 	}
+	api.HandleFunc("PUT /v1/flow-fragments/{id}", s.updateFragment)
+	api.HandleFunc("GET /v1/flow-fragments/{id}/usage", s.fragmentUsage)
+	api.HandleFunc("POST /v1/flows/{id}/refresh-subflows", s.refreshSubflows)
 	api.HandleFunc("GET /v1/customers", s.listCustomers)
 	api.HandleFunc("POST /v1/customers", s.createCustomer)
 	api.HandleFunc("DELETE /v1/customers/{id}", s.deleteCustomer)
@@ -1724,6 +1727,10 @@ func (s *server) createFlow(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" || len(name) > 128 || strings.ContainsAny(name, "<>\x00") {
 		http.Error(w, "name invalid", 400)
+		return
+	}
+	if err := s.expandDefinition(r.Context(), auth.Tenant(r), &in.Definition); err != nil {
+		http.Error(w, err.Error(), 400)
 		return
 	}
 	if err := flow.Validate(in.Definition); err != nil {

@@ -101,6 +101,10 @@ func (s *server) testFlowGraph(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", 400)
 		return
 	}
+	if err := s.expandDefinition(r.Context(), auth.Tenant(r), &in.Definition); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
 	if err := flow.Validate(in.Definition); err != nil {
 		http.Error(w, err.Error(), 400)
 		return

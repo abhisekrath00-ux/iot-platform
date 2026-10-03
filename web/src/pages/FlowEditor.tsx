@@ -93,7 +93,7 @@ export default function FlowEditor() {
     try {
       const version = f.latest_version ?? f.published_version ?? 1;
       const v = await api<{ version: number; definition: any }>(`/v1/flows/${f.id}/versions/${version}`);
-      const graph: Graph = v.definition.graph ?? (await api<{ graph: Graph }>('/v1/flows/convert', { method: 'POST', body: JSON.stringify({ definition: v.definition }) })).graph;
+      const graph: Graph = v.definition.source ?? v.definition.graph ?? (await api<{ graph: Graph }>('/v1/flows/convert', { method: 'POST', body: JSON.stringify({ definition: v.definition }) })).graph;
       const gg: Graph = { nodes: graph.nodes.map(n => ({ ...n, x: n.x ?? 40, y: n.y ?? 40 })) as GNode[], edges: graph.edges.map(e => ({ ...e, port: e.port || '0' })) };
       const t = newTab({ flowId: f.id, version: v.version, name: f.name, g: gg });
       // replace an untouched blank tab instead of stacking one next to it
@@ -300,6 +300,7 @@ function summary(n: GNode): string {
     case 'condition': return `value ${n.op} ${n.value}`;
     case 'delay': return `${n.seconds}s`;
     case 'notify': return n.message || 'notify';
+    case 'subflow': return `fragment v${n.fragment_version ?? 'latest'}`;
     case 'debug': return n.message || 'debug';
     case 'rate_limit': return `1 per ${n.seconds}s`;
     case 'template': return `vars.${n.target}`;

@@ -39,6 +39,9 @@ type Definition struct {
 	Latch bool `json:"latch,omitempty"`
 	// Graph, when set, replaces Trigger and Steps (node-graph flows).
 	Graph *Graph `json:"graph,omitempty"`
+	// Source is the editable graph with subflow reference nodes. Graph then holds its expansion, which is
+	// what runs. Both are set by the server; the engine only reads Graph.
+	Source *Graph `json:"source,omitempty"`
 }
 
 // Trig returns the effective trigger: the graph's trigger node, or the legacy one.
