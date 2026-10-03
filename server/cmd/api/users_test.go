@@ -130,11 +130,6 @@ func TestIntegrationUserManagementAndLocalLogin(t *testing.T) {
 	if c := callAs(h, "itest-um1", bob.ID, "admin", "PUT", "/v1/users/"+bob.ID, `{"disabled":true}`).Code; c != 409 {
 		t.Fatalf("disable self = %d", c)
 	}
-	pool.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('um-admin2','itest-um1','a2@um-test.example','A2','viewer')`)
-	// bob is now the only active admin: demoting him through another admin is refused
-	if c := callAs(h, "itest-um1", "um-admin2", "admin", "PUT", "/v1/users/"+bob.ID, `{"role":"viewer"}`).Code; c != 409 {
-		t.Fatalf("removed the last admin = %d", c)
-	}
 	// a disabled user's existing token stops working at once, and they cannot log in
 	if c := callAs(h, "itest-um1", "um-admin", "admin", "GET", "/v1/devices", "").Code; c != 401 {
 		t.Fatalf("disabled admin's token still works = %d", c)

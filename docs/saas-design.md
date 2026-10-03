@@ -14,7 +14,7 @@ Status: first slice built and tested against a real Postgres. Not remote-CI veri
 | Tenant provisioning | `go run ./cmd/tenantctl create --id --name --admin-email [--password-stdin]`, `list`. One transaction, first admin created. |
 | User management | `GET/POST /v1/users`, `PUT /v1/users/{id}` (role, name, disabled), `PUT /v1/users/{id}/password`. Admin session only: API keys and the assistant are refused. All audited. |
 | Guards | One active admin always remains (row-locked check, so two concurrent changes cannot remove the last one). You cannot change or disable your own account. Cross-tenant ids answer 404. |
-| Disable | A disabled user's existing token stops working on the next request (checked per request), and they cannot sign in. |
+| Disable and revoke | A disabled user's existing token stops working on the next request, and they cannot sign in. The database role is authoritative on every session request, so a demotion applies to tokens already issued. A password change or admin reset revokes every session issued before it (`tokens_valid_after`). API keys and the assistant carry their own role and lifecycle and are unaffected. |
 | Local sign-in | `POST /auth/login`, **only when `LOCAL_LOGIN=1`** (default off, so IdP deployments keep passwords out of the platform). PBKDF2-HMAC-SHA256 600k iterations from the standard library, per-user salt, 12 to 128 character passwords. Per-IP rate limit, per-account lockout (5 failures, 15 minutes), generic error for unknown email, disabled and wrong password, dummy hash for unknown emails, login success and failure audited. |
 | Password change | `POST /v1/me/password` (needs the current password; works for customer-scoped users too), admin reset clears lockout. |
 | UI | Sign-in page (password and SSO link), Users page, sign out, automatic return to sign-in when a session is rejected. |
@@ -35,7 +35,7 @@ Credential stuffing (rate limit, lockout, generic errors, timing), password stor
 - Custom roles or per-permission RBAC, groups, per-customer roles.
 - Self-service sign-up, email invitations, email verification, password reset by email (an admin sets passwords).
 - MFA at sign-in (SSO providers own MFA; TOTP exists only for approving control commands).
-- Token revocation on password change or role change (tokens last 12 hours; a role change applies to new tokens, a disabled user is cut off immediately).
+- Session list and per-device sign-out (revocation is all-sessions-before-a-time only). Tokens are not refreshed: they expire after 12 hours.
 - Per-tenant quotas, billing, usage metering, per-tenant data export or deletion, tenant suspension.
 - One tenant per email address; a person in two workspaces needs two addresses.
 - Account lockout is per account, so an attacker can lock a known account out (denial of service); the admin reset clears it.

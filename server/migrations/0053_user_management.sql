@@ -11,3 +11,5 @@ DO $$ BEGIN
 EXCEPTION WHEN unique_violation THEN
   RAISE NOTICE 'users_email_lower not created: duplicate emails differing only by case exist';
 END $$;
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after timestamptz;

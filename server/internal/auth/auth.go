@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -18,6 +19,7 @@ const (
 	CtxTenant ctxKey = "tenant"
 	CtxUser   ctxKey = "user"
 	CtxRole   ctxKey = "role"
+	CtxIssued ctxKey = "issued_at"
 )
 
 type Claims struct {
@@ -95,9 +97,23 @@ func Middleware(secret []byte, resolvers ...KeyResolver) func(http.Handler) http
 			ctx := context.WithValue(r.Context(), CtxTenant, c.TenantID)
 			ctx = context.WithValue(ctx, CtxUser, c.Subject)
 			ctx = context.WithValue(ctx, CtxRole, c.Role)
+			if c.IssuedAt != nil {
+				ctx = context.WithValue(ctx, CtxIssued, c.IssuedAt.Time)
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// WithRole replaces the role on a request context (the live role from the database).
+func WithRole(r *http.Request, role string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), CtxRole, role))
+}
+
+// IssuedAt is when the session token was issued; ok=false for API keys and tokens without iat.
+func IssuedAt(r *http.Request) (time.Time, bool) {
+	v, ok := r.Context().Value(CtxIssued).(time.Time)
+	return v, ok
 }
 
 func Tenant(r *http.Request) string { v, _ := r.Context().Value(CtxTenant).(string); return v }

@@ -229,7 +229,7 @@ func (s *server) resetUserPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "hash", 500)
 		return
 	}
-	s.st.Pool.Exec(r.Context(), `UPDATE users SET password_hash=$3, failed_logins=0, locked_until=NULL WHERE id=$1 AND tenant_id=$2`, id, t, h)
+	s.st.Pool.Exec(r.Context(), `UPDATE users SET password_hash=$3, failed_logins=0, locked_until=NULL, tokens_valid_after=now() WHERE id=$1 AND tenant_id=$2`, id, t, h)
 	s.audit(r, "user.password_reset", id, nil)
 	w.WriteHeader(204)
 }
@@ -259,7 +259,7 @@ func (s *server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h, _ := auth.HashPassword(in.New)
-	s.st.Pool.Exec(r.Context(), `UPDATE users SET password_hash=$3 WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r), h)
+	s.st.Pool.Exec(r.Context(), `UPDATE users SET password_hash=$3, tokens_valid_after=now() WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r), h)
 	s.audit(r, "user.password_change", auth.User(r), nil)
 	w.WriteHeader(204)
 }
@@ -328,15 +328,29 @@ func (s *server) localLogin(w http.ResponseWriter, r *http.Request) {
 // row (API-key owners are users; system principals are not) pass unchanged.
 func (s *server) activeUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.ViaKey(r) { // API keys and the assistant carry their own role and lifecycle
+			next.ServeHTTP(w, r)
+			return
+		}
 		var off bool
-		err := s.st.Pool.QueryRow(r.Context(), `SELECT disabled_at IS NOT NULL FROM users WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r)).Scan(&off)
+		var role string
+		var validAfter *time.Time
+		err := s.st.Pool.QueryRow(r.Context(), `SELECT disabled_at IS NOT NULL, role, tokens_valid_after FROM users WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r)).Scan(&off, &role, &validAfter)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if err == nil && off {
-			http.Error(w, "account disabled", http.StatusUnauthorized)
-			return
+		if err == nil {
+			if off {
+				http.Error(w, "account disabled", http.StatusUnauthorized)
+				return
+			}
+			if iat, ok := auth.IssuedAt(r); ok && validAfter != nil && iat.Before(validAfter.Truncate(time.Second)) {
+				http.Error(w, "session revoked", http.StatusUnauthorized)
+				return
+			}
+			// The database role is authoritative: a demotion applies to tokens already issued.
+			r = auth.WithRole(r, role)
 		}
 		next.ServeHTTP(w, r)
 	})

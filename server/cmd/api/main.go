@@ -1179,7 +1179,7 @@ func (s *server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
 		TenantID: tenantID, Role: role,
-		RegisteredClaims: jwt.RegisteredClaims{Subject: userID, ExpiresAt: jwt.NewNumericDate(time.Now().Add(12 * time.Hour))},
+		RegisteredClaims: jwt.RegisteredClaims{Subject: userID, IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(time.Now().Add(12 * time.Hour))},
 	})
 	signed, err := tok.SignedString(s.secret)
 	if err != nil {
