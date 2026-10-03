@@ -75,7 +75,7 @@ export default function Settings() {
       <DirectDevices />
       <FeatureToggles />
       <AISettings />
-      <AssistantChannels admin={isAdmin} />
+      <AssistantChannels />
       <EdgeRules />
       <ApiKeys />
       <div className="cards">

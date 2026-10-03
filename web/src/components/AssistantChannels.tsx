@@ -6,7 +6,7 @@ interface Link { id: string; user_id: string; kind: string; address: string; sta
 
 // Message the assistant from Slack (direct messages) or email. Each person links their own Slack
 // member id or mailbox with a one-time code. Admins switch the channels on and set the secrets.
-export default function AssistantChannels({ admin }: { admin: boolean }) {
+export default function AssistantChannels() {
   const [cs, setCs] = useState<CS | null>(null);
   const [links, setLinks] = useState<Link[]>([]);
   const [slackOn, setSlackOn] = useState(false);
@@ -17,8 +17,9 @@ export default function AssistantChannels({ admin }: { admin: boolean }) {
   const [addr, setAddr] = useState('');
   const [msg, setMsg] = useState('');
   const loadLinks = () => api<Link[]>('/v1/assistant/links').then(setLinks).catch(() => undefined);
-  const loadCs = () => { if (admin) api<CS>('/v1/assistant/channel-settings').then(r => { setCs(r); setSlackOn(r.slack_enabled); setEmailOn(r.email_enabled); }).catch(() => undefined); };
-  useEffect(() => { loadLinks(); loadCs(); }, [admin]);
+  const loadCs = () => { api<CS>('/v1/assistant/channel-settings').then(r => { setCs(r); setSlackOn(r.slack_enabled); setEmailOn(r.email_enabled); }).catch(() => undefined); };
+  const admin = cs !== null; // only admins can read the channel settings
+  useEffect(() => { loadLinks(); loadCs(); }, []);
   async function saveCs() {
     setMsg('');
     try {

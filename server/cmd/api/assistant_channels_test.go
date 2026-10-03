@@ -72,6 +72,7 @@ func TestIntegrationAssistantChannels(t *testing.T) {
 			`DELETE FROM secrets WHERE tenant_id IN ('itest-ch','itest-ch2')`,
 			`DELETE FROM commands WHERE tenant_id='itest-ch'`,
 			`DELETE FROM alerts WHERE tenant_id='itest-ch'`,
+			`DELETE FROM audit_log WHERE tenant_id='itest-ch'`,
 		} {
 			pool.Exec(ctx, q)
 		}
