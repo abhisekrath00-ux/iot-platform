@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"image"
+	"image/color"
 	"io"
 	"math"
 	"strconv"
@@ -308,5 +310,31 @@ func TestApplyParamsDevice(t *testing.T) {
 	comp := Definition{Metrics: []Metric{{"d1", "a"}, {"d1", "b"}}, WindowHours: 24, GroupBy: "hour", Layout: "matrix", Computed: []Computed{{Name: "r", Expr: "{d1.a} / {d1.b}"}}}
 	if _, err := ApplyParams(comp, q(map[string]string{"device": "d2"})); err == nil {
 		t.Fatal("computed columns with device swap accepted")
+	}
+}
+
+func TestRenderPDFLogoEmbedsImage(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 300, 100))
+	for x := 0; x < 300; x++ {
+		for y := 0; y < 100; y++ {
+			img.Set(x, y, color.NRGBA{R: 200, G: 30, B: 30, A: uint8(x % 256)})
+		}
+	}
+	d := Definition{Metrics: []Metric{{DeviceID: "d", PointID: "p"}}}
+	series := map[Metric][]Bucket{d.Metrics[0]: {{Start: time.Unix(0, 0), Count: 1, Avg: 1, Min: 1, Max: 1}}}
+	with := RenderPDFLogo("t", d, series, time.Unix(0, 0), img)
+	without := RenderPDF("t", d, series, time.Unix(0, 0))
+	if !bytes.Contains(with, []byte("/Subtype /Image")) || !bytes.Contains(with, []byte("/Im1 Do")) {
+		t.Fatal("logo not embedded")
+	}
+	if bytes.Contains(without, []byte("/Image")) {
+		t.Fatal("logo-less PDF mentions an image")
+	}
+	if !bytes.HasSuffix(bytes.TrimSpace(with), []byte("%%EOF")) {
+		t.Fatal("PDF not terminated")
+	}
+	// 300 px wide is sampled down to 150 (step 2) and the 3:1 aspect is kept in the drawn size.
+	if w, h := logoSize(img); w > 90.01 || h > 28.01 || w/h < 2.9 || w/h > 3.1 {
+		t.Fatalf("drawn size %.1f x %.1f", w, h)
 	}
 }

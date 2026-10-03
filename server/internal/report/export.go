@@ -3,8 +3,10 @@ package report
 import (
 	"archive/zip"
 	"bytes"
+	"compress/zlib"
 	"encoding/xml"
 	"fmt"
+	"image"
 	"math"
 	"strings"
 	"time"
@@ -125,6 +127,12 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 // a repeating column header, and "Page n of m" on every page. Text is limited
 // to printable ASCII; other characters become '?'.
 func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated time.Time) []byte {
+	return RenderPDFLogo(title, d, series, generated, nil)
+}
+
+// RenderPDFLogo is RenderPDF with an optional logo (decoded PNG or JPEG) drawn top right on
+// the first page. The logo is embedded as a Flate-compressed RGB image, composited over white.
+func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, generated time.Time, logo image.Image) []byte {
 	const perPage = 52
 	type line struct {
 		text  string
@@ -331,8 +339,22 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 		if d.Footer != "" {
 			fmt.Fprintf(&c, "BT /F1 8 Tf 140 24 Td (%s) Tj ET\n", esc(d.Footer))
 		}
-		obj(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents %d 0 R >>", 6+i*2))
+		xo := ""
+		if i == 0 && logo != nil {
+			w, h := logoSize(logo)
+			fmt.Fprintf(&c, "q %.1f 0 0 %.1f %.1f 810 cm /Im1 Do Q\n", w, h, 555-w)
+			xo = fmt.Sprintf(" /XObject << /Im1 %d 0 R >>", 5+2*len(pages))
+		}
+		obj(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>%s >> /Contents %d 0 R >>", xo, 6+i*2))
 		obj(fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", c.Len(), c.String()))
+	}
+	if logo != nil {
+		pix, pw, ph := logoRGB(logo)
+		var z bytes.Buffer
+		zw := zlib.NewWriter(&z)
+		zw.Write(pix)
+		zw.Close()
+		obj(fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream", pw, ph, z.Len(), z.String()))
 	}
 	xref := out.Len()
 	fmt.Fprintf(&out, "xref\n0 %d\n0000000000 65535 f \n", len(offs)+1)
@@ -410,4 +432,37 @@ func chartOps(c *strings.Builder, rows []Bucket, title string, y int, esc func(s
 	series(func(b Bucket) float64 { return b.Min }, "0.75 G", 0.5)
 	series(func(b Bucket) float64 { return b.Avg }, "0 G", 1.2)
 	c.WriteString("0 G 1 w\n")
+}
+
+// logoSize returns the drawn size in points: at most 90 wide and 28 high, aspect kept.
+func logoSize(img image.Image) (float64, float64) {
+	b := img.Bounds()
+	w, h := float64(b.Dx()), float64(b.Dy())
+	if w <= 0 || h <= 0 {
+		return 1, 1
+	}
+	k := math.Min(90/w, 28/h)
+	return w * k, h * k
+}
+
+// logoRGB samples the image down to at most 240 pixels wide (nearest neighbour) and
+// composites transparency over white.
+func logoRGB(img image.Image) ([]byte, int, int) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	step := 1
+	for w/step > 240 {
+		step++
+	}
+	ow, oh := (w+step-1)/step, (h+step-1)/step
+	out := make([]byte, 0, ow*oh*3)
+	for y := 0; y < oh; y++ {
+		for x := 0; x < ow; x++ {
+			r, g, bl, a := img.At(b.Min.X+x*step, b.Min.Y+y*step).RGBA()
+			// premultiplied 16-bit values: add white for the missing coverage
+			r, g, bl = r+(0xffff-a), g+(0xffff-a), bl+(0xffff-a)
+			out = append(out, byte(r>>8), byte(g>>8), byte(bl>>8))
+		}
+	}
+	return out, ow, oh
 }

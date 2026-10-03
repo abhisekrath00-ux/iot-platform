@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -62,4 +63,17 @@ func (s *server) deleteBrandingLogo(w http.ResponseWriter, r *http.Request) {
 	s.st.Pool.Exec(r.Context(), `UPDATE tenant_branding SET logo=NULL, logo_type=NULL, updated_by=$2, updated_at=now() WHERE tenant_id=$1`, auth.Tenant(r), auth.User(r))
 	s.audit(r, "branding.logo.remove", auth.Tenant(r), nil)
 	w.WriteHeader(204)
+}
+
+// tenantLogoImage returns the tenant's decoded logo, or nil when there is none or it cannot be decoded.
+func (s *server) tenantLogoImage(ctx context.Context, tenant string) image.Image {
+	var b []byte
+	if s.st.Pool.QueryRow(ctx, `SELECT logo FROM tenant_branding WHERE tenant_id=$1`, tenant).Scan(&b) != nil || len(b) == 0 {
+		return nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil
+	}
+	return img
 }

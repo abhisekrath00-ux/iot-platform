@@ -38,6 +38,9 @@ func TestIntegrationBrandingLogo(t *testing.T) {
 	if w := call(api, "itest-bl", "admin", "PUT", "/v1/branding/logo", pngBytes(64, 64)); w.Code != 200 {
 		t.Fatalf("upload %d %s", w.Code, w.Body.String())
 	}
+	if s.tenantLogoImage(ctx, "itest-bl") == nil || s.tenantLogoImage(ctx, "itest-bl2") != nil {
+		t.Fatal("tenantLogoImage must return the tenant's own logo only")
+	}
 	for name, body := range map[string]string{
 		"svg":       `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>`,
 		"html":      "<script>alert(1)</script>",
