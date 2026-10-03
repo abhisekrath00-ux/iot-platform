@@ -20,7 +20,8 @@ export default function Reports() {
   const [header, setHeader] = useState('');
   const [footer, setFooter] = useState('');
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
-  const [pw, setPw] = useState<Record<string, { w?: string; g?: string }>>({});
+  const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
+  const [pw, setPw] = useState<Record<string, { w?: string; g?: string; d?: string }>>({});
   const [cron, setCron] = useState('');
   const [channelId, setChannelId] = useState('');
   const [msg, setMsg] = useState('');
@@ -32,6 +33,7 @@ export default function Reports() {
     api<ReportRow[]>('/v1/reports').then(setReports).catch(e => setMsg(String(e)));
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
     api<PointRow[]>('/v1/points').then(setPoints).catch(() => {});
+    api<{ id: string; name: string }[]>('/v1/devices').then(setDevices).catch(() => {});
   };
   useEffect(load, []);
 
@@ -74,7 +76,8 @@ export default function Reports() {
     catch (e2) { setMsg(String(e2)); }
   }
 
-  const qs = (id: string) => `${pw[id]?.w ? `window_hours=${encodeURIComponent(pw[id].w!)}&` : ''}${pw[id]?.g ? `group_by=${pw[id].g}&` : ''}`;
+  const singleDevice = (d: ReportDef) => !(d.computed?.length) && d.metrics.length > 0 && d.metrics.every(m => m.device_id === d.metrics[0].device_id);
+  const qs = (id: string) => `${pw[id]?.w ? `window_hours=${encodeURIComponent(pw[id].w!)}&` : ''}${pw[id]?.g ? `group_by=${pw[id].g}&` : ''}${pw[id]?.d ? `device=${encodeURIComponent(pw[id].d!)}&` : ''}`;
   return (
     <>
       <h1>Reports</h1>
@@ -113,8 +116,8 @@ export default function Reports() {
           </select>
           <label>Page header and footer (optional, up to 80 characters each; printed on every PDF page)</label>
           <div style={{ display: 'flex', gap: 6 }}>
-            <input maxLength={80} placeholder="Header, e.g. Plant A - confidential" aria-label="Report header" value={header} onChange={e => setHeader(e.target.value)} />
-            <input maxLength={80} placeholder="Footer, e.g. Prepared by Operations" aria-label="Report footer" value={footer} onChange={e => setFooter(e.target.value)} />
+            <input maxLength={80} placeholder="Header text" aria-label="Report header" value={header} onChange={e => setHeader(e.target.value)} />
+            <input maxLength={80} placeholder="Footer text" aria-label="Report footer" value={footer} onChange={e => setFooter(e.target.value)} />
           </div>
           <label>Layout</label>
           <select value={layout} onChange={e => setLayout(e.target.value)}>
@@ -172,9 +175,13 @@ export default function Reports() {
             <span className="muted">Parameters for downloads:</span>
             <input type="number" min={1} max={2160} style={{ width: 90 }} placeholder={`${r.definition.window_hours}h`} aria-label="Window hours"
               value={pw[r.id]?.w ?? ''} onChange={e => setPw({ ...pw, [r.id]: { ...pw[r.id], w: e.target.value } })} />
-            <select aria-label="Group by override" value={pw[r.id]?.g ?? ''} onChange={e => setPw({ ...pw, [r.id]: { ...pw[r.id], g: e.target.value } })}>
+            <select style={{ width: 150 }} aria-label="Group by override" value={pw[r.id]?.g ?? ''} onChange={e => setPw({ ...pw, [r.id]: { ...pw[r.id], g: e.target.value } })}>
               <option value="">{r.definition.group_by}</option><option value="15min">15 minutes</option><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week</option>
             </select>
+            {singleDevice(r.definition) && <select style={{ width: 190 }} aria-label="Device override" value={pw[r.id]?.d ?? ''} onChange={e => setPw({ ...pw, [r.id]: { ...pw[r.id], d: e.target.value } })}>
+              <option value="">{r.definition.metrics[0].device_id}</option>
+              {devices.filter(d => d.id !== r.definition.metrics[0].device_id).map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
+            </select>}
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button onClick={() => runNow(r.id)}>Run now</button>

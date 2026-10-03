@@ -440,9 +440,29 @@ func Matrix(d Definition, series map[Metric][]Bucket) (header []string, rows [][
 }
 
 // ApplyParams overrides a stored definition at run time from query values
-// (window_hours, group_by, layout, agg). These are the report's parameters:
+// (window_hours, group_by, layout, agg, device). These are the report's parameters:
 // the stored definition stays unchanged and the result is validated again.
 func ApplyParams(d Definition, get func(string) string) (Definition, error) {
+	if v := get("device"); v != "" {
+		// Run the same report for another device: only when every metric is on one device
+		// (so the swap is unambiguous) and there are no computed columns, which name devices.
+		if !validID(v) {
+			return d, ErrBadID
+		}
+		if len(d.Computed) > 0 {
+			return d, errors.New("the device parameter cannot be used with computed columns")
+		}
+		for _, m := range d.Metrics {
+			if m.DeviceID != d.Metrics[0].DeviceID {
+				return d, errors.New("the device parameter needs a report whose metrics are all on one device")
+			}
+		}
+		ms := make([]Metric, len(d.Metrics))
+		for i, m := range d.Metrics {
+			ms[i] = Metric{DeviceID: v, PointID: m.PointID}
+		}
+		d.Metrics = ms
+	}
 	if v := get("window_hours"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {

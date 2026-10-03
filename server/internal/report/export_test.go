@@ -287,3 +287,26 @@ func TestHeaderFooterOnEveryPDFPageAndHTML(t *testing.T) {
 		t.Fatal("matrix HTML lost the footer")
 	}
 }
+
+func TestApplyParamsDevice(t *testing.T) {
+	d := Definition{Metrics: []Metric{{"d1", "kw"}, {"d1", "kvar"}}, WindowHours: 24, GroupBy: "hour"}
+	q := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	got, err := ApplyParams(d, q(map[string]string{"device": "d2"}))
+	if err != nil || got.Metrics[0] != (Metric{"d2", "kw"}) || got.Metrics[1] != (Metric{"d2", "kvar"}) {
+		t.Fatalf("%+v %v", got.Metrics, err)
+	}
+	if d.Metrics[0].DeviceID != "d1" {
+		t.Fatal("stored definition mutated")
+	}
+	if _, err := ApplyParams(d, q(map[string]string{"device": "Bad Id;"})); err == nil {
+		t.Fatal("bad device id accepted")
+	}
+	two := Definition{Metrics: []Metric{{"d1", "kw"}, {"d3", "kw"}}, WindowHours: 24, GroupBy: "hour"}
+	if _, err := ApplyParams(two, q(map[string]string{"device": "d2"})); err == nil {
+		t.Fatal("ambiguous swap accepted")
+	}
+	comp := Definition{Metrics: []Metric{{"d1", "a"}, {"d1", "b"}}, WindowHours: 24, GroupBy: "hour", Layout: "matrix", Computed: []Computed{{Name: "r", Expr: "{d1.a} / {d1.b}"}}}
+	if _, err := ApplyParams(comp, q(map[string]string{"device": "d2"})); err == nil {
+		t.Fatal("computed columns with device swap accepted")
+	}
+}

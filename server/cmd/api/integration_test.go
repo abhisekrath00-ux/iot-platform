@@ -190,6 +190,15 @@ func TestIntegrationReportPreviewAndDownload(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"itest-d-dev / temp"`) {
 		t.Fatalf("matrix csv %d %s", w.Code, w.Body.String())
 	}
+	if w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv&device=itest-d-dev", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "itest-d-dev,temp,") {
+		t.Fatalf("device param (same device) %d %s", w.Code, w.Body.String())
+	}
+	if w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv&device=other-dev", ""); w.Code != 200 || strings.Contains(w.Body.String(), "itest-d-dev,temp,") {
+		t.Fatalf("device param must swap the device: %d %s", w.Code, w.Body.String())
+	}
+	if w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv&device=Bad%20Id", ""); w.Code != 400 {
+		t.Fatalf("bad device = %d, want 400", w.Code)
+	}
 	if w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=csv&group_by=year", ""); w.Code != 400 {
 		t.Fatalf("bad parameter = %d, want 400", w.Code)
 	}
