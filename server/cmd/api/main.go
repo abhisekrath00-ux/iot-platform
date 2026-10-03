@@ -166,6 +166,9 @@ func main() {
 	api.HandleFunc("GET /v1/api-keys", s.listAPIKeys)
 	api.HandleFunc("POST /v1/api-keys", s.createAPIKey)
 	api.HandleFunc("DELETE /v1/api-keys/{id}", s.revokeAPIKey)
+	api.HandleFunc("GET /v1/maintenance", s.listMaintenance)
+	api.HandleFunc("POST /v1/maintenance", s.createMaintenance)
+	api.HandleFunc("POST /v1/maintenance/{id}/end", s.endMaintenance)
 	api.HandleFunc("GET /v1/alerts", s.listAlerts)
 	api.HandleFunc("GET /v1/alerts/{id}", s.getAlert)
 	api.HandleFunc("POST /v1/alerts/{id}/assign", s.assignAlert)
@@ -299,6 +302,7 @@ func main() {
 				return
 			case <-t.C:
 				rules.EvaluateKPIs(c, st.Pool, fn)
+				rules.ReleaseShelved(c, st.Pool, fn)
 				rules.EvaluateEscalations(c, st.Pool, fn)
 				if tick++; tick%15 == 0 {
 					rules.EvaluateForecasts(c, st.Pool, fn)
@@ -719,7 +723,7 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($3,'')
 		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
 		 )
-		 SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by, assigned_to FROM alerts
+		 SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by, assigned_to, shelved FROM alerts
 		 WHERE tenant_id=$1 AND ($2 = '' OR status=$2)
 		   AND ($4='' OR ($4='none' AND assigned_to IS NULL) OR assigned_to=$4)
 		   AND ($3='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub)))
@@ -734,9 +738,10 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		var id, sev, msg, stt string
 		var created time.Time
 		var ackBy, resBy, asg *string
-		rows.Scan(&id, &sev, &msg, &stt, &created, &ackBy, &resBy, &asg)
+		var shelved bool
+		rows.Scan(&id, &sev, &msg, &stt, &created, &ackBy, &resBy, &asg, &shelved)
 		out = append(out, map[string]any{"id": id, "severity": sev, "message": msg, "status": stt, "created_at": created,
-			"acknowledged_by": ackBy, "resolved_by": resBy, "assigned_to": asg})
+			"acknowledged_by": ackBy, "resolved_by": resBy, "assigned_to": asg, "shelved": shelved})
 	}
 	writeJSON(w, 200, out)
 }

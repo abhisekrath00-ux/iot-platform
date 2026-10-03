@@ -221,11 +221,15 @@ func fire(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, ruleID 
 		msg = fmt.Sprintf("%s/%s %s %v (value %.3g)", deviceID, pointID, d.Op, d.Threshold, value)
 	}
 	alertID := uuid.NewString()
+	shelved := Shelvable(d.Severity) && InMaintenance(ctx, pool, tenantID, deviceID)
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO alerts(id,tenant_id,rule_id,severity,message,device_id) VALUES($1,$2,$3,$4,$5,$6)`,
-		alertID, tenantID, ruleID, d.Severity, msg, deviceID); err != nil {
+		`INSERT INTO alerts(id,tenant_id,rule_id,severity,message,device_id,shelved) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+		alertID, tenantID, ruleID, d.Severity, msg, deviceID, shelved); err != nil {
 		log.Printf("rules: insert alert: %v", err)
 		return
+	}
+	if shelved {
+		return // recorded and visible, not notified; ReleaseShelved speaks up if it outlasts the window
 	}
 	dispatch(ctx, pool, n, tenantID, d.Severity, msg)
 }

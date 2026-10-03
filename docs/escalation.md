@@ -26,3 +26,17 @@ If an alert stays open and unacknowledged, more channels are notified after set 
 Not built: on-call schedules and rotations, SMS or Teams. Tested with unit tests
 for ordering and validation and an integration test against Postgres with a fake notifier (order, no repeat, ack stops it,
 admin only, other tenant's channel refused). Not tested against real SMTP or Slack.
+
+## Maintenance windows
+
+`POST /v1/maintenance` (admin, operator) starts a window on one device or one asset (it covers the devices under
+that asset, including sub-assets) for up to 7 days; `POST /v1/maintenance/{id}/end` ends it early; `GET /v1/maintenance`
+lists recent ones. Every change is audited.
+
+- While a window covers a device, new warning and info alerts from rules are recorded with `shelved: true` and no
+  notification is sent. They stay visible on the Alerts page with a "shelved" mark.
+- Critical alerts are never shelved. A planned job does not get to silence a critical alarm.
+- Shelved alerts are skipped by escalation. When no window covers the device any more and the alert is still open,
+  one "still active after maintenance" notice goes out, the flag clears, and escalation applies from then on.
+- Not covered: alerts raised by flows, and edge-local rules (the edge does not know about server windows).
+  Tested with integration tests only; no real email or Slack.

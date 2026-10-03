@@ -51,6 +51,9 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("GET /v1/alerts", s.listAlerts)
 	mux.HandleFunc("GET /v1/alerts/{id}", s.getAlert)
 	mux.HandleFunc("POST /v1/alerts/{id}/assign", s.assignAlert)
+	mux.HandleFunc("GET /v1/maintenance", s.listMaintenance)
+	mux.HandleFunc("POST /v1/maintenance", s.createMaintenance)
+	mux.HandleFunc("POST /v1/maintenance/{id}/end", s.endMaintenance)
 	mux.HandleFunc("GET /v1/alerts/{id}/root-cause", s.alertRootCause)
 	mux.HandleFunc("GET /v1/assignees", s.listAssignees)
 	mux.HandleFunc("GET /v1/escalation", s.getEscalation)
@@ -755,5 +758,84 @@ func TestIntegrationAlertRootCause(t *testing.T) {
 	w := call(h, "itest-rc", "viewer", "GET", "/v1/alerts/itest-rc-a1/root-cause?point_id=temp", "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"enough_data":false`) || !strings.Contains(w.Body.String(), `"hints":[]`) {
 		t.Fatalf("no data: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestIntegrationMaintenanceWindow(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-mw")
+	ctx := context.Background()
+	exec := func(q string, a ...any) {
+		t.Helper()
+		if _, err := s.st.Pool.Exec(ctx, q, a...); err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+	}
+	exec(`DELETE FROM maintenance_windows WHERE tenant_id='itest-mw'`)
+	exec(`DELETE FROM alerts WHERE tenant_id='itest-mw'`)
+	exec(`DELETE FROM rules WHERE tenant_id='itest-mw'`)
+	exec(`DELETE FROM notification_channels WHERE tenant_id='itest-mw'`)
+	exec(`INSERT INTO notification_channels(id,tenant_id,type,target) VALUES('itest-mw-ch','itest-mw','email','boss@example.com')`)
+	exec(`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('itest-mw-u','itest-mw','itest-mw-u@example.test','U','admin') ON CONFLICT DO NOTHING`)
+	exec(`INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES
+	  ('itest-mw-warn','itest-mw','w','{"op":">","point_id":"temp","threshold":1,"severity":"warning","device_id":"itest-mw-dev"}',true,'itest-mw-u'),
+	  ('itest-mw-crit','itest-mw','c','{"op":">","point_id":"temp","threshold":1,"severity":"critical","device_id":"itest-mw-dev"}',true,'itest-mw-u')`)
+
+	win := `{"name":"Pump service","device_id":"itest-mw-dev","ends_at":"` + time.Now().Add(2*time.Hour).UTC().Format(time.RFC3339) + `"}`
+	if w := call(h, "itest-mw", "viewer", "POST", "/v1/maintenance", win); w.Code != 403 {
+		t.Fatalf("viewer: %d", w.Code)
+	}
+	if w := call(h, "itest-mw", "operator", "POST", "/v1/maintenance", `{"name":"x","device_id":"itest-mw-dev","asset_id":"a","ends_at":"2099-01-01T00:00:00Z"}`); w.Code != 400 {
+		t.Fatalf("both targets: %d", w.Code)
+	}
+	if w := call(h, "itest-mw", "operator", "POST", "/v1/maintenance", `{"name":"x","device_id":"itest-mw-dev","ends_at":"`+time.Now().Add(9*24*time.Hour).UTC().Format(time.RFC3339)+`"}`); w.Code != 400 {
+		t.Fatalf("over 7 days: %d", w.Code)
+	}
+	if w := call(h, "itest-mw", "operator", "POST", "/v1/maintenance", `{"name":"x","device_id":"someone-elses","ends_at":"`+time.Now().Add(time.Hour).UTC().Format(time.RFC3339)+`"}`); w.Code != 400 {
+		t.Fatalf("unknown device: %d", w.Code)
+	}
+	w := call(h, "itest-mw", "operator", "POST", "/v1/maintenance", win)
+	if w.Code != 201 {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	var created struct{ ID string }
+	json.Unmarshal(w.Body.Bytes(), &created)
+
+	fn := &fakeNotifier{}
+	rules.Evaluate(ctx, s.st.Pool, fn, "itest-mw", "itest-mw-dev", "temp", 50)
+	var warnShelved, critShelved bool
+	s.st.Pool.QueryRow(ctx, `SELECT shelved FROM alerts WHERE rule_id='itest-mw-warn'`).Scan(&warnShelved)
+	s.st.Pool.QueryRow(ctx, `SELECT shelved FROM alerts WHERE rule_id='itest-mw-crit'`).Scan(&critShelved)
+	if !warnShelved || critShelved {
+		t.Fatalf("warning must be shelved, critical never: warn=%v crit=%v", warnShelved, critShelved)
+	}
+	if len(fn.emails) != 1 || strings.Contains(fn.emails[0], "still active") {
+		t.Fatalf("only the critical alert may notify during the window: %v", fn.emails)
+	}
+	if w := call(h, "itest-mw", "viewer", "GET", "/v1/alerts", ""); !strings.Contains(w.Body.String(), `"shelved":true`) {
+		t.Fatalf("shelved alert must stay visible and marked: %s", w.Body.String())
+	}
+	// still inside the window: nothing is released
+	rules.ReleaseShelved(ctx, s.st.Pool, fn)
+	if len(fn.emails) != 1 {
+		t.Fatalf("released too early: %v", fn.emails)
+	}
+	if w := call(h, "itest-mw", "operator", "POST", "/v1/maintenance/"+created.ID+"/end", ""); w.Code != 200 {
+		t.Fatalf("end: %d", w.Code)
+	}
+	if w := call(h, "itest-mw", "operator", "POST", "/v1/maintenance/"+created.ID+"/end", ""); w.Code != 404 {
+		t.Fatalf("ending twice: %d", w.Code)
+	}
+	rules.ReleaseShelved(ctx, s.st.Pool, fn)
+	rules.ReleaseShelved(ctx, s.st.Pool, fn) // second run must not notify again
+	if len(fn.emails) != 2 || !strings.Contains(fn.emails[1], "still active after maintenance") {
+		t.Fatalf("expected exactly one release notice: %v", fn.emails)
+	}
+	s.st.Pool.QueryRow(ctx, `SELECT shelved FROM alerts WHERE rule_id='itest-mw-warn'`).Scan(&warnShelved)
+	if warnShelved {
+		t.Fatal("shelved flag must clear on release")
+	}
+	if w := call(h, "itest-other-mw", "operator", "POST", "/v1/maintenance/"+created.ID+"/end", ""); w.Code != 404 {
+		t.Fatalf("other tenant: %d", w.Code)
 	}
 }

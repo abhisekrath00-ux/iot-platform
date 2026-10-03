@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, AlertRow, AlertDetail } from '../lib/api';
 import Empty from '../components/Empty';
 import RootCause from '../components/RootCause';
+import Maintenance from '../components/Maintenance';
 import EscalationPolicy from '../components/EscalationPolicy';
 
 const FILTERS = ['open', 'acknowledged', 'resolved', 'all'] as const;
@@ -58,7 +59,7 @@ export default function Alerts() {
             {alerts.map(a => (
               <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => open(a.id)}>
                 <td><span className={`pill ${a.severity === 'critical' ? 'bad' : a.severity === 'warning' ? 'warn' : 'ok'}`}>{a.severity}</span></td>
-                <td>{a.message}</td>
+                <td>{a.message}{a.shelved && <span className="pill warn" title="Recorded during a maintenance window; not notified" style={{ marginLeft: 8 }}>shelved</span>}</td>
                 <td className="muted">{a.status}{a.acknowledged_by && a.status === 'acknowledged' ? ` by ${a.acknowledged_by}` : ''}</td>
                 <td onClick={e => e.stopPropagation()}>
                   {a.status === 'resolved' || people.length === 0
@@ -105,6 +106,7 @@ export default function Alerts() {
           </div>
         </div>
       )}
+      <Maintenance />
       <EscalationPolicy />
     </>
   );

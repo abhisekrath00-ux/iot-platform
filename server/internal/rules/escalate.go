@@ -224,7 +224,7 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 	rows, err := pool.Query(ctx,
 		`SELECT id, tenant_id, severity, message, escalation_level, EXTRACT(EPOCH FROM now()-created_at)/60,
 		        escalation_repeats, COALESCE(EXTRACT(EPOCH FROM now()-escalated_at)/60, 0)
-		 FROM alerts WHERE status='open' AND created_at > now() - interval '30 days'
+		 FROM alerts WHERE status='open' AND NOT shelved AND created_at > now() - interval '30 days'
 		   AND tenant_id IN (SELECT DISTINCT tenant_id FROM escalation_steps) LIMIT 500`)
 	if err != nil {
 		log.Printf("escalation: %v", err)

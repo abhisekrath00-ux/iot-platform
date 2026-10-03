@@ -58,6 +58,7 @@ Siemens items are from its public documentation (sources below), not hands-on us
 | Mobile app / PWA | ThingsBoard | Partial: responsive web plus a web manifest, icon and theme colour so it can be added to a home screen. No service worker, so no offline mode and no push notifications; native app not planned | |
 | Edge compute | ThingsBoard Edge, Insights Hub edge analytics | Partial | See table above |
 | Protocols: BACnet, CoAP, LoRaWAN, SNMP, MQTT direct, LwM2M | ThingsBoard gateway | Missing (HTTP ingest and Modbus/OPC UA/serial exist) | Adapter-only claims are not made; each needs a device or simulator to test |
+| Maintenance windows (planned work) | Insights Hub, Ignition, ThingsBoard | Partial (tested locally): device or asset window up to 7 days, warning/info alerts recorded but not notified, critical never held, release notice if still open. Rule alerts only; not flows or edge rules. | |
 | Historian | Ignition | Partial: raw plus hourly and daily rollups, partitions | Retention policy needs an owner decision |
 
 Sources: Insights Hub applications overview https://documentation.mindsphere.io/MindSphere/apps-and-solutions/overview.html ;
