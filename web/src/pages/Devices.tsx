@@ -43,6 +43,25 @@ export default function Devices() {
       .catch(e => setImpMsg(`Import failed, nothing was created.\n${importProblems(e)}`));
   };
 
+  const [hDev, setHDev] = useState('');
+  const [hist, setHist] = useState<{ text: string; rows: number } | null>(null);
+  const [histMsg, setHistMsg] = useState('');
+  const pickHistory = async (f?: File) => {
+    if (!f || !hDev) { setHistMsg('Choose a device first.'); return; }
+    const text = await f.text();
+    setHistMsg('');
+    try {
+      const r = await api<{ rows: number }>(`/v1/telemetry/import?device_id=${encodeURIComponent(hDev)}&dry_run=1`, { method: 'POST', body: text, headers: { 'Content-Type': 'text/csv' } });
+      setHist({ text, rows: r.rows });
+    } catch (e) { setHist(null); setHistMsg(`History import rejected, nothing was stored.\n${importProblems(e)}`); }
+  };
+  const confirmHistory = () => {
+    if (!hist) return;
+    api<{ imported: number; duplicates: number }>(`/v1/telemetry/import?device_id=${encodeURIComponent(hDev)}`, { method: 'POST', body: hist.text, headers: { 'Content-Type': 'text/csv' } })
+      .then(r => { setHistMsg(`Imported ${r.imported} readings (${r.duplicates} already present). Alerts and flows are not run on imported history.`); setHist(null); })
+      .catch(e => setHistMsg(`History import failed, nothing was stored.\n${importProblems(e)}`));
+  };
+
   const load = () => {
     const p = new URLSearchParams();
     if (q.trim()) p.set('q', q.trim());
@@ -72,6 +91,14 @@ export default function Devices() {
         <label className="muted" style={{ fontSize: 12 }}>Import CSV (gateway_id, profile_id, name, tags, asset_id){' '}
           <input type="file" accept=".csv,text/csv" onChange={e => { void pickFile(e.target.files?.[0]); e.target.value = ''; }} />
         </label>
+        <div style={{ marginTop: 8 }}>
+          <label className="muted" style={{ fontSize: 12 }}>Import history (admin; CSV ts, point, value, unit) into{' '}
+            <select value={hDev} onChange={e => setHDev(e.target.value)}><option value="">choose device</option>{devices.map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}</select>{' '}
+            <input type="file" accept=".csv,text/csv" onChange={e => { void pickHistory(e.target.files?.[0]); e.target.value = ''; }} />
+          </label>
+          {hist && <span> Valid: {hist.rows} readings. <button onClick={confirmHistory}>Import {hist.rows}</button> <button className="ghost" onClick={() => setHist(null)}>Cancel</button></span>}
+          {histMsg && <pre className="muted" style={{ whiteSpace: 'pre-wrap' }}>{histMsg}</pre>}
+        </div>
         {imp && <span> Valid: {imp.would} devices. <button onClick={confirmImport}>Create {imp.would}</button> <button className="ghost" onClick={() => setImp(null)}>Cancel</button></span>}
         {impMsg && <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{impMsg}</p>}
       </div>

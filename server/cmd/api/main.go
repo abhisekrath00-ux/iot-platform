@@ -142,6 +142,7 @@ func main() {
 	api.HandleFunc("GET /v1/telemetry/related", s.relatedTelemetry)
 	api.HandleFunc("GET /v1/alerts/{id}/root-cause", s.alertRootCause)
 	api.HandleFunc("POST /v1/telemetry/ingest", s.ingestHTTP)
+	api.HandleFunc("POST /v1/telemetry/import", s.importTelemetry)
 	api.HandleFunc("GET /v1/control-targets", s.listControlTargets)
 	api.HandleFunc("POST /v1/control-targets", s.createControlTarget)
 	api.HandleFunc("POST /v1/control-targets/{id}/enabled", s.setControlTargetEnabled)
