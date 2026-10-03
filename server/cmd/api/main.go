@@ -694,7 +694,7 @@ func (s *server) dispatchCommand(r *http.Request, id string) string {
 
 func (s *server) listCommands(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT request_id, device_id, action, status, requested_by, approved_by, created_at
+		`SELECT request_id, device_id, action, status, requested_by, approved_by, created_at, reason, parameters::text
 		 FROM commands WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -704,11 +704,12 @@ func (s *server) listCommands(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var id, dev, act, stt, by string
-		var appr *string
+		var appr, reason *string
 		var created time.Time
-		rows.Scan(&id, &dev, &act, &stt, &by, &appr, &created)
+		var params string
+		rows.Scan(&id, &dev, &act, &stt, &by, &appr, &created, &reason, &params)
 		out = append(out, map[string]any{"request_id": id, "device_id": dev, "action": act, "status": stt,
-			"requested_by": by, "approved_by": appr, "created_at": created})
+			"requested_by": by, "approved_by": appr, "created_at": created, "reason": reason, "parameters": json.RawMessage(params)})
 	}
 	writeJSON(w, 200, out)
 }

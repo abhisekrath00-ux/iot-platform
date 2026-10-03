@@ -20,11 +20,12 @@ export default function Commands() {
         <Empty title="No control requests" hint="Actuation requests appear here for four-eyes approval. Nothing can switch a physical output without an approved, audited request." />
       )}
       {rows.length > 0 && <table>
-        <thead><tr><th>Device</th><th>Action</th><th>Status</th><th>Requested by</th><th></th></tr></thead>
+        <thead><tr><th>Device</th><th>Action</th><th>What and why</th><th>Status</th><th>Requested by</th><th></th></tr></thead>
         <tbody>
           {rows.map(c => (
             <tr key={c.request_id}>
               <td>{c.device_id}</td><td>{c.action}</td>
+              <td className="muted">{c.parameters && Object.keys(c.parameters).length > 0 ? `set ${String(c.parameters.point ?? '')} to ${String(c.parameters.value ?? '')}` : ''}{c.reason ? ` · ${c.reason}` : ''}</td>
               <td><span className={`pill ${c.status === 'approved' ? 'ok' : c.status.startsWith('pending') ? 'warn' : ''}`}>{c.status}</span></td>
               <td className="muted">{c.requested_by}</td>
               <td>{c.status === 'pending_approval' && <button className="ghost" onClick={() => approve(c.request_id)}>Approve</button>}</td>

@@ -34,6 +34,10 @@ func (s *server) gateFunctionNodes(w http.ResponseWriter, r *http.Request, d flo
 		http.Error(w, "http nodes require an admin and the http_nodes feature enabled for this tenant", 403)
 		return false
 	}
+	if d.HasControlNodes() && !(auth.Role(r) == "admin" && s.featureEnabled(r, "control_nodes")) {
+		http.Error(w, "control nodes require an admin and the control_nodes feature enabled for this tenant", 403)
+		return false
+	}
 	if !d.HasFunctionNodes() {
 		return true
 	}
@@ -53,7 +57,7 @@ func (s *server) gateFunctionNodes(w http.ResponseWriter, r *http.Request, d flo
 }
 
 func (s *server) getFeatures(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"function_nodes": s.featureEnabled(r, "function_nodes"), "http_nodes": s.featureEnabled(r, "http_nodes")})
+	writeJSON(w, 200, map[string]any{"function_nodes": s.featureEnabled(r, "function_nodes"), "http_nodes": s.featureEnabled(r, "http_nodes"), "control_nodes": s.featureEnabled(r, "control_nodes")})
 }
 
 func (s *server) putFeature(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +65,7 @@ func (s *server) putFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	feature := r.PathValue("feature")
-	if feature != "function_nodes" && feature != "http_nodes" {
+	if feature != "function_nodes" && feature != "http_nodes" && feature != "control_nodes" {
 		http.Error(w, "unknown feature", 404)
 		return
 	}

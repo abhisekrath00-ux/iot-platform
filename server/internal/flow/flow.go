@@ -86,6 +86,19 @@ func (d Definition) HasFunctionNodes() bool {
 	return false
 }
 
+// HasControlNodes reports whether the definition can raise control requests.
+func (d Definition) HasControlNodes() bool {
+	if d.Graph == nil {
+		return false
+	}
+	for _, n := range d.Graph.Nodes {
+		if n.Type == "control" {
+			return true
+		}
+	}
+	return false
+}
+
 // HasHTTPNodes reports whether the definition makes outbound HTTP requests.
 func (d Definition) HasHTTPNodes() bool {
 	if d.Graph == nil {

@@ -67,6 +67,9 @@ func EvaluateWith(ctx context.Context, pool *pgxpool.Pool, n Notifier, fn Functi
 		if HTTPClient != nil && d.HasHTTPNodes() && tenantFeature(ctx, pool, tenantID, "http_nodes") {
 			opt.HTTP = HTTPClient
 		}
+		if d.HasControlNodes() && tenantFeature(ctx, pool, tenantID, ControlFeature) {
+			opt.Control = &PGControl{Pool: pool, Tenant: tenantID, FlowID: id, FlowName: name, TrigDevice: deviceID, TrigPoint: pointID, TrigValue: value}
+		}
 		er := d.Exec(value, deviceID, pointID, opt)
 		actions, ok := er.Actions, er.Matched
 		detail := debugDetail(er.Debug)
@@ -202,6 +205,9 @@ func RunScheduled(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 		sopt := ExecOptions{Scheduled: true, Limiter: sharedLimiter, LimitKey: f.id}
 		if HTTPClient != nil && f.d.HasHTTPNodes() && tenantFeature(ctx, pool, f.tenant, "http_nodes") {
 			sopt.HTTP = HTTPClient
+		}
+		if f.d.HasControlNodes() && tenantFeature(ctx, pool, f.tenant, ControlFeature) {
+			sopt.Control = &PGControl{Pool: pool, Tenant: f.tenant, FlowID: f.id, FlowName: f.name, TrigDevice: "", TrigPoint: "scheduled", TrigValue: 0}
 		}
 		er := f.d.Exec(0, "", "", sopt)
 		outcome := "notified"

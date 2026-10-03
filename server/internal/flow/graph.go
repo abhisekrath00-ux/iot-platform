@@ -68,6 +68,10 @@ type Node struct {
 	URL     string `json:"url,omitempty"`     // static http(s) URL, no credentials, no templating
 	Body    string `json:"body,omitempty"`    // POST body template ({value}, {vars.x}), sent as application/json
 	Extract string `json:"extract,omitempty"` // dot path into a JSON response, e.g. main.temp; empty = whole body
+	// control: ask for a change to an allowlisted target (never actuates; needs approval). Port 0 = request raised, 1 = refused.
+	// The value is Value, or the message value when UseValue is set. The target checks it; nothing is clamped.
+	TargetID string `json:"target_id,omitempty"`
+	UseValue bool   `json:"use_value,omitempty"`
 }
 
 type SwitchRule struct {
@@ -117,11 +121,12 @@ type FunctionRunner interface {
 }
 
 type ExecOptions struct {
-	Functions FunctionRunner // nil: function nodes are disabled
-	Limiter   Limiter        // nil: rate-limit nodes pass everything (simulation)
-	LimitKey  string         // scopes limiter state, e.g. tenant/flow id
-	Scheduled bool           // run an inject-started graph (the scheduler sets this)
-	HTTP      HTTPDoer       // nil: http nodes are disabled (feature off, or a dry run)
+	Functions FunctionRunner   // nil: function nodes are disabled
+	Limiter   Limiter          // nil: rate-limit nodes pass everything (simulation)
+	LimitKey  string           // scopes limiter state, e.g. tenant/flow id
+	Scheduled bool             // run an inject-started graph (the scheduler sets this)
+	HTTP      HTTPDoer         // nil: http nodes are disabled (feature off, or a dry run)
+	Control   ControlRequester // nil: control nodes raise nothing (feature off, or a dry run)
 }
 
 // HTTPDoer performs one outbound request for an http node. Implementations must
@@ -429,7 +434,7 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 	}
 	push(start.ID, "0", root, 0)
 	visits := 0
-	httpCalls := 0
+	httpCalls, controlCalls := 0, 0
 	dbg := func(n *Node, s string) { res.Debug = append(res.Debug, DebugEntry{Node: n.ID, Message: s}) }
 	for len(queue) > 0 {
 		v := queue[0]
@@ -555,6 +560,34 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 				continue
 			}
 			push(n.ID, "0", m, v.delay)
+		case "control":
+			if opt.Control == nil {
+				dbg(n, "control request not raised: control nodes are disabled for this tenant or this is a dry run")
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			if controlCalls++; controlCalls > maxControlPerRun {
+				dbg(n, "control request skipped: per-run limit reached")
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			val := n.Value
+			if n.UseValue {
+				val = m.Value
+			}
+			cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			rid, note, err := opt.Control.RequestControl(cctx, n.TargetID, val)
+			cancel()
+			if err != nil {
+				dbg(n, "control request refused: "+err.Error())
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			dbg(n, "control request "+rid+" raised, waiting for approval")
+			if note != "" {
+				dbg(n, note)
+			}
+			push(n.ID, "0", m, v.delay)
 		case "debug":
 			tpl := n.Message
 			if tpl == "" {
@@ -627,7 +660,7 @@ func validateGraph(g *Graph) error {
 		if from.Type == "switch" {
 			max = len(from.Rules)
 		}
-		if from.Type == "http" {
+		if from.Type == "http" || from.Type == "control" {
 			max = 2
 		}
 		pn, err := strconv.Atoi(p)
@@ -813,6 +846,13 @@ func validateNode(n *Node) error {
 		}
 		if len(n.Extract) > 100 || !extractRe.MatchString(n.Extract) {
 			return fmt.Errorf("extract must be a dot path like main.temp")
+		}
+	case "control":
+		if n.TargetID == "" || len(n.TargetID) > 64 || strings.ContainsAny(n.TargetID, "<>\x00 ") {
+			return fmt.Errorf("control node needs a target_id")
+		}
+		if math.IsNaN(n.Value) || math.IsInf(n.Value, 0) {
+			return fmt.Errorf("value must be finite")
 		}
 	case "range":
 		if n.InMin == n.InMax {

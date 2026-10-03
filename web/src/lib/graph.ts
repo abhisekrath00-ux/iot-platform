@@ -2,7 +2,7 @@
 // The server is the authority on validity; these keep the editor from building
 // graphs it already knows will be refused.
 
-export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range' | 'rate_limit' | 'inject' | 'http';
+export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range' | 'rate_limit' | 'inject' | 'http' | 'control';
 
 export interface GNode {
   id: string; type: NodeType; name?: string; x: number; y: number;
@@ -11,7 +11,7 @@ export interface GNode {
   changes?: { action: string; property: string; value?: string | number; to?: string }[];
   seconds?: number; channel_id?: string; message?: string; code?: string;
   template?: string; target?: string; in_min?: number; in_max?: number; out_min?: number; out_max?: number; clamp?: boolean;
-  method?: string; url?: string; body?: string; extract?: string;
+  method?: string; url?: string; body?: string; extract?: string; target_id?: string; use_value?: boolean;
 }
 export interface GEdge { from: string; port: string; to: string; }
 export interface Graph { nodes: GNode[]; edges: GEdge[]; }
@@ -21,13 +21,13 @@ export const NODE_H = 52;
 
 export const LABELS: Record<NodeType, string> = {
   trigger: 'Reading', switch: 'Switch', change: 'Change', condition: 'Condition',
-  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range', rate_limit: 'Rate limit', inject: 'Timer', http: 'HTTP request'
+  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range', rate_limit: 'Rate limit', inject: 'Timer', http: 'HTTP request', control: 'Control request'
 };
 
 export function portCount(n: GNode): number {
   if (n.type === 'notify' || n.type === 'debug') return 0;
   if (n.type === 'switch') return Math.max(1, n.rules?.length ?? 1);
-  if (n.type === 'http') return 2; // 1 = success, 2 = failure
+  if (n.type === 'http' || n.type === 'control') return 2; // 1 = success / request raised, 2 = failure / refused
   return 1;
 }
 
@@ -54,6 +54,7 @@ export function defaults(type: NodeType): Partial<GNode> {
     case 'rate_limit': return { seconds: 60 };
     case 'range': return { in_min: 0, in_max: 100, out_min: 0, out_max: 1, clamp: true };
     case 'function': return { code: 'return msg;' };
+    case 'control': return { target_id: '', value: 1, use_value: false };
     case 'http': return { method: 'GET', url: 'http://', body: '', target: 'result', extract: '' };
     default: return {};
   }

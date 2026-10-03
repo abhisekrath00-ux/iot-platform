@@ -1,10 +1,22 @@
 # Gated control nodes for flows (design, not built)
 
-Status: partly built (2026-10-03). Built and tested locally: the control target registry (prerequisite 2): migration 0036,
-admin API `/v1/control-targets` (create, list, enable/disable, set approval mode, delete) and the target list on the Control
-page. **Not built:** the `control.request` flow node, rate-limit enforcement, and any automatic execution. Nothing reads the
-registry yet, so no target can cause an action. Prerequisite 1 (edge Modbus write executor with allowlist) already existed
-before this document was written. Designed 2026-10-02.
+Status: partly built (2026-10-03), tested locally, never against real hardware or a broker.
+Built: the control target registry (migration 0036, `/v1/control-targets`, Control page list) and the **`control` flow node**
+(approval path only). Not built: automatic execution for `automatic` targets, a `control.result` trigger, an asset-level
+or per-flow-version audit join, and Node-RED import or export of this node (an imported `control` node is refused).
+Prerequisite 1 (edge Modbus write executor with allowlist) already existed before this document was written.
+
+What the node does today: a flow run asks for a change to one target. The server checks that the tenant has the
+`control_nodes` feature on, the target exists and is switched on, the value is inside the target's bounds (never clamped),
+the target's rate limit (default 6 per hour) and the flow's cap of 3 requests waiting for approval. If all pass it inserts a
+`pending_approval` command, requested by a per-tenant service user with the viewer role (so it can never approve and the
+existing four-eyes rule holds), with the flow name and triggering reading as the reason, and writes an audit row
+`control.request`. The node never sees the approval; output 1 means "request raised", output 2 means "refused". Dry runs
+and the simulator get no requester, so they raise nothing. Saving, importing or publishing a flow with this node needs an admin
+and the tenant feature. A run raises at most one request. The approver sees what is asked and why on the Control page.
+
+**For a target set to `automatic`, the node still raises a normal approval request** (and says so in the run log), because
+the automatic executor is not written. That is the stricter behaviour, chosen on purpose until it is built and reviewed.
 
 ### Owner decision, 2026-10-03
 
@@ -12,7 +24,7 @@ The owner chose that the approval requirement is a setting, not a hardcoded rule
 set to fire **automatically**, for example when the server link is down or an alarm rule hits, while every other control action
 needs a second person's approval. The default is approval. The setting is made by an admin per target, is audited, and
 **automatic is accepted only for `alarm_output` targets** (on/off only); the database refuses it for Modbus writes.
-This answers the open question below. The registry stores the choice; the code that would act on `automatic` is not written.
+This answers the open question below. The registry stores the choice; the code that would act on `automatic` is not written (see above).
 
 ## Goal
 

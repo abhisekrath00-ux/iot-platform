@@ -30,6 +30,7 @@ export default function FlowEditor() {
   const [flows, setFlows] = useState<FlowRow[]>([]);
   const [fnOn, setFnOn] = useState(false);
   const [httpOn, setHttpOn] = useState(false);
+  const [ctlOn, setCtlOn] = useState(false);
   const [mgrMsg, setMgrMsg] = useState('');
   const [link, setLink] = useState<{ from: string; port: number } | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -57,7 +58,7 @@ export default function FlowEditor() {
   useEffect(() => {
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
     loadFlows();
-    api<{ function_nodes: boolean; http_nodes?: boolean }>('/v1/features').then(f => { setFnOn(f.function_nodes); setHttpOn(!!f.http_nodes); }).catch(() => {});
+    api<{ function_nodes: boolean; http_nodes?: boolean; control_nodes?: boolean }>('/v1/features').then(f => { setFnOn(f.function_nodes); setHttpOn(!!f.http_nodes); setCtlOn(!!f.control_nodes); }).catch(() => {});
   }, []);
 
   const node = g.nodes.find(n => n.id === tab.sel) ?? null;
@@ -158,7 +159,7 @@ export default function FlowEditor() {
   const hints = problems(g);
   const width = Math.max(900, ...g.nodes.map(n => n.x + NODE_W + 60));
   const height = Math.max(460, ...g.nodes.map(n => n.y + NODE_H + 60));
-  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', 'rate_limit', ...(fnOn ? ['function' as NodeType] : []), ...(httpOn ? ['http' as NodeType] : [])];
+  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', 'rate_limit', ...(fnOn ? ['function' as NodeType] : []), ...(httpOn ? ['http' as NodeType] : []), ...(ctlOn ? ['control' as NodeType] : [])];
   const status = (f: FlowRow) => (f.published_version ? `published v${f.published_version}${f.latest_version && f.latest_version > f.published_version ? ` (draft v${f.latest_version} pending)` : ''}` : 'draft, not published') + (f.enabled ? '' : ' - disabled');
 
   return (
@@ -303,6 +304,7 @@ function summary(n: GNode): string {
     case 'range': return `${n.in_min}-${n.in_max} to ${n.out_min}-${n.out_max}`;
     case 'function': return 'JavaScript';
     case 'http': return `${n.method} ${n.url}`;
+    case 'control': return n.target_id ? 'asks for approval' : 'pick a target';
   }
 }
 
@@ -429,6 +431,7 @@ function Props({ n, g, channels, upd, connectTo, remove, setStartKind }: {
         <input id="np-ht" maxLength={32} value={n.target ?? ''} onChange={e => upd({ target: e.target.value })} />
         <p className="muted">Output 1 = success (2xx), output 2 = failure or timeout. Dry runs never send the request. Loopback and link-local addresses are blocked; private networks are allowed.</p>
       </>}
+      {n.type === 'control' && <ControlProps n={n} upd={upd} />}
       {n.type === 'function' && <>
         <label htmlFor="np-code">JavaScript (admin only; runs in a sandbox)</label>
         <textarea id="np-code" rows={8} value={n.code ?? ''} maxLength={4000} onChange={e => upd({ code: e.target.value })} style={{ fontFamily: 'ui-monospace, monospace', width: '100%' }} />
@@ -447,4 +450,21 @@ function Props({ n, g, channels, upd, connectTo, remove, setStartKind }: {
       {n.type !== 'trigger' && <div style={{ marginTop: 14 }}><button type="button" className="ghost" onClick={remove}>Delete node</button></div>}
     </div>
   );
+}
+
+interface CtlTarget { id: string; name: string; kind: string; enabled: boolean; approval_mode: string }
+
+// A control node only ever asks. The request waits on the Control page until a different person approves it.
+function ControlProps({ n, upd }: { n: GNode; upd: (p: Partial<GNode>) => void }) {
+  const [targets, setTargets] = useState<CtlTarget[]>([]);
+  useEffect(() => { api<CtlTarget[]>('/v1/control-targets').then(setTargets).catch(() => {}); }, []);
+  return <>
+    <label htmlFor="np-ct">Control target</label>
+    <select id="np-ct" value={n.target_id ?? ''} onChange={e => upd({ target_id: e.target.value })}>
+      <option value="">choose...</option>{targets.map(t => <option key={t.id} value={t.id}>{t.name}{t.enabled ? '' : ' (off)'}</option>)}</select>
+    <label><input type="checkbox" checked={!!n.use_value} onChange={e => upd({ use_value: e.target.checked })} style={{ width: 'auto' }} /> Use the reading's value</label>
+    {!n.use_value && <><label htmlFor="np-cv">Value to ask for</label>
+      <input id="np-cv" type="number" step="any" value={n.value ?? 0} onChange={e => upd({ value: parseFloat(e.target.value) || 0 })} /></>}
+    <p className="muted">This node never switches anything itself. It raises a request that appears on the Control page and waits for a second person to approve it. Output 1 = request raised, output 2 = refused (target off, value out of range, rate limit, or a dry run). The target decides which values are allowed.</p>
+  </>;
 }
