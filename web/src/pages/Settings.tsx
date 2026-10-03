@@ -70,6 +70,14 @@ export default function Settings() {
           <label htmlFor="b-accent">Accent colour (#rrggbb)</label>
           <input id="b-accent" value={bAccent} onChange={e => setBAccent(e.target.value)} placeholder="#0071e3" pattern="#[0-9a-fA-F]{6}|" />
           <div style={{ marginTop: 14 }}><button type="submit">Save branding</button></div>
+          <label htmlFor="b-logo">Logo (PNG or JPEG, up to 100 KB, 16 to 1024 px)</label>
+          <input id="b-logo" type="file" accept="image/png,image/jpeg" onChange={async e => {
+            const f = e.target.files?.[0]; if (!f) return;
+            const token = localStorage.getItem('iot.token') ?? '';
+            const res = await fetch('/v1/branding/logo', { method: 'PUT', body: f, headers: { Authorization: `Bearer ${token}` } });
+            setBMsg(res.ok ? 'Logo saved. Reload to apply.' : `${res.status}: ${await res.text()}`);
+          }} />
+          <button type="button" className="ghost" style={{ marginTop: 8 }} onClick={() => fetch('/v1/branding/logo', { method: 'DELETE', headers: { Authorization: `Bearer ${localStorage.getItem('iot.token') ?? ''}` } }).then(() => setBMsg('Logo removed. Reload to apply.'))}>Remove logo</button>
         </form>
         {bMsg && <p className="muted" role="status">{bMsg}</p>}
       </div>

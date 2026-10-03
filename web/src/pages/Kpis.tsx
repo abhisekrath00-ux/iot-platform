@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
 import { api } from '../lib/api';
+import { buildOee } from '../lib/oee';
 
 interface Kpi { id: string; name: string; expression: string; unit: string; value: number | null; stale: boolean; error?: string; }
 
@@ -41,6 +42,7 @@ export default function Kpis() {
   const [expression, setExpression] = useState('');
   const [unit, setUnit] = useState('');
   const [msg, setMsg] = useState('');
+  const [oee, setOee] = useState({ run: '', planned: '', total: '', good: '', cycle: '1' });
   const load = () => { api<Kpi[]>('/v1/kpis').then(setKpis).catch(e => setMsg(String(e))); };
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, []);
 
@@ -79,6 +81,26 @@ export default function Kpis() {
           <div style={{ marginTop: 14 }}><button type="submit">Create KPI</button></div>
         </form>
         {msg && <p className="err-box" role="alert">{msg}</p>}
+      </div>
+      <div className="card" style={{ maxWidth: 640, marginTop: 20 }}>
+        <b>OEE template</b>
+        <p className="muted">Overall equipment effectiveness = availability x performance x quality. Enter the points as <code>device.point</code>. Run time, planned time and the ideal cycle time must share one unit. It uses the latest reading of each point, so point it at counters and timers that add up over the shift. Result is a fraction (1 = 100%).</p>
+        <form onSubmit={async e => {
+          e.preventDefault(); setMsg('');
+          try {
+            const expression = buildOee({ run: oee.run, planned: oee.planned, total: oee.total, good: oee.good, cycle: Number(oee.cycle) });
+            await api('/v1/kpis', { method: 'POST', body: JSON.stringify({ name: 'OEE ' + oee.run.split('.')[0], expression, unit: '' }) });
+            load();
+          } catch (err) { setMsg(String(err)); }
+        }}>
+          {([['run', 'Run time point', 'line-a.run_minutes'], ['planned', 'Planned time point', 'line-a.planned_minutes'], ['total', 'Total parts point', 'line-a.parts_total'], ['good', 'Good parts point', 'line-a.parts_good']] as const).map(([k, l, ph]) => (
+            <div key={k}><label htmlFor={`oee-${k}`}>{l}</label>
+              <input id={`oee-${k}`} value={oee[k]} onChange={e => setOee({ ...oee, [k]: e.target.value })} placeholder={ph} required /></div>
+          ))}
+          <label htmlFor="oee-cycle">Ideal cycle time per part (same unit as run time)</label>
+          <input id="oee-cycle" type="number" step="any" min="0" value={oee.cycle} onChange={e => setOee({ ...oee, cycle: e.target.value })} required />
+          <div style={{ marginTop: 14 }}><button type="submit">Create OEE KPI</button></div>
+        </form>
       </div>
     </>
   );

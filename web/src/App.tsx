@@ -47,9 +47,14 @@ const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/a
 export default function App() {
   const [theme, toggle] = useTheme();
   const [brand, setBrand] = useState('Hexmon IoT');
+  const [logo, setLogo] = useState('');
   useEffect(() => {
     if (!localStorage.getItem('iot.token')) return;
-    api<{ product_name: string; accent: string }>('/v1/branding').then(b => {
+    api<{ product_name: string; accent: string; has_logo?: boolean }>('/v1/branding').then(b => {
+      if (b.has_logo) {
+        const token = localStorage.getItem('iot.token') ?? '';
+        fetch('/v1/branding/logo', { headers: { Authorization: `Bearer ${token}` } }).then(r => (r.ok ? r.blob() : null)).then(bl => { if (bl) setLogo(URL.createObjectURL(bl)); }).catch(() => {});
+      }
       if (b.product_name) { setBrand(b.product_name); document.title = b.product_name; }
       const root = document.documentElement.style;
       if (b.accent) {
@@ -64,7 +69,7 @@ export default function App() {
     <div className="shell">
       {tour && <Tour onClose={() => setTour(false)} />}
       <nav>
-        <div className="brand"><span className="logo">{brand.slice(0, 1).toUpperCase()}</span>{brand}</div>
+        <div className="brand">{logo ? <img src={logo} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }} /> : <span className="logo">{brand.slice(0, 1).toUpperCase()}</span>}{brand}</div>
         {items.map(([to, label]) => (
           <NavLink key={to} to={to} end={to === '/'}>{icons[label]}{label}</NavLink>
         ))}

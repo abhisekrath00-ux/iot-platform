@@ -32,8 +32,9 @@ func contrastWithWhite(hex string) float64 {
 
 func (s *server) getBranding(w http.ResponseWriter, r *http.Request) {
 	var name, accent string
-	s.st.Pool.QueryRow(r.Context(), `SELECT product_name, accent FROM tenant_branding WHERE tenant_id=$1`, auth.Tenant(r)).Scan(&name, &accent)
-	writeJSON(w, 200, map[string]any{"product_name": name, "accent": accent})
+	var hasLogo bool
+	s.st.Pool.QueryRow(r.Context(), `SELECT product_name, accent, logo IS NOT NULL FROM tenant_branding WHERE tenant_id=$1`, auth.Tenant(r)).Scan(&name, &accent, &hasLogo)
+	writeJSON(w, 200, map[string]any{"product_name": name, "accent": accent, "has_logo": hasLogo})
 }
 
 // putBranding lets an admin set the product name and accent colour shown in the
