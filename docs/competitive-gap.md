@@ -153,3 +153,7 @@ function node sandbox.
 | Device groups | Built (migration 0043): named sets of devices, API `/v1/groups`, fleet filter `?group_id=`, Devices page chips and editor. Tested. No nested groups, no group-wide rules or dashboards yet. |
 | Typed device attributes | Built (migration 0043): admin-defined attribute types (text, number, yes/no, one-of list, required flag) enforced when device attributes are saved; undefined names stay free-form. Tested. No units conversion, no shared/client scopes. |
 | 2FA / MFA | Sign-in is by the customer's SSO provider, which owns MFA; the platform keeps no local passwords. Built on top: an optional TOTP (RFC 6238, tested against the RFC vectors) second factor for approving control commands, switched on per workspace (`require_totp_approval`); secret sealed with `SECRETS_KEY`, one use per code, removal needs a current code, refusals audited. Not built: recovery codes, WebAuthn, TOTP at sign-in. |
+
+### 2026-10-03 later: KPI history and widgets
+- KPI history: `GET /v1/kpis/{id}/history?hours=` (1-720), hourly averages of each input from rollups plus raw, then the expression. Computed on read, nothing stored. Trend chart with 24 h / 7 d / 30 d on the KPIs page. Tested against a real DB.
+- Widgets are now 10 types: added an open-alerts list and a plain-text note (never rendered as HTML). UI only, covered by type checks; no new server logic.

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
 import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem } from '../lib/widgets';
-import { GaugeWidget, BarWidget, StatusWidget, TableWidget, StatWidget, IndicatorWidget } from '../components/Widgets';
+import { GaugeWidget, BarWidget, StatusWidget, TableWidget, StatWidget, IndicatorWidget, AlarmsWidget, NoteWidget } from '../components/Widgets';
 
 interface Dashboard { id: string; name: string; layout: { widgets?: Widget[] }; }
 
@@ -84,6 +84,7 @@ export default function Dashboards() {
   const [tpl, setTpl] = useState('blank');
   const [tplDevice, setTplDevice] = useState('');
   // widget form
+  const [wText, setWText] = useState('');
   const [wType, setWType] = useState<WidgetType>('kpi');
   const [wMin, setWMin] = useState('');
   const [wMax, setWMax] = useState('');
@@ -171,6 +172,12 @@ export default function Dashboards() {
   };
 
   const addWidget = () => {
+    if (sel && (wType === 'alarms' || wType === 'note')) {
+      const nw: Widget = { id: uid(), type: wType, device_id: '', title: wTitle.trim() || (wType === 'alarms' ? 'Open alerts' : 'Note'), text: wType === 'note' ? wText.slice(0, 2000) : undefined };
+      setSel({ ...sel, layout: { widgets: [...(sel.layout.widgets ?? []), nw] } });
+      setWTitle(''); setWText('');
+      return;
+    }
     if (!sel || !wDevice) return;
     const w: Widget = {
       id: uid(), type: wType, device_id: wDevice, point_id: wPoint || undefined,
@@ -291,25 +298,28 @@ export default function Dashboards() {
                     <option value="table">Table (all points)</option>
                     <option value="stat">Stats (24h min/avg/max)</option>
                     <option value="indicator">Indicator lamp</option>
+                    <option value="alarms">Open alerts list</option>
+                    <option value="note">Text note</option>
                   </select>
                 </div>
-                <div><label>Device</label>
+                {wType === 'note' && <div><label>Text</label><textarea rows={3} maxLength={2000} value={wText} onChange={e => setWText(e.target.value)} /></div>}
+                {wType !== 'alarms' && wType !== 'note' && <div><label>Device</label>
                   <select value={wDevice} onChange={e => setWDevice(e.target.value)}>
                     {devices.map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
                   </select>
-                </div>
-                <div><label>Point</label>
+                </div>}
+                {wType !== 'alarms' && wType !== 'note' && <div><label>Point</label>
                   <select value={wPoint} onChange={e => setWPoint(e.target.value)}>
                     {devicePoints.map(p => <option key={p.point_id} value={p.point_id}>{p.point_id}</option>)}
                     {devicePoints.length === 0 && <option value="">no live points</option>}
                   </select>
-                </div>
+                </div>}
                 <div><label>Title (optional)</label><input value={wTitle} onChange={e => setWTitle(e.target.value)} /></div>
                 {(wType === 'gauge' || wType === 'bar') && <div><label>Min</label><input type="number" style={{ width: 80 }} value={wMin} onChange={e => setWMin(e.target.value)} /></div>}
                 {(wType === 'gauge' || wType === 'bar') && <div><label>Max</label><input type="number" style={{ width: 80 }} value={wMax} onChange={e => setWMax(e.target.value)} /></div>}
-                {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && <div><label>{wType === 'indicator' ? 'On at (value ≥)' : 'Warn at'}</label><input type="number" style={{ width: 80 }} value={wWarn} onChange={e => setWWarn(e.target.value)} /></div>}
-                {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && wType !== 'indicator' && <div><label>Critical at</label><input type="number" style={{ width: 80 }} value={wCrit} onChange={e => setWCrit(e.target.value)} /></div>}
-                <button onClick={addWidget} disabled={!wDevice || (!wPoint && wType !== 'bar' && wType !== 'status' && wType !== 'table')}>Add</button>
+                {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && wType !== 'alarms' && wType !== 'note' && <div><label>{wType === 'indicator' ? 'On at (value ≥)' : 'Warn at'}</label><input type="number" style={{ width: 80 }} value={wWarn} onChange={e => setWWarn(e.target.value)} /></div>}
+                {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && wType !== 'indicator' && wType !== 'alarms' && wType !== 'note' && <div><label>Critical at</label><input type="number" style={{ width: 80 }} value={wCrit} onChange={e => setWCrit(e.target.value)} /></div>}
+                <button onClick={addWidget} disabled={wType === 'alarms' || wType === 'note' ? false : !wDevice || (!wPoint && wType !== 'bar' && wType !== 'status' && wType !== 'table')}>Add</button>
               </div>
             </div>
           )}
@@ -325,7 +335,7 @@ export default function Dashboards() {
                 onDragOver={e => { if (editing && dragFrom !== null) e.preventDefault(); }}
                 onDrop={e => { e.preventDefault(); if (dragFrom !== null) setWidgets(moveItem(widgets, dragFrom, i)); setDragFrom(null); }}
                 onDragEnd={() => setDragFrom(null)}>
-                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : <SeriesWidget w={w} />}
+                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
                 {editing && (
                   <div className="board-tools">
                     <button className="ghost" aria-label="Narrower" onClick={() => resize(w.id, -1)}>-</button>

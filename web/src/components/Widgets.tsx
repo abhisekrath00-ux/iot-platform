@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, LatestPoint } from '../lib/api';
+import { api, LatestPoint, AlertRow } from '../lib/api';
 import { formatValue } from '../lib/format';
 import { Widget, thresholdState, fraction, freshness, summarize, indicatorOn } from '../lib/widgets';
 
@@ -156,6 +156,45 @@ export function IndicatorWidget({ w }: { w: Widget }) {
         {p ? (on ? 'On' : 'Off') : 'No data'}
       </div>
       {p && <div className="muted" style={{ fontSize: 12 }}>{formatValue(p.value)} {p.unit}</div>}
+    </div>
+  );
+}
+
+/** Open alerts for the whole tenant, newest first. Not tied to a device. */
+export function AlarmsWidget({ w }: { w: Widget }) {
+  const [rows, setRows] = useState<AlertRow[]>([]);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let alive = true;
+    const load = () => api<AlertRow[]>('/v1/alerts?status=open').then(d => { if (alive) { setRows(d.slice(0, 8)); setErr(''); } }).catch(e => { if (alive) setErr(String(e)); });
+    load();
+    const t = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+  const sev: Record<string, string> = { critical: STATE_VAR.bad, warning: STATE_VAR.warn, info: STATE_VAR.none };
+  return (
+    <div className="card" style={{ minWidth: 0 }}>
+      <div className="muted">{w.title}</div>
+      {err && <div className="muted" style={{ fontSize: 12 }}>{err}</div>}
+      {rows.length === 0 && !err && <div style={{ marginTop: 6 }}><span className="pill ok">No open alerts</span></div>}
+      <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0 }}>
+        {rows.map(a => (
+          <li key={a.id} style={{ fontSize: 13, padding: '3px 0', display: 'flex', gap: 8 }}>
+            <span style={{ color: sev[a.severity] ?? STATE_VAR.none, fontWeight: 650, minWidth: 62 }}>{a.severity}</span>
+            <span>{a.message}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Free text note. Rendered as plain text so a shared or imported dashboard cannot inject markup. */
+export function NoteWidget({ w }: { w: Widget }) {
+  return (
+    <div className="card" style={{ minWidth: 0 }}>
+      <div className="muted">{w.title}</div>
+      <div style={{ whiteSpace: 'pre-wrap', marginTop: 6 }}>{w.text ?? ''}</div>
     </div>
   );
 }

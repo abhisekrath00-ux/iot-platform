@@ -1,6 +1,6 @@
 // Pure widget logic: kept out of components so it is unit-tested.
 
-export type WidgetType = 'kpi' | 'timeseries' | 'gauge' | 'bar' | 'status' | 'table' | 'stat' | 'indicator';
+export type WidgetType = 'kpi' | 'timeseries' | 'gauge' | 'bar' | 'status' | 'table' | 'stat' | 'indicator' | 'alarms' | 'note';
 
 export interface Widget {
   id: string;
@@ -14,6 +14,7 @@ export interface Widget {
   warn?: number; // value at or above this turns amber
   crit?: number; // value at or above this turns red
   stale_seconds?: number; // status widget: older than this counts as offline
+  text?: string; // note widget body (plain text, rendered as text, never HTML)
   span?: number; // grid columns 1-4 (default depends on type)
 }
 
