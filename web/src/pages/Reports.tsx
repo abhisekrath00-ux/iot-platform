@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
 
 interface Metric { device_id: string; point_id: string; }
-interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; computed?: { name: string; expr: string }[]; }
+interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; }
 interface ReportRow { id: string; name: string; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; version?: number; }
 interface VersionRow { version: number; name: string; definition: ReportDef; schedule_cron: string | null; replaced_by: string; replaced_at: string; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
@@ -20,6 +20,8 @@ export default function Reports() {
   const [rollup, setRollup] = useState('');
   const [header, setHeader] = useState('');
   const [footer, setFooter] = useState('');
+  const [insights, setInsights] = useState(false);
+  const [compare, setCompare] = useState(false);
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
   const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
   const [pw, setPw] = useState<Record<string, { w?: string; g?: string; d?: string }>>({});
@@ -52,7 +54,7 @@ export default function Reports() {
         method: editingId ? 'PUT' : 'POST',
         body: JSON.stringify({
           name,
-          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined },
+          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined },
           schedule_cron: cron || '',
           channel_id: channelId || ''
         })
@@ -67,7 +69,7 @@ export default function Reports() {
     try {
       const r = await api<{ html: string; rows: number }>('/v1/reports/preview', {
         method: 'POST',
-        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined } })
+        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined } })
       });
       setPreviewHTML(r.html); setPreviewRows(r.rows);
     } catch (e2) { setMsg(String(e2)); }
@@ -78,7 +80,7 @@ export default function Reports() {
     const d = r.definition;
     setEditingId(r.id); setName(r.name); setMetrics(d.metrics.length ? d.metrics : [{ device_id: '', point_id: '' }]);
     setWindowHours(d.window_hours); setGroupBy(d.group_by); setLayout(d.layout ?? ''); setAgg(d.agg ?? 'avg'); setRollup(d.rollup ?? '');
-    setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
+    setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setInsights(!!d.insights); setCompare(!!d.compare); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
     setMsg(''); window.scrollTo({ top: 0 });
   }
   function cancelEdit() { setEditingId(''); setName(''); setCron(''); setMsg(''); }
@@ -137,6 +139,8 @@ export default function Reports() {
           <select value={rollup} onChange={e => setRollup(e.target.value)} aria-label="Summary grouping">
             <option value="">No summary</option><option value="asset">Asset (subtotal per asset and point, plus totals)</option><option value="site">Site (subtotal per site and point, plus totals)</option>
           </select>
+          <label><input type="checkbox" checked={insights} onChange={e => { setInsights(e.target.checked); if (!e.target.checked) setCompare(false); }} style={{ width: 'auto' }} /> Add an insights section (trend, peak, unusual buckets)</label>
+          <label><input type="checkbox" checked={compare} disabled={!insights || windowHours > 24 * 45} onChange={e => setCompare(e.target.checked)} style={{ width: 'auto' }} /> Compare with the previous window (windows up to 45 days)</label>
           <label>Page header and footer (optional, up to 80 characters each; printed on every PDF page)</label>
           <div style={{ display: 'flex', gap: 6 }}>
             <input maxLength={80} placeholder="Header text" aria-label="Report header" value={header} onChange={e => setHeader(e.target.value)} />

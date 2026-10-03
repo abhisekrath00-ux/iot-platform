@@ -1374,7 +1374,7 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 	if err != nil {
 		return fail(err)
 	}
-	if def, err = s.withGroupLabels(ctx, tenant, def); err != nil {
+	if def, err = s.withReportContext(ctx, tenant, def); err != nil {
 		return fail(err)
 	}
 	htmlDoc := report.Render(name, def, series, time.Now())
@@ -1500,7 +1500,7 @@ func (s *server) previewReport(w http.ResponseWriter, r *http.Request) {
 	}
 	series, total, err := s.buildSeries(r.Context(), auth.Tenant(r), in.Definition)
 	if err == nil {
-		in.Definition, err = s.withGroupLabels(r.Context(), auth.Tenant(r), in.Definition)
+		in.Definition, err = s.withReportContext(r.Context(), auth.Tenant(r), in.Definition)
 	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -1531,7 +1531,7 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 	}
 	series, _, err := s.buildSeries(r.Context(), auth.Tenant(r), def)
 	if err == nil {
-		def, err = s.withGroupLabels(r.Context(), auth.Tenant(r), def)
+		def, err = s.withReportContext(r.Context(), auth.Tenant(r), def)
 	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)

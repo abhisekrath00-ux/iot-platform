@@ -162,6 +162,19 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 	put(title, true)
 	put(fmt.Sprintf("Generated %s  window %dh  grouped by %s", generated.UTC().Format(time.RFC3339), d.WindowHours, d.GroupBy), false)
 	put("", false)
+	if d.Insights {
+		put("Insights", true)
+		put("Statistical summary of bucketed averages in this window.", false)
+		put("It describes what the data did, not why, and it predicts nothing.", false)
+		if lines := InsightLines(Insights(d, series)); len(lines) == 0 {
+			put("no data in window", false)
+		} else {
+			for _, l := range lines {
+				put(l, false)
+			}
+		}
+		put("", false)
+	}
 	if d.Layout == "matrix" {
 		for i, m := range d.Metrics {
 			if i >= 4 {

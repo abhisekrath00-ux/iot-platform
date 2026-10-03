@@ -37,6 +37,12 @@ type Definition struct {
 	// page, and at the top and bottom of the HTML. No markup; it is escaped.
 	Header string `json:"header,omitempty"`
 	Footer string `json:"footer,omitempty"`
+	// Insights adds a statistical summary section (trend, peak, unusual buckets). Compare also sets each metric
+	// against the window just before it (window up to 45 days). See insights.go.
+	Insights bool `json:"insights,omitempty"`
+	Compare  bool `json:"compare,omitempty"`
+	// Previous holds the preceding window's buckets for Compare. Filled by the server at render time.
+	Previous map[Metric][]Bucket `json:"-"`
 	// GroupLabels maps device_id to its asset or site name. Filled by the server
 	// at render time from the database, never stored or read from a request.
 	GroupLabels map[string]string `json:"-"`
@@ -95,6 +101,9 @@ func Validate(d Definition) error {
 	case "", "avg", "min", "max", "sum":
 	default:
 		return ErrBadLayout
+	}
+	if d.Compare && (!d.Insights || d.WindowHours > 24*45) {
+		return fmt.Errorf("compare needs insights on and a window of at most 45 days")
 	}
 	switch d.Rollup {
 	case "", "asset", "site":
@@ -220,6 +229,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 			b.WriteString(`<td>` + html.EscapeString(c) + `</td>`)
 		}
 		b.WriteString(`</tr></table>`)
+		writeInsightsHTML(&b, d, series)
 		writeRollupHTML(&b, d, series)
 		writeFooter(&b, d)
 		return b.String()
@@ -250,6 +260,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		fmt.Fprintf(&b, `<tr style="font-weight:600;background:#fafafa"><td>overall</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`, ta, tmin, tmax, tsum, tn)
 		b.WriteString(`</table>`)
 	}
+	writeInsightsHTML(&b, d, series)
 	writeRollupHTML(&b, d, series)
 	writeFooter(&b, d)
 	return b.String()
