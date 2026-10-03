@@ -141,3 +141,5 @@ embedded charts, expressions (computed columns are built; see the table). PDF mu
 server-side with a Go library or a pure-Go renderer; no browser or cloud
 service. Expressions will be a small safe expression language, not the
 function node sandbox.
+
+| AI assistant (agentic, any OpenAI-compatible model, confirm gate) | Built, fake-model-tested only. See [assistant.md](assistant.md). Slack/email channels not built. |

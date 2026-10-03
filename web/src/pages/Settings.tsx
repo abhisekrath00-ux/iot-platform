@@ -5,6 +5,7 @@ import RetentionCard from '../components/RetentionCard';
 import DirectDevices from '../components/DirectDevices';
 import EdgeRules from '../components/EdgeRules';
 import FeatureToggles from '../components/FeatureToggles';
+import AISettings from '../components/AISettings';
 
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
 
@@ -72,6 +73,7 @@ export default function Settings() {
       <RetentionCard />
       <DirectDevices />
       <FeatureToggles />
+      <AISettings />
       <EdgeRules />
       <ApiKeys />
       <div className="cards">

@@ -19,6 +19,7 @@ import Audit from './pages/Audit';
 import Reports from './pages/Reports';
 import Profiles from './pages/Profiles';
 import Assets from './pages/Assets';
+import Assistant from './pages/Assistant';
 import Kpis from './pages/Kpis';
 
 const icons: Record<string, JSX.Element> = {
@@ -27,6 +28,7 @@ const icons: Record<string, JSX.Element> = {
   'Add device': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>,
   'Scan': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 12l6-6"/></svg>,
   'Dashboards': <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg>,
+  'Assistant': <svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg>,
   'Flows': <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H14a4 4 0 014 4v5.5"/></svg>,
   'Alerts': <svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1112 0v5l2 2H4z"/><path d="M10 21h4"/></svg>,
   'Control': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>,
@@ -38,7 +40,7 @@ const icons: Record<string, JSX.Element> = {
   'Settings': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 00-2.2-1.3L14 3h-4l-.4 2.5a7 7 0 00-2.2 1.3l-2.3-1-2 3.4 2 1.5a7 7 0 000 2.6l-2 1.5 2 3.4 2.3-1a7 7 0 002.2 1.3L10 21h4l.4-2.5a7 7 0 002.2-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3z"/></svg>,
 };
 
-const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/kpis", "KPIs"], ["/onboarding", "Add device"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
+const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/kpis", "KPIs"], ["/onboarding", "Add device"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/assistant", "Assistant"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
 
 export default function App() {
   const [theme, toggle] = useTheme();
@@ -83,6 +85,7 @@ export default function App() {
           <Route path="/reports" element={<Reports />} />
           <Route path="/profiles" element={<Profiles />} />
           <Route path="/assets" element={<Assets />} />
+          <Route path="/assistant" element={<Assistant />} />
           <Route path="/kpis" element={<Kpis />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/settings" element={<Settings />} />

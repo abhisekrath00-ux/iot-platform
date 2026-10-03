@@ -88,3 +88,5 @@ misreading is visible. Anything else gets a 422 with examples. Device names must
 ignored); ambiguity or no match is a 404. It can never write, approve or actuate: the parser has no such kind, and a test
 checks that unsupported questions such as "turn off the siren" run nothing. Label: rule-based, tested; no learned model,
 no synonyms beyond the phrases in `ask.go`.
+
+The agentic assistant (see [assistant.md](assistant.md)) runs as the signed-in user, cannot approve control commands, and every change it makes needs the user's confirmation and is audited as AI-initiated.

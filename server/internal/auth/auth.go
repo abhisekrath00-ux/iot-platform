@@ -34,6 +34,22 @@ type KeyResolver func(ctx context.Context, token string) (tenant, user, role str
 // CtxViaKey marks requests authenticated by an API key rather than a session.
 const CtxViaKey ctxKey = "via_key"
 
+// CtxViaAI marks requests the AI assistant makes on a user's behalf. They run with that user's tenant
+// and role, and they also count as ViaKey: anything an API key cannot do (approve a command, manage
+// secrets or keys) the assistant cannot do either.
+const CtxViaAI ctxKey = "via_ai"
+
+func ViaAI(r *http.Request) bool { v, _ := r.Context().Value(CtxViaAI).(bool); return v }
+
+// AsAssistant returns ctx marked as an assistant request for this user.
+func AsAssistant(ctx context.Context, tenant, user, role string) context.Context {
+	ctx = context.WithValue(ctx, CtxTenant, tenant)
+	ctx = context.WithValue(ctx, CtxUser, user)
+	ctx = context.WithValue(ctx, CtxRole, role)
+	ctx = context.WithValue(ctx, CtxViaKey, true)
+	return context.WithValue(ctx, CtxViaAI, true)
+}
+
 func ViaKey(r *http.Request) bool { v, _ := r.Context().Value(CtxViaKey).(bool); return v }
 
 func Middleware(secret []byte, resolvers ...KeyResolver) func(http.Handler) http.Handler {

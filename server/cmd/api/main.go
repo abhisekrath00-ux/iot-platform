@@ -49,6 +49,7 @@ type server struct {
 	cache   *respcache.Cache
 	secrets *secrets.Store // nil or empty key = disabled (503)
 	ts      tsstore.Store  // nil = Postgres; see internal/tsstore
+	inner   http.Handler   // the /v1 handler chain behind authentication; the assistant calls it as the user
 }
 
 func main() {
@@ -182,6 +183,13 @@ func main() {
 	api.HandleFunc("GET /v1/escalation", s.getEscalation)
 	api.HandleFunc("PUT /v1/escalation", s.putEscalation)
 	api.HandleFunc("POST /v1/ask", s.askQuestion)
+	api.HandleFunc("GET /v1/ai/settings", s.getAISettings)
+	api.HandleFunc("PUT /v1/ai/settings", s.putAISettings)
+	api.HandleFunc("POST /v1/ai/test", s.testAI)
+	api.HandleFunc("POST /v1/assistant/chat", s.assistantChat)
+	api.HandleFunc("GET /v1/assistant/actions", s.listAssistantActions)
+	api.HandleFunc("POST /v1/assistant/actions/{id}/confirm", s.confirmAssistantAction)
+	api.HandleFunc("POST /v1/assistant/actions/{id}/reject", s.rejectAssistantAction)
 	api.HandleFunc("GET /v1/relations", s.listRelations)
 	api.HandleFunc("POST /v1/relations", s.createRelation)
 	api.HandleFunc("DELETE /v1/relations", s.deleteRelation)
@@ -284,7 +292,8 @@ func main() {
 	}
 	mux.HandleFunc("POST /v1/lorawan/uplink", s.lorawanUplink) // device token auth, like /v1/device/ingest
 	mux.HandleFunc("POST /v1/device/ingest", s.deviceIngest)   // device token auth, outside the session middleware
-	mux.Handle("/v1/", auth.Middleware(s.secret, s.resolveAPIKey)(s.invalidateOnWrite(api)))
+	s.inner = s.invalidateOnWrite(api)
+	mux.Handle("/v1/", auth.Middleware(s.secret, s.resolveAPIKey)(s.inner))
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).
 	go leader.Run(ctx, st.Pool, leaderReportScheduler, "report-scheduler", 10*time.Second, s.reportScheduler)
@@ -1708,6 +1717,15 @@ func (s *server) createFlow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) audit(r *http.Request, action, target string, detail map[string]any) {
+	if auth.ViaAI(r) {
+		// the AI assistant acted for this user; the actor stays the user, the detail says who really did it
+		cp := make(map[string]any, len(detail)+1)
+		for k, v := range detail {
+			cp[k] = v
+		}
+		cp["ai_initiated"] = true
+		detail = cp
+	}
 	d, _ := json.Marshal(detail)
 	if _, err := s.st.Pool.Exec(r.Context(),
 		`INSERT INTO audit_log(tenant_id,actor,action,target,detail) VALUES($1,$2,$3,$4,$5)`,
