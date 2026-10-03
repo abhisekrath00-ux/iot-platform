@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
-type Flags = { function_nodes: boolean; http_nodes: boolean };
+type Flags = { function_nodes: boolean; http_nodes: boolean; require_totp_approval: boolean };
 
 const ITEMS: { key: keyof Flags; title: string; hint: string }[] = [
   { key: 'function_nodes', title: 'Function nodes (JavaScript)', hint: 'Sandboxed JavaScript in flows (50 ms and memory limits). Admins only can save flows that use it.' },
   { key: 'http_nodes', title: 'HTTP request nodes', hint: 'Flows may call fixed HTTP(S) addresses and use the answer. Loopback and metadata addresses stay blocked; private networks are reachable. Admins only can save flows that use it.' },
+  { key: 'require_totp_approval', title: 'Authenticator code to approve control commands', hint: 'Approvers enter a one-time code from their authenticator app (enroll under Settings). Sign-in itself is by your SSO provider.' },
 ];
 
 // Per-tenant switches for flow nodes that reach outside the platform. Off by default; admin only.

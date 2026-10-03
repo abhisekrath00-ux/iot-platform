@@ -19,6 +19,7 @@ const (
 
 // readDenied are paths the assistant may not even read: credentials and its own settings.
 var readDenied = []*regexp.Regexp{
+	regexp.MustCompile(`^/v1/me(/|$)`),
 	regexp.MustCompile(`^/v1/secrets(/|$)`),
 	regexp.MustCompile(`^/v1/api-keys(/|$)`),
 	regexp.MustCompile(`^/v1/devices/[^/]+/tokens(/|$)`),

@@ -117,3 +117,6 @@ Webhook channels can only be created by a tenant admin. Flows and rules referenc
 
 ## AI assistant
 Default-deny API policy, key-session semantics (cannot approve commands), write-only encrypted model key, SSRF guard on the model URL. See [assistant.md](assistant.md).
+
+## Authenticator code for control approvals
+Sign-in is by SSO (the identity provider enforces its own MFA). Workspaces can additionally require a one-time authenticator code (TOTP) when someone approves a control command: `require_totp_approval` under Settings. Each approver enrolls their own app; the secret is AES-GCM sealed with `SECRETS_KEY`, bound to tenant and user. A code works once (the accepted time step is recorded), removal needs a current code, and failed approvals are audited. API keys and the AI assistant can never approve commands regardless. No recovery codes yet: an admin who loses their authenticator must ask another admin to turn the policy off.

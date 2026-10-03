@@ -5,6 +5,7 @@ import RetentionCard from '../components/RetentionCard';
 import DirectDevices from '../components/DirectDevices';
 import EdgeRules from '../components/EdgeRules';
 import FeatureToggles from '../components/FeatureToggles';
+import Authenticator from '../components/Authenticator';
 import AttributeDefs from '../components/AttributeDefs';
 import AISettings from '../components/AISettings';
 import AssistantChannels from '../components/AssistantChannels';
@@ -75,6 +76,7 @@ export default function Settings() {
       <RetentionCard />
       <DirectDevices />
       <FeatureToggles />
+      <Authenticator />
       <AttributeDefs />
       <AISettings />
       <AssistantChannels />

@@ -208,6 +208,10 @@ func main() {
 	api.HandleFunc("DELETE /v1/oncall/{id}", s.deleteOnCall)
 	api.HandleFunc("POST /v1/alerts/{id}/resolve", s.resolveAlert)
 	api.HandleFunc("POST /v1/alerts/{id}/comments", s.commentAlert)
+	api.HandleFunc("GET /v1/me/totp", s.totpStatus)
+	api.HandleFunc("POST /v1/me/totp/begin", s.totpBegin)
+	api.HandleFunc("POST /v1/me/totp/confirm", s.totpConfirm)
+	api.HandleFunc("DELETE /v1/me/totp", s.totpRemove)
 	api.HandleFunc("GET /v1/groups", s.listGroups)
 	api.HandleFunc("POST /v1/groups", s.createGroup)
 	api.HandleFunc("GET /v1/groups/{id}", s.getGroup)
@@ -687,6 +691,20 @@ func (s *server) approveCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if s.featureEnabled(r, featureTOTP) {
+		// second factor: a fresh code from the approver's authenticator app, one use per code
+		var in codeIn
+		json.NewDecoder(http.MaxBytesReader(w, r.Body, 512)).Decode(&in)
+		if _, enrolled, _, _ := s.totpSecret(r); !enrolled {
+			http.Error(w, "this workspace requires an authenticator code to approve: enroll one under Settings first", 403)
+			return
+		}
+		if !s.verifyTOTP(r, in.Code) {
+			s.audit(r, "command.approve_refused", id, map[string]any{"reason": "bad or reused authenticator code"})
+			http.Error(w, "authenticator code missing, wrong or already used", 403)
+			return
+		}
+	}
 	// Approver must differ from requester (four-eyes on actuation).
 	tag, err := s.st.Pool.Exec(r.Context(),
 		`UPDATE commands SET status='approved', approved_by=$1, issued_at=now(), expires_at=now()+interval '5 minutes'

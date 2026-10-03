@@ -10,8 +10,17 @@ export default function Commands() {
   const [err, setErr] = useState('');
   const load = () => api<CommandRow[]>('/v1/commands').then(setRows).catch(e => setErr(String(e)));
   useEffect(() => { load(); }, []);
-  const approve = (id: string) =>
-    api(`/v1/commands/${id}/approve`, { method: 'POST' }).then(load).catch(e => setErr(String(e)));
+  const approve = async (id: string) => {
+    setErr('');
+    let body: string | undefined;
+    const t = await api<{ required_for_approval: boolean }>('/v1/me/totp').catch(() => null);
+    if (t?.required_for_approval) {
+      const code = window.prompt('Authenticator code (6 digits)');
+      if (!code) return;
+      body = JSON.stringify({ code });
+    }
+    api(`/v1/commands/${id}/approve`, { method: 'POST', body }).then(load).catch(e => setErr(String(e)));
+  };
   return (
     <>
       <h1>Control</h1>
