@@ -1,6 +1,18 @@
 # Gated control nodes for flows (design, not built)
 
-Status: design only. Nothing in this document exists in code. Written 2026-10-02.
+Status: partly built (2026-10-03). Built and tested locally: the control target registry (prerequisite 2): migration 0036,
+admin API `/v1/control-targets` (create, list, enable/disable, set approval mode, delete) and the target list on the Control
+page. **Not built:** the `control.request` flow node, rate-limit enforcement, and any automatic execution. Nothing reads the
+registry yet, so no target can cause an action. Prerequisite 1 (edge Modbus write executor with allowlist) already existed
+before this document was written. Designed 2026-10-02.
+
+### Owner decision, 2026-10-03
+
+The owner chose that the approval requirement is a setting, not a hardcoded rule: a siren or buzzer (an alarm output) may be
+set to fire **automatically**, for example when the server link is down or an alarm rule hits, while every other control action
+needs a second person's approval. The default is approval. The setting is made by an admin per target, is audited, and
+**automatic is accepted only for `alarm_output` targets** (on/off only); the database refuses it for Modbus writes.
+This answers the open question below. The registry stores the choice; the code that would act on `automatic` is not written.
 
 ## Goal
 
@@ -64,5 +76,5 @@ arbitrary topics or addresses, Node-RED import mapping for these nodes (imports 
 
 ## Open decisions for the owner
 
-- Is a human approver always required, even for low-risk class `alarm` targets? (Current answer: yes for flows.)
+- ~~Is a human approver always required, even for low-risk class `alarm` targets?~~ Answered 2026-10-03: configurable per target, default approval, automatic only for alarm outputs.
 - Should the approval screen show the triggering reading and flow, so approvers see why? (Proposed: yes.)

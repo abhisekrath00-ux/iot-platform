@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -55,6 +56,11 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("POST /v1/maintenance", s.createMaintenance)
 	mux.HandleFunc("POST /v1/maintenance/{id}/end", s.endMaintenance)
 	mux.HandleFunc("GET /v1/alerts/{id}/root-cause", s.alertRootCause)
+	mux.HandleFunc("GET /v1/control-targets", s.listControlTargets)
+	mux.HandleFunc("POST /v1/control-targets", s.createControlTarget)
+	mux.HandleFunc("POST /v1/control-targets/{id}/enabled", s.setControlTargetEnabled)
+	mux.HandleFunc("POST /v1/control-targets/{id}/mode", s.setControlTargetMode)
+	mux.HandleFunc("DELETE /v1/control-targets/{id}", s.deleteControlTarget)
 	mux.HandleFunc("GET /v1/assignees", s.listAssignees)
 	mux.HandleFunc("GET /v1/escalation", s.getEscalation)
 	mux.HandleFunc("PUT /v1/escalation", s.putEscalation)
@@ -839,3 +845,86 @@ func TestIntegrationMaintenanceWindow(t *testing.T) {
 		t.Fatalf("other tenant: %d", w.Code)
 	}
 }
+
+func TestIntegrationControlTargets(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-ct")
+	seed(t, s, "itest-ct2")
+	ctx := context.Background()
+	s.st.Pool.Exec(ctx, `DELETE FROM control_targets WHERE tenant_id IN ('itest-ct','itest-ct2')`)
+	base := `"gateway_id":"itest-ct-gw","device_id":"itest-ct-dev","point_id":"temp"`
+	post := func(role, body string) (int, string) {
+		w := call(h, "itest-ct", role, "POST", "/v1/control-targets", body)
+		return w.Code, w.Body.String()
+	}
+	if c, _ := post("operator", `{"name":"a","kind":"modbus_write",`+base+`,"min":0,"max":10}`); c != 403 {
+		t.Fatalf("only an admin defines targets: %d", c)
+	}
+	for name, body := range map[string]string{
+		"open ended":          `{"name":"a","kind":"modbus_write",` + base + `}`,
+		"min>max":             `{"name":"a","kind":"modbus_write",` + base + `,"min":5,"max":1}`,
+		"unknown kind":        `{"name":"a","kind":"shell",` + base + `,"min":0,"max":1}`,
+		"automatic modbus":    `{"name":"a","kind":"modbus_write","approval_mode":"automatic",` + base + `,"min":0,"max":1}`,
+		"unknown mode":        `{"name":"a","kind":"alarm_output","approval_mode":"maybe",` + base + `}`,
+		"unknown device":      `{"name":"a","kind":"modbus_write","gateway_id":"x","device_id":"y","point_id":"z","min":0,"max":1}`,
+		"other tenant device": `{"name":"a","kind":"modbus_write","gateway_id":"itest-ct2-gw","device_id":"itest-ct2-dev","point_id":"temp","min":0,"max":1}`,
+		"unknown field":       `{"name":"a","kind":"modbus_write",` + base + `,"min":0,"max":1,"owner":"x"}`,
+		"too many per hour":   `{"name":"a","kind":"modbus_write",` + base + `,"min":0,"max":1,"max_per_hour":999}`,
+	} {
+		if c, b := post("admin", body); c != 400 {
+			t.Fatalf("%s accepted: %d %s", name, c, b)
+		}
+	}
+	c, b := post("admin", `{"name":"Setpoint","kind":"modbus_write",`+base+`,"min":10,"max":30}`)
+	if c != 201 || !strings.Contains(b, `"approval_mode":"approval"`) || !strings.Contains(b, `"enabled":false`) {
+		t.Fatalf("new modbus target must default to approval and disabled: %d %s", c, b)
+	}
+	var mod controlTarget
+	json.Unmarshal([]byte(b), &mod)
+	if c, _ := post("admin", `{"name":"Setpoint","kind":"modbus_write",`+base+`,"min":10,"max":30}`); c != 409 {
+		t.Fatalf("duplicate name: %d", c)
+	}
+	// an alarm output is on/off only, whatever the caller sends
+	c, b = post("admin", `{"name":"Siren","kind":"alarm_output",`+base+`,"min":0,"max":100,"approval_mode":"automatic"}`)
+	if c != 201 || !strings.Contains(b, `"allowed_values":[0,1]`) || !strings.Contains(b, `"approval_mode":"automatic"`) {
+		t.Fatalf("alarm output: %d %s", c, b)
+	}
+	var siren controlTarget
+	json.Unmarshal([]byte(b), &siren)
+	// the mode switch: admin only, automatic never for a Modbus write
+	if w := call(h, "itest-ct", "operator", "POST", "/v1/control-targets/"+siren.ID+"/mode", `{"approval_mode":"approval"}`); w.Code != 403 {
+		t.Fatalf("operator changed mode: %d", w.Code)
+	}
+	if w := call(h, "itest-ct", "admin", "POST", "/v1/control-targets/"+mod.ID+"/mode", `{"approval_mode":"automatic"}`); w.Code != 422 {
+		t.Fatalf("modbus target went automatic: %d", w.Code)
+	}
+	if w := call(h, "itest-ct", "admin", "POST", "/v1/control-targets/"+siren.ID+"/mode", `{"approval_mode":"approval"}`); w.Code != 200 {
+		t.Fatalf("back to approval: %d", w.Code)
+	}
+	if w := call(h, "itest-ct2", "admin", "POST", "/v1/control-targets/"+siren.ID+"/mode", `{"approval_mode":"automatic"}`); w.Code != 404 {
+		t.Fatalf("other tenant: %d", w.Code)
+	}
+	if w := call(h, "itest-ct", "admin", "POST", "/v1/control-targets/"+siren.ID+"/enabled", `{"enabled":true}`); w.Code != 200 {
+		t.Fatalf("enable: %d", w.Code)
+	}
+	if w := call(h, "itest-ct", "viewer", "GET", "/v1/control-targets", ""); w.Code != 403 {
+		t.Fatalf("viewer list: %d", w.Code)
+	}
+	if w := call(h, "itest-ct", "operator", "GET", "/v1/control-targets", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"Siren"`) || strings.Contains(w.Body.String(), "itest-ct2") {
+		t.Fatalf("list: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(h, "itest-ct", "admin", "DELETE", "/v1/control-targets/"+mod.ID, ""); w.Code != 204 {
+		t.Fatalf("delete: %d", w.Code)
+	}
+	// value checks: out of range or not in the set is refused, never clamped
+	tg := controlTarget{Min: ptrF(10), Max: ptrF(30)}
+	if tg.CheckValue(31) == nil || tg.CheckValue(9.9) == nil || tg.CheckValue(10) != nil || tg.CheckValue(math.NaN()) == nil {
+		t.Fatal("range check wrong")
+	}
+	sv := controlTarget{AllowedValues: []float64{0, 1}}
+	if sv.CheckValue(0.5) == nil || sv.CheckValue(1) != nil {
+		t.Fatal("set check wrong")
+	}
+}
+
+func ptrF(f float64) *float64 { return &f }

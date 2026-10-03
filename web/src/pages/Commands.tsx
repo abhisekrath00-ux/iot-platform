@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, CommandRow } from '../lib/api';
 import Empty from '../components/Empty';
+import ControlTargets from '../components/ControlTargets';
 
 // Control center. Every actuation is request -> approve (four-eyes) -> send
 // -> ack -> measured outcome, all audited. See docs/security.md.
@@ -31,6 +32,7 @@ export default function Commands() {
           ))}
         </tbody>
       </table>}
+      <ControlTargets />
     </>
   );
 }
