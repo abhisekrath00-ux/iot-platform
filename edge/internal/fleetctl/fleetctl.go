@@ -23,6 +23,8 @@ type Manifest struct {
 	Version        string  `json:"version"`
 	ArtifactSHA256 *string `json:"artifact_sha256"`
 	GatewaySerial  string  `json:"gateway_serial"`
+	TenantID       string  `json:"tenant_id,omitempty"`
+	Signature      string  `json:"signature,omitempty"`
 }
 
 // Ack answers a manifest on the fleet/ack topic.
@@ -75,6 +77,16 @@ func HandleManifest(payload []byte, artifactDir, gatewaySerial string) Ack {
 		return bad("manifest missing campaign/release/version")
 	}
 	ack := Ack{CampaignID: m.CampaignID}
+	if TrustedKey != nil {
+		if err := VerifyManifest(TrustedKey, m); err != nil {
+			ack.State, ack.Detail = "failed", "refused: "+err.Error()
+			return ack
+		}
+		if ExpectedTenant != "" && m.TenantID != ExpectedTenant {
+			ack.State, ack.Detail = "failed", "refused: manifest is for another tenant"
+			return ack
+		}
+	}
 	if m.GatewaySerial != "" && m.GatewaySerial != gatewaySerial {
 		ack.State = "failed"
 		ack.Detail = fmt.Sprintf("manifest addressed to %s, this gateway is %s", m.GatewaySerial, gatewaySerial)

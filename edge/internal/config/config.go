@@ -19,6 +19,8 @@ type Config struct {
 	// ArtifactDir stages fleet release artifacts by digest (air-gapped
 	// bundles pre-seed it). Defaults to /var/lib/hexmon-edge/artifacts.
 	ArtifactDir string `yaml:"artifact_dir"`
+	// FleetPublicKey (base64 Ed25519) makes the agent refuse fleet manifests the control plane did not sign.
+	FleetPublicKey string `yaml:"fleet_public_key"`
 
 	MQTT struct {
 		Host     string `yaml:"host"`

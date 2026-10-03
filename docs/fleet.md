@@ -70,3 +70,11 @@ on-gateway apply) is scoped below.
   tenant is refused. Health-check failure restores the backup byte-for-byte
   and the ACK reports the rollback. Binary self-updates require signed
   artifacts (lifecycle gate in docs/security.md) before they ship.
+
+## Signed manifests (built, simulator/unit-tested only)
+
+- The control plane signs every release manifest with Ed25519 (`FLEET_SIGNING_KEY`, a base64 32-byte seed from the environment, never the database). The signature covers tenant, campaign, release, version, artifact SHA-256 and gateway serial, so a manifest cannot be edited or replayed to another gateway or tenant. Generate a pair with `go run ./cmd/fleetkey` in `server/`.
+- An edge with `fleet_public_key` set in its config refuses unsigned, tampered, wrong-key and other-tenant manifests (the ACK says `failed: refused: ...`) before it touches any artifact. Without the key the edge behaves as before (digest check only), and without the signing key the server sends unsigned manifests. Run with both set in production.
+- The artifact is bound to the signature through its digest, so a signed manifest plus the existing digest check means a swapped artifact is refused.
+- Tests: signature vector shared by server and edge (the two copies of the canonical form cannot drift), tamper cases for each field, wrong key, unsigned, wrong tenant, end-to-end `HandleManifest`.
+- Not built and not testable without devices: firmware flashing for MCU or PLC end devices (the LwM2M firmware-update object, vendor bootloaders), signed-artifact key rotation, key revocation lists, a hardware root of trust. This protects edge agent config and release delivery only. Never run against a real broker or a real fleet.

@@ -7,6 +7,7 @@ package main
 // platform-side campaign state.
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -185,6 +186,10 @@ func (s *server) fanoutStage(r *http.Request, c *campaignRow, cohort []string) {
 		return
 	}
 	tenant := auth.Tenant(r)
+	signKey, kerr := fleet.SigningKeyFromEnv()
+	if kerr != nil {
+		log.Printf("fleet fanout: %v (sending unsigned)", kerr)
+	}
 	for _, serial := range cohort {
 		var gwID string
 		if err := s.st.Pool.QueryRow(r.Context(),
@@ -193,10 +198,7 @@ func (s *server) fanoutStage(r *http.Request, c *campaignRow, cohort []string) {
 			log.Printf("fleet fanout: unknown gateway %s: %v", serial, err)
 			continue
 		}
-		manifest, _ := json.Marshal(map[string]any{
-			"campaign_id": c.ID, "release_id": c.ReleaseID, "version": version,
-			"artifact_sha256": sha, "gateway_serial": serial,
-		})
+		manifest := buildManifest(signKey, tenant, c.ID, c.ReleaseID, version, sha, serial)
 		topic := fmt.Sprintf("t/%s/g/%s/fleet", tenant, gwID)
 		if err := s.publishMQTTRetained(topic, manifest, true); err != nil {
 			log.Printf("fleet fanout: publish %s: %v", serial, err)
@@ -462,4 +464,17 @@ func (s *server) ackAssignment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"recorded": in.State})
+}
+
+// buildManifest is the retained release assignment; it carries an Ed25519 signature when a key is configured.
+func buildManifest(key ed25519.PrivateKey, tenant, campaign, release, version string, sha *string, serial string) []byte {
+	mf := map[string]any{
+		"campaign_id": campaign, "release_id": release, "version": version,
+		"artifact_sha256": sha, "gateway_serial": serial, "tenant_id": tenant,
+	}
+	if key != nil {
+		mf["signature"] = fleet.Sign(key, tenant, campaign, release, version, sha, serial)
+	}
+	b, _ := json.Marshal(mf)
+	return b
 }

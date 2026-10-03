@@ -305,6 +305,14 @@ func main() {
 		mcp.Store(mc)
 		// Fleet manifests: retained release assignments. Verify the staged
 		// artifact, then ACK (or fail with the exact reason) on fleet/ack.
+		if cfg.FleetPublicKey != "" {
+			k, kerr := fleetctl.ParsePublicKey(cfg.FleetPublicKey)
+			if kerr != nil {
+				log.Fatalf("fleet: %v", kerr)
+			}
+			fleetctl.TrustedKey, fleetctl.ExpectedTenant = k, cfg.TenantID
+			log.Printf("fleet: signed manifests required")
+		}
 		fleetTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/fleet"
 		artifactDir := cfg.ArtifactDir
 		if artifactDir == "" {
