@@ -12,7 +12,14 @@ import (
 // hours are linearly interpolated; if more than 20% are missing ok=false, since a
 // forecast over mostly invented data would be a false claim.
 func HourlySeries(ctx context.Context, pool *pgxpool.Pool, tenant, dev, pt string, hours int) (start time.Time, vals []float64, ok bool, err error) {
-	end := time.Now().UTC().Truncate(time.Hour)
+	return HourlySeriesEnding(ctx, pool, tenant, dev, pt, hours, time.Now())
+}
+
+// HourlySeriesEnding is HourlySeries for the window that ends at the last complete hour
+// before `at` (never later than now), so every series asked for with the same arguments
+// shares one hour grid.
+func HourlySeriesEnding(ctx context.Context, pool *pgxpool.Pool, tenant, dev, pt string, hours int, at time.Time) (start time.Time, vals []float64, ok bool, err error) {
+	end := at.UTC().Truncate(time.Hour)
 	start = end.Add(-time.Duration(hours) * time.Hour)
 	rows, err := pool.Query(ctx, `
 		WITH parts AS (

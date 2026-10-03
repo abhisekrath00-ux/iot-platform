@@ -36,8 +36,8 @@ func TestToolsListHasNoActuationTools(t *testing.T) {
 	r := call(t, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	res := r.Result.(map[string]any)
 	list, _ := res["tools"].([]any)
-	if len(list) != 12 {
-		t.Fatalf("want 12 tools, got %d", len(list))
+	if len(list) != 13 {
+		t.Fatalf("want 13 tools, got %d", len(list))
 	}
 	for _, tool := range list {
 		name := tool.(map[string]any)["name"].(string)

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, AlertRow, AlertDetail } from '../lib/api';
 import Empty from '../components/Empty';
+import RootCause from '../components/RootCause';
 import EscalationPolicy from '../components/EscalationPolicy';
 
 const FILTERS = ['open', 'acknowledged', 'resolved', 'all'] as const;
@@ -89,7 +90,8 @@ export default function Alerts() {
             {sel.resolved_by && ` · resolved by ${sel.resolved_by}`}
             {sel.assigned_to && ` · assigned to ${nameOf(sel.assigned_to)}`}
           </p>
-          <div className="muted" style={{ marginBottom: 6 }}>Notes</div>
+          <RootCause key={sel.id} alertId={sel.id} />
+          <div className="muted" style={{ margin: '14px 0 6px' }}>Notes</div>
           {sel.comments.length === 0 && <p className="muted">No notes yet.</p>}
           {sel.comments.map((c, i) => (
             <div key={i} style={{ padding: '6px 0', borderTop: '1px solid var(--line)' }}>

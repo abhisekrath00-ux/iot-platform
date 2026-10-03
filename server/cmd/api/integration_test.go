@@ -51,6 +51,7 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("GET /v1/alerts", s.listAlerts)
 	mux.HandleFunc("GET /v1/alerts/{id}", s.getAlert)
 	mux.HandleFunc("POST /v1/alerts/{id}/assign", s.assignAlert)
+	mux.HandleFunc("GET /v1/alerts/{id}/root-cause", s.alertRootCause)
 	mux.HandleFunc("GET /v1/assignees", s.listAssignees)
 	mux.HandleFunc("GET /v1/escalation", s.getEscalation)
 	mux.HandleFunc("PUT /v1/escalation", s.putEscalation)
@@ -720,5 +721,39 @@ func TestIntegrationAlertAssignment(t *testing.T) {
 	w = call(h, "itest-as", "viewer", "GET", "/v1/alerts?status=open&assigned=itest-as-op", "")
 	if strings.Contains(w.Body.String(), "itest-as-a1") {
 		t.Fatalf("still assigned: %s", w.Body.String())
+	}
+}
+
+func TestIntegrationAlertRootCause(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-rc")
+	seed(t, s, "itest-rc2")
+	ctx := context.Background()
+	exec := func(q string, a ...any) {
+		t.Helper()
+		if _, err := s.st.Pool.Exec(ctx, q, a...); err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+	}
+	exec(`DELETE FROM telemetry_rollup_hourly WHERE tenant_id='itest-rc'`)
+	exec(`DELETE FROM alerts WHERE tenant_id='itest-rc'`)
+	exec(`INSERT INTO alerts(id,tenant_id,severity,message,device_id) VALUES('itest-rc-nodev','itest-rc','info','no device',NULL)`)
+	if w := call(h, "itest-rc", "viewer", "GET", "/v1/alerts/itest-rc-nodev/root-cause", ""); w.Code != 422 {
+		t.Fatalf("alert without device: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(h, "itest-rc", "viewer", "GET", "/v1/alerts/nope/root-cause", ""); w.Code != 404 {
+		t.Fatalf("unknown alert: %d", w.Code)
+	}
+	if w := call(h, "itest-rc2", "viewer", "GET", "/v1/alerts/itest-rc-nodev/root-cause", ""); w.Code != 404 {
+		t.Fatalf("other tenant: %d", w.Code)
+	}
+	if w := call(h, "itest-rc", "viewer", "GET", "/v1/alerts/itest-rc-nodev/root-cause?days=99", ""); w.Code != 400 {
+		t.Fatalf("days: %d", w.Code)
+	}
+	// a device with no data: honest "not enough data", never invented hints
+	exec(`INSERT INTO alerts(id,tenant_id,severity,message,device_id) SELECT 'itest-rc-a1','itest-rc','warning','hot',id FROM devices WHERE tenant_id='itest-rc' LIMIT 1`)
+	w := call(h, "itest-rc", "viewer", "GET", "/v1/alerts/itest-rc-a1/root-cause?point_id=temp", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"enough_data":false`) || !strings.Contains(w.Body.String(), `"hints":[]`) {
+		t.Fatalf("no data: %d %s", w.Code, w.Body.String())
 	}
 }

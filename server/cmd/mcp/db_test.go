@@ -227,3 +227,41 @@ func TestAnalyticsToolsTenantScopedAndHonest(t *testing.T) {
 		t.Fatalf("related: %v %s", err, b)
 	}
 }
+
+func TestRootCauseHintsToolOrdersByLeadAndIsTenantScoped(t *testing.T) {
+	s := dbServer(t)
+	seedMCP(t, s, "mcp-rc")
+	seedMCP(t, s, "mcp-rd")
+	ctx := context.Background()
+	p := s.st.Pool
+	p.Exec(ctx, `DELETE FROM alerts WHERE tenant_id='mcp-rc'`)
+	p.Exec(ctx, `DELETE FROM telemetry_rollup_hourly WHERE tenant_id='mcp-rc'`)
+	p.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('mcp-rc-u','mcp-rc','mcp-rc-u@example.test','U','admin') ON CONFLICT DO NOTHING`)
+	if _, err := p.Exec(ctx, `INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES('mcp-rc-rule','mcp-rc','r','{"op":">","point_id":"temp","threshold":1,"severity":"info"}',false,'mcp-rc-u') ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatalf("rule insert: %v", err)
+	}
+	if _, err := p.Exec(ctx, `INSERT INTO alerts(id,tenant_id,rule_id,device_id,severity,message,status,created_at) VALUES('mcp-rc-al','mcp-rc','mcp-rc-rule','mcp-rc-dev','info','m','open',now()) ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatalf("alert insert: %v", err)
+	}
+	end := time.Now().UTC().Truncate(time.Hour)
+	ins := func(pt string, i int, v float64) {
+		p.Exec(ctx, `INSERT INTO telemetry_rollup_hourly(tenant_id,device_id,point_id,bucket,n,sum,min,max) VALUES('mcp-rc','mcp-rc-dev',$1,$2,1,$3,$3,$3)`, pt, end.Add(-time.Duration(i)*time.Hour), v)
+	}
+	wave := func(i int) float64 { return math.Sin(float64(i)*0.9) + math.Sin(float64(i)*0.31) }
+	for i := 1; i <= 24*7; i++ {
+		ins("temp", i, wave(i))
+		ins("pressure", i, wave(i+2)) // pressure repeats the temp shape 2 h later (temp moved first)
+		ins("noise", i, float64((i*7919)%13))
+	}
+	out, err := tool(t, s, "mcp-rc", "root_cause_hints", map[string]any{"alert_id": "mcp-rc-al"})
+	b, _ := json.Marshal(out)
+	if err != nil || !strings.Contains(string(b), `"point_id":"pressure"`) || !strings.Contains(string(b), "not caused by") || !strings.Contains(string(b), `"window_from"`) {
+		t.Fatalf("root cause: %v %s", err, b)
+	}
+	if strings.Contains(string(b), `"point_id":"noise"`) {
+		t.Fatalf("uncorrelated point listed: %s", b)
+	}
+	if _, err := tool(t, s, "mcp-rd", "root_cause_hints", map[string]any{"alert_id": "mcp-rc-al"}); err == nil {
+		t.Fatal("another tenant must not read this alert")
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"math"
 	"net/http"
 	"time"
@@ -22,15 +23,32 @@ var analyticsTools = []map[string]any{
 			"device_id": map[string]any{"type": "string"},
 			"point_id":  map[string]any{"type": "string"},
 			"days":      map[string]any{"type": "integer", "minimum": 1, "maximum": 30}}}},
+	{"name": "root_cause_hints", "description": "For one alert, rank points on the same device and on other devices of the same asset by lagged correlation with the alerting point. Says which moved earlier. Correlation only, never proof of cause; say 'correlated with' and 'moved earlier', not 'caused by'.",
+		"inputSchema": map[string]any{"type": "object", "required": []string{"alert_id"}, "properties": map[string]any{
+			"alert_id": map[string]any{"type": "string"},
+			"point_id": map[string]any{"type": "string", "description": "only if the alert's rule does not name a point"},
+			"days":     map[string]any{"type": "integer", "minimum": 1, "maximum": 30}}}},
 }
 
 func init() { tools = append(tools, analyticsTools...) }
 
 func (s *server) analyticsTool(r *http.Request, name string, args map[string]any) (any, bool, error) {
-	if name != "forecast_time_series" && name != "related_signals" {
+	if name != "forecast_time_series" && name != "related_signals" && name != "root_cause_hints" {
 		return nil, false, nil
 	}
 	ctx, tenant := r.Context(), auth.Tenant(r)
+	if name == "root_cause_hints" {
+		id, _ := args["alert_id"].(string)
+		if id == "" {
+			return nil, true, &toolError{"alert_id required"}
+		}
+		pt, _ := args["point_id"].(string)
+		res, err := forecast.RootCauseHints(ctx, s.st.Pool, tenant, id, pt, clampInt(args["days"], 7, 1, 30))
+		if errors.Is(err, forecast.ErrAlertNotFound) || errors.Is(err, forecast.ErrNoDevice) || errors.Is(err, forecast.ErrNoPoint) {
+			return nil, true, &toolError{err.Error()}
+		}
+		return res, true, err
+	}
 	dev, _ := args["device_id"].(string)
 	pt, _ := args["point_id"].(string)
 	if dev == "" || pt == "" {

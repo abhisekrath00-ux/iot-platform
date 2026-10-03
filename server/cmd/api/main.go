@@ -136,6 +136,7 @@ func main() {
 	api.HandleFunc("GET /v1/telemetry/anomalies", s.anomaliesTelemetry)
 	api.HandleFunc("GET /v1/telemetry/forecast", s.forecastTelemetry)
 	api.HandleFunc("GET /v1/telemetry/related", s.relatedTelemetry)
+	api.HandleFunc("GET /v1/alerts/{id}/root-cause", s.alertRootCause)
 	api.HandleFunc("POST /v1/telemetry/ingest", s.ingestHTTP)
 	api.HandleFunc("POST /v1/commands", s.requestCommand)
 	api.HandleFunc("POST /v1/commands/{id}/approve", s.approveCommand)

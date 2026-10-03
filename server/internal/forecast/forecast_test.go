@@ -3,6 +3,7 @@ package forecast
 import (
 	"math"
 	"math/rand"
+	"strings"
 	"testing"
 )
 
@@ -134,5 +135,18 @@ func TestCUSUMOnSeasonalNeedsDeseasonalizing(t *testing.T) {
 func TestUsefulMargin(t *testing.T) {
 	if usefulMargin(0, 0) != true || usefulMargin(1, 1) || !usefulMargin(0.9, 1) {
 		t.Fatal("margin rule wrong")
+	}
+}
+
+func TestReadingWording(t *testing.T) {
+	a := Reading("d1", "pressure", 0.82, 2)
+	if !strings.Contains(a, "earlier") || !strings.Contains(a, "together") || strings.Contains(strings.ToLower(a), "caus") {
+		t.Errorf("%q", a)
+	}
+	if b := Reading("d1", "flow", -0.7, -3); !strings.Contains(b, "opposite") || !strings.Contains(b, "about 3 h later") {
+		t.Errorf("%q", b)
+	}
+	if c := Reading("d1", "x", 0.9, 0); !strings.Contains(c, "at the same time") {
+		t.Errorf("%q", c)
 	}
 }

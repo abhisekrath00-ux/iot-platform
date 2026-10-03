@@ -50,3 +50,22 @@ No learned models and no free-form natural-language query tool exists yet (the M
 - Control actions are never taken from AI output; the approval and four-eyes
   path is unchanged.
 - No accuracy claim without a test on recorded data that is committed.
+
+
+## Status: alert root-cause hints (built, statistical, tested locally)
+
+`GET /v1/alerts/{id}/root-cause` and the MCP tool `root_cause_hints` rank points on the alert's device,
+and on other devices of the same asset, by lagged Pearson correlation of hourly averages with the
+alerting point over 1-30 days (default 7) ending at the hour the alert was raised. The point comes from
+the alert's rule, or from `point_id` when the rule does not name one.
+
+- Label `statistical`. No model, no LLM, nothing is written, nothing actuates.
+- Wording is "correlated with" and "moved earlier / later", never "caused by". The response carries
+  the data window and how many series were compared.
+- Needs 80% of the window's hours for the alerting point, otherwise `enough_data` is false and no
+  hints are returned. Candidates need |r| >= 0.6, at most 60 series compared, top 10 returned, lags
+  of up to 6 h either way.
+- Limits: hourly resolution only, linear relationships only, no check for a shared third cause, no
+  seasonality removal, so two daily cycles will correlate. Treat hints as places to look.
+- Tested with synthetic series (known lead and lag, an uncorrelated series, tenant isolation, missing
+  data). Not evaluated on real plant data.

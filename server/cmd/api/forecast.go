@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"math"
 	"net/http"
 	"strconv"
@@ -144,3 +145,24 @@ func (s *server) relatedTelemetry(w http.ResponseWriter, r *http.Request) {
 }
 
 func round3(f float64) float64 { return math.Round(f*1000) / 1000 }
+
+// alertRootCause suggests points that move with the alerting point. Statistical
+// correlation only; the response says so and carries its data window.
+func (s *server) alertRootCause(w http.ResponseWriter, r *http.Request) {
+	days, ok := intParam(r, "days", 7, 1, 30)
+	if !ok {
+		http.Error(w, "days must be 1-30", 400)
+		return
+	}
+	res, err := forecast.RootCauseHints(r.Context(), s.st.Pool, auth.Tenant(r), r.PathValue("id"), r.URL.Query().Get("point_id"), days)
+	switch {
+	case errors.Is(err, forecast.ErrAlertNotFound):
+		http.Error(w, "alert not found", 404)
+	case errors.Is(err, forecast.ErrNoDevice), errors.Is(err, forecast.ErrNoPoint):
+		http.Error(w, err.Error(), 422)
+	case err != nil:
+		http.Error(w, "db", 500)
+	default:
+		writeJSON(w, 200, res)
+	}
+}
