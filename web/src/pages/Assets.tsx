@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
+import Relations from '../components/Relations';
 import { api, Device } from '../lib/api';
 
 interface Asset { id: string; parent_id: string | null; name: string; kind: string; devices: number; }
@@ -63,6 +64,7 @@ export default function Assets() {
           <div style={{ marginTop: 14 }}><button type="submit">Create asset</button></div>
         </form>
       </div>
+      <Relations assets={assets} />
       <div className="card" style={{ maxWidth: 640, marginBottom: 20 }}>
         <b>Attach a device</b>
         <label htmlFor="as-dev">Device</label>

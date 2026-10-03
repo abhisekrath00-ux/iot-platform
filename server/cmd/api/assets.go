@@ -114,6 +114,7 @@ func (s *server) deleteAsset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "asset has children or devices", 409)
 		return
 	}
+	s.st.Pool.Exec(r.Context(), `DELETE FROM entity_relations WHERE tenant_id=$1 AND ((from_kind='asset' AND from_id=$2) OR (to_kind='asset' AND to_id=$2))`, auth.Tenant(r), id)
 	ct, err := s.st.Pool.Exec(r.Context(), `DELETE FROM assets WHERE id=$1 AND tenant_id=$2`, id, auth.Tenant(r))
 	if err != nil || ct.RowsAffected() == 0 {
 		http.Error(w, "not found", 404)
