@@ -28,12 +28,17 @@ var analyticsTools = []map[string]any{
 			"alert_id": map[string]any{"type": "string"},
 			"point_id": map[string]any{"type": "string", "description": "only if the alert's rule does not name a point"},
 			"days":     map[string]any{"type": "integer", "minimum": 1, "maximum": 30}}}},
+	{"name": "detect_level_shifts", "description": "Find times when a device point's hourly average settled at a new level (CUSUM on the daily-cycle-removed series). Works without a forecast. Statistical: a shift can be a real process change, a recalibration or a sensor fault, so say 'shifted' and not why. Needs about 3 days of hourly data.",
+		"inputSchema": map[string]any{"type": "object", "required": []string{"device_id", "point_id"}, "properties": map[string]any{
+			"device_id": map[string]any{"type": "string"},
+			"point_id":  map[string]any{"type": "string"},
+			"days":      map[string]any{"type": "integer", "minimum": 3, "maximum": 30}}}},
 }
 
 func init() { tools = append(tools, analyticsTools...) }
 
 func (s *server) analyticsTool(r *http.Request, name string, args map[string]any) (any, bool, error) {
-	if name != "forecast_time_series" && name != "related_signals" && name != "root_cause_hints" {
+	if name != "forecast_time_series" && name != "related_signals" && name != "root_cause_hints" && name != "detect_level_shifts" {
 		return nil, false, nil
 	}
 	ctx, tenant := r.Context(), auth.Tenant(r)
@@ -53,6 +58,44 @@ func (s *server) analyticsTool(r *http.Request, name string, args map[string]any
 	pt, _ := args["point_id"].(string)
 	if dev == "" || pt == "" {
 		return nil, true, &toolError{"device_id and point_id required"}
+	}
+	if name == "detect_level_shifts" {
+		days := clampInt(args["days"], 14, 3, 30)
+		start, vals, ok, err := forecast.HourlySeries(ctx, s.st.Pool, tenant, dev, pt, days*24)
+		if err != nil {
+			return nil, true, err
+		}
+		res := map[string]any{"label": "statistical", "method": "CUSUM on the hourly average after removing the daily cycle; baseline = first 48 h, restarts after each shift",
+			"caveat": "a shift is not a diagnosis: process change, recalibration and sensor fault look the same", "enough_data": ok, "shifts": []map[string]any{}}
+		if !ok || len(vals) < 72 {
+			res["enough_data"] = false
+			return res, true, nil
+		}
+		res["window_from"], res["window_to"] = start, start.Add(time.Duration(len(vals))*time.Hour)
+		shifts := []map[string]any{}
+		des := forecast.Deseasonalize(vals, 24)
+		for _, i := range forecast.CUSUM(des, 48, 0.5, 8) {
+			lo := i - 24
+			if lo < 0 {
+				lo = 0
+			}
+			var before, after float64
+			for _, v := range des[lo:i] {
+				before += v
+			}
+			before /= float64(i - lo)
+			hi := i + 24
+			if hi > len(des) {
+				hi = len(des)
+			}
+			for _, v := range des[i:hi] {
+				after += v
+			}
+			after /= float64(hi - i)
+			shifts = append(shifts, map[string]any{"detected_at": start.Add(time.Duration(i) * time.Hour), "mean_before": rnd(before), "mean_after": rnd(after)})
+		}
+		res["shifts"] = shifts
+		return res, true, nil
 	}
 	if name == "forecast_time_series" {
 		horizon := clampInt(args["horizon_hours"], 24, 1, 72)

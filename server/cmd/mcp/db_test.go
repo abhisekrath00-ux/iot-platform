@@ -265,3 +265,34 @@ func TestRootCauseHintsToolOrdersByLeadAndIsTenantScoped(t *testing.T) {
 		t.Fatal("another tenant must not read this alert")
 	}
 }
+
+func TestDetectLevelShiftsTool(t *testing.T) {
+	s := dbServer(t)
+	seedMCP(t, s, "mcp-ls")
+	seedMCP(t, s, "mcp-lt")
+	ctx := context.Background()
+	s.st.Pool.Exec(ctx, `DELETE FROM telemetry_rollup_hourly WHERE tenant_id='mcp-ls'`)
+	end := time.Now().UTC().Truncate(time.Hour)
+	for i := 1; i <= 24*10; i++ {
+		v := 20 + 2*math.Sin(2*math.Pi*float64((24*10-i)%24)/24)
+		if i <= 24*4 { // the last 4 days run 8 units higher
+			v += 8
+		}
+		s.st.Pool.Exec(ctx, `INSERT INTO telemetry_rollup_hourly(tenant_id,device_id,point_id,bucket,n,sum,min,max) VALUES('mcp-ls','mcp-ls-dev','temp',$1,1,$2,$2,$2)`, end.Add(-time.Duration(i)*time.Hour), v)
+	}
+	out, err := tool(t, s, "mcp-ls", "detect_level_shifts", map[string]any{"device_id": "mcp-ls-dev", "point_id": "temp", "days": float64(10)})
+	b, _ := json.Marshal(out)
+	m := out.(map[string]any)
+	if err != nil || len(m["shifts"].([]map[string]any)) != 1 || !strings.Contains(string(b), `"label":"statistical"`) {
+		t.Fatalf("want one shift: %v %s", err, b)
+	}
+	sh := m["shifts"].([]map[string]any)[0]
+	if sh["mean_after"].(float64)-sh["mean_before"].(float64) < 4 {
+		t.Fatalf("shift size not reported: %s", b)
+	}
+	// no data in another tenant: honest empty answer
+	out, _ = tool(t, s, "mcp-lt", "detect_level_shifts", map[string]any{"device_id": "mcp-ls-dev", "point_id": "temp"})
+	if b, _ := json.Marshal(out); !strings.Contains(string(b), `"enough_data":false`) || strings.Contains(string(b), `"detected_at"`) {
+		t.Fatalf("leak or false claim: %s", b)
+	}
+}

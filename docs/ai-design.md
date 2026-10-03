@@ -69,3 +69,12 @@ the alert's rule, or from `point_id` when the rule does not name one.
   seasonality removal, so two daily cycles will correlate. Treat hints as places to look.
 - Tested with synthetic series (known lead and lag, an uncorrelated series, tenant isolation, missing
   data). Not evaluated on real plant data.
+
+## Status: level-shift detection tool (built, statistical, tested locally)
+
+MCP tool `detect_level_shifts` runs CUSUM on the hourly average of one point after removing the daily
+cycle (baseline: first 48 h, restarts after each shift) and returns when it shifted, with the mean
+before and after (24 h each side). It works without a usable forecast, unlike the change points on
+the forecast endpoint. Label `statistical`. It does not say why: process change, recalibration and a
+failing sensor look the same. Needs 3 or more days of hourly data. Tested on synthetic data with one
+known step and for tenant isolation; not evaluated on real data.
