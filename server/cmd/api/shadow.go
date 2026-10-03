@@ -116,6 +116,10 @@ func (s *server) setDeviceAttributes(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	if err := checkAttrDefs(s.loadAttrDefs(r.Context(), auth.Tenant(r)), in.Attributes); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
 	raw, _ := json.Marshal(in.Attributes)
 	id := r.PathValue("id")
 	ct, err := s.st.Pool.Exec(r.Context(), `UPDATE devices SET attributes=$1 WHERE id=$2 AND tenant_id=$3`, raw, id, auth.Tenant(r))

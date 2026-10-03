@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import DeviceGroups from '../components/DeviceGroups';
 import { Link } from 'react-router-dom';
 import { api, Device } from '../lib/api';
 import Empty from '../components/Empty';
@@ -20,6 +21,7 @@ export default function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [q, setQ] = useState('');
   const [tag, setTag] = useState('');
+  const [group, setGroup] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState('');
@@ -45,10 +47,11 @@ export default function Devices() {
     const p = new URLSearchParams();
     if (q.trim()) p.set('q', q.trim());
     if (tag) p.set('tag', tag);
+    if (group) p.set('group_id', group);
     const qs = p.toString();
     api<Device[]>(`/v1/devices${qs ? `?${qs}` : ''}`).then(d => { setDevices(d); setErr(''); }).catch(e => setErr(String(e)));
   };
-  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [q, tag]);
+  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [q, tag, group]);
 
   const allTags = useMemo(() => Array.from(new Set(devices.flatMap(d => d.tags ?? []))).sort(), [devices]);
   const save = (id: string) => {
@@ -56,7 +59,7 @@ export default function Devices() {
     api(`/v1/devices/${id}/tags`, { method: 'PUT', body: JSON.stringify({ tags }) })
       .then(() => { setEditing(null); load(); }).catch(e => setErr(`Could not save tags: ${e}`));
   };
-  const filtered = q.trim() !== '' || tag !== '';
+  const filtered = q.trim() !== '' || tag !== '' || group !== '';
 
   return (
     <>
@@ -72,6 +75,7 @@ export default function Devices() {
         {imp && <span> Valid: {imp.would} devices. <button onClick={confirmImport}>Create {imp.would}</button> <button className="ghost" onClick={() => setImp(null)}>Cancel</button></span>}
         {impMsg && <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{impMsg}</p>}
       </div>
+      <DeviceGroups selected={group} onSelect={setGroup} />
       {allTags.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
           {allTags.map(t => <button key={t} className={tag === t ? '' : 'ghost'} onClick={() => setTag(tag === t ? '' : t)}>{t}</button>)}
@@ -80,7 +84,7 @@ export default function Devices() {
       {err && <p className="muted">{err}</p>}
       {devices.length === 0 && !err ? (
         filtered
-          ? <Empty title="No matching devices" hint="Clear the search or tag filter to see the whole fleet." action={<button onClick={() => { setQ(''); setTag(''); }}>Clear filters</button>} />
+          ? <Empty title="No matching devices" hint="Clear the search or tag filter to see the whole fleet." action={<button onClick={() => { setQ(''); setTag(''); setGroup(''); }}>Clear filters</button>} />
           : <Empty title="No devices yet" hint="Add a device to start collecting data." action={<Link to="/onboarding"><button>Add a device</button></Link>} />
       ) : (
       <table>

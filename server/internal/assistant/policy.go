@@ -52,6 +52,9 @@ var writeAllowed = []writeRule{
 	w("PUT", `/v1/devices/[^/]+/tags`, "set device tags"),
 	w("PUT", `/v1/devices/[^/]+/asset`, "attach a device to an asset"),
 	w("PUT", `/v1/devices/[^/]+/attributes`, "set device attributes"),
+	w("POST", `/v1/groups`, "create a device group"),
+	w("DELETE", `/v1/groups/[^/]+`, "delete a device group"),
+	w("PUT", `/v1/groups/[^/]+/devices`, "set the devices in a group"),
 	w("POST", `/v1/assets`, "create an asset"),
 	w("DELETE", `/v1/assets/[^/]+`, "delete an asset"),
 	w("POST", `/v1/relations`, "link two assets"),
@@ -116,7 +119,7 @@ var ReadCatalog = []string{
 	"GET /v1/alerts?status=open, GET /v1/alerts/{id}, GET /v1/alerts/{id}/root-cause",
 	"GET /v1/telemetry/series?device_id=&point_id=&hours=, /v1/telemetry/rollup, /v1/telemetry/anomalies, /v1/telemetry/forecast, /v1/telemetry/related",
 	"GET /v1/fleet, GET /v1/gateways, GET /v1/assets, GET /v1/relations?kind=asset&id=, GET /v1/relations/downstream",
-	"GET /v1/kpis, GET /v1/rules, GET /v1/dashboards, GET /v1/reports, GET /v1/flows, GET /v1/maintenance",
+	"GET /v1/groups, GET /v1/groups/{id}, GET /v1/attribute-defs, GET /v1/devices?group_id=, GET /v1/kpis, GET /v1/rules, GET /v1/dashboards, GET /v1/reports, GET /v1/flows, GET /v1/maintenance",
 	"GET /v1/escalation, GET /v1/oncall, GET /v1/notifications/channels, GET /v1/commands, GET /v1/control-targets, GET /v1/audit",
 	"POST /v1/ask with {question} answers a few fixed questions",
 }

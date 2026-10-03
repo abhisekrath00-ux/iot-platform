@@ -208,6 +208,14 @@ func main() {
 	api.HandleFunc("DELETE /v1/oncall/{id}", s.deleteOnCall)
 	api.HandleFunc("POST /v1/alerts/{id}/resolve", s.resolveAlert)
 	api.HandleFunc("POST /v1/alerts/{id}/comments", s.commentAlert)
+	api.HandleFunc("GET /v1/groups", s.listGroups)
+	api.HandleFunc("POST /v1/groups", s.createGroup)
+	api.HandleFunc("GET /v1/groups/{id}", s.getGroup)
+	api.HandleFunc("DELETE /v1/groups/{id}", s.deleteGroup)
+	api.HandleFunc("PUT /v1/groups/{id}/devices", s.setGroupDevices)
+	api.HandleFunc("GET /v1/attribute-defs", s.listAttrDefs)
+	api.HandleFunc("PUT /v1/attribute-defs/{key}", s.putAttrDef)
+	api.HandleFunc("DELETE /v1/attribute-defs/{key}", s.deleteAttrDef)
 	api.HandleFunc("GET /v1/dashboards", s.listDashboards)
 	s.cached(api, "GET /v1/fleet", s.fleetStatus)
 	api.HandleFunc("GET /v1/audit", s.listAudit)
@@ -470,6 +478,7 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 	tag := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("tag")))
 	gw := r.URL.Query().Get("gateway_id")
 	asset := r.URL.Query().Get("asset_id") // matches the asset and everything below it
+	group := r.URL.Query().Get("group_id")
 	rows, err := s.st.Pool.Query(r.Context(),
 		`WITH RECURSIVE sub AS (
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($5,'')
@@ -481,7 +490,8 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		   AND ($2='' OR name ILIKE '%'||$2||'%' OR id ILIKE '%'||$2||'%' OR profile ILIKE '%'||$2||'%')
 		   AND ($3='' OR $3 = ANY(tags))
 		   AND ($4='' OR gateway_id=$4)
-		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw, asset)
+		   AND ($6='' OR id IN (SELECT device_id FROM device_group_members WHERE group_id=$6 AND tenant_id=$1))
+		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw, asset, group)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

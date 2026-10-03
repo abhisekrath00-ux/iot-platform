@@ -150,3 +150,5 @@ function node sandbox.
 | Dashboard import/export | Built: `GET /v1/dashboards/{id}/export`, `POST /v1/dashboards/import` (`hexmon-dashboard/1`), UI buttons. Widgets on devices the target tenant lacks are kept and listed. Tested. |
 | Flow split and join nodes | Built and unit-tested. Split takes a list variable (the HTTP node can now pick a JSON list of plain values, max 100); join combines everything that reaches it in one run (list, sum, avg, min, max, count). Not exported to Node-RED files. Join does not wait across separate runs. |
 | Flow inject (timer) and HTTP request nodes | Already built earlier; the previous version of this list wrongly showed them missing. |
+| Device groups | Built (migration 0043): named sets of devices, API `/v1/groups`, fleet filter `?group_id=`, Devices page chips and editor. Tested. No nested groups, no group-wide rules or dashboards yet. |
+| Typed device attributes | Built (migration 0043): admin-defined attribute types (text, number, yes/no, one-of list, required flag) enforced when device attributes are saved; undefined names stay free-form. Tested. No units conversion, no shared/client scopes. |
