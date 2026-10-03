@@ -80,6 +80,26 @@ func TestIntegrationInvitations(t *testing.T) {
 	if adm("POST", "/v1/users/invites", `{"email":"NEW@iv-test.example","role":"viewer"}`).Code != 409 {
 		t.Fatal("invited an existing user")
 	}
+	// a scoped invitation creates a customer-scoped user; a foreign customer is refused
+	pool.Exec(ctx, `DELETE FROM customers WHERE tenant_id IN ('itest-iv1','itest-iv2')`)
+	pool.Exec(ctx, `INSERT INTO customers(id,tenant_id,name) VALUES('iv-c1','itest-iv1','C1'),('iv-c2','itest-iv2','C2')`)
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM user_customer_scope WHERE tenant_id='itest-iv1'`)
+		pool.Exec(ctx, `DELETE FROM customers WHERE id IN ('iv-c1','iv-c2')`)
+	})
+	if adm("POST", "/v1/users/invites", `{"email":"sc@iv-test.example","role":"viewer","customer_id":"iv-c2"}`).Code != 404 {
+		t.Fatal("invited into another tenant's customer")
+	}
+	w = adm("POST", "/v1/users/invites", `{"email":"sc@iv-test.example","role":"viewer","customer_id":"iv-c1"}`)
+	json.Unmarshal(w.Body.Bytes(), &inv)
+	if accept(inv.Token, "Scoped", "a-long-enough-password").Code != 200 {
+		t.Fatal("scoped accept")
+	}
+	var sc int
+	pool.QueryRow(ctx, `SELECT count(*) FROM user_customer_scope s JOIN users u ON u.id=s.user_id WHERE u.email='sc@iv-test.example' AND s.customer_id='iv-c1'`).Scan(&sc)
+	if sc != 1 {
+		t.Fatal("scope not applied")
+	}
 	// expiry and revoke
 	w = adm("POST", "/v1/users/invites", `{"email":"late@iv-test.example","role":"viewer"}`)
 	json.Unmarshal(w.Body.Bytes(), &inv)

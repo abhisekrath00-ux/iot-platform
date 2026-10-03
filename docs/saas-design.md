@@ -34,7 +34,7 @@ Credential stuffing (rate limit, lockout, generic errors, timing), password stor
 
 ## Not built (honest limits)
 - Custom roles or per-permission RBAC, groups, per-customer roles.
-- Self-service sign-up, emailed invitations (links are copied by an admin), email verification, password reset by email (an admin sets passwords). An invitation cannot carry a customer scope yet; scope the user afterwards.
+- Self-service sign-up, emailed invitations (links are copied by an admin), email verification, password reset by email (an admin sets passwords). An invitation may be limited to one customer; the scope is applied when it is accepted.
 - MFA at sign-in (SSO providers own MFA; TOTP exists only for approving control commands).
 - Session list and per-device sign-out (revocation is all-sessions-before-a-time only). Tokens are not refreshed: they expire after 12 hours.
 - Per-tenant quotas, billing, usage metering, per-tenant data export or deletion, tenant suspension.

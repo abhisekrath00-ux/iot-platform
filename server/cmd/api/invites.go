@@ -29,8 +29,9 @@ func (s *server) createInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var raw struct {
-		Email string `json:"email"`
-		Role  string `json:"role"`
+		Email      string  `json:"email"`
+		Role       string  `json:"role"`
+		CustomerID *string `json:"customer_id"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&raw) != nil {
 		http.Error(w, "bad json", 400)
@@ -44,6 +45,14 @@ func (s *server) createInvite(w http.ResponseWriter, r *http.Request) {
 	if !validRoles[raw.Role] {
 		http.Error(w, "role must be admin, operator, installer or viewer", 400)
 		return
+	}
+	if raw.CustomerID != nil {
+		var ok bool
+		s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM customers WHERE id=$1 AND tenant_id=$2)`, *raw.CustomerID, auth.Tenant(r)).Scan(&ok)
+		if !ok {
+			http.Error(w, "unknown customer", 404)
+			return
+		}
 	}
 	var taken bool
 	s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM users WHERE lower(email)=lower($1))`, email).Scan(&taken)
@@ -61,8 +70,8 @@ func (s *server) createInvite(w http.ResponseWriter, r *http.Request) {
 	exp := time.Now().Add(inviteTTL)
 	// one open invitation per address: a new one replaces the old
 	s.st.Pool.Exec(r.Context(), `DELETE FROM user_invites WHERE tenant_id=$1 AND lower(email)=lower($2) AND used_at IS NULL`, auth.Tenant(r), email)
-	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO user_invites(id,tenant_id,email,role,token_hash,created_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`,
-		id, auth.Tenant(r), email, raw.Role, hashSecret(token), auth.User(r), exp); err != nil {
+	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO user_invites(id,tenant_id,email,role,token_hash,created_by,expires_at,customer_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+		id, auth.Tenant(r), email, raw.Role, hashSecret(token), auth.User(r), exp, raw.CustomerID); err != nil {
 		http.Error(w, "unavailable", 503)
 		return
 	}
@@ -132,8 +141,9 @@ func (s *server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var invID, tenant, email, role string
-	if err := tx.QueryRow(r.Context(), `SELECT id,tenant_id,email,role FROM user_invites WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now() FOR UPDATE`, hashSecret(in.Token)).
-		Scan(&invID, &tenant, &email, &role); err != nil {
+	var cust *string
+	if err := tx.QueryRow(r.Context(), `SELECT id,tenant_id,email,role,customer_id FROM user_invites WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now() FOR UPDATE`, hashSecret(in.Token)).
+		Scan(&invID, &tenant, &email, &role, &cust); err != nil {
 		auth.DummyVerify(in.Password)
 		http.Error(w, "invalid or expired invitation", 400)
 		return
@@ -151,6 +161,12 @@ func (s *server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	if _, err := tx.Exec(r.Context(), `INSERT INTO users(id,tenant_id,email,display_name,role,password_hash,last_login_at) VALUES($1,$2,$3,$4,$5,$6,now())`, uid, tenant, email, name, role, h); err != nil {
 		http.Error(w, "invalid or expired invitation", 400)
 		return
+	}
+	if cust != nil {
+		if _, err := tx.Exec(r.Context(), `INSERT INTO user_customer_scope(tenant_id,user_id,customer_id) VALUES($1,$2,$3)`, tenant, uid, *cust); err != nil {
+			http.Error(w, "invalid or expired invitation", 400)
+			return
+		}
 	}
 	tx.Exec(r.Context(), `UPDATE user_invites SET used_at=now() WHERE id=$1`, invID)
 	tx.Exec(r.Context(), `INSERT INTO audit_log(tenant_id,actor,action,target,detail) VALUES($1,$2,'user.invite_accept',$2,$3)`, tenant, uid, `{"invite":"`+invID+`"}`)

@@ -10,3 +10,4 @@ CREATE TABLE IF NOT EXISTS user_invites (
   used_at     timestamptz
 );
 CREATE INDEX IF NOT EXISTS user_invites_tenant ON user_invites(tenant_id, created_at DESC);
+ALTER TABLE user_invites ADD COLUMN IF NOT EXISTS customer_id TEXT REFERENCES customers(id) ON DELETE CASCADE;
