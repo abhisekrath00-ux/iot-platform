@@ -120,3 +120,6 @@ Default-deny API policy, key-session semantics (cannot approve commands), write-
 
 ## Authenticator code for control approvals
 Sign-in is by SSO (the identity provider enforces its own MFA). Workspaces can additionally require a one-time authenticator code (TOTP) when someone approves a control command: `require_totp_approval` under Settings. Each approver enrolls their own app; the secret is AES-GCM sealed with `SECRETS_KEY`, bound to tenant and user. A code works once (the accepted time step is recorded), removal needs a current code, and failed approvals are audited. API keys and the AI assistant can never approve commands regardless. No recovery codes yet: an admin who loses their authenticator must ask another admin to turn the policy off.
+
+## Customer scoping
+Customer-scoped users are confined by a default-deny allowlist and per-device checks. Design, threat table and limits: [customers-design.md](customers-design.md). Tested against a real database; not independently reviewed.

@@ -127,6 +127,12 @@ func main() {
 		s.cache.UseShared(redisCli)
 		log.Printf("response cache: shared via redis")
 	}
+	api.HandleFunc("GET /v1/customers", s.listCustomers)
+	api.HandleFunc("POST /v1/customers", s.createCustomer)
+	api.HandleFunc("DELETE /v1/customers/{id}", s.deleteCustomer)
+	api.HandleFunc("PUT /v1/customers/{id}/users/{user}", s.setCustomerUser)
+	api.HandleFunc("DELETE /v1/customers/{id}/users/{user}", s.setCustomerUser)
+	api.HandleFunc("PUT /v1/devices/{id}/customer", s.setDeviceCustomer)
 	s.cached(api, "GET /v1/devices", s.listDevices)
 	api.HandleFunc("POST /v1/devices", s.createDevice) // UI onboarding entry point
 	api.HandleFunc("POST /v1/devices/bulk", s.bulkCreateDevices)
@@ -337,7 +343,7 @@ func main() {
 	}
 	mux.HandleFunc("POST /v1/lorawan/uplink", s.lorawanUplink) // device token auth, like /v1/device/ingest
 	mux.HandleFunc("POST /v1/device/ingest", s.deviceIngest)   // device token auth, outside the session middleware
-	s.inner = s.invalidateOnWrite(api)
+	s.inner = s.invalidateOnWrite(s.customerScope(api))
 	mux.Handle("/v1/", auth.Middleware(s.secret, s.resolveAPIKey)(s.inner))
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).
@@ -507,7 +513,7 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		`WITH RECURSIVE sub AS (
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($5,'')
 		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
-		 )
+		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($7,'')", 1)+`
 		 SELECT id, profile, name, gateway_id, created_at, tags, asset_id FROM devices
 		 WHERE tenant_id=$1
 		   AND ($5='' OR asset_id IN (SELECT id FROM sub))
@@ -515,7 +521,8 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		   AND ($3='' OR $3 = ANY(tags))
 		   AND ($4='' OR gateway_id=$4)
 		   AND ($6='' OR id IN (SELECT device_id FROM device_group_members WHERE group_id=$6 AND tenant_id=$1))
-		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw, asset, group)
+		   AND ($7='' OR customer_id IN (SELECT id FROM csub))
+		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw, asset, group, scopeOf(r))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -833,12 +840,13 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		`WITH RECURSIVE sub AS (
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($3,'')
 		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
-		 )
+		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($5,'')", 1)+`
 		 SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by, assigned_to, shelved FROM alerts
 		 WHERE tenant_id=$1 AND ($2 = '' OR status=$2)
 		   AND ($4='' OR ($4='none' AND assigned_to IS NULL) OR assigned_to=$4)
 		   AND ($3='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub)))
-		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset, assigned)
+		   AND ($5='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.customer_id IN (SELECT id FROM csub)))
+		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset, assigned, scopeOf(r))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

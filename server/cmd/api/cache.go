@@ -23,7 +23,12 @@ var cacheTTL = map[string]time.Duration{
 // cached registers a GET route behind the response cache when it has a TTL.
 func (s *server) cached(mux *http.ServeMux, pattern string, h http.HandlerFunc) {
 	if ttl, ok := cacheTTL[pattern]; ok && s.cache != nil {
-		h = s.cache.Middleware(ttl, auth.Tenant, h)
+		h = s.cache.Middleware(ttl, func(r *http.Request) string {
+			if scopeOf(r) != "" {
+				return "" // scoped users never read or fill the shared tenant cache
+			}
+			return auth.Tenant(r)
+		}, h)
 	}
 	mux.HandleFunc(pattern, h)
 }
