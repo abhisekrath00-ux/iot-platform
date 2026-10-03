@@ -181,6 +181,19 @@ func TestIntegrationForecastAndRelated(t *testing.T) {
 	if len(out.Forecast) != 12 || out.Forecast[0].Lower >= out.Forecast[0].Value || out.Forecast[0].Upper <= out.Forecast[0].Value {
 		t.Fatalf("forecast shape %+v", out.Forecast)
 	}
+	var hw = out.Forecast
+	w = call(api, "itest-fc", "viewer", "GET", "/v1/telemetry/forecast?device_id=d1&point_id=temp&horizon_hours=12&model=learned", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"label":"learned"`) || !strings.Contains(w.Body.String(), `"backtest"`) {
+		t.Fatalf("learned forecast %d %s", w.Code, w.Body.String())
+	}
+	out.Forecast = nil
+	json.Unmarshal(w.Body.Bytes(), &out)
+	if len(out.Forecast) != 12 || math.Abs(out.Forecast[0].Value-hw[0].Value) > 8 {
+		t.Fatalf("learned forecast %+v disagrees wildly with Holt-Winters %+v", out.Forecast[0], hw[0])
+	}
+	if w := call(api, "itest-fc2", "viewer", "GET", "/v1/telemetry/forecast?device_id=d1&point_id=temp&model=learned", ""); !strings.Contains(w.Body.String(), `"enough_data":false`) {
+		t.Fatalf("other tenant got a learned forecast: %s", w.Body.String())
+	}
 	if w := call(api, "itest-fc2", "viewer", "GET", "/v1/telemetry/forecast?device_id=d1&point_id=temp", ""); !strings.Contains(w.Body.String(), `"enough_data":false`) {
 		t.Fatalf("other tenant got a forecast: %s", w.Body.String())
 	}

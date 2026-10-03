@@ -50,6 +50,10 @@ func (s *server) forecastTelemetry(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, resp)
 		return
 	}
+	if q.Get("model") == "learned" {
+		s.learnedForecast(w, resp, start, vals, horizon)
+		return
+	}
 	model, err := forecast.Fit(vals, 24)
 	if err != nil {
 		resp["enough_data"] = false
@@ -165,4 +169,32 @@ func (s *server) alertRootCause(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, 200, res)
 	}
+}
+
+// learnedForecast answers model=learned: a ridge autoregression fitted on this series
+// (see internal/forecast/ridge.go). Same response shape; label "learned". It is shown as a
+// prediction only when its backtest beats repeating yesterday by the same 5% margin.
+func (s *server) learnedForecast(w http.ResponseWriter, resp map[string]any, start time.Time, vals []float64, horizon int) {
+	resp["label"] = "learned"
+	resp["method"] = "ridge autoregression on the last 3 hours, the same hour yesterday and hour of day, fitted on this series only on each request; not a neural network and not trained on other devices"
+	phase := start.UTC().Hour()
+	model, err := forecast.FitRidge(vals, phase)
+	if err != nil {
+		resp["enough_data"] = false
+		resp["reason"] = err.Error()
+		writeJSON(w, 200, resp)
+		return
+	}
+	bt, _ := forecast.RunRidgeBacktest(vals, phase, 24)
+	next := start.Add(time.Duration(len(vals)) * time.Hour)
+	out := []map[string]any{}
+	for i, p := range model.Forecast(horizon) {
+		out = append(out, map[string]any{"t": next.Add(time.Duration(i) * time.Hour).Format(time.RFC3339),
+			"value": round3(p.Value), "lower": round3(p.Lower), "upper": round3(p.Upper)})
+	}
+	resp["forecast"] = out
+	resp["backtest"] = map[string]any{"holdout_hours": bt.Holdout, "mae": round3(bt.MAE), "seasonal_naive_mae": round3(bt.NaiveMAE), "useful": bt.Useful}
+	resp["useful"] = bt.Useful
+	resp["interval_note"] = "approximate 95% band from training residuals, widening with the square root of the step"
+	writeJSON(w, 200, resp)
 }

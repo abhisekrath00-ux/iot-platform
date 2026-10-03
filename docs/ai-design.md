@@ -90,3 +90,16 @@ checks that unsupported questions such as "turn off the siren" run nothing. Labe
 no synonyms beyond the phrases in `ask.go`.
 
 The agentic assistant (see [assistant.md](assistant.md)) runs as the signed-in user, cannot approve control commands, and every change it makes needs the user's confirmation and is audited as AI-initiated.
+
+## Learned forecast (`model=learned`)
+
+`GET /v1/telemetry/forecast?...&model=learned` fits a ridge-regularised autoregression (previous three hours, the same hour
+yesterday, hour of day as sine and cosine, intercept) by least squares on the device's own hourly series, then rolls it forward.
+Label in the response: `learned`. What that means and does not mean:
+
+- Coefficients come from data, fitted on every request and not stored. It is not a neural network, uses no pretrained weights and
+  learns nothing from other devices or tenants. It needs 4 days of hourly data.
+- Like the Holt-Winters forecast it is only shown as a prediction when its backtest on the last 24 hours beats repeating yesterday by 5%.
+  Both models can be compared in the Forecast card (selector). Neither is better in general; the backtest decides per series.
+- The interval is an approximation (training residual sigma, widening with the square root of the step). It is not a calibrated prediction interval.
+- Forecasts are descriptive and never trigger actions. Tested on synthetic series only (daily cycle with trend, noise, constant) plus an integration test.

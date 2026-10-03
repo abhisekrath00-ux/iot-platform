@@ -17,17 +17,21 @@ interface Rel { enough_data: boolean; hints: { name: string; r: number; lag: num
 export default function ForecastCard({ device, point }: { device: string; point: string }) {
   const [fc, setFc] = useState<Fc | null>(null);
   const [rel, setRel] = useState<Rel | null>(null);
+  const [model, setModel] = useState<'' | 'learned'>('');
   useEffect(() => {
     setFc(null); setRel(null);
     const q = `device_id=${encodeURIComponent(device)}&point_id=${encodeURIComponent(point)}`;
-    api<Fc>(`/v1/telemetry/forecast?${q}`).then(setFc).catch(() => setFc(null));
+    api<Fc>(`/v1/telemetry/forecast?${q}${model ? `&model=${model}` : ''}`).then(setFc).catch(() => setFc(null));
     api<Rel>(`/v1/telemetry/related?${q}`).then(setRel).catch(() => setRel(null));
-  }, [device, point]);
+  }, [device, point, model]);
   if (!fc) return null;
   const data = (fc.forecast ?? []).map(p => ({ t: new Date(p.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), v: p.value, band: [p.lower, p.upper] as [number, number] }));
   return (
     <div className="card" style={{ marginTop: 14 }} role="region" aria-label="Forecast">
-      <b>Forecast (statistical, next 24h)</b>
+      <b>Forecast ({fc.label}, next 24h)</b>
+      <select aria-label="Forecast model" value={model} onChange={e => setModel(e.target.value as '' | 'learned')} style={{ width: 'auto', marginLeft: 8 }}>
+        <option value="">Holt-Winters (statistical)</option><option value="learned">Autoregression (learned)</option>
+      </select>
       {!fc.enough_data
         ? <p className="muted">Not enough hourly history to forecast: {fc.reason ?? 'needs about 3 days with few gaps'}.</p>
         : !fc.useful
