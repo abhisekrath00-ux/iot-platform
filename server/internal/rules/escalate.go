@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -23,6 +24,76 @@ type Step struct {
 type Repeat struct {
 	EveryMinutes int `json:"every_minutes"`
 	Max          int `json:"max"`
+}
+
+// Quiet is a daily window in which reminders (the repeat feature) for non-critical alerts
+// are held back. Start and End are "HH:MM" in the IANA zone TZ; a window that ends before it
+// starts runs overnight (22:00 to 06:00). Empty Start and End mean off. Escalation steps and
+// critical alerts are never held back.
+type Quiet struct {
+	Start    string `json:"start"`
+	End      string `json:"end"`
+	Timezone string `json:"timezone"`
+}
+
+func parseHM(s string) (int, bool) {
+	if len(s) != 5 || s[2] != ':' {
+		return 0, false
+	}
+	h, m := int(s[0]-'0')*10+int(s[1]-'0'), int(s[3]-'0')*10+int(s[4]-'0')
+	for _, c := range []byte{s[0], s[1], s[3], s[4]} {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+	}
+	if h > 23 || m > 59 {
+		return 0, false
+	}
+	return h*60 + m, true
+}
+
+// ValidateQuiet checks the quiet window before it is saved.
+func ValidateQuiet(q Quiet) error {
+	if q.Start == "" && q.End == "" {
+		if q.Timezone != "" {
+			return fmt.Errorf("timezone without a window")
+		}
+		return nil
+	}
+	a, ok1 := parseHM(q.Start)
+	b, ok2 := parseHM(q.End)
+	if !ok1 || !ok2 {
+		return fmt.Errorf("quiet start and end must be HH:MM (24 hour)")
+	}
+	if a == b {
+		return fmt.Errorf("quiet start and end must differ")
+	}
+	if q.Timezone == "" {
+		return fmt.Errorf("quiet hours need a timezone such as Asia/Kolkata")
+	}
+	if _, err := time.LoadLocation(q.Timezone); err != nil {
+		return fmt.Errorf("unknown timezone %q", q.Timezone)
+	}
+	return nil
+}
+
+// InQuiet reports whether now falls inside the quiet window.
+func InQuiet(now time.Time, q Quiet) bool {
+	if q.Start == "" || q.End == "" {
+		return false
+	}
+	a, ok1 := parseHM(q.Start)
+	b, ok2 := parseHM(q.End)
+	loc, err := time.LoadLocation(q.Timezone)
+	if !ok1 || !ok2 || err != nil || a == b {
+		return false
+	}
+	l := now.In(loc)
+	m := l.Hour()*60 + l.Minute()
+	if a < b {
+		return m >= a && m < b
+	}
+	return m >= a || m < b
 }
 
 // ValidateRepeat checks the repeat setting before it is saved.
@@ -174,6 +245,7 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 	rows.Close()
 	cache := map[string][]Step{}
 	reps := map[string]Repeat{}
+	quiets := map[string]Quiet{}
 	for _, a := range open {
 		steps, ok := cache[a.tenant]
 		if !ok {
@@ -193,12 +265,21 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 			if pool.QueryRow(ctx, `SELECT repeat_every_minutes, repeat_max FROM escalation_settings WHERE tenant_id=$1`, a.tenant).Scan(&r.EveryMinutes, &r.Max) == nil {
 				reps[a.tenant] = r
 			}
+			var q Quiet
+			if pool.QueryRow(ctx, `SELECT quiet_start, quiet_end, quiet_tz FROM escalation_settings WHERE tenant_id=$1`, a.tenant).Scan(&q.Start, &q.End, &q.Timezone) == nil {
+				quiets[a.tenant] = q
+			}
 		}
 		st, due := NextStep(steps, a.sev, a.level, a.age)
 		repeat := false
 		if !due {
 			st, due = RepeatDue(steps, a.sev, a.level, a.repeats, a.since, reps[a.tenant])
 			if !due {
+				continue
+			}
+			// quiet hours hold back reminders for non-critical alerts; the alert stays open, so
+			// the reminder goes out once the window ends
+			if a.sev != "critical" && InQuiet(time.Now(), quiets[a.tenant]) {
 				continue
 			}
 			repeat = true

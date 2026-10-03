@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
@@ -525,5 +526,55 @@ func TestIntegrationShadow(t *testing.T) {
 	}
 	if w := call(h, "itest-sh2", "admin", "PUT", "/v1/devices/itest-sh-dev/attributes", `{"attributes":{"x":1}}`); w.Code != 404 {
 		t.Fatalf("cross-tenant attributes: %d", w.Code)
+	}
+}
+
+func TestIntegrationEscalationQuietHours(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-eq")
+	ctx := context.Background()
+	for _, q := range []string{
+		`DELETE FROM escalation_steps WHERE tenant_id='itest-eq'`,
+		`DELETE FROM alerts WHERE tenant_id='itest-eq'`,
+		`DELETE FROM notification_channels WHERE tenant_id='itest-eq'`,
+		`INSERT INTO notification_channels(id,tenant_id,type,target) VALUES('itest-eq-ch','itest-eq','email','boss@example.com')`,
+		// both alerts already had their only step sent and are due a reminder
+		`INSERT INTO alerts(id,tenant_id,severity,message,created_at,escalation_level,escalated_at) VALUES('itest-eq-w','itest-eq','warning','Warn pump',now()-interval '2 hours',1,now()-interval '1 hour')`,
+		`INSERT INTO alerts(id,tenant_id,severity,message,created_at,escalation_level,escalated_at) VALUES('itest-eq-c','itest-eq','critical','Crit pump',now()-interval '2 hours',1,now()-interval '1 hour')`,
+	} {
+		if _, err := s.st.Pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+	}
+	now := time.Now().UTC()
+	win := fmt.Sprintf(`"start":"%s","end":"%s","timezone":"UTC"`, now.Add(-time.Hour).Format("15:04"), now.Add(time.Hour).Format("15:04"))
+	body := func(quiet string) string {
+		return `{"steps":[{"step":1,"after_minutes":10,"channel_id":"itest-eq-ch"}],"repeat":{"every_minutes":15,"max":3}` + quiet + `}`
+	}
+	if w := call(h, "itest-eq", "admin", "PUT", "/v1/escalation", body(`,"quiet":{"start":"22:00","end":"06:00","timezone":"Nowhere/Land"}`)); w.Code != 400 {
+		t.Fatalf("bad zone accepted: %d", w.Code)
+	}
+	if w := call(h, "itest-eq", "viewer", "PUT", "/v1/escalation", body(`,"quiet":{`+win+`}`)); w.Code != 403 {
+		t.Fatalf("viewer: %d", w.Code)
+	}
+	if w := call(h, "itest-eq", "admin", "PUT", "/v1/escalation", body(`,"quiet":{`+win+`}`)); w.Code != 200 || !strings.Contains(w.Body.String(), `"timezone":"UTC"`) {
+		t.Fatalf("put: %d %s", w.Code, w.Body.String())
+	}
+	fn := &fakeNotifier{}
+	rules.EvaluateEscalations(ctx, s.st.Pool, fn)
+	// inside quiet hours: the warning reminder is held back, the critical one is not
+	if len(fn.emails) != 1 || !strings.Contains(fn.emails[0], "Crit pump") {
+		t.Fatalf("emails = %v", fn.emails)
+	}
+	// a client that omits "quiet" keeps it; clearing it releases the held reminder
+	if w := call(h, "itest-eq", "admin", "PUT", "/v1/escalation", body(``)); w.Code != 200 || !strings.Contains(w.Body.String(), `"timezone":"UTC"`) {
+		t.Fatalf("omitted quiet must keep it: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(h, "itest-eq", "admin", "PUT", "/v1/escalation", body(`,"quiet":{"start":"","end":"","timezone":""}`)); w.Code != 200 {
+		t.Fatalf("clear: %d %s", w.Code, w.Body.String())
+	}
+	rules.EvaluateEscalations(ctx, s.st.Pool, fn)
+	if len(fn.emails) != 2 || !strings.Contains(fn.emails[1], "Warn pump") || !strings.Contains(fn.emails[1], "REMINDER") {
+		t.Fatalf("held reminder not sent after quiet hours: %v", fn.emails)
 	}
 }

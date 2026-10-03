@@ -1,6 +1,9 @@
 package rules
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNextStepOrderAndSeverity(t *testing.T) {
 	steps := []Step{
@@ -89,6 +92,51 @@ func TestValidateRepeat(t *testing.T) {
 	for _, r := range []Repeat{{EveryMinutes: 4, Max: 1}, {EveryMinutes: 1441, Max: 1}, {EveryMinutes: 10}, {EveryMinutes: 10, Max: 11}, {Max: 3}} {
 		if ValidateRepeat(r) == nil {
 			t.Errorf("%+v accepted", r)
+		}
+	}
+}
+
+func TestQuietHours(t *testing.T) {
+	night := Quiet{Start: "22:00", End: "06:00", Timezone: "Asia/Kolkata"}
+	ist := func(h, m int) time.Time { return time.Date(2026, 10, 3, h, m, 0, 0, time.FixedZone("IST", 19800)) }
+	for _, c := range []struct {
+		h, m int
+		want bool
+	}{{21, 59, false}, {22, 0, true}, {23, 30, true}, {0, 0, true}, {5, 59, true}, {6, 0, false}, {12, 0, false}} {
+		if got := InQuiet(ist(c.h, c.m), night); got != c.want {
+			t.Errorf("%02d:%02d overnight = %v", c.h, c.m, got)
+		}
+	}
+	day := Quiet{Start: "12:00", End: "13:00", Timezone: "UTC"}
+	if !InQuiet(time.Date(2026, 10, 3, 12, 30, 0, 0, time.UTC), day) || InQuiet(time.Date(2026, 10, 3, 13, 0, 0, 0, time.UTC), day) {
+		t.Error("same-day window")
+	}
+	// the zone matters: 17:30 UTC is 23:00 in Kolkata
+	if !InQuiet(time.Date(2026, 10, 3, 17, 30, 0, 0, time.UTC), night) {
+		t.Error("window must be read in its own zone")
+	}
+	if InQuiet(ist(23, 0), Quiet{}) {
+		t.Error("off by default")
+	}
+}
+
+func TestValidateQuiet(t *testing.T) {
+	for _, q := range []Quiet{{}, {Start: "22:00", End: "06:00", Timezone: "Asia/Kolkata"}} {
+		if err := ValidateQuiet(q); err != nil {
+			t.Errorf("%+v: %v", q, err)
+		}
+	}
+	for _, q := range []Quiet{
+		{Start: "22:00", End: "06:00"},
+		{Start: "25:00", End: "06:00", Timezone: "UTC"},
+		{Start: "22:00", End: "22:00", Timezone: "UTC"},
+		{Start: "22:00", End: "6:00", Timezone: "UTC"},
+		{Start: "22:00", End: "06:00", Timezone: "Mars/Base"},
+		{Start: "22:00", Timezone: "UTC"},
+		{Timezone: "UTC"},
+	} {
+		if ValidateQuiet(q) == nil {
+			t.Errorf("%+v accepted", q)
 		}
 	}
 }

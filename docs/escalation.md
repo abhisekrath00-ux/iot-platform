@@ -16,8 +16,13 @@ If an alert stays open and unacknowledged, more channels are notified after set 
   sent, that step's channel is sent a reminder every N minutes (5-1440), at most M times (1-10) per alert. An
   acknowledge or resolve stops it. Reminders read "ESCALATION REMINDER k of M, step N ...". Leaving `repeat` out of a PUT
   keeps the current setting. The reminder is recorded (`escalation_repeats`) before it is sent, like a step.
+- Quiet hours (optional, off by default, `quiet` in the same API): a daily window `start`-`end` as HH:MM in an IANA
+  timezone (overnight windows such as 22:00-06:00 work). During it, reminders for non-critical alerts are held back and go
+  out after it ends if the alert is still unacknowledged. Escalation steps and critical alerts are never held back,
+  because delaying a first escalation or a critical page is not a safe default. Leaving `quiet` out of a PUT keeps the
+  setting; empty start/end clear it. The zone database is compiled into the server, so it works in air-gapped images.
 - A step whose channel was deleted or disabled is skipped and logged.
 
-Not built: on-call schedules and rotations, quiet hours, SMS or Teams. Tested with unit tests
+Not built: on-call schedules and rotations, SMS or Teams. Tested with unit tests
 for ordering and validation and an integration test against Postgres with a fake notifier (order, no repeat, ack stops it,
 admin only, other tenant's channel refused). Not tested against real SMTP or Slack.

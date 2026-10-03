@@ -29,7 +29,9 @@ func (s *server) getEscalation(w http.ResponseWriter, r *http.Request) {
 	var rep rules.Repeat
 	rows.Close()
 	_ = s.st.Pool.QueryRow(r.Context(), `SELECT repeat_every_minutes, repeat_max FROM escalation_settings WHERE tenant_id=$1`, auth.Tenant(r)).Scan(&rep.EveryMinutes, &rep.Max)
-	writeJSON(w, 200, map[string]any{"steps": out, "repeat": rep})
+	var q rules.Quiet
+	_ = s.st.Pool.QueryRow(r.Context(), `SELECT quiet_start, quiet_end, quiet_tz FROM escalation_settings WHERE tenant_id=$1`, auth.Tenant(r)).Scan(&q.Start, &q.End, &q.Timezone)
+	writeJSON(w, 200, map[string]any{"steps": out, "repeat": rep, "quiet": q})
 }
 
 // PUT /v1/escalation (admin): replace the policy. An empty list switches escalation off.
@@ -40,6 +42,7 @@ func (s *server) putEscalation(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Steps  []rules.Step  `json:"steps"`
 		Repeat *rules.Repeat `json:"repeat"` // omitted: keep the current setting
+		Quiet  *rules.Quiet  `json:"quiet"`  // omitted: keep the current setting
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&in); err != nil {
 		http.Error(w, "bad json", 400)
@@ -51,6 +54,12 @@ func (s *server) putEscalation(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Repeat != nil {
 		if err := rules.ValidateRepeat(*in.Repeat); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
+	if in.Quiet != nil {
+		if err := rules.ValidateQuiet(*in.Quiet); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
@@ -81,6 +90,13 @@ func (s *server) putEscalation(w http.ResponseWriter, r *http.Request) {
 	if in.Repeat != nil {
 		if _, err := tx.Exec(r.Context(), `INSERT INTO escalation_settings(tenant_id,repeat_every_minutes,repeat_max) VALUES($1,$2,$3)
 			ON CONFLICT (tenant_id) DO UPDATE SET repeat_every_minutes=EXCLUDED.repeat_every_minutes, repeat_max=EXCLUDED.repeat_max`, tenant, in.Repeat.EveryMinutes, in.Repeat.Max); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	}
+	if in.Quiet != nil {
+		if _, err := tx.Exec(r.Context(), `INSERT INTO escalation_settings(tenant_id,quiet_start,quiet_end,quiet_tz) VALUES($1,$2,$3,$4)
+			ON CONFLICT (tenant_id) DO UPDATE SET quiet_start=EXCLUDED.quiet_start, quiet_end=EXCLUDED.quiet_end, quiet_tz=EXCLUDED.quiet_tz`, tenant, in.Quiet.Start, in.Quiet.End, in.Quiet.Timezone); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}

@@ -18,8 +18,9 @@ export default function EscalationPolicy() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [msg, setMsg] = useState('');
   const [rep, setRep] = useState({ every_minutes: 0, max: 0 });
+  const [quiet, setQuiet] = useState({ start: '', end: '', timezone: '' });
   useEffect(() => {
-    api<{ steps: Step[]; repeat?: { every_minutes: number; max: number } }>('/v1/escalation').then(r => { setSteps(r.steps); if (r.repeat) setRep(r.repeat); }).catch(() => undefined);
+    api<{ steps: Step[]; repeat?: { every_minutes: number; max: number }; quiet?: { start: string; end: string; timezone: string } }>('/v1/escalation').then(r => { setSteps(r.steps); if (r.repeat) setRep(r.repeat); if (r.quiet) setQuiet(r.quiet); }).catch(() => undefined);
     api<Channel[]>('/v1/notifications/channels').then(c => setChannels(c.filter(x => x.enabled))).catch(() => undefined);
   }, []);
   const renumber = (list: Step[]) => {
@@ -30,7 +31,7 @@ export default function EscalationPolicy() {
   async function save() {
     setMsg('');
     try {
-      await api('/v1/escalation', { method: 'PUT', body: JSON.stringify({ steps, repeat: rep }) });
+      await api('/v1/escalation', { method: 'PUT', body: JSON.stringify({ steps, repeat: rep, quiet }) });
       setMsg('Saved.');
     } catch (e) { setMsg(String(e)); }
   }
@@ -70,6 +71,17 @@ export default function EscalationPolicy() {
           value={rep.max} onChange={e => setRep({ ...rep, max: +e.target.value })} />
         times
       </label>
+      <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+        <input type="checkbox" aria-label="Quiet hours" checked={quiet.start !== ''} style={{ width: 'auto', flex: 'none' }}
+          onChange={e => setQuiet(e.target.checked ? { start: '22:00', end: '06:00', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } : { start: '', end: '', timezone: '' })} />
+        Quiet hours: hold reminders for non-critical alerts from
+        <input aria-label="Quiet start" type="time" disabled={quiet.start === ''} style={{ width: 140, flex: 'none' }} value={quiet.start} onChange={e => setQuiet({ ...quiet, start: e.target.value })} />
+        to
+        <input aria-label="Quiet end" type="time" disabled={quiet.start === ''} style={{ width: 140, flex: 'none' }} value={quiet.end} onChange={e => setQuiet({ ...quiet, end: e.target.value })} />
+        in
+        <input aria-label="Quiet timezone" disabled={quiet.start === ''} style={{ width: 170, flex: 'none' }} value={quiet.timezone} onChange={e => setQuiet({ ...quiet, timezone: e.target.value })} />
+      </label>
+      {quiet.start !== '' && <p className="muted" style={{ fontSize: 12 }}>Escalation steps and critical alerts are never held back. Reminders held during the window go out once it ends if the alert is still unacknowledged.</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="ghost" disabled={steps.length >= 15} onClick={() => setSteps(renumber([...steps, { severity: '', step: 1, after_minutes: (steps.at(-1)?.after_minutes ?? 0) + 15, channel_id: channels[0]?.id ?? '' }]))}>+ step</button>
         <button onClick={save}>Save policy</button>

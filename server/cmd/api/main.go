@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata" // zone database inside the binary: air-gapped images may have none (quiet hours use IANA zones)
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
