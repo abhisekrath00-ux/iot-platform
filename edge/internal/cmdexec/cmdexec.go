@@ -21,7 +21,17 @@ type Envelope struct {
 	IssuedAt      time.Time       `json:"issued_at"`
 	ExpiresAt     time.Time       `json:"expires_at"`
 	PolicyVersion string          `json:"policy_version"`
+	// Mode is empty for a command a person approved. "automatic" marks a command the server raised
+	// under an admin's per-target setting with no human in the loop; it gets a much shorter lifetime
+	// and the actuator accepts it only for locally configured alarm outputs.
+	Mode string `json:"mode,omitempty"`
 }
+
+const (
+	ModeAutomatic = "automatic"
+	// AutoMaxTTL is the longest lifetime an automatic command may have.
+	AutoMaxTTL = 60 * time.Second
+)
 
 var (
 	ErrMalformed = errors.New("malformed command envelope")
@@ -73,6 +83,15 @@ func (g *Gate) Check(payload []byte, now time.Time) (*Envelope, error) {
 	}
 	if e.ExpiresAt.Sub(e.IssuedAt) > g.MaxTTL {
 		return nil, ErrTTL
+	}
+	switch e.Mode {
+	case "":
+	case ModeAutomatic:
+		if e.ExpiresAt.Sub(e.IssuedAt) > AutoMaxTTL {
+			return nil, ErrTTL
+		}
+	default:
+		return nil, ErrMalformed
 	}
 	allowed := false
 	for _, a := range g.Allowed {

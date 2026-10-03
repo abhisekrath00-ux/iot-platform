@@ -1,8 +1,8 @@
-# Gated control nodes for flows (design, not built)
+# Gated control nodes for flows
 
 Status: partly built (2026-10-03), tested locally, never against real hardware or a broker.
 Built: the control target registry (migration 0036, `/v1/control-targets`, Control page list) and the **`control` flow node**
-(approval path only). Not built: automatic execution for `automatic` targets, a `control.result` trigger, an asset-level
+(approval path, plus the opt-in automatic path for alarm outputs below). Not built: a `control.result` trigger, an asset-level
 or per-flow-version audit join, and Node-RED import or export of this node (an imported `control` node is refused).
 Prerequisite 1 (edge Modbus write executor with allowlist) already existed before this document was written.
 
@@ -15,8 +15,17 @@ existing four-eyes rule holds), with the flow name and triggering reading as the
 and the simulator get no requester, so they raise nothing. Saving, importing or publishing a flow with this node needs an admin
 and the tenant feature. A run raises at most one request. The approver sees what is asked and why on the Control page.
 
-**For a target set to `automatic`, the node still raises a normal approval request** (and says so in the run log), because
-the automatic executor is not written. That is the stricter behaviour, chosen on purpose until it is built and reviewed.
+**Automatic path (alarm outputs only, opt-in).** For a target an admin has set to `automatic` (the database allows that only
+for `alarm_output` targets, on/off only), the node inserts the command already approved by a separate per-tenant service user
+(`flow-auto:<tenant>`, viewer role, never a person), flagged `auto_approved`, with a 45 second life. The same checks run first:
+tenant feature, target enabled, value allowed, per-target `max_per_hour`. The audit row says `automatic: true`. A leader-elected
+sweeper in the API (5 s tick, one replica) publishes only `auto_approved` rows over MQTT and records sent or failed; rows past
+their life are marked expired, never fired late. Modbus writes are never automatic: the database CHECK, the API and the node all
+refuse it. The edge is the final gate: the envelope carries `mode: automatic`, the gate caps its life at 60 s, and the edge
+agent accepts it only when the gateway's own file sets `allow_automatic_commands: true` AND the target is a configured alarm
+output (class `alarm`, kind `modbus_coil`) switched to 0 or 1. The server cannot widen this.
+**Status: tested locally** (server integration tests, edge unit tests with a fake writer). **Not tested** against a real broker,
+gateway or siren; the sweeper without a broker is only tested to end in `failed`. Default stays approval.
 
 ### Owner decision, 2026-10-03
 
@@ -24,7 +33,7 @@ The owner chose that the approval requirement is a setting, not a hardcoded rule
 set to fire **automatically**, for example when the server link is down or an alarm rule hits, while every other control action
 needs a second person's approval. The default is approval. The setting is made by an admin per target, is audited, and
 **automatic is accepted only for `alarm_output` targets** (on/off only); the database refuses it for Modbus writes.
-This answers the open question below. The registry stores the choice; the code that would act on `automatic` is not written (see above).
+This answers the open question below. The registry stores the choice and the automatic path above acts on it.
 
 ## Goal
 

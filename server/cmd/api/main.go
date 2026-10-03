@@ -295,6 +295,19 @@ func main() {
 			}
 		}
 	})
+	// Automatic alarm-output commands (see docs/flow-control-nodes-design.md) are published by one replica.
+	go leader.Run(ctx, st.Pool, leaderAutoCommands, "auto-commands", 10*time.Second, func(c context.Context) {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-c.Done():
+				return
+			case <-t.C:
+				s.sweepAutoCommands(c)
+			}
+		}
+	})
 	// KPI band rules are evaluated once a minute by one replica.
 	go leader.Run(ctx, st.Pool, leaderKPIRules, "kpi-rules", 10*time.Second, func(c context.Context) {
 		fn := notify.FromEnv()
@@ -358,6 +371,9 @@ const leaderFlowScheduler int64 = 0x4845584D4F51
 
 // leaderKPIRules is the advisory lock key for KPI band rule evaluation.
 const leaderKPIRules int64 = 0x4845584D4F52
+
+// leaderAutoCommands is the advisory lock key for the automatic command dispatcher.
+const leaderAutoCommands int64 = 0x4845584D4155
 
 // leaderRetention is the advisory lock key for the rollup/retention job.
 const leaderRetention int64 = 0x4845584D4F50
@@ -659,6 +675,7 @@ type commandEnvelope struct {
 	IssuedAt      time.Time       `json:"issued_at"`
 	ExpiresAt     time.Time       `json:"expires_at"`
 	PolicyVersion string          `json:"policy_version"`
+	Mode          string          `json:"mode,omitempty"` // "automatic" only for auto-approved alarm outputs
 }
 
 // commandTopic is tenant- and gateway-scoped so broker ACLs can pin a gateway to its own topic.
@@ -670,26 +687,36 @@ func commandTopic(tenant, gateway string) string { return "t/" + tenant + "/g/" 
 // only after the broker accepted the publish, else 'failed'. 'sent' is not
 // 'acked': nothing consumes the topic until the edge executor exists.
 func (s *server) dispatchCommand(r *http.Request, id string) string {
+	next, gw := s.dispatchCore(r.Context(), auth.Tenant(r), id)
+	s.audit(r, "command."+next, id, map[string]any{"topic_gateway": gw})
+	return next
+}
+
+// dispatchCore publishes one approved command and records sent or failed.
+func (s *server) dispatchCore(ctx context.Context, tenant, id string) (next, gw string) {
 	var env commandEnvelope
-	var gw, params string
-	err := s.st.Pool.QueryRow(r.Context(),
-		`SELECT request_id, gateway_id, device_id, action, parameters::text, approved_by, issued_at, expires_at, policy_version
-		 FROM commands WHERE request_id=$1 AND tenant_id=$2`, id, auth.Tenant(r)).
-		Scan(&env.RequestID, &gw, &env.Target, &env.Action, &params, &env.ApprovedBy, &env.IssuedAt, &env.ExpiresAt, &env.PolicyVersion)
+	var params string
+	var auto bool
+	err := s.st.Pool.QueryRow(ctx,
+		`SELECT request_id, gateway_id, device_id, action, parameters::text, approved_by, issued_at, expires_at, policy_version, auto_approved
+		 FROM commands WHERE request_id=$1 AND tenant_id=$2`, id, tenant).
+		Scan(&env.RequestID, &gw, &env.Target, &env.Action, &params, &env.ApprovedBy, &env.IssuedAt, &env.ExpiresAt, &env.PolicyVersion, &auto)
 	env.Parameters = json.RawMessage(params)
+	if auto {
+		env.Mode = "automatic"
+	}
 	if err == nil {
 		var b []byte
 		if b, err = json.Marshal(env); err == nil {
-			err = s.publishMQTTRetained(commandTopic(auth.Tenant(r), gw), b, false)
+			err = s.publishMQTTRetained(commandTopic(tenant, gw), b, false)
 		}
 	}
-	next := "sent"
+	next = "sent"
 	if err != nil {
 		next = "failed"
 	}
-	s.st.Pool.Exec(r.Context(), `UPDATE commands SET status=$1 WHERE request_id=$2 AND status='approved'`, next, id)
-	s.audit(r, "command."+next, id, map[string]any{"topic_gateway": gw})
-	return next
+	s.st.Pool.Exec(ctx, `UPDATE commands SET status=$1 WHERE request_id=$2 AND status='approved'`, next, id)
+	return next, gw
 }
 
 func (s *server) listCommands(w http.ResponseWriter, r *http.Request) {

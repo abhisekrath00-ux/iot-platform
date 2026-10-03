@@ -227,7 +227,7 @@ func main() {
 	case "modbus":
 		// Real writes. Still behind approval + four-eyes on the server, the
 		// gate's allowlist (modbus.write must be listed) and per-device `writes`.
-		actuator = &modbusActuator{reg: writers}
+		actuator = &modbusActuator{reg: writers, auto: autoAllowed(cfg.AllowAutomaticCommands, cfg.Outputs)}
 		log.Printf("command mode: MODBUS - allowlisted registers can be written after four-eyes approval")
 	}
 	var mcp atomic.Pointer[mqttc.Client]

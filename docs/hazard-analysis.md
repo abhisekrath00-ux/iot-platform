@@ -12,13 +12,16 @@ in docs/security.md.
    authenticated tenant user may request; requesting never actuates.
 2. `POST /v1/commands/{id}/approve` requires admin/operator, rejects
    self-approval (four-eyes: `requested_by <> approved_by`), stamps a
-   **5-minute expiry**. The broker publish behind it is deliberately
-   **not wired** (`TODO` in approveCommand) - no actuator executor exists.
+   **5-minute expiry**. Approval publishes the
+   command over MQTT (`dispatchCommand`); the edge executor is tested only against fakes and a simulator.
 3. The edge agent subscribes `t/<tenant>/g/<gw>/cmd` and applies two
    independent checks before any executor would run: the action must be in
    the gateway's **config allowlist** (`allowed_commands`), and the command
-   must be **unexpired**. The executor itself is unimplemented; accepted
-   commands are logged and dropped.
+   must be **unexpired**. Accepted commands go to the configured executor
+   (`simulate` or `modbus`); with no `command_mode` they are rejected.
+   Exception: an admin may set an alarm-output target to automatic (docs/flow-control-nodes-design.md). Those commands carry
+   `mode: automatic`, live at most 60 s, and run only if the gateway's own file sets `allow_automatic_commands: true` and the
+   target is a configured alarm output switched 0 or 1. Not tested on real hardware.
 4. The commissioning port test (`docs/commissioning.md`) is read-only by
    construction: Modbus functions 1-4 only, validated server-side and
    re-clamped on the edge. It is not an actuation path.

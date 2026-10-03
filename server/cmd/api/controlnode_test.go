@@ -27,6 +27,7 @@ func TestIntegrationControlNodeEndToEnd(t *testing.T) {
 	exec(`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('itest-cn-adm','itest-cn','itest-cn-adm@example.test','A','admin') ON CONFLICT DO NOTHING`)
 	exec(`INSERT INTO control_targets(id,tenant_id,name,kind,gateway_id,device_id,point_id,min_value,max_value,max_per_hour,enabled,created_by)
 	      VALUES('itest-cn-t1','itest-cn','Setpoint','modbus_write','itest-cn-gw','itest-cn-dev','temp',10,30,2,true,'itest-cn-adm'),
+	            ('itest-cn-t2','itest-cn','Other setpoint','modbus_write','itest-cn-gw','itest-cn-dev','temp',0,100,10,true,'itest-cn-adm'),
 	            ('itest-cn-off','itest-cn','Off one','modbus_write','itest-cn-gw','itest-cn-dev','temp',0,1,5,false,'itest-cn-adm')`)
 	exec(`INSERT INTO control_targets(id,tenant_id,name,kind,gateway_id,device_id,point_id,allowed_values,max_per_hour,approval_mode,enabled,created_by)
 	      VALUES('itest-cn-siren','itest-cn','Siren','alarm_output','itest-cn-gw','itest-cn-dev','temp','{0,1}',5,'automatic',true,'itest-cn-adm')`)
@@ -69,10 +70,43 @@ func TestIntegrationControlNodeEndToEnd(t *testing.T) {
 	if audits != 1 {
 		t.Fatalf("audit rows: %d", audits)
 	}
-	// automatic target: still only a request (the automatic executor is not built), and it says so
-	_, note, err = req(mk("f1"), "itest-cn-siren", 1)
-	if err != nil || !strings.Contains(note, "not built yet") {
+	// automatic alarm output: raised already approved by the separate service user, flagged and audited
+	autoID, note, err := req(mk("f1"), "itest-cn-siren", 1)
+	if err != nil || !strings.Contains(note, "without a human approver") {
 		t.Fatalf("automatic target: %v %q", err, note)
+	}
+	var aStatus, aBy, aReq string
+	var aAuto bool
+	var aTTL float64
+	pool.QueryRow(ctx, `SELECT status, approved_by, requested_by, auto_approved, extract(epoch FROM expires_at-issued_at) FROM commands WHERE request_id=$1`, autoID).Scan(&aStatus, &aBy, &aReq, &aAuto, &aTTL)
+	if aStatus != "approved" || aBy != "flow-auto:itest-cn" || aReq == aBy || !aAuto || aTTL > 60 {
+		t.Fatalf("auto command: %s %s %s %v %v", aStatus, aBy, aReq, aAuto, aTTL)
+	}
+	pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id='itest-cn' AND action='control.request' AND target=$1 AND detail->>'automatic'='true'`, autoID).Scan(&audits)
+	if audits != 1 {
+		t.Fatalf("auto audit rows: %d", audits)
+	}
+	// a Modbus write is never automatic, even if someone wrote the mode into the row (the CHECK refuses it)
+	if _, err := pool.Exec(ctx, `UPDATE control_targets SET approval_mode='automatic' WHERE id='itest-cn-t1'`); err == nil {
+		t.Fatal("database must refuse automatic mode on a modbus_write target")
+	}
+	// the sweeper publishes only auto-approved rows. No broker here, so the honest outcome is failed.
+	s.sweepAutoCommands(ctx)
+	pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id=$1`, autoID).Scan(&aStatus)
+	if aStatus != "failed" {
+		t.Fatalf("sweeper without a broker: %s", aStatus)
+	}
+	pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id=$1`, id).Scan(&status)
+	if status != "pending_approval" {
+		t.Fatalf("sweeper touched a human-approval command: %s", status)
+	}
+	// an auto command nobody dispatched in time expires instead of firing late
+	staleID, _, _ := req(mk("f2"), "itest-cn-siren", 0)
+	exec(`UPDATE commands SET expires_at=now()-interval '1 second' WHERE request_id=$1`, staleID)
+	s.sweepAutoCommands(ctx)
+	pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id=$1`, staleID).Scan(&aStatus)
+	if aStatus != "expired" {
+		t.Fatalf("stale auto command: %s", aStatus)
 	}
 	// per-flow pending cap (3) and per-target rate limit (2 per hour)
 	if _, _, err := req(mk("f1"), "itest-cn-t1", 21); err != nil {
@@ -81,7 +115,10 @@ func TestIntegrationControlNodeEndToEnd(t *testing.T) {
 	if _, _, err := req(mk("f1"), "itest-cn-t1", 22); err == nil || !strings.Contains(err.Error(), "rate limit") {
 		t.Fatalf("rate limit: %v", err)
 	}
-	if _, _, err := req(mk("f1"), "itest-cn-siren", 0); err == nil || !strings.Contains(err.Error(), "waiting for approval") {
+	if _, _, err := req(mk("f1"), "itest-cn-t2", 5); err != nil {
+		t.Fatalf("third pending: %v", err)
+	}
+	if _, _, err := req(mk("f1"), "itest-cn-t2", 6); err == nil || !strings.Contains(err.Error(), "waiting for approval") {
 		t.Fatalf("pending cap: %v", err)
 	}
 

@@ -55,7 +55,11 @@ type Config struct {
 
 	// Commands: only these actions may execute on this gateway.
 	AllowedCommands []string `yaml:"allowed_commands"`
-	CommandMode     string   `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
+	// AllowAutomaticCommands lets the server's AUTOMATIC commands (raised without a human approver under
+	// an admin's per-target setting) switch this gateway's alarm outputs (class alarm, kind modbus_coil)
+	// on or off. Off by default: only this file can turn it on, never the server.
+	AllowAutomaticCommands bool   `yaml:"allow_automatic_commands"`
+	CommandMode            string `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
 }
 
 // Autodetect configures edge-side discovery. Everything defaults to on except

@@ -151,6 +151,10 @@ per-token rate limit yet, so rely on the proxy for that.
 
 ## Modbus writes (off by default, safety-gated)
 
+Automatic commands (no human approver) are the one exception to the paragraph below. They exist only for alarm outputs an
+admin set to automatic, and the gateway must opt in with `allow_automatic_commands: true` plus an `outputs:` entry of class
+`alarm`, kind `modbus_coil` for that device and point. They can only write 0 or 1 and live at most 60 s.
+
 A gateway writes to a device only when ALL of these hold: the command was requested by one person and approved by a
 different person in an interactive session (API keys can never approve); the envelope is unexpired (5 min), not replayed,
 and `modbus.write` is in the gateway's `allowed_commands`; the agent runs with `command_mode: modbus`; and the
