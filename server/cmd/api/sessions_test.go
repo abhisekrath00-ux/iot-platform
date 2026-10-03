@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ func TestIntegrationSessionRevocationAndLiveRole(t *testing.T) {
 	mux.HandleFunc("GET /v1/probe", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(auth.Role(r)))
 	})
+	mux.HandleFunc("GET /v1/me", s.me)
 	h := authMiddleware(secret)(s.activeUser(mux))
 	token := func(role string, iat time.Time) string {
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{TenantID: "itest-sr1", Role: role,
@@ -54,5 +56,19 @@ func TestIntegrationSessionRevocationAndLiveRole(t *testing.T) {
 	}
 	if w := get(token("operator", time.Now().Add(2*time.Second))); w.Code != 200 {
 		t.Fatalf("token issued after revocation = %d", w.Code)
+	}
+	// /v1/me reports the live role and the customer scope
+	pool.Exec(ctx, `INSERT INTO customers(id,tenant_id,name) VALUES('sr-c','itest-sr1','Plant A') ON CONFLICT DO NOTHING`)
+	pool.Exec(ctx, `INSERT INTO user_customer_scope(tenant_id,user_id,customer_id) VALUES('itest-sr1','sr-u','sr-c') ON CONFLICT DO NOTHING`)
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM user_customer_scope WHERE tenant_id='itest-sr1'`)
+		pool.Exec(ctx, `DELETE FROM customers WHERE id='sr-c'`)
+	})
+	r := httptest.NewRequest("GET", "/v1/me", nil)
+	r.Header.Set("Authorization", "Bearer "+token("admin", time.Now().Add(3*time.Second)))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"role":"operator"`) || !strings.Contains(w.Body.String(), `"customer_name":"Plant A"`) {
+		t.Fatalf("me = %d %s", w.Code, w.Body)
 	}
 }

@@ -54,7 +54,7 @@ func scopedAllows(method, p string) bool {
 		return false
 	}
 	switch p {
-	case "/v1/devices", "/v1/alerts", "/v1/features", "/v1/map/config":
+	case "/v1/devices", "/v1/alerts", "/v1/features", "/v1/map/config", "/v1/me":
 		return true
 	}
 	return (strings.HasPrefix(p, "/v1/telemetry/") && scopedTelemetry[strings.TrimPrefix(p, "/v1/telemetry/")]) ||

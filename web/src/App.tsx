@@ -72,6 +72,14 @@ export default function App() {
       }
     }).catch(() => {});
   }, []);
+  const [me, setMe] = useState<{ role: string; customer_id?: string; customer_name?: string } | null>(null);
+  useEffect(() => { if (localStorage.getItem('iot.token')) api<NonNullable<typeof me>>('/v1/me').then(setMe).catch(() => {}); }, []);
+  const visible = items.filter(([to]) => {
+    if (!me) return true;
+    if (me.customer_id) return ['/devices', '/alerts', '/map'].includes(to);
+    if (me.role !== 'admin') return !['/users', '/customers'].includes(to);
+    return true;
+  });
   const signedOut = !localStorage.getItem('iot.token');
   const [tour, setTour] = useState(() => !tourDone(localStorage) && !!localStorage.getItem('iot.token'));
   if (window.location.pathname === '/accept-invite') return <AcceptInvite />;
@@ -81,7 +89,8 @@ export default function App() {
       {tour && <Tour onClose={() => setTour(false)} />}
       <nav>
         <div className="brand">{logo ? <img src={logo} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }} /> : <span className="logo">{brand.slice(0, 1).toUpperCase()}</span>}{brand}</div>
-        {items.map(([to, label]) => (
+        {me?.customer_name && <div className="muted" style={{ padding: '0 12px 8px' }}>{me.customer_name}</div>}
+        {visible.map(([to, label]) => (
           <NavLink key={to} to={to} end={to === '/'}>{icons[label]}{label}</NavLink>
         ))}
         <div className="spacer" />

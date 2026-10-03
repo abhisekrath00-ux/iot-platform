@@ -191,7 +191,7 @@ func TestScopedUsersAreDeniedEveryUnlistedRoute(t *testing.T) {
 	if len(routes) < 100 {
 		t.Fatalf("only found %d routes; the route table moved", len(routes))
 	}
-	allowedGET := map[string]bool{"/v1/devices": true, "/v1/alerts": true, "/v1/alerts/{id}": true, "/v1/features": true, "/v1/map/config": true, "/v1/devices/{id}/health": true}
+	allowedGET := map[string]bool{"/v1/devices": true, "/v1/alerts": true, "/v1/alerts/{id}": true, "/v1/features": true, "/v1/map/config": true, "/v1/me": true, "/v1/devices/{id}/health": true}
 	for k := range scopedTelemetry {
 		allowedGET["/v1/telemetry/"+k] = true
 	}

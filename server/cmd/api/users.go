@@ -355,3 +355,18 @@ func (s *server) activeUser(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// GET /v1/me: who the session belongs to, with the live role and customer scope. The UI uses it to hide
+// pages the user cannot use; the server still enforces every rule.
+func (s *server) me(w http.ResponseWriter, r *http.Request) {
+	out := map[string]any{"user_id": auth.User(r), "tenant_id": auth.Tenant(r), "role": auth.Role(r), "via_key": auth.ViaKey(r)}
+	var email, name string
+	if s.st.Pool.QueryRow(r.Context(), `SELECT email, display_name FROM users WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r)).Scan(&email, &name) == nil {
+		out["email"], out["display_name"] = email, name
+	}
+	var cid, cname string
+	if s.st.Pool.QueryRow(r.Context(), `SELECT c.id, c.name FROM user_customer_scope s JOIN customers c ON c.id=s.customer_id WHERE s.tenant_id=$1 AND s.user_id=$2`, auth.Tenant(r), auth.User(r)).Scan(&cid, &cname) == nil {
+		out["customer_id"], out["customer_name"] = cid, cname
+	}
+	writeJSON(w, 200, out)
+}
