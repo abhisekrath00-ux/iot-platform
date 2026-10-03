@@ -78,3 +78,13 @@ before and after (24 h each side). It works without a usable forecast, unlike th
 the forecast endpoint. Label `statistical`. It does not say why: process change, recalibration and a
 failing sensor look the same. Needs 3 or more days of hourly data. Tested on synthetic data with one
 known step and for tenant isolation; not evaluated on real data.
+
+## Question box (rule-based, not an LLM)
+
+`POST /v1/ask` reads a short English question and maps it onto one of five fixed read-only queries (`internal/ask`):
+open alerts (optionally by severity), alerts on a named device, latest value of a point on a named device, devices with no
+reading in 15 minutes (the fleet page's stale rule), and devices by tag. The reply always includes `interpreted_as`, so a
+misreading is visible. Anything else gets a 422 with examples. Device names must match one device in the tenant exactly (case
+ignored); ambiguity or no match is a 404. It can never write, approve or actuate: the parser has no such kind, and a test
+checks that unsupported questions such as "turn off the siren" run nothing. Label: rule-based, tested; no learned model,
+no synonyms beyond the phrases in `ask.go`.

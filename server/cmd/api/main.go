@@ -181,6 +181,7 @@ func main() {
 	api.HandleFunc("POST /v1/alerts/{id}/ack", s.ackAlert)
 	api.HandleFunc("GET /v1/escalation", s.getEscalation)
 	api.HandleFunc("PUT /v1/escalation", s.putEscalation)
+	api.HandleFunc("POST /v1/ask", s.askQuestion)
 	api.HandleFunc("GET /v1/relations", s.listRelations)
 	api.HandleFunc("POST /v1/relations", s.createRelation)
 	api.HandleFunc("DELETE /v1/relations", s.deleteRelation)

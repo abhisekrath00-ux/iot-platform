@@ -1,3 +1,4 @@
+import Ask from '../components/Ask';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, AlertRow, Device, LatestPoint } from '../lib/api';
@@ -33,6 +34,7 @@ export default function Fleet() {
   return (
     <>
       <h1>Fleet</h1>
+      <Ask />
       {err && <p className="muted">{err}</p>}
       <div className="cards">
         <div className="card"><div className="muted">Gateways</div><div className="kpi">{s ? `${s.active_gateways}/${s.gateways}` : '-'}</div><span className="pill ok">active</span></div>

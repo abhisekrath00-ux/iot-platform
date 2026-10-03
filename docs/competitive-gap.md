@@ -108,7 +108,7 @@ firmware signing for end devices.
 | Node-RED interchange | Export of a flow as a Node-RED flow array, and import of a supported subset (switch, change, delay, debug, function plus our own trigger/notify nodes). Anything else (inject, mqtt, http, link nodes, JSONata, etc.) is refused and listed; nothing is approximated. Exported files do not run in Node-RED because trigger and notify are Hexmon node types. |
 | Running the real Node-RED inside the platform | **Not built.** Decision and reasons in [node-red-decision.md](node-red-decision.md). The Node-RED palette (thousands of community nodes) is therefore not available. |
 | MCP text-to-flow | Built: `describe_flow_nodes`, `validate_flow_graph`, `draft_flow_graph`. The calling LLM writes the graph; the server validates it. Drafts only: never published or enabled, operator/admin token required, no function nodes. Tested. |
-| Natural-language text to graph inside the UI | **Not built.** An air-gapped install has no language model to call. Use any MCP-capable assistant against `/mcp`. |
+| Natural-language text to graph inside the UI | **Not built.** An air-gapped install has no language model to call. Use any MCP-capable assistant against `/mcp`. A small rule-based question box exists on the Fleet page (`POST /v1/ask`, tested): open or critical alerts, alerts on a device, latest value of a point, devices with no reading in 15 minutes, devices by tag. It is phrase matching over fixed read-only queries, shows how it read the question, refuses everything else, and cannot write or actuate. It is not a language model and does not take free-form questions. |
 | Visual graph editor | See the Flows page status in the changelog below. |
 
 ## Microsoft Report Builder parity (added 2026-10-02)
