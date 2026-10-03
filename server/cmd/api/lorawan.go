@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,22 +34,12 @@ func (s *server) lorawanUplink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
-	var in struct {
-		Time       string         `json:"time"`
-		Object     map[string]any `json:"object"`
-		ReceivedAt string         `json:"received_at"`
-		Uplink     struct {
-			Decoded map[string]any `json:"decoded_payload"`
-		} `json:"uplink_message"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+	var raw map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		http.Error(w, "bad json", 400)
 		return
 	}
-	obj, ts := in.Object, in.Time
-	if obj == nil {
-		obj, ts = in.Uplink.Decoded, in.ReceivedAt
-	}
+	obj, ts := extractUplink(raw)
 	if len(obj) == 0 {
 		http.Error(w, "no decoded payload: enable a payload decoder on the network server", 422)
 		return
@@ -106,4 +98,79 @@ func normalizeTS(s string) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+// extractUplink finds the decoded fields and the timestamp in the supported
+// shapes: ChirpStack v4, The Things Stack v3, Actility ThingPark ("DevEUI_uplink")
+// and a Sigfox backend callback (recognised by an epoch "time" plus "seqNumber"
+// or "data"). ThingPark and Sigfox send numbers as strings, so numeric strings
+// are accepted for those two. Raw hex payloads (payload_hex, data) are never parsed.
+func extractUplink(raw map[string]any) (map[string]any, string) {
+	if up, ok := raw["DevEUI_uplink"].(map[string]any); ok {
+		out := map[string]any{}
+		skip := map[string]bool{"DevEUI": true, "DevAddr": true, "Time": true, "payload_hex": true, "CustomerID": true, "Lrcid": true, "Lrrid": true, "Channel": true, "SubBand": true}
+		for k, v := range up {
+			if skip[k] || k == "payload" {
+				continue
+			}
+			if n, ok := numeric(v); ok {
+				out[k] = n
+			}
+		}
+		if dec, ok := up["payload"].(map[string]any); ok {
+			for k, v := range dec {
+				out[k] = v
+			}
+		}
+		ts, _ := up["Time"].(string)
+		return out, ts
+	}
+	if _, hasSeq := raw["seqNumber"]; hasSeq || (raw["data"] != nil && raw["device"] != nil && raw["time"] != nil) {
+		if _, isObj := raw["object"]; !isObj {
+			out := map[string]any{}
+			skip := map[string]bool{"device": true, "data": true, "time": true, "deviceTypeId": true, "id": true, "station": true}
+			for k, v := range raw {
+				if skip[k] {
+					continue
+				}
+				if n, ok := numeric(v); ok {
+					out[k] = n
+				}
+			}
+			ts := ""
+			if n, ok := numeric(raw["time"]); ok {
+				if f, isF := n.(float64); isF && f > 1e9 && f < 1e11 {
+					ts = time.Unix(int64(f), 0).UTC().Format(time.RFC3339)
+				}
+			}
+			return out, ts
+		}
+	}
+	if obj, ok := raw["object"].(map[string]any); ok {
+		ts, _ := raw["time"].(string)
+		return obj, ts
+	}
+	if up, ok := raw["uplink_message"].(map[string]any); ok {
+		dec, _ := up["decoded_payload"].(map[string]any)
+		ts, _ := raw["received_at"].(string)
+		return dec, ts
+	}
+	return nil, ""
+}
+
+// numeric accepts numbers, booleans and numeric strings. NaN and infinities are refused.
+func numeric(v any) (any, bool) {
+	switch x := v.(type) {
+	case float64:
+		return x, true
+	case bool:
+		return x, true
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(x), 64)
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			return nil, false
+		}
+		return f, true
+	}
+	return nil, false
 }

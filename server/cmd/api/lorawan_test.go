@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,9 +46,19 @@ func TestIntegrationLoRaWANUplink(t *testing.T) {
 	if c != 200 || !strings.Contains(b, `"accepted":1`) {
 		t.Fatalf("tts: %d %s", c, b)
 	}
+	// Actility ThingPark shape: numbers arrive as strings, raw hex is ignored
+	c, b = post(tok.Token, `{"DevEUI_uplink":{"Time":"`+nowRFC()+`","DevEUI":"0004A30B001A2B3C","payload_hex":"0102","temp":"23.5"}}`)
+	if c != 200 || !strings.Contains(b, `"accepted":1`) {
+		t.Fatalf("thingpark: %d %s", c, b)
+	}
+	// Sigfox callback: epoch time, numeric strings, hex data ignored
+	c, b = post(tok.Token, fmt.Sprintf(`{"device":"1A2B3C","time":"%d","data":"0102030405060708090a0b0c","seqNumber":"7","temp":"24.5"}`, time.Now().Unix()))
+	if c != 200 || !strings.Contains(b, `"accepted":1`) {
+		t.Fatalf("sigfox: %d %s", c, b)
+	}
 	var n int
 	pool.QueryRow(t.Context(), `SELECT count(*) FROM telemetry WHERE tenant_id='itest-lw1' AND point_id='temp'`).Scan(&n)
-	if n != 2 {
+	if n != 4 {
 		t.Fatalf("stored %d", n)
 	}
 	for name, tc := range map[string][2]string{

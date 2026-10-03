@@ -211,6 +211,20 @@ exist as registered points for that device are stored. The network server's time
 Status: integration-tested with both JSON shapes, bad/missing tokens and payloads with no numeric fields. Not tested
 against a real ChirpStack/TTS instance or real sensors. Downlinks (commands to LoRaWAN devices) are not built.
 
+### Actility ThingPark and Sigfox (inbound HTTP only)
+
+The same endpoint, `POST /v1/lorawan/uplink` with the per-device token, also accepts two more shapes. Both are
+written from my reading of the vendors' documented formats and have only been tested with hand-written sample bodies,
+never a real ThingPark or Sigfox backend; field names may differ on your account, so test with a captured callback first.
+
+- **ThingPark** (`DevEUI_uplink` object): numeric fields (strings are parsed, e.g. `LrrRSSI`, `LrrSNR`, `FCntUp`) and a decoded
+  `payload` object, if your connection has a decoder, become readings. `payload_hex` is never parsed.
+- **Sigfox backend callback** (JSON body template you define in the Sigfox backend, with `time` as epoch seconds and `seqNumber` or `data`):
+  numeric fields such as `avgSnr`, `rssi` or `seqNumber` and any numeric fields you add through a decoding step. The 12-byte raw `data`
+  is not decoded here; decode it in the callback or a flow. `device`, `data`, `time`, `id` and `deviceTypeId` are not stored as readings.
+
+Fields that are not registered points on the device are rejected in the response, not stored. No downlinks, no Sigfox or ThingPark API polling.
+
 ## Kafka and AMQP notification channels (outbound)
 
 Alerts and report-ready events can be published to a message bus, as notification channel types `kafka` and `amqp`
