@@ -31,7 +31,7 @@ export async function download(path: string, filename: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-export const NETWORK_DRIVERS = ['modbus-tcp', 'opcua', 'snmp', 'bacnet', 'iec104', 'dnp3', 'coap', 'iec61850'];
+export const NETWORK_DRIVERS = ['modbus-tcp', 'opcua', 'snmp', 'bacnet', 'iec104', 'dnp3', 'coap', 'iec61850', 'lwm2m', 'can'];
 // Later network drivers: tested against simulators only (docs/connectors.md). f = the point address field.
 export const EXTRA_DRIVERS: Record<string, { label: string; f: 'oid' | 'ioa' | 'key'; ph: string; reg?: boolean; unit?: boolean }> = {
   snmp: { label: 'SNMP v2c/v3 (switches, UPS, PDUs)', f: 'oid', ph: '.1.3.6.1.2.1.1.3.0' },
@@ -39,5 +39,7 @@ export const EXTRA_DRIVERS: Record<string, { label: string; f: 'oid' | 'ioa' | '
   iec104: { label: 'IEC 60870-5-104 (utility RTU)', f: 'ioa', ph: '100', unit: true },
   dnp3: { label: 'DNP3 master (utility)', f: 'key', ph: 'ai | bi | ctr | bo', reg: true, unit: true },
   coap: { label: 'CoAP (constrained devices)', f: 'key', ph: 'sensors/temp#v' },
+  lwm2m: { label: 'LwM2M object reads (simulator-tested, read-only)', f: 'key', ph: '/3303/0/5700' },
+  can: { label: 'CAN bus via SocketCAN (simulator-tested, read-only)', f: 'key', ph: '0x123:0:16:le:u' },
   iec61850: { label: 'IEC 61850 MMS (partial, read-only)', f: 'key', ph: 'LD0/MMXU1.TotW.mag.f' },
 };

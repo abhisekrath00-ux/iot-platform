@@ -19,18 +19,21 @@ var driverKinds = map[string]string{
 	"modbus-generic": "serial", "modbus-energy-meter": "serial", "door-contact": "serial",
 	"serial-json": "serial", "modbus-tcp": "net", "opcua": "net",
 	// Network drivers added later. Tested against simulators only; see docs/connectors.md.
-	"snmp": "net", "bacnet": "net", "iec104": "net", "dnp3": "net", "coap": "net", "iec61850": "net",
+	"snmp": "net", "bacnet": "net", "iec104": "net", "dnp3": "net", "coap": "net", "iec61850": "net", "lwm2m": "net", "can": "can",
 }
 
 var (
-	hostRe = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,253}$`)
-	portRe = regexp.MustCompile(`^(/dev/[A-Za-z0-9._/-]{1,64}|COM[0-9]{1,3})$`)
-	epRe   = regexp.MustCompile(`^opc\.tcp://[A-Za-z0-9._:\-\[\]]{1,253}(/[A-Za-z0-9._~/\-]{0,128})?$`)
-	nodeRe = regexp.MustCompile(`^(ns=[0-9]{1,5};)?[isgb]=[A-Za-z0-9._:/\- \[\]]{1,128}$`)
-	oidRe  = regexp.MustCompile(`^\.[0-9]{1,10}(\.[0-9]{1,10}){2,30}$`)
-	envRe  = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
-	pkeyRe = regexp.MustCompile(`^[A-Za-z0-9_.:/#\-\[\]$ ]{1,200}$`)
-	keyRe  = regexp.MustCompile(`^[A-Za-z0-9_.\-]{1,64}$`)
+	hostRe     = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,253}$`)
+	portRe     = regexp.MustCompile(`^(/dev/[A-Za-z0-9._/-]{1,64}|COM[0-9]{1,3})$`)
+	epRe       = regexp.MustCompile(`^opc\.tcp://[A-Za-z0-9._:\-\[\]]{1,253}(/[A-Za-z0-9._~/\-]{0,128})?$`)
+	nodeRe     = regexp.MustCompile(`^(ns=[0-9]{1,5};)?[isgb]=[A-Za-z0-9._:/\- \[\]]{1,128}$`)
+	oidRe      = regexp.MustCompile(`^\.[0-9]{1,10}(\.[0-9]{1,10}){2,30}$`)
+	envRe      = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+	pkeyRe     = regexp.MustCompile(`^[A-Za-z0-9_.:/#\-\[\]$ ]{1,200}$`)
+	canIfaceRe = regexp.MustCompile(`^[a-z]{1,8}[0-9]{1,3}$`)
+	lwm2mKeyRe = regexp.MustCompile(`^/[0-9]{1,5}/[0-9]{1,5}/[0-9]{1,5}$`)
+	canKeyRe   = regexp.MustCompile(`^0x[0-9A-Fa-f]{1,8}:[0-9]{1,2}:[0-9]{1,2}:(le|be):[us]$`)
+	keyRe      = regexp.MustCompile(`^[A-Za-z0-9_.\-]{1,64}$`)
 )
 
 // validateProfilePoints checks points against the driver family's schema.
@@ -83,7 +86,7 @@ func validateProfilePointsFor(driver string, pts []map[string]any) error {
 	return validProfilePoints(pts)
 }
 
-var netExtra = map[string]bool{"snmp": true, "bacnet": true, "iec104": true, "dnp3": true, "coap": true, "iec61850": true}
+var netExtra = map[string]bool{"snmp": true, "bacnet": true, "iec104": true, "dnp3": true, "coap": true, "iec61850": true, "lwm2m": true, "can": true}
 
 // validateExtraPoints checks the point addressing for the later network
 // drivers. The edge agent re-validates everything; this only fails early.
@@ -118,6 +121,12 @@ func validateExtraPoints(driver string, pts []map[string]any) error {
 		default: // bacnet, coap, iec61850 address by key
 			if !pkeyRe.MatchString(key) {
 				return fmt.Errorf("point %s: key required (bacnet ai:1, coap path#field, iec61850 domain/item)", id)
+			}
+			if driver == "lwm2m" && !lwm2mKeyRe.MatchString(key) {
+				return fmt.Errorf("point %s: lwm2m key must be /object/instance/resource such as /3303/0/5700", id)
+			}
+			if driver == "can" && !canKeyOK(key) {
+				return fmt.Errorf("point %s: can key must be id:start:length:le|be:u|s such as 0x123:0:16:le:u", id)
 			}
 			if driver == "iec61850" && !strings.Contains(key, "/") {
 				return fmt.Errorf("point %s: iec61850 key must be domain/item", id)
@@ -165,6 +174,10 @@ func validConnection(driver string, c map[string]any) error {
 		case "", "none", "odd", "even":
 		default:
 			return fmt.Errorf("parity must be none|odd|even")
+		}
+	case "can":
+		if !canIfaceRe.MatchString(str("port")) {
+			return fmt.Errorf("port must be a CAN interface name such as can0 or vcan0")
 		}
 	case "net":
 		if driver == "opcua" {
@@ -313,4 +326,15 @@ func (s *server) gatewayEdgeConfig(w http.ResponseWriter, r *http.Request) {
 		yml += renderRulesYAML(outs, rules)
 	}
 	fmt.Fprint(w, yml)
+}
+
+// canKeyOK checks the key shape and that the signal fits in an 8-byte frame.
+func canKeyOK(key string) bool {
+	if !canKeyRe.MatchString(key) {
+		return false
+	}
+	f := strings.Split(key, ":")
+	start, _ := strconv.Atoi(f[1])
+	n, _ := strconv.Atoi(f[2])
+	return n >= 1 && n <= 32 && start <= 63 && (f[3] == "be" || start+n <= 64)
 }

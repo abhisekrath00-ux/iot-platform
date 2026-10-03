@@ -98,6 +98,7 @@ export default function Onboarding() {
     const base = { interval_seconds: +conn.interval_seconds };
     if (driver === 'opcua') return { ...base, endpoint: conn.endpoint };
     if (EXTRA_DRIVERS[driver]) {
+      if (driver === 'can') return { ...base, port: conn.port };
       const x: Record<string, unknown> = { ...base, host: conn.host };
       if (+conn.net_port > 0) x.net_port = +conn.net_port;
       if (driver === 'iec104' || driver === 'dnp3') x.address = +conn.address;
@@ -178,7 +179,11 @@ export default function Onboarding() {
             <>
               <h3 style={{ marginTop: 20 }}>Connection</h3>
               {driver === 'opcua' && (<><label>OPC UA endpoint</label><input value={conn.endpoint} onChange={e => setConn({ ...conn, endpoint: e.target.value })} placeholder="opc.tcp://192.168.1.60:4840" required /></>)}
-              {EXTRA_DRIVERS[driver] && (<>
+              {driver === 'can' && (<>
+                <label>CAN interface on the gateway</label><input value={conn.port} onChange={e => setConn({ ...conn, port: e.target.value })} placeholder="can0" pattern="[a-z]{1,8}[0-9]{1,3}" required />
+                <p className="muted">Linux SocketCAN, receive only. The gateway never sends a frame. Each point is a signal: id:start bit:length:le|be:u|s, for example 0x123:0:16:le:u.</p>
+              </>)}
+              {EXTRA_DRIVERS[driver] && driver !== 'can' && (<>
                 <label>Host / IP</label><input value={conn.host} onChange={e => setConn({ ...conn, host: e.target.value })} placeholder="192.168.1.50" required />
                 <label>Port (blank = protocol default)</label><input type="number" value={conn.net_port || ''} onChange={e => setConn({ ...conn, net_port: +e.target.value })} />
                 {(driver === 'iec104' || driver === 'dnp3') && (<><label>{driver === 'iec104' ? 'Common address (ASDU)' : 'Outstation address'}</label><input type="number" min={0} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} /></>)}

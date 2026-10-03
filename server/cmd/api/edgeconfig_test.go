@@ -104,6 +104,8 @@ func TestExtraDriverPointsAndConnection(t *testing.T) {
 		"bacnet":   pt(map[string]any{"key": "ai:1"}),
 		"coap":     pt(map[string]any{"key": "sensors/temp#v"}),
 		"iec61850": pt(map[string]any{"key": "LD0/MMXU1.TotW.mag.f"}),
+		"lwm2m":    pt(map[string]any{"key": "/3303/0/5700"}),
+		"can":      pt(map[string]any{"key": "0x123:0:16:le:u"}),
 	}
 	for d, p := range ok {
 		if err := validateProfilePointsFor(d, p); err != nil {
@@ -117,11 +119,16 @@ func TestExtraDriverPointsAndConnection(t *testing.T) {
 		"bacnet":   pt(map[string]any{"key": "bad\x00"}),
 		"iec61850": pt(map[string]any{"key": "nodomain"}),
 		"coap":     {{"id": "p1", "key": "a"}}, // no range
+		"lwm2m":    pt(map[string]any{"key": "/3303/0"}),
+		"can":      pt(map[string]any{"key": "0x123:0:99:le:u"}),
 	}
 	for d, p := range bad {
 		if err := validateProfilePointsFor(d, p); err == nil {
 			t.Errorf("%s bad point accepted", d)
 		}
+	}
+	if validConnection("can", map[string]any{"port": "vcan0"}) != nil || validConnection("can", map[string]any{"port": "../x"}) == nil || validConnection("lwm2m", map[string]any{"host": "10.0.0.4"}) != nil {
+		t.Error("can/lwm2m connection validation")
 	}
 	if err := validConnection("snmp", map[string]any{"host": "10.0.0.9", "snmp_version": "3", "snmp_auth": "sha256", "snmp_auth_pass_env": "SNMP_AUTH"}); err != nil {
 		t.Error(err)

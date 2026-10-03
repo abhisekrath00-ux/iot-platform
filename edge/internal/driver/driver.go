@@ -53,6 +53,10 @@ func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
 		return newIEC61850(d)
 	case "iec104":
 		return newIEC104(d)
+	case "lwm2m":
+		return newLwM2M(d)
+	case "can":
+		return newCAN(d)
 	}
 	mode := &serial.Mode{BaudRate: d.Baud, DataBits: d.DataBits, StopBits: stopBitsMode(d.StopBits)}
 	switch d.Parity {

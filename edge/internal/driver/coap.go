@@ -23,9 +23,10 @@ import (
 // payload, e.g. `/sensors/env#temp` or `/temp` (plain-text number body).
 // Several points on one path share one GET per poll.
 type coapDriver struct {
-	dev  config.Device
-	addr string
-	mid  uint16
+	dev   config.Device
+	addr  string
+	mid   uint16
+	lwm2m bool // LwM2M object reads: ask for text/plain (Accept 0)
 }
 
 func newCoAP(d config.Device) (Driver, error) {
@@ -70,13 +71,16 @@ func coapOpt(out []byte, prev, num int, val []byte) []byte {
 }
 
 // coapGet builds a confirmable GET for the path.
-func coapGet(mid uint16, token []byte, path string) []byte {
+func coapGet(mid uint16, token []byte, path string, accept ...bool) []byte {
 	b := []byte{0x40 | byte(len(token)), 0x01, byte(mid >> 8), byte(mid)}
 	b = append(b, token...)
 	prev := 0
 	for _, seg := range strings.Split(strings.Trim(path, "/"), "/") {
 		b = coapOpt(b, prev, 11, []byte(seg))
 		prev = 11
+	}
+	if len(accept) > 0 && accept[0] {
+		b = coapOpt(b, prev, 17, nil) // Accept: text/plain (content format 0, zero-length uint)
 	}
 	return b
 }
@@ -135,7 +139,7 @@ func (c *coapDriver) exchange(ctx context.Context, path string) ([]byte, error) 
 	defer conn.Close()
 	c.mid++
 	token := binary.BigEndian.AppendUint32(nil, uint32(time.Now().UnixNano())^uint32(c.mid))
-	req := coapGet(c.mid, token, path)
+	req := coapGet(c.mid, token, path, c.lwm2m)
 	wait := 500 * time.Millisecond
 	buf := make([]byte, 2048)
 	for try := 0; try < 4; try++ {
