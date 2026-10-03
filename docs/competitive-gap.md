@@ -130,7 +130,7 @@ Status is from this repo's code. Nothing here is "Have" unless built and tested.
 | Expressions (computed columns, formatting, conditionals) | Up to 5 computed columns on the matrix layout, from the safe KPI expression language (numbers, + - * /, point references of the report; validated; no functions or loops). HTML, PDF, Excel, CSV | Partial (no number formatting or conditionals; matrix layout only) | 7 |
 | Page header/footer, page numbers, hard page breaks | PDF has "Page n of m" on every page, optional header and footer text, a repeating column header, and a chart never splits across pages | Partial (custom header and footer text, 80 characters each, on every PDF page and in the HTML, tested and checked on a rendered page; no logo, no manual page breaks; HTML does not repeat them per printed page) | 8 |
 | Scheduled delivery to email/Slack | Cron delivery wired | Have | - |
-| Saved, versioned report definitions | Saved reports exist | Partial (no versions) | 9 |
+| Saved, versioned report definitions | Edit a saved report (`PUT /v1/reports/{id}`), automatic version history (each edit or restore saves the previous state first; newest 100 kept), restore any version as a new one (`GET .../versions`, `POST .../versions/{v}/restore`); Edit and History on the Reports page; admin and operator can change, tenant-isolated, audited; tested | Have (no diff view, no named or pinned versions; scheduled runs always use the current version) | 9 |
 | Drill-through and subreports | None | Missing | 10 |
 | Word, PowerPoint, image export | None | Missing, not planned (PDF and Excel cover the need) | - |
 

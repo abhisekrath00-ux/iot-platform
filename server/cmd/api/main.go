@@ -195,6 +195,9 @@ func main() {
 	api.HandleFunc("POST /v1/profiles", s.createProfile)
 	api.HandleFunc("GET /v1/reports", s.listReports)
 	api.HandleFunc("POST /v1/reports", s.createReport)
+	api.HandleFunc("PUT /v1/reports/{id}", s.updateReport)
+	api.HandleFunc("GET /v1/reports/{id}/versions", s.listReportVersions)
+	api.HandleFunc("POST /v1/reports/{id}/versions/{v}/restore", s.restoreReportVersion)
 	api.HandleFunc("POST /v1/reports/{id}/run", s.runReport)
 	api.HandleFunc("POST /v1/reports/preview", s.previewReport)
 	api.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
@@ -1143,7 +1146,7 @@ func (s *server) createProfile(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) listReports(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, name, definition, schedule_cron, channel_id, last_run_at, created_at
+		`SELECT id, name, definition, schedule_cron, channel_id, last_run_at, created_at, version
 		 FROM reports WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -1157,9 +1160,10 @@ func (s *server) listReports(w http.ResponseWriter, r *http.Request) {
 		var cron, channelID *string
 		var lastRun *time.Time
 		var createdAt time.Time
-		rows.Scan(&id, &name, &def, &cron, &channelID, &lastRun, &createdAt)
+		var version int
+		rows.Scan(&id, &name, &def, &cron, &channelID, &lastRun, &createdAt, &version)
 		out = append(out, map[string]any{"id": id, "name": name, "definition": json.RawMessage(def),
-			"schedule_cron": cron, "channel_id": channelID, "last_run_at": lastRun, "created_at": createdAt})
+			"schedule_cron": cron, "channel_id": channelID, "last_run_at": lastRun, "created_at": createdAt, "version": version})
 	}
 	writeJSON(w, 200, out)
 }

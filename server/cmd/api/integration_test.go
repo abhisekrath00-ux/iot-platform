@@ -52,6 +52,9 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("PUT /v1/escalation", s.putEscalation)
 	mux.HandleFunc("POST /v1/reports/preview", s.previewReport)
 	mux.HandleFunc("POST /v1/reports", s.createReport)
+	mux.HandleFunc("PUT /v1/reports/{id}", s.updateReport)
+	mux.HandleFunc("GET /v1/reports/{id}/versions", s.listReportVersions)
+	mux.HandleFunc("POST /v1/reports/{id}/versions/{v}/restore", s.restoreReportVersion)
 	mux.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
 	mux.HandleFunc("GET /v1/export/telemetry.csv", s.exportTelemetryCSV)
 	return s, mux
@@ -576,5 +579,76 @@ func TestIntegrationEscalationQuietHours(t *testing.T) {
 	rules.EvaluateEscalations(ctx, s.st.Pool, fn)
 	if len(fn.emails) != 2 || !strings.Contains(fn.emails[1], "Warn pump") || !strings.Contains(fn.emails[1], "REMINDER") {
 		t.Fatalf("held reminder not sent after quiet hours: %v", fn.emails)
+	}
+}
+
+func TestIntegrationReportVersions(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-rv")
+	seed(t, s, "itest-rv2")
+	def := func(hours int) string {
+		return fmt.Sprintf(`{"metrics":[{"device_id":"itest-rv-dev","point_id":"temp"}],"window_hours":%d,"group_by":"hour"}`, hours)
+	}
+	w := call(h, "itest-rv", "admin", "POST", "/v1/reports", `{"name":"Daily","definition":`+def(24)+`}`)
+	if w.Code != 201 {
+		t.Fatalf("create %d %s", w.Code, w.Body.String())
+	}
+	var rep struct{ ID string }
+	json.Unmarshal(w.Body.Bytes(), &rep)
+	put := func(role, tenant, body string) *httptest.ResponseRecorder {
+		return call(h, tenant, role, "PUT", "/v1/reports/"+rep.ID, body)
+	}
+	if w := put("viewer", "itest-rv", `{"name":"X","definition":`+def(48)+`}`); w.Code != 403 {
+		t.Fatalf("viewer edit: %d", w.Code)
+	}
+	if w := put("admin", "itest-rv", `{"name":"X","definition":{"metrics":[]}}`); w.Code != 400 {
+		t.Fatalf("invalid definition accepted: %d", w.Code)
+	}
+	if w := put("admin", "itest-rv2", `{"name":"X","definition":`+def(48)+`}`); w.Code != 404 {
+		t.Fatalf("another tenant edited the report: %d", w.Code)
+	}
+	if w := put("operator", "itest-rv", `{"name":"Daily v2","definition":`+def(48)+`}`); w.Code != 200 || !strings.Contains(w.Body.String(), `"version":2`) {
+		t.Fatalf("edit 1: %d %s", w.Code, w.Body.String())
+	}
+	if w := put("admin", "itest-rv", `{"name":"Daily v3","definition":`+def(72)+`}`); w.Code != 200 || !strings.Contains(w.Body.String(), `"version":3`) {
+		t.Fatalf("edit 2: %d %s", w.Code, w.Body.String())
+	}
+	w = call(h, "itest-rv", "viewer", "GET", "/v1/reports/"+rep.ID+"/versions", "")
+	var vs struct {
+		Current  int
+		Versions []struct {
+			Version    int
+			Name       string
+			Definition struct{ Window_hours int }
+		}
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &vs) != nil || vs.Current != 3 || len(vs.Versions) != 2 ||
+		vs.Versions[0].Version != 2 || vs.Versions[0].Name != "Daily v2" || vs.Versions[0].Definition.Window_hours != 48 ||
+		vs.Versions[1].Version != 1 || vs.Versions[1].Name != "Daily" {
+		t.Fatalf("versions: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(h, "itest-rv2", "viewer", "GET", "/v1/reports/"+rep.ID+"/versions", ""); w.Code != 404 {
+		t.Fatalf("cross-tenant versions: %d", w.Code)
+	}
+	// restore version 1 as a new version 4; history keeps v3 as well
+	if w := call(h, "itest-rv2", "admin", "POST", "/v1/reports/"+rep.ID+"/versions/1/restore", ""); w.Code != 404 {
+		t.Fatalf("cross-tenant restore: %d", w.Code)
+	}
+	if w := call(h, "itest-rv", "viewer", "POST", "/v1/reports/"+rep.ID+"/versions/1/restore", ""); w.Code != 403 {
+		t.Fatalf("viewer restore: %d", w.Code)
+	}
+	if w := call(h, "itest-rv", "admin", "POST", "/v1/reports/"+rep.ID+"/versions/9/restore", ""); w.Code != 404 {
+		t.Fatalf("missing version: %d", w.Code)
+	}
+	if w := call(h, "itest-rv", "admin", "POST", "/v1/reports/"+rep.ID+"/versions/1/restore", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"version":4`) {
+		t.Fatalf("restore: %d %s", w.Code, w.Body.String())
+	}
+	var name string
+	var hours int
+	s.st.Pool.QueryRow(context.Background(), `SELECT name, (definition->>'window_hours')::int FROM reports WHERE id=$1`, rep.ID).Scan(&name, &hours)
+	var n int
+	s.st.Pool.QueryRow(context.Background(), `SELECT count(*) FROM report_versions WHERE report_id=$1`, rep.ID).Scan(&n)
+	if name != "Daily" || hours != 24 || n != 3 {
+		t.Fatalf("after restore name=%q hours=%d saved=%d", name, hours, n)
 	}
 }

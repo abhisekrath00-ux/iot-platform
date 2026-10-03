@@ -3,7 +3,8 @@ import { api, download } from '../lib/api';
 
 interface Metric { device_id: string; point_id: string; }
 interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; computed?: { name: string; expr: string }[]; }
-interface ReportRow { id: string; name: string; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; }
+interface ReportRow { id: string; name: string; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; version?: number; }
+interface VersionRow { version: number; name: string; definition: ReportDef; schedule_cron: string | null; replaced_by: string; replaced_at: string; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
 
@@ -23,6 +24,8 @@ export default function Reports() {
   const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
   const [pw, setPw] = useState<Record<string, { w?: string; g?: string; d?: string }>>({});
   const [cron, setCron] = useState('');
+  const [editingId, setEditingId] = useState('');
+  const [hist, setHist] = useState<{ id: string; current: number; versions: VersionRow[] } | null>(null);
   const [channelId, setChannelId] = useState('');
   const [msg, setMsg] = useState('');
   const [points, setPoints] = useState<PointRow[]>([]);
@@ -45,8 +48,8 @@ export default function Reports() {
     e.preventDefault();
     setMsg('');
     try {
-      await api('/v1/reports', {
-        method: 'POST',
+      await api(editingId ? `/v1/reports/${editingId}` : '/v1/reports', {
+        method: editingId ? 'PUT' : 'POST',
         body: JSON.stringify({
           name,
           definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined },
@@ -54,7 +57,7 @@ export default function Reports() {
           channel_id: channelId || ''
         })
       });
-      setName(''); setCron('');
+      setName(''); setCron(''); setEditingId(''); setHist(null);
       load();
     } catch (e2) { setMsg(String(e2)); }
   }
@@ -68,6 +71,26 @@ export default function Reports() {
       });
       setPreviewHTML(r.html); setPreviewRows(r.rows);
     } catch (e2) { setMsg(String(e2)); }
+  }
+
+  // Load a saved report into the form; saving writes a new version and keeps the old one.
+  function edit(r: ReportRow) {
+    const d = r.definition;
+    setEditingId(r.id); setName(r.name); setMetrics(d.metrics.length ? d.metrics : [{ device_id: '', point_id: '' }]);
+    setWindowHours(d.window_hours); setGroupBy(d.group_by); setLayout(d.layout ?? ''); setAgg(d.agg ?? 'avg'); setRollup(d.rollup ?? '');
+    setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
+    setMsg(''); window.scrollTo({ top: 0 });
+  }
+  function cancelEdit() { setEditingId(''); setName(''); setCron(''); setMsg(''); }
+  async function showHistory(id: string) {
+    if (hist?.id === id) { setHist(null); return; }
+    try { const h = await api<{ current: number; versions: VersionRow[] }>(`/v1/reports/${id}/versions`); setHist({ id, ...h }); }
+    catch (e2) { setMsg(String(e2)); }
+  }
+  async function restore(id: string, v: number) {
+    setMsg('');
+    try { await api(`/v1/reports/${id}/versions/${v}/restore`, { method: 'POST' }); setHist(null); setMsg(`Restored version ${v} as a new version.`); load(); }
+    catch (e2) { setMsg(String(e2)); }
   }
 
   async function runNow(id: string) {
@@ -150,7 +173,8 @@ export default function Reports() {
           </select>
           <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
             <button type="button" className="ghost" onClick={previewNow}>Preview</button>
-            <button type="submit">Create report</button>
+            <button type="submit">{editingId ? 'Save changes (new version)' : 'Create report'}</button>
+            {editingId && <button type="button" className="ghost" onClick={cancelEdit}>Cancel edit</button>}
           </div>
         </form>
         {msg && <p className="muted">{msg}</p>}
@@ -166,7 +190,7 @@ export default function Reports() {
       )}
       {reports.map(r => (
         <div key={r.id} className="card" style={{ marginBottom: 10 }}>
-          <b>{r.name}</b> <span className="muted">{r.definition.metrics.length} metrics, {r.definition.window_hours}h window, by {r.definition.group_by}{r.definition.rollup ? `, summary by ${r.definition.rollup}` : ''}</span>
+          <b>{r.name}</b> <span className="muted">v{r.version ?? 1} - {r.definition.metrics.length} metrics, {r.definition.window_hours}h window, by {r.definition.group_by}{r.definition.rollup ? `, summary by ${r.definition.rollup}` : ''}</span>
           <div className="muted">
             {r.schedule_cron ? <>schedule {r.schedule_cron} - </> : 'on demand - '}
             {r.last_run_at ? `last run ${new Date(r.last_run_at).toLocaleString()}` : 'never run'}
@@ -185,11 +209,26 @@ export default function Reports() {
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button onClick={() => runNow(r.id)}>Run now</button>
+            <button className="ghost" onClick={() => edit(r)}>Edit</button>
+            <button className="ghost" onClick={() => showHistory(r.id)} aria-expanded={hist?.id === r.id}>History</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=csv`, `${r.name}.csv`).catch(e => setMsg(String(e)))}>CSV</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=html`, `${r.name}.html`).catch(e => setMsg(String(e)))}>HTML</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=pdf`, `${r.name}.pdf`).catch(e => setMsg(String(e)))}>PDF</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=xlsx`, `${r.name}.xlsx`).catch(e => setMsg(String(e)))}>Excel</button>
           </div>
+          {hist?.id === r.id && (
+            <div style={{ marginTop: 10 }} role="region" aria-label="Report history">
+              <b>Version history</b> <span className="muted">(current is v{hist.current})</span>
+              {hist.versions.length === 0 && <p className="muted">No earlier versions. Editing the report saves the current one here first.</p>}
+              {hist.versions.map(v => (
+                <div key={v.version} style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+                  <span>v{v.version}</span>
+                  <span className="muted">{v.name}, {v.definition.metrics.length} metrics, {v.definition.window_hours}h, by {v.definition.group_by}; replaced {new Date(v.replaced_at).toLocaleString()}</span>
+                  <button className="ghost" onClick={() => restore(r.id, v.version)}>Restore as new version</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
       {reports.length === 0 && <p className="muted">No reports yet.</p>}
