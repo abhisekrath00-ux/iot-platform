@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Empty from '../components/Empty';
 import { api, Device } from '../lib/api';
+import { fitZoom, metresPerPx, TILE, tilesFor, worldPx } from '../lib/mercator';
 
 interface MDev { id: string; name: string; lat: number; lon: number; inside: string[]; }
 interface Fence { id: string; name: string; lat: number; lon: number; radius_m: number; }
@@ -16,6 +17,9 @@ export default function MapPage() {
   const [lat, setLat] = useState(''); const [lon, setLon] = useState('');
   const [fname, setFname] = useState(''); const [flat, setFlat] = useState(''); const [flon, setFlon] = useState(''); const [frad, setFrad] = useState('200');
   const [msg, setMsg] = useState('');
+  const [cfg, setCfg] = useState<{ tiles: boolean; attribution: string }>({ tiles: false, attribution: '' });
+  const [imgs, setImgs] = useState<Record<string, string>>({});
+  useEffect(() => { api<{ tiles: boolean; attribution: string }>('/v1/map/config').then(setCfg).catch(() => undefined); }, []);
   const load = () => {
     api<MapData>('/v1/map').then(setData).catch(e => setMsg(String(e)));
     api<Device[]>('/v1/devices').then(setDevices).catch(() => {});
@@ -31,6 +35,19 @@ export default function MapPage() {
       pts.push([f.lat - dLat, f.lon - dLon], [f.lat + dLat, f.lon + dLon]);
     });
     if (pts.length === 0) return null;
+    if (cfg.tiles) {
+      const z = fitZoom(pts, W - 2 * PAD, H - 2 * PAD);
+      const wp = pts.map(([la, lo]) => worldPx(la, lo, z));
+      const cx = (Math.min(...wp.map(q => q[0])) + Math.max(...wp.map(q => q[0]))) / 2;
+      const cy = (Math.min(...wp.map(q => q[1])) + Math.max(...wp.map(q => q[1]))) / 2;
+      const midLat = (Math.min(...pts.map(q => q[0])) + Math.max(...pts.map(q => q[0]))) / 2;
+      return {
+        x: (lo: number) => W / 2 + worldPx(0, lo, z)[0] - cx,
+        y: (la: number) => H / 2 + worldPx(la, 0, z)[1] - cy,
+        mPerPx: metresPerPx(midLat, z),
+        tiles: tilesFor(cx, cy, z, W, H),
+      };
+    }
     const lats = pts.map(p => p[0]), lons = pts.map(p => p[1]);
     const mid = (Math.min(...lats) + Math.max(...lats)) / 2;
     const k = Math.max(0.01, Math.cos(mid * Math.PI / 180));
@@ -41,19 +58,35 @@ export default function MapPage() {
       x: (lo: number) => PAD + (lo - minLon) * k * scale + (W - 2 * PAD - spanX * scale) / 2,
       y: (la: number) => H - PAD - (la - minLat) * scale - (H - 2 * PAD - spanY * scale) / 2,
       mPerPx: 111195 / scale,
+      tiles: [] as ReturnType<typeof tilesFor>,
     };
-  }, [data]);
+  }, [data, cfg]);
+
+  // Tiles are fetched through the API (it relays the deployer's tile server) and shown from blob URLs.
+  useEffect(() => {
+    if (!proj || proj.tiles.length === 0) return;
+    let dead = false;
+    const token = localStorage.getItem('iot.token') ?? '';
+    proj.tiles.slice(0, 40).forEach(t => {
+      const k = `${t.z}/${t.x}/${t.y}`;
+      if (imgs[k]) return;
+      fetch(`/v1/map/tiles/${k}`, { headers: { Authorization: `Bearer ${token}` } }).then(r => (r.ok ? r.blob() : null)).then(b => { if (b && !dead) setImgs(m => (m[k] ? m : { ...m, [k]: URL.createObjectURL(b) })); }).catch(() => undefined);
+    });
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proj]);
 
   return (
     <>
       <h1>Map</h1>
-      <p className="muted">Where devices are and which zones they sit in. Positions are entered by people, not read from telemetry. Plotted on a plain canvas (no map tiles), so it works with no internet. Zones are circles; there are no enter or exit alerts.</p>
+      <p className="muted">Where devices are and which zones they sit in. Positions are entered by people, not read from telemetry. {cfg.tiles ? 'Drawn over map tiles from your own tile server. ' : 'Plotted on a plain canvas (no map tiles), so it works with no internet. '}Zones are circles; there are no enter or exit alerts.</p>
       {msg && <p className="muted" role="status">{msg}</p>}
       {!proj
         ? <Empty title="Nothing on the map yet" hint="Give a device a position below, and optionally add a zone." />
         : (
           <div className="card" style={{ maxWidth: W + 40 }}>
             <svg role="img" aria-label="Site map" width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
+              {proj.tiles.map(t => imgs[`${t.z}/${t.x}/${t.y}`] && <image key={`${t.z}/${t.x}/${t.y}/${t.px}`} href={imgs[`${t.z}/${t.x}/${t.y}`]} x={t.px} y={t.py} width={TILE} height={TILE} />)}
               {data.geofences.map(f => (
                 <g key={f.id}>
                   <circle cx={proj.x(f.lon)} cy={proj.y(f.lat)} r={f.radius_m / proj.mPerPx} fill="var(--accent, #4f8cff)" fillOpacity="0.1" stroke="var(--accent, #4f8cff)" strokeDasharray="5 4" />
@@ -67,7 +100,7 @@ export default function MapPage() {
                 </g>
               ))}
             </svg>
-            <div className="muted" style={{ fontSize: 12 }}>Scale: 100 px is about {Math.round(proj.mPerPx * 100)} m. Green devices are inside a zone.</div>
+            <div className="muted" style={{ fontSize: 12 }}>Scale: 100 px is about {Math.round(proj.mPerPx * 100)} m. Green devices are inside a zone.{cfg.tiles && cfg.attribution ? ` Map: ${cfg.attribution}` : ''}</div>
           </div>
         )}
       {data.devices.length > 0 && (

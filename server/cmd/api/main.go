@@ -158,6 +158,8 @@ func main() {
 	api.HandleFunc("PUT /v1/devices/{id}/asset", s.setDeviceAsset)
 	api.HandleFunc("PUT /v1/devices/{id}/location", s.setDeviceLocation)
 	api.HandleFunc("GET /v1/map", s.getMap)
+	api.HandleFunc("GET /v1/map/config", s.mapConfig)
+	api.HandleFunc("GET /v1/map/tiles/{z}/{x}/{y}", s.mapTile)
 	api.HandleFunc("POST /v1/geofences", s.createGeofence)
 	api.HandleFunc("DELETE /v1/geofences/{id}", s.deleteGeofence)
 	api.HandleFunc("GET /v1/assets", s.listAssets)

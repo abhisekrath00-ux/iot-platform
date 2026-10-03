@@ -37,7 +37,7 @@ func TestIntegrationAlertLifecycle(t *testing.T) {
 		t.Fatalf("cross-tenant ack = %d, want 409", w.Code)
 	}
 	if w := call(api, "itest-al2", "admin", "POST", "/v1/alerts/itest-al1-a/comments", `{"body":"x"}`); w.Code != 404 {
-		t.Fatalf("cross-tenant comment = %d, want 404", w.Code)
+		t.Fatalf("cross-tenant comment = %d, want 404: %s", w.Code, w.Body.String())
 	}
 	if w := call(api, "itest-al2", "admin", "GET", "/v1/alerts/itest-al1-a", ""); w.Code != 404 {
 		t.Fatalf("cross-tenant get = %d, want 404", w.Code)

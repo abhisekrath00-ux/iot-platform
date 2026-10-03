@@ -231,3 +231,12 @@ A flow definition may set `cooldown_seconds` (0-86400). After a run notifies, fu
 ## Flow latch
 
 `latch: true` notifies once when a flow starts matching, then records `suppressed_latch` until a run that does not match (trigger or a step condition fails, recorded `skipped_condition`) re-arms it. No timer. It can be combined with cooldown. State is derived from the flow's most recent `flow_runs` row, so it survives restarts; it is per flow, and a flow with several replicas evaluating concurrently could double-notify on the very first match (not load-tested).
+
+## Map tiles (optional, self-hosted)
+
+The Map page is a plain canvas by default and needs no network. To draw devices over a real map in an air-gapped site, run your own tile server (for example an OpenStreetMap raster tile server or TileServer GL with an offline extract) and set on the API:
+
+- `MAP_TILE_URL`: template such as `http://tiles.internal:8080/{z}/{x}/{y}.png` (http or https; all three placeholders required)
+- `MAP_TILE_ATTRIBUTION`: text shown under the map (many tile sources require attribution)
+
+The API relays tiles (`GET /v1/map/tiles/{z}/{x}/{y}`, any signed-in user), so browsers never contact the tile host and the content security policy stays `self` only. The template is deployment configuration, not user input; redirects are refused, only PNG, JPEG and WebP up to 512 KB are relayed, and zoom is capped at 19. No tiles or tile server ship with the product, and no public tile service is ever used. Tested against a local fake tile server and unit tests; not against a real OSM or TileServer GL install. There is no tile caching on the server (browsers cache for a day) and no offline tile packaging tool.
