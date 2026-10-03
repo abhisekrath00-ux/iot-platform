@@ -67,6 +67,7 @@ var writeAllowed = []writeRule{
 	w("DELETE", `/v1/oncall/[^/]+`, "delete an on-call rotation"),
 	w("POST", `/v1/notifications/channels`, "add a notification channel"),
 	w("POST", `/v1/dashboards`, "create a dashboard"),
+	w("POST", `/v1/dashboards/import`, "import a dashboard"),
 	w("PUT", `/v1/dashboards/[^/]+`, "edit a dashboard"),
 	w("DELETE", `/v1/dashboards/[^/]+`, "delete a dashboard"),
 	w("POST", `/v1/reports`, "create a report"),

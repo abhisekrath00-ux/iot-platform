@@ -99,6 +99,27 @@ export default function Dashboards() {
     return (id: string) => m.get(id) ?? id;
   }, [devices]);
 
+  async function exportBoard() {
+    if (!sel) return;
+    const d = await api<unknown>(`/v1/dashboards/${sel.id}/export`).catch(e => { setErr(String(e)); return null; });
+    if (!d) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' }));
+    a.download = `${sel.name.replace(/[^\w-]+/g, '_') || 'dashboard'}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  async function importFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setErr('');
+    try {
+      const r = await api<{ id: string; missing_devices: string[] }>('/v1/dashboards/import', { method: 'POST', body: await f.text() });
+      await loadBoards();
+      if (r.missing_devices.length) setErr(`Imported. These devices do not exist here, so their widgets show no data until repointed: ${r.missing_devices.join(', ')}`);
+    } catch (e2) { setErr(String(e2)); }
+  }
   const loadBoards = () => api<Dashboard[]>('/v1/dashboards').then(d => {
     setBoards(d);
     if (sel) setSel(d.find(b => b.id === sel.id) ?? null);
@@ -222,6 +243,10 @@ export default function Dashboards() {
             </div>
           )}
           <button onClick={createBoard} disabled={!newName.trim()}>Create</button>
+          <label className="ghost" style={{ cursor: 'pointer', alignSelf: 'flex-end' }}>
+            Import file
+            <input type="file" accept="application/json,.json" aria-label="Import a dashboard file" style={{ display: 'none' }} onChange={importFile} />
+          </label>
         </div>
         <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{TEMPLATES.find(t => t.id === tpl)?.desc}</div>
       </div>}
@@ -247,6 +272,7 @@ export default function Dashboards() {
               <>
                 <button className="ghost" onClick={() => setEditing(true)}>Edit</button>
                 <button className="ghost" onClick={() => setWall(true)} disabled={widgets.length === 0}>Wall mode</button>
+                <button className="ghost" onClick={exportBoard}>Export</button>
               </>
             )}
           </div>

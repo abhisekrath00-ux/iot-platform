@@ -216,6 +216,8 @@ func main() {
 	api.HandleFunc("GET /v1/search", s.searchAll)
 	api.HandleFunc("GET /v1/notifications/channels", s.listChannels)
 	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
+	api.HandleFunc("GET /v1/dashboards/{id}/export", s.exportDashboard)
+	api.HandleFunc("POST /v1/dashboards/import", s.importDashboard)
 	api.HandleFunc("POST /v1/dashboards", s.saveDashboard)
 	api.HandleFunc("PUT /v1/dashboards/{id}", s.updateDashboard)
 	api.HandleFunc("DELETE /v1/dashboards/{id}", s.deleteDashboard)
