@@ -12,7 +12,7 @@ from the code, not from intent.
 | RBAC, SSO, audit log | ThingsBoard, Ignition | Roles, OIDC, audit table and page | Have |
 | Device authentication by X.509 | ThingsBoard, AWS | mTLS per gateway, broker ACLs from cert CN | Have (gateways); direct MCU devices only designed |
 | Device profiles | ThingsBoard | Profiles with per-protocol point maps, drive generated edge config | Have |
-| Industrial protocols | ThingsBoard IoT Gateway | Modbus RTU/TCP, OPC UA (secure modes), serial JSON | Partial (no BACnet, CAN, SNMP, LwM2M, CoAP) |
+| Industrial protocols | ThingsBoard IoT Gateway | Modbus RTU/TCP, OPC UA (secure modes), serial JSON | Partial: Modbus, OPC UA, serial, SNMP, BACnet, IEC 104, DNP3, CoAP, IEC 61850 and LoRaWAN ingest are built, simulator-tested only (see connectors.md). Missing: LwM2M, CAN; no writes on the read-only protocols |
 | Store and forward at the edge | Ignition | SQLite queue, delete after broker ACK | Have |
 | Fleet updates with staged rollout | AWS Device Management | Staged cohorts, rollback, ack | Have (edge agent config/release); no signed firmware for end devices |
 | Dashboards and widgets | ThingsBoard (300+ widgets) | 8 widget types (live value, gauge, trend, bars, status, table, 24h stats, indicator lamp) with thresholds, drag-drop layout and sizing, wall mode with rotation, product tour, light/dark glass UI | Partial (8 widgets, still far from 300+; pure logic unit-tested, new widgets type-checked and built but not browser-checked; drag/wall covered by a manual browser e2e, not CI) |
@@ -57,7 +57,7 @@ Siemens items are from its public documentation (sources below), not hands-on us
 | SSO | all | Have (OIDC) | SAML not built |
 | Mobile app / PWA | ThingsBoard | Partial: responsive web plus a web manifest, icon and theme colour so it can be added to a home screen. No service worker, so no offline mode and no push notifications; native app not planned | |
 | Edge compute | ThingsBoard Edge, Insights Hub edge analytics | Partial | See table above |
-| Protocols: BACnet, CoAP, LoRaWAN, SNMP, MQTT direct, LwM2M | ThingsBoard gateway | Missing (HTTP ingest and Modbus/OPC UA/serial exist) | Adapter-only claims are not made; each needs a device or simulator to test |
+| Protocols: BACnet, CoAP, LoRaWAN, SNMP, MQTT direct, LwM2M | ThingsBoard gateway | Partial (BACnet, SNMP, CoAP, LoRaWAN, IEC 104, DNP3 built and simulator-tested; LwM2M missing) | Adapter-only claims are not made; each needs a device or simulator to test |
 | Maintenance windows (planned work) | Insights Hub, Ignition, ThingsBoard | Partial (tested locally): device or asset window up to 7 days, warning/info alerts recorded but not notified, critical never held, release notice if still open. Rule alerts only; not flows or edge rules. | |
 | Control target registry (allowlist for flow control nodes) | Ignition, Node-RED | Partial (tested locally): admin-defined targets, bounded values, per-target on/off, approval or automatic (automatic only for alarm outputs). The `control` flow node raises approval requests against it (tested locally). Automatic path for alarm-output targets set to automatic (tested locally with fakes; edge needs `allow_automatic_commands` and a configured alarm output; Modbus writes never automatic). | Not tested on a real broker, gateway or siren |
 | Historian | Ignition | Partial: raw plus hourly and daily rollups, partitions | Retention policy needs an owner decision |

@@ -6,6 +6,7 @@ import DirectDevices from '../components/DirectDevices';
 import EdgeRules from '../components/EdgeRules';
 import FeatureToggles from '../components/FeatureToggles';
 import AISettings from '../components/AISettings';
+import AssistantChannels from '../components/AssistantChannels';
 
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
 
@@ -74,6 +75,7 @@ export default function Settings() {
       <DirectDevices />
       <FeatureToggles />
       <AISettings />
+      <AssistantChannels admin={isAdmin} />
       <EdgeRules />
       <ApiKeys />
       <div className="cards">
