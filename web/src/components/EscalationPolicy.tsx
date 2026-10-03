@@ -6,6 +6,13 @@ interface Channel { id: string; type: string; target: string; enabled: boolean; 
 
 // Escalation: if an alert stays open and unacknowledged, notify more channels after set delays.
 // Steps are numbered per severity (1, 2, 3...) and each delay must be longer than the one before.
+const GROUPS = [
+  { value: 'critical', label: 'Critical alerts' },
+  { value: 'warning', label: 'Warning alerts' },
+  { value: 'info', label: 'Info alerts' },
+  { value: '', label: 'Any severity (used when a severity has no steps of its own)' },
+];
+
 export default function EscalationPolicy() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -31,19 +38,24 @@ export default function EscalationPolicy() {
       <b>Escalation</b>
       <p className="muted">An alert nobody acknowledges is sent to more channels after these delays. Acknowledging or resolving it stops the chain. Steps for a severity replace the "any" steps for that severity. Admins only.</p>
       {steps.length === 0 && <p className="muted">No escalation steps. Alerts go only to your notification channels.</p>}
-      {steps.map((s, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
-          <span className="muted">Step {s.step}</span>
-          <select style={{ width: 150 }} aria-label={`Severity for step ${i + 1}`} value={s.severity} onChange={e => upd(i, { severity: e.target.value })}>
-            <option value="">any severity</option><option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option>
-          </select>
-          <span className="muted">after</span>
-          <input aria-label={`Minutes for step ${i + 1}`} type="number" min={1} max={10080} style={{ width: 80, minWidth: 80 }} value={s.after_minutes} onChange={e => upd(i, { after_minutes: +e.target.value })} />
-          <span className="muted">min, notify</span>
-          <select style={{ width: 240 }} aria-label={`Channel for step ${i + 1}`} value={s.channel_id} onChange={e => upd(i, { channel_id: e.target.value })}>
-            <option value="">choose...</option>{channels.map(c => <option key={c.id} value={c.id}>{c.type}: {c.target}</option>)}
-          </select>
-          <button className="ghost" onClick={() => setSteps(renumber(steps.filter((_, j) => j !== i)))}>Remove</button>
+      {GROUPS.filter(g => steps.some(s => s.severity === g.value)).map(g => (
+        <div key={g.value || 'any'} style={{ marginBottom: 14 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>{g.label}</div>
+          {steps.map((s, i) => s.severity !== g.value ? null : (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '64px 150px 170px minmax(220px, 1fr) auto', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <span className="muted">Step {s.step}</span>
+              <select aria-label={`Severity for step ${i + 1}`} value={s.severity} onChange={e => upd(i, { severity: e.target.value })}>
+                <option value="">any severity</option><option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option>
+              </select>
+              <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                after <input aria-label={`Minutes for step ${i + 1}`} type="number" min={1} max={10080} style={{ width: 72, minWidth: 72, flex: 'none' }} value={s.after_minutes} onChange={e => upd(i, { after_minutes: +e.target.value })} /> min
+              </label>
+              <select aria-label={`Channel for step ${i + 1}`} title={channels.find(c => c.id === s.channel_id)?.target} value={s.channel_id} onChange={e => upd(i, { channel_id: e.target.value })}>
+                <option value="">notify... choose a channel</option>{channels.map(c => <option key={c.id} value={c.id}>{c.type}: {c.target}</option>)}
+              </select>
+              <button className="ghost" onClick={() => setSteps(renumber(steps.filter((_, j) => j !== i)))}>Remove</button>
+            </div>
+          ))}
         </div>
       ))}
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
