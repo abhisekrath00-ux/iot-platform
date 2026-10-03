@@ -26,7 +26,10 @@ func (s *server) getEscalation(w http.ResponseWriter, r *http.Request) {
 			out = append(out, st)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"steps": out})
+	var rep rules.Repeat
+	rows.Close()
+	_ = s.st.Pool.QueryRow(r.Context(), `SELECT repeat_every_minutes, repeat_max FROM escalation_settings WHERE tenant_id=$1`, auth.Tenant(r)).Scan(&rep.EveryMinutes, &rep.Max)
+	writeJSON(w, 200, map[string]any{"steps": out, "repeat": rep})
 }
 
 // PUT /v1/escalation (admin): replace the policy. An empty list switches escalation off.
@@ -35,7 +38,8 @@ func (s *server) putEscalation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Steps []rules.Step `json:"steps"`
+		Steps  []rules.Step  `json:"steps"`
+		Repeat *rules.Repeat `json:"repeat"` // omitted: keep the current setting
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&in); err != nil {
 		http.Error(w, "bad json", 400)
@@ -44,6 +48,12 @@ func (s *server) putEscalation(w http.ResponseWriter, r *http.Request) {
 	if err := rules.ValidateSteps(in.Steps); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
+	}
+	if in.Repeat != nil {
+		if err := rules.ValidateRepeat(*in.Repeat); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 	}
 	tenant := auth.Tenant(r)
 	tx, err := s.st.Pool.Begin(r.Context())
@@ -68,10 +78,17 @@ func (s *server) putEscalation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if in.Repeat != nil {
+		if _, err := tx.Exec(r.Context(), `INSERT INTO escalation_settings(tenant_id,repeat_every_minutes,repeat_max) VALUES($1,$2,$3)
+			ON CONFLICT (tenant_id) DO UPDATE SET repeat_every_minutes=EXCLUDED.repeat_every_minutes, repeat_max=EXCLUDED.repeat_max`, tenant, in.Repeat.EveryMinutes, in.Repeat.Max); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	s.audit(r, "escalation.update", tenant, map[string]any{"steps": len(in.Steps)})
-	writeJSON(w, 200, map[string]any{"steps": in.Steps})
+	s.getEscalation(w, r)
 }

@@ -17,8 +17,9 @@ export default function EscalationPolicy() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [msg, setMsg] = useState('');
+  const [rep, setRep] = useState({ every_minutes: 0, max: 0 });
   useEffect(() => {
-    api<{ steps: Step[] }>('/v1/escalation').then(r => setSteps(r.steps)).catch(() => undefined);
+    api<{ steps: Step[]; repeat?: { every_minutes: number; max: number } }>('/v1/escalation').then(r => { setSteps(r.steps); if (r.repeat) setRep(r.repeat); }).catch(() => undefined);
     api<Channel[]>('/v1/notifications/channels').then(c => setChannels(c.filter(x => x.enabled))).catch(() => undefined);
   }, []);
   const renumber = (list: Step[]) => {
@@ -29,7 +30,7 @@ export default function EscalationPolicy() {
   async function save() {
     setMsg('');
     try {
-      await api('/v1/escalation', { method: 'PUT', body: JSON.stringify({ steps }) });
+      await api('/v1/escalation', { method: 'PUT', body: JSON.stringify({ steps, repeat: rep }) });
       setMsg('Saved.');
     } catch (e) { setMsg(String(e)); }
   }
@@ -58,7 +59,18 @@ export default function EscalationPolicy() {
           ))}
         </div>
       ))}
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+      <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+        <input type="checkbox" aria-label="Repeat the last step" checked={rep.every_minutes > 0} style={{ width: 'auto', flex: 'none' }}
+          onChange={e => setRep(e.target.checked ? { every_minutes: 30, max: 3 } : { every_minutes: 0, max: 0 })} />
+        Remind until acknowledged: resend the last step every
+        <input aria-label="Reminder interval minutes" type="number" min={5} max={1440} disabled={rep.every_minutes === 0} style={{ width: 72, minWidth: 72, flex: 'none' }}
+          value={rep.every_minutes} onChange={e => setRep({ ...rep, every_minutes: +e.target.value })} />
+        min, at most
+        <input aria-label="Maximum reminders" type="number" min={1} max={10} disabled={rep.every_minutes === 0} style={{ width: 64, minWidth: 64, flex: 'none' }}
+          value={rep.max} onChange={e => setRep({ ...rep, max: +e.target.value })} />
+        times
+      </label>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="ghost" disabled={steps.length >= 15} onClick={() => setSteps(renumber([...steps, { severity: '', step: 1, after_minutes: (steps.at(-1)?.after_minutes ?? 0) + 15, channel_id: channels[0]?.id ?? '' }]))}>+ step</button>
         <button onClick={save}>Save policy</button>
       </div>

@@ -425,3 +425,55 @@ func TestIntegrationEscalation(t *testing.T) {
 		t.Fatal("no steps left, nothing more to send")
 	}
 }
+
+func TestIntegrationEscalationRepeat(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-er")
+	ctx := context.Background()
+	for _, q := range []string{
+		`DELETE FROM escalation_steps WHERE tenant_id='itest-er'`,
+		`DELETE FROM alerts WHERE tenant_id='itest-er'`,
+		`DELETE FROM notification_channels WHERE tenant_id='itest-er'`,
+		`INSERT INTO notification_channels(id,tenant_id,type,target) VALUES('itest-er-ch','itest-er','email','boss@example.com')`,
+		`INSERT INTO alerts(id,tenant_id,severity,message,created_at) VALUES('itest-er-a1','itest-er','warning','Pump down', now() - interval '60 minutes')`,
+	} {
+		if _, err := s.st.Pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+	}
+	step := `{"steps":[{"step":1,"after_minutes":10,"channel_id":"itest-er-ch"}]`
+	if w := call(h, "itest-er", "admin", "PUT", "/v1/escalation", step+`,"repeat":{"every_minutes":2,"max":1}}`); w.Code != 400 {
+		t.Fatalf("bad repeat accepted: %d", w.Code)
+	}
+	if w := call(h, "itest-er", "viewer", "PUT", "/v1/escalation", step+`,"repeat":{"every_minutes":15,"max":2}}`); w.Code != 403 {
+		t.Fatalf("viewer: %d", w.Code)
+	}
+	if w := call(h, "itest-er", "admin", "PUT", "/v1/escalation", step+`,"repeat":{"every_minutes":15,"max":2}}`); w.Code != 200 || !strings.Contains(w.Body.String(), `"every_minutes":15`) {
+		t.Fatalf("put: %d %s", w.Code, w.Body.String())
+	}
+	// a client that omits "repeat" keeps the setting
+	if w := call(h, "itest-er", "admin", "PUT", "/v1/escalation", step+`}`); w.Code != 200 || !strings.Contains(w.Body.String(), `"max":2`) {
+		t.Fatalf("omitted repeat must keep the setting: %d %s", w.Code, w.Body.String())
+	}
+	fn := &fakeNotifier{}
+	rules.EvaluateEscalations(ctx, s.st.Pool, fn) // step 1
+	rules.EvaluateEscalations(ctx, s.st.Pool, fn) // too soon for a reminder
+	if len(fn.emails) != 1 {
+		t.Fatalf("emails = %v", fn.emails)
+	}
+	for i := 1; i <= 3; i++ {
+		s.st.Pool.Exec(ctx, `UPDATE alerts SET escalated_at = now() - interval '16 minutes' WHERE id='itest-er-a1'`)
+		rules.EvaluateEscalations(ctx, s.st.Pool, fn)
+	}
+	// max 2 reminders, then it stops
+	if len(fn.emails) != 3 || !strings.Contains(fn.emails[1], "REMINDER 1 of 2") || !strings.Contains(fn.emails[2], "REMINDER 2 of 2") {
+		t.Fatalf("emails = %v", fn.emails)
+	}
+	// acknowledging stops it even before max
+	s.st.Pool.Exec(ctx, `UPDATE alerts SET status='acknowledged', escalation_repeats=0 WHERE id='itest-er-a1'`)
+	s.st.Pool.Exec(ctx, `UPDATE alerts SET escalated_at = now() - interval '99 minutes' WHERE id='itest-er-a1'`)
+	rules.EvaluateEscalations(ctx, s.st.Pool, fn)
+	if len(fn.emails) != 3 {
+		t.Fatalf("acknowledged alert still reminded: %v", fn.emails)
+	}
+}

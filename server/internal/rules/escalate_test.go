@@ -49,3 +49,46 @@ func TestValidateSteps(t *testing.T) {
 		}
 	}
 }
+
+func TestRepeatDue(t *testing.T) {
+	steps := []Step{
+		{Step: 1, AfterMinutes: 10, ChannelID: "a"},
+		{Step: 2, AfterMinutes: 30, ChannelID: "b"},
+		{Severity: "critical", Step: 1, AfterMinutes: 5, ChannelID: "c"},
+	}
+	r := Repeat{EveryMinutes: 15, Max: 2}
+	if _, ok := RepeatDue(steps, "warning", 1, 0, 99, r); ok {
+		t.Error("chain not finished: step 2 still to send")
+	}
+	if s, ok := RepeatDue(steps, "warning", 2, 0, 15, r); !ok || s.ChannelID != "b" {
+		t.Errorf("last step resent: %+v %v", s, ok)
+	}
+	if _, ok := RepeatDue(steps, "warning", 2, 0, 14, r); ok {
+		t.Error("too soon")
+	}
+	if _, ok := RepeatDue(steps, "warning", 2, 2, 999, r); ok {
+		t.Error("max resends reached")
+	}
+	if s, ok := RepeatDue(steps, "critical", 1, 1, 20, r); !ok || s.ChannelID != "c" {
+		t.Errorf("critical repeats its own last step: %+v", s)
+	}
+	if _, ok := RepeatDue(steps, "warning", 2, 0, 999, Repeat{}); ok {
+		t.Error("off by default")
+	}
+	if _, ok := RepeatDue(steps, "warning", 0, 0, 999, r); ok {
+		t.Error("never before the first step")
+	}
+}
+
+func TestValidateRepeat(t *testing.T) {
+	for _, r := range []Repeat{{}, {EveryMinutes: 5, Max: 1}, {EveryMinutes: 1440, Max: 10}} {
+		if err := ValidateRepeat(r); err != nil {
+			t.Errorf("%+v rejected: %v", r, err)
+		}
+	}
+	for _, r := range []Repeat{{EveryMinutes: 4, Max: 1}, {EveryMinutes: 1441, Max: 1}, {EveryMinutes: 10}, {EveryMinutes: 10, Max: 11}, {Max: 3}} {
+		if ValidateRepeat(r) == nil {
+			t.Errorf("%+v accepted", r)
+		}
+	}
+}

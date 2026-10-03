@@ -18,6 +18,62 @@ type Step struct {
 	ChannelID    string `json:"channel_id"`
 }
 
+// Repeat resends the last step of an alert's chain while the alert stays open and
+// unacknowledged. EveryMinutes 0 means off. Max caps the resends per alert (0-10).
+type Repeat struct {
+	EveryMinutes int `json:"every_minutes"`
+	Max          int `json:"max"`
+}
+
+// ValidateRepeat checks the repeat setting before it is saved.
+func ValidateRepeat(r Repeat) error {
+	if r.EveryMinutes == 0 {
+		if r.Max != 0 {
+			return fmt.Errorf("max must be 0 when repeat is off")
+		}
+		return nil
+	}
+	if r.EveryMinutes < 5 || r.EveryMinutes > 1440 {
+		return fmt.Errorf("repeat every_minutes must be 0 (off) or 5-1440")
+	}
+	if r.Max < 1 || r.Max > 10 {
+		return fmt.Errorf("repeat max must be 1-10")
+	}
+	return nil
+}
+
+// RepeatDue returns the last step of the alert's chain when it should be resent: the
+// whole chain has been sent (level is the last step number), fewer than Max resends
+// went out, and at least EveryMinutes have passed since the last send.
+func RepeatDue(steps []Step, severity string, level, repeats int, sinceLastMinutes float64, r Repeat) (Step, bool) {
+	if r.EveryMinutes <= 0 || repeats >= r.Max || level < 1 {
+		return Step{}, false
+	}
+	var own, any []Step
+	for _, s := range steps {
+		switch s.Severity {
+		case severity:
+			own = append(own, s)
+		case "":
+			any = append(any, s)
+		}
+	}
+	use := any
+	if len(own) > 0 {
+		use = own
+	}
+	var last Step
+	for _, s := range use {
+		if s.Step > last.Step {
+			last = s
+		}
+	}
+	if last.Step == 0 || level != last.Step || sinceLastMinutes < float64(r.EveryMinutes) {
+		return Step{}, false
+	}
+	return last, true
+}
+
 // NextStep picks the next step due for an alert, or false. level is the highest
 // step already sent for this alert. Steps for the alert's own severity win over
 // "any" steps (a tenant that defines critical steps does not also get the generic ones
@@ -95,7 +151,8 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 		return
 	}
 	rows, err := pool.Query(ctx,
-		`SELECT id, tenant_id, severity, message, escalation_level, EXTRACT(EPOCH FROM now()-created_at)/60
+		`SELECT id, tenant_id, severity, message, escalation_level, EXTRACT(EPOCH FROM now()-created_at)/60,
+		        escalation_repeats, COALESCE(EXTRACT(EPOCH FROM now()-escalated_at)/60, 0)
 		 FROM alerts WHERE status='open' AND created_at > now() - interval '30 days'
 		   AND tenant_id IN (SELECT DISTINCT tenant_id FROM escalation_steps) LIMIT 500`)
 	if err != nil {
@@ -104,18 +161,19 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 	}
 	type al struct {
 		id, tenant, sev, msg string
-		level                int
-		age                  float64
+		level, repeats       int
+		age, since           float64
 	}
 	var open []al
 	for rows.Next() {
 		var a al
-		if rows.Scan(&a.id, &a.tenant, &a.sev, &a.msg, &a.level, &a.age) == nil {
+		if rows.Scan(&a.id, &a.tenant, &a.sev, &a.msg, &a.level, &a.age, &a.repeats, &a.since) == nil {
 			open = append(open, a)
 		}
 	}
 	rows.Close()
 	cache := map[string][]Step{}
+	reps := map[string]Repeat{}
 	for _, a := range open {
 		steps, ok := cache[a.tenant]
 		if !ok {
@@ -131,14 +189,26 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 			}
 			sr.Close()
 			cache[a.tenant] = steps
+			var r Repeat
+			if pool.QueryRow(ctx, `SELECT repeat_every_minutes, repeat_max FROM escalation_settings WHERE tenant_id=$1`, a.tenant).Scan(&r.EveryMinutes, &r.Max) == nil {
+				reps[a.tenant] = r
+			}
 		}
 		st, due := NextStep(steps, a.sev, a.level, a.age)
+		repeat := false
 		if !due {
-			continue
+			st, due = RepeatDue(steps, a.sev, a.level, a.repeats, a.since, reps[a.tenant])
+			if !due {
+				continue
+			}
+			repeat = true
 		}
 		// claim the step first (only if nobody acknowledged or escalated meanwhile)
-		tag, err := pool.Exec(ctx,
-			`UPDATE alerts SET escalation_level=$1, escalated_at=now() WHERE id=$2 AND status='open' AND escalation_level=$3`, st.Step, a.id, a.level)
+		q, args := `UPDATE alerts SET escalation_level=$1, escalated_at=now() WHERE id=$2 AND status='open' AND escalation_level=$3`, []any{st.Step, a.id, a.level}
+		if repeat {
+			q, args = `UPDATE alerts SET escalation_repeats=escalation_repeats+1, escalated_at=now() WHERE id=$1 AND status='open' AND escalation_level=$2 AND escalation_repeats=$3`, []any{a.id, a.level, a.repeats}
+		}
+		tag, err := pool.Exec(ctx, q, args...)
 		if err != nil || tag.RowsAffected() == 0 {
 			continue
 		}
@@ -149,6 +219,9 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 			continue
 		}
 		msg := fmt.Sprintf("ESCALATION step %d (unacknowledged for %d min): %s", st.Step, int(a.age), a.msg)
+		if repeat {
+			msg = fmt.Sprintf("ESCALATION REMINDER %d of %d, step %d (unacknowledged for %d min): %s", a.repeats+1, reps[a.tenant].Max, st.Step, int(a.age), a.msg)
+		}
 		dispatchOne(ctx, n, typ, target, a.sev, msg, "alert.escalated")
 	}
 }

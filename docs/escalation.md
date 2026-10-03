@@ -12,8 +12,12 @@ If an alert stays open and unacknowledged, more channels are notified after set 
 - Acknowledging or resolving an alert stops the chain. The step is recorded on the alert (`escalation_level`) before it is
   sent, so a crash can lose one notification but never repeat one. Messages read "ESCALATION step N (unacknowledged for M
   min): ...". Webhook-style channels receive the event `alert.escalated`.
+- Remind until acknowledged (optional, off by default, `repeat` in the same API): once an alert's last step has been
+  sent, that step's channel is sent a reminder every N minutes (5-1440), at most M times (1-10) per alert. An
+  acknowledge or resolve stops it. Reminders read "ESCALATION REMINDER k of M, step N ...". Leaving `repeat` out of a PUT
+  keeps the current setting. The reminder is recorded (`escalation_repeats`) before it is sent, like a step.
 - A step whose channel was deleted or disabled is skipped and logged.
 
-Not built: on-call schedules and rotations, repeat-until-acknowledged, quiet hours, SMS or Teams. Tested with unit tests
+Not built: on-call schedules and rotations, quiet hours, SMS or Teams. Tested with unit tests
 for ordering and validation and an integration test against Postgres with a fake notifier (order, no repeat, ack stops it,
 admin only, other tenant's channel refused). Not tested against real SMTP or Slack.
