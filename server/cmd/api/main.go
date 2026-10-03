@@ -167,6 +167,8 @@ func main() {
 	api.HandleFunc("DELETE /v1/api-keys/{id}", s.revokeAPIKey)
 	api.HandleFunc("GET /v1/alerts", s.listAlerts)
 	api.HandleFunc("GET /v1/alerts/{id}", s.getAlert)
+	api.HandleFunc("POST /v1/alerts/{id}/assign", s.assignAlert)
+	api.HandleFunc("GET /v1/assignees", s.listAssignees)
 	api.HandleFunc("POST /v1/alerts/{id}/ack", s.ackAlert)
 	api.HandleFunc("GET /v1/escalation", s.getEscalation)
 	api.HandleFunc("PUT /v1/escalation", s.putEscalation)
@@ -709,16 +711,18 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "status must be open, acknowledged or resolved", 400)
 		return
 	}
-	asset := r.URL.Query().Get("asset_id") // alerts on devices under this asset
+	asset := r.URL.Query().Get("asset_id")    // alerts on devices under this asset
+	assigned := r.URL.Query().Get("assigned") // "none" or a user id
 	rows, err := s.st.Pool.Query(r.Context(),
 		`WITH RECURSIVE sub AS (
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($3,'')
 		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
 		 )
-		 SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by FROM alerts
+		 SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by, assigned_to FROM alerts
 		 WHERE tenant_id=$1 AND ($2 = '' OR status=$2)
+		   AND ($4='' OR ($4='none' AND assigned_to IS NULL) OR assigned_to=$4)
 		   AND ($3='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub)))
-		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset)
+		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset, assigned)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -728,10 +732,10 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, sev, msg, stt string
 		var created time.Time
-		var ackBy, resBy *string
-		rows.Scan(&id, &sev, &msg, &stt, &created, &ackBy, &resBy)
+		var ackBy, resBy, asg *string
+		rows.Scan(&id, &sev, &msg, &stt, &created, &ackBy, &resBy, &asg)
 		out = append(out, map[string]any{"id": id, "severity": sev, "message": msg, "status": stt, "created_at": created,
-			"acknowledged_by": ackBy, "resolved_by": resBy})
+			"acknowledged_by": ackBy, "resolved_by": resBy, "assigned_to": asg})
 	}
 	writeJSON(w, 200, out)
 }

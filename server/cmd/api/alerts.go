@@ -87,12 +87,12 @@ func (s *server) getAlert(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var sev, msg, st string
 	var created time.Time
-	var ackBy, resBy *string
+	var ackBy, resBy, asg *string
 	var ackAt, resAt *time.Time
 	err := s.st.Pool.QueryRow(r.Context(),
-		`SELECT severity, message, status, created_at, acknowledged_by, acknowledged_at, resolved_by, resolved_at
+		`SELECT severity, message, status, created_at, acknowledged_by, acknowledged_at, resolved_by, resolved_at, assigned_to
 		 FROM alerts WHERE id=$1 AND tenant_id=$2`, id, auth.Tenant(r)).
-		Scan(&sev, &msg, &st, &created, &ackBy, &ackAt, &resBy, &resAt)
+		Scan(&sev, &msg, &st, &created, &ackBy, &ackAt, &resBy, &resAt, &asg)
 	if err != nil {
 		http.Error(w, "alert not found", 404)
 		return
@@ -113,7 +113,7 @@ func (s *server) getAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"id": id, "severity": sev, "message": msg, "status": st, "created_at": created,
-		"acknowledged_by": ackBy, "acknowledged_at": ackAt, "resolved_by": resBy, "resolved_at": resAt,
+		"acknowledged_by": ackBy, "acknowledged_at": ackAt, "resolved_by": resBy, "resolved_at": resAt, "assigned_to": asg,
 		"comments": comments,
 	})
 }

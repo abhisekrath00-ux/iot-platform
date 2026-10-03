@@ -17,7 +17,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export interface Device { id: string; profile: string; name: string; gateway_id: string; created_at: string; tags?: string[]; }
 export interface LatestPoint { point_id: string; value: number; unit: string; quality: string; observed_at: string; }
 export interface CommandRow { request_id: string; device_id: string; action: string; status: string; requested_by: string; approved_by: string | null; created_at: string; }
-export interface AlertRow { id: string; severity: string; message: string; status: string; created_at: string; acknowledged_by?: string | null; resolved_by?: string | null; }
+export interface AlertRow { id: string; severity: string; message: string; status: string; created_at: string; acknowledged_by?: string | null; resolved_by?: string | null; assigned_to?: string | null; }
 export interface AlertDetail extends AlertRow { acknowledged_at?: string | null; resolved_at?: string | null; comments: { author: string; body: string; created_at: string }[]; }
 
 /** Authenticated file download (the token lives in localStorage, so a plain link will not do). */

@@ -48,6 +48,10 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
 	mux.HandleFunc("GET /v1/devices/{id}/shadow", s.getShadow)
 	mux.HandleFunc("PUT /v1/devices/{id}/attributes", s.setDeviceAttributes)
+	mux.HandleFunc("GET /v1/alerts", s.listAlerts)
+	mux.HandleFunc("GET /v1/alerts/{id}", s.getAlert)
+	mux.HandleFunc("POST /v1/alerts/{id}/assign", s.assignAlert)
+	mux.HandleFunc("GET /v1/assignees", s.listAssignees)
 	mux.HandleFunc("GET /v1/escalation", s.getEscalation)
 	mux.HandleFunc("PUT /v1/escalation", s.putEscalation)
 	mux.HandleFunc("POST /v1/reports/preview", s.previewReport)
@@ -650,5 +654,71 @@ func TestIntegrationReportVersions(t *testing.T) {
 	s.st.Pool.QueryRow(context.Background(), `SELECT count(*) FROM report_versions WHERE report_id=$1`, rep.ID).Scan(&n)
 	if name != "Daily" || hours != 24 || n != 3 {
 		t.Fatalf("after restore name=%q hours=%d saved=%d", name, hours, n)
+	}
+}
+
+func TestIntegrationAlertAssignment(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-as")
+	seed(t, s, "itest-as2")
+	ctx := context.Background()
+	for _, q := range []string{
+		`DELETE FROM alerts WHERE tenant_id IN ('itest-as','itest-as2')`,
+		`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('itest-as-op','itest-as','itest-as-op@example.invalid','Ola Operator','operator') ON CONFLICT DO NOTHING`,
+		`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('itest-as-vw','itest-as','itest-as-vw@example.invalid','Vik Viewer','viewer') ON CONFLICT DO NOTHING`,
+		`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('itest-as2-op','itest-as2','itest-as2-op@example.invalid','Other Tenant','operator') ON CONFLICT DO NOTHING`,
+		`INSERT INTO alerts(id,tenant_id,severity,message) VALUES('itest-as-a1','itest-as','warning','Pump noisy')`,
+		`INSERT INTO alerts(id,tenant_id,severity,message) VALUES('itest-as-a2','itest-as','info','Door open')`,
+		`INSERT INTO alerts(id,tenant_id,severity,message,status) VALUES('itest-as-a3','itest-as','info','Old','resolved')`,
+	} {
+		if _, err := s.st.Pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%q: %v", q, err)
+		}
+	}
+	assign := func(role, tenant, id, user string) *httptest.ResponseRecorder {
+		return call(h, tenant, role, "POST", "/v1/alerts/"+id+"/assign", `{"user_id":"`+user+`"}`)
+	}
+	if w := assign("viewer", "itest-as", "itest-as-a1", "itest-as-op"); w.Code != 403 {
+		t.Fatalf("viewer assign: %d", w.Code)
+	}
+	for name, user := range map[string]string{"viewer assignee": "itest-as-vw", "other tenant's user": "itest-as2-op", "unknown": "nobody"} {
+		if w := assign("operator", "itest-as", "itest-as-a1", user); w.Code != 400 {
+			t.Fatalf("%s accepted: %d", name, w.Code)
+		}
+	}
+	if w := assign("operator", "itest-as2", "itest-as-a1", "itest-as2-op"); w.Code != 409 {
+		t.Fatalf("another tenant's alert: %d", w.Code)
+	}
+	if w := assign("operator", "itest-as", "itest-as-a3", "itest-as-op"); w.Code != 409 {
+		t.Fatalf("resolved alert assigned: %d", w.Code)
+	}
+	if w := assign("operator", "itest-as", "itest-as-a1", "itest-as-op"); w.Code != 200 {
+		t.Fatalf("assign: %d %s", w.Code, w.Body.String())
+	}
+	w := call(h, "itest-as", "viewer", "GET", "/v1/alerts?status=open&assigned=itest-as-op", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "itest-as-a1") || strings.Contains(w.Body.String(), "itest-as-a2") {
+		t.Fatalf("assigned filter: %d %s", w.Code, w.Body.String())
+	}
+	w = call(h, "itest-as", "viewer", "GET", "/v1/alerts?status=open&assigned=none", "")
+	if !strings.Contains(w.Body.String(), "itest-as-a2") || strings.Contains(w.Body.String(), "itest-as-a1") {
+		t.Fatalf("unassigned filter: %s", w.Body.String())
+	}
+	w = call(h, "itest-as", "viewer", "GET", "/v1/alerts/itest-as-a1", "")
+	if !strings.Contains(w.Body.String(), `"assigned_to":"itest-as-op"`) || !strings.Contains(w.Body.String(), "Assigned to Ola Operator") {
+		t.Fatalf("detail: %s", w.Body.String())
+	}
+	if w := call(h, "itest-as", "viewer", "GET", "/v1/assignees", ""); w.Code != 403 {
+		t.Fatalf("viewer list assignees: %d", w.Code)
+	}
+	w = call(h, "itest-as", "operator", "GET", "/v1/assignees", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Ola Operator") || strings.Contains(w.Body.String(), "Vik Viewer") || strings.Contains(w.Body.String(), "Other Tenant") || strings.Contains(w.Body.String(), "example.invalid") {
+		t.Fatalf("assignees: %d %s", w.Code, w.Body.String())
+	}
+	if w := assign("operator", "itest-as", "itest-as-a1", ""); w.Code != 200 {
+		t.Fatalf("unassign: %d", w.Code)
+	}
+	w = call(h, "itest-as", "viewer", "GET", "/v1/alerts?status=open&assigned=itest-as-op", "")
+	if strings.Contains(w.Body.String(), "itest-as-a1") {
+		t.Fatalf("still assigned: %s", w.Body.String())
 	}
 }
