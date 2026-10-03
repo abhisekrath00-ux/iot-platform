@@ -119,3 +119,19 @@ var ReadCatalog = []string{
 	"GET /v1/escalation, GET /v1/oncall, GET /v1/notifications/channels, GET /v1/commands, GET /v1/control-targets, GET /v1/audit",
 	"POST /v1/ask with {question} answers a few fixed questions",
 }
+
+var lowRisk = []writeRule{
+	w("POST", `/v1/alerts/[^/]+/(ack|comments)`, "acknowledge or comment on an alert"),
+}
+
+// LowRisk reports whether a change is in the small set an admin may let run without a confirm
+// (per linked chat identity, off by default): acknowledging or commenting on an alert.
+func LowRisk(method, path string) bool {
+	method = strings.ToUpper(method)
+	for _, r := range lowRisk {
+		if r.method == method && r.re.MatchString(path) {
+			return true
+		}
+	}
+	return false
+}

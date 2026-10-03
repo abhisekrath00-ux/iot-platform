@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -193,6 +194,14 @@ type pendingAction struct {
 	Path    string `json:"path"`
 	Body    string `json:"body,omitempty"`
 	Summary string `json:"summary"`
+	Code    string `json:"code,omitempty"` // short code for "YES <code>" in chat
+}
+
+// runCtx says where a run came from. via is "web", "slack" or "email"; autorun lets low-risk
+// changes run without a confirm (only ever true for a chat link an admin switched on).
+type runCtx struct {
+	via     string
+	autorun bool
 }
 
 var assistantTools = []llm.Tool{
@@ -287,46 +296,62 @@ func (s *server) assistantChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 502, map[string]any{"error": err.Error()})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), assistantTimeout)
-	defer cancel()
-
-	var trace []traceStep
-	var plan []string
-	var pending []pendingAction
-	tools, reply := 0, ""
-	calls := 0
-	for ; calls < maxAgentCalls; calls++ {
-		m, err := llm.Chat(ctx, cfg, msgs, assistantTools)
-		if err != nil {
-			writeJSON(w, 502, map[string]any{"error": err.Error(), "trace": trace, "plan": plan, "pending": pending})
-			return
-		}
-		msgs = append(msgs, m)
-		if len(m.ToolCalls) == 0 {
-			reply = m.Content
-			break
-		}
-		for _, tc := range m.ToolCalls {
-			tools++
-			var result string
-			if tools > maxAgentTools {
-				result = `{"error":"tool limit reached for this run; summarise what is done and what is left"}`
-				trace = append(trace, traceStep{tc.Func.Name, "tool limit reached", "refused"})
-			} else {
-				result = s.runAssistantTool(ctx, tenant, user, role, tc, &trace, &plan, &pending)
-			}
-			msgs = append(msgs, llm.Message{Role: "tool", ToolCallID: tc.ID, Content: result})
-		}
+	res := s.runAgent(r.Context(), cfg, tenant, user, role, msgs, runCtx{via: "web"})
+	if res.err != nil {
+		writeJSON(w, 502, map[string]any{"error": res.err.Error(), "trace": res.trace, "plan": res.plan, "pending": res.pending})
+		return
 	}
-	if reply == "" {
-		reply = "I reached my step limit before finishing. Here is what I did so far; ask me to continue."
-	}
+	reply, trace, plan, pending, tools, calls := res.reply, res.trace, res.plan, res.pending, res.tools, res.calls
 	s.audit(r, "assistant.run", user, map[string]any{"model": c.Model, "model_calls": calls + 1, "tool_calls": tools, "proposed_changes": len(pending)})
 	writeJSON(w, 200, map[string]any{"reply": reply, "plan": plan, "trace": trace, "pending": pending, "model": c.Model,
 		"note": "Changes wait for your confirmation. Answers come from the model you connected and can be wrong."})
 }
 
-func (s *server) runAssistantTool(ctx context.Context, tenant, user, role string, tc llm.ToolCall, trace *[]traceStep, plan *[]string, pending *[]pendingAction) string {
+type agentResult struct {
+	reply   string
+	plan    []string
+	trace   []traceStep
+	pending []pendingAction
+	tools   int
+	calls   int
+	err     error
+}
+
+// runAgent is the agent loop: the model plans, calls tools, and the platform enforces the policy.
+func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, role string, msgs []llm.Message, rc runCtx) agentResult {
+	ctx, cancel := context.WithTimeout(parent, assistantTimeout)
+	defer cancel()
+	var res agentResult
+	for ; res.calls < maxAgentCalls; res.calls++ {
+		m, err := llm.Chat(ctx, cfg, msgs, assistantTools)
+		if err != nil {
+			res.err = err
+			return res
+		}
+		msgs = append(msgs, m)
+		if len(m.ToolCalls) == 0 {
+			res.reply = m.Content
+			break
+		}
+		for _, tc := range m.ToolCalls {
+			res.tools++
+			var result string
+			if res.tools > maxAgentTools {
+				result = `{"error":"tool limit reached for this run; summarise what is done and what is left"}`
+				res.trace = append(res.trace, traceStep{tc.Func.Name, "tool limit reached", "refused"})
+			} else {
+				result = s.runAssistantTool(ctx, tenant, user, role, rc, tc, &res.trace, &res.plan, &res.pending)
+			}
+			msgs = append(msgs, llm.Message{Role: "tool", ToolCallID: tc.ID, Content: result})
+		}
+	}
+	if res.reply == "" {
+		res.reply = "I reached my step limit before finishing. Here is what I did so far; ask me to continue."
+	}
+	return res
+}
+
+func (s *server) runAssistantTool(ctx context.Context, tenant, user, role string, rc runCtx, tc llm.ToolCall, trace *[]traceStep, plan *[]string, pending *[]pendingAction) string {
 	switch tc.Func.Name {
 	case "set_plan":
 		var a struct {
@@ -381,11 +406,25 @@ func (s *server) runAssistantTool(ctx context.Context, tenant, user, role string
 			if sum == "" {
 				sum = why
 			}
-			id := uuid.NewString()
-			if _, err := s.st.Pool.Exec(ctx, `INSERT INTO assistant_actions(id,tenant_id,user_id,method,path,body,summary) VALUES($1,$2,$3,$4,$5,$6,$7)`, id, tenant, user, a.Method, a.Path, body, sum); err != nil {
+			id, code := uuid.NewString(), newCode()
+			if rc.autorun && assistant.LowRisk(a.Method, a.Path) {
+				if _, err := s.st.Pool.Exec(ctx, `INSERT INTO assistant_actions(id,tenant_id,user_id,method,path,body,summary,code,via,status,decided_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'executed',now())`, id, tenant, user, a.Method, a.Path, body, sum, code, rc.via); err != nil {
+					return `{"error":"could not record the change"}`
+				}
+				c, out := s.loopback(ctx, tenant, user, role, a.Method, a.Path, "", []byte(body))
+				st := "executed"
+				if c >= 300 {
+					st = "failed"
+				}
+				s.st.Pool.Exec(ctx, `UPDATE assistant_actions SET status=$2, result_code=$3, result_body=$4 WHERE id=$1`, id, st, c, truncStr(string(out), 4096))
+				s.auditAs(ctx, tenant, user, "assistant.autorun", id, map[string]any{"method": a.Method, "path": a.Path, "result_code": c, "via": rc.via})
+				*trace = append(*trace, traceStep{"api_request", fmt.Sprintf("%s: %s -> %d (ran without confirm: low-risk, enabled by an admin for this chat link)", label, sum, c), map[bool]string{true: "ok", false: "error"}[c < 300]})
+				return mustJSON(map[string]any{"status": st, "http_status": c, "body": truncStr(string(out), 2000)})
+			}
+			if _, err := s.st.Pool.Exec(ctx, `INSERT INTO assistant_actions(id,tenant_id,user_id,method,path,body,summary,code,via) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id, tenant, user, a.Method, a.Path, body, sum, code, rc.via); err != nil {
 				return `{"error":"could not queue the change"}`
 			}
-			*pending = append(*pending, pendingAction{id, a.Method, a.Path, body, sum})
+			*pending = append(*pending, pendingAction{id, a.Method, a.Path, body, sum, code})
 			*trace = append(*trace, traceStep{"api_request", label + ": " + sum, "proposed"})
 			return mustJSON(map[string]any{"status": "awaiting_user_confirmation", "action_id": id, "note": "Not done yet. The user must confirm it. Do not repeat it."})
 		}
@@ -431,29 +470,57 @@ func (s *server) confirmAssistantAction(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	tenant, user := auth.Tenant(r), auth.User(r)
-	var method, path, body string
-	// claim it first so a double click cannot run it twice
-	err := s.st.Pool.QueryRow(r.Context(), `UPDATE assistant_actions SET status='executed', decided_at=now()
-		WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND status='pending' AND created_at > now() - interval '30 minutes'
-		RETURNING method, path, body`, r.PathValue("id"), tenant, user).Scan(&method, &path, &body)
-	if err != nil {
+	id, st, code, out, err := s.executeAction(r.Context(), tenant, user, auth.Role(r), r.PathValue("id"), "web")
+	switch {
+	case errors.Is(err, errActionGone):
 		http.Error(w, "not found, already decided, expired, or proposed for someone else", 409)
 		return
-	}
-	id := r.PathValue("id")
-	if v, _ := assistant.Classify(method, path); v != assistant.Confirm {
-		s.st.Pool.Exec(r.Context(), `UPDATE assistant_actions SET status='rejected' WHERE id=$1`, id)
+	case errors.Is(err, errActionNotAllowed):
 		http.Error(w, "this change is no longer allowed for the assistant", 403)
 		return
 	}
-	code, out := s.loopback(r.Context(), tenant, user, auth.Role(r), method, path, "", []byte(body))
-	st := "executed"
-	if code >= 300 {
-		st = "failed"
-	}
-	s.st.Pool.Exec(r.Context(), `UPDATE assistant_actions SET status=$2, result_code=$3, result_body=$4 WHERE id=$1`, id, st, code, truncStr(string(out), 4096))
-	s.audit(r, "assistant.confirm", id, map[string]any{"method": method, "path": path, "result_code": code})
+	s.audit(r, "assistant.confirm", id, map[string]any{"result_code": code, "via": "web"})
 	writeJSON(w, 200, map[string]any{"id": id, "status": st, "result_code": code, "result": truncStr(string(out), 4096)})
+}
+
+var (
+	errActionGone       = errors.New("action not found")
+	errActionNotAllowed = errors.New("action not allowed")
+)
+
+// executeAction runs one pending change for the user who owns it. idOrCode is the action id, or the
+// short code shown in chat. It claims the row first so a double confirm cannot run it twice, then
+// re-checks the policy and runs it as the user (role as of now) through the normal handlers.
+func (s *server) executeAction(ctx context.Context, tenant, user, role, idOrCode, via string) (id, status string, code int, out []byte, err error) {
+	var method, path, body string
+	err = s.st.Pool.QueryRow(ctx, `UPDATE assistant_actions SET status='executed', decided_at=now()
+		WHERE status='pending' AND id=(SELECT id FROM assistant_actions WHERE tenant_id=$2 AND user_id=$3 AND status='pending'
+		  AND created_at > now() - interval '30 minutes' AND (id=$1 OR code=upper($1)) ORDER BY created_at DESC LIMIT 1)
+		RETURNING id, method, path, body`, idOrCode, tenant, user).Scan(&id, &method, &path, &body)
+	if err != nil {
+		return "", "", 0, nil, errActionGone
+	}
+	if v, _ := assistant.Classify(method, path); v != assistant.Confirm {
+		s.st.Pool.Exec(ctx, `UPDATE assistant_actions SET status='rejected' WHERE id=$1`, id)
+		return id, "rejected", 0, nil, errActionNotAllowed
+	}
+	code, out = s.loopback(ctx, tenant, user, role, method, path, "", []byte(body))
+	status = "executed"
+	if code >= 300 {
+		status = "failed"
+	}
+	s.st.Pool.Exec(ctx, `UPDATE assistant_actions SET status=$2, result_code=$3, result_body=$4 WHERE id=$1`, id, status, code, truncStr(string(out), 4096))
+	return id, status, code, out, nil
+}
+
+func newCode() string {
+	const alpha = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 6)
+	rand.Read(b)
+	for i := range b {
+		b[i] = alpha[int(b[i])%len(alpha)]
+	}
+	return string(b)
 }
 
 func (s *server) rejectAssistantAction(w http.ResponseWriter, r *http.Request) {

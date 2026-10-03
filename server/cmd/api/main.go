@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	_ "time/tzdata" // zone database inside the binary: air-gapped images may have none (quiet hours use IANA zones)
 
@@ -41,15 +42,17 @@ import (
 )
 
 type server struct {
-	st      *store.Store
-	secret  []byte
-	es      *search.Client
-	oidc    *auth.OIDCProvider
-	states  oidcstate.Store // memory single-replica, Redis when REDIS_URL set
-	cache   *respcache.Cache
-	secrets *secrets.Store // nil or empty key = disabled (503)
-	ts      tsstore.Store  // nil = Postgres; see internal/tsstore
-	inner   http.Handler   // the /v1 handler chain behind authentication; the assistant calls it as the user
+	st       *store.Store
+	secret   []byte
+	es       *search.Client
+	oidc     *auth.OIDCProvider
+	states   oidcstate.Store // memory single-replica, Redis when REDIS_URL set
+	cache    *respcache.Cache
+	secrets  *secrets.Store // nil or empty key = disabled (503)
+	ts       tsstore.Store  // nil = Postgres; see internal/tsstore
+	notifier replier        // nil = notify.FromEnv(); tests inject a fake
+	bg       sync.WaitGroup // inbound chat work in flight
+	inner    http.Handler   // the /v1 handler chain behind authentication; the assistant calls it as the user
 }
 
 func main() {
@@ -187,6 +190,12 @@ func main() {
 	api.HandleFunc("PUT /v1/ai/settings", s.putAISettings)
 	api.HandleFunc("POST /v1/ai/test", s.testAI)
 	api.HandleFunc("POST /v1/assistant/chat", s.assistantChat)
+	api.HandleFunc("GET /v1/assistant/channel-settings", s.getChannelSettings)
+	api.HandleFunc("PUT /v1/assistant/channel-settings", s.putChannelSettings)
+	api.HandleFunc("GET /v1/assistant/links", s.listChannelLinks)
+	api.HandleFunc("POST /v1/assistant/links", s.createChannelLink)
+	api.HandleFunc("DELETE /v1/assistant/links/{id}", s.deleteChannelLink)
+	api.HandleFunc("PUT /v1/assistant/links/{id}/autorun", s.setLinkAutorun)
 	api.HandleFunc("GET /v1/assistant/actions", s.listAssistantActions)
 	api.HandleFunc("POST /v1/assistant/actions/{id}/confirm", s.confirmAssistantAction)
 	api.HandleFunc("POST /v1/assistant/actions/{id}/reject", s.rejectAssistantAction)
@@ -279,6 +288,8 @@ func main() {
 	// SSO: unauthenticated by design; the callback issues the platform JWT.
 	ssoRL := auth.NewRateLimiter(20, 10)
 	defer ssoRL.Close()
+	mux.HandleFunc("POST /v1/assistant/inbound/slack/{tenant}", s.inboundSlack) // public; acts only on a valid signature
+	mux.HandleFunc("POST /v1/assistant/inbound/email/{tenant}", s.inboundEmail)
 	mux.Handle("GET /auth/oidc/login", ssoRL.Middleware(http.HandlerFunc(s.oidcLogin)))
 	mux.Handle("GET /auth/oidc/callback", ssoRL.Middleware(http.HandlerFunc(s.oidcCallback)))
 
