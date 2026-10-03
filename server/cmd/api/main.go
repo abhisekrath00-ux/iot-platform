@@ -131,6 +131,9 @@ func main() {
 	api.HandleFunc("GET /v1/flow-fragments/{id}/usage", s.fragmentUsage)
 	api.HandleFunc("POST /v1/flows/{id}/refresh-subflows", s.refreshSubflows)
 	api.HandleFunc("GET /v1/users", s.listUsers)
+	api.HandleFunc("GET /v1/users/invites", s.listInvites)
+	api.HandleFunc("POST /v1/users/invites", s.createInvite)
+	api.HandleFunc("DELETE /v1/users/invites/{id}", s.revokeInvite)
 	api.HandleFunc("POST /v1/users", s.createUser)
 	api.HandleFunc("PUT /v1/users/{id}", s.updateUser)
 	api.HandleFunc("PUT /v1/users/{id}/password", s.resetUserPassword)
@@ -341,6 +344,7 @@ func main() {
 	loginRL := auth.NewRateLimiter(10, 5)
 	defer loginRL.Close()
 	mux.Handle("POST /auth/login", loginRL.Middleware(http.HandlerFunc(s.localLogin)))
+	mux.Handle("POST /auth/accept-invite", loginRL.Middleware(http.HandlerFunc(s.acceptInvite)))
 	mux.Handle("GET /auth/oidc/login", ssoRL.Middleware(http.HandlerFunc(s.oidcLogin)))
 	mux.Handle("GET /auth/oidc/callback", ssoRL.Middleware(http.HandlerFunc(s.oidcCallback)))
 

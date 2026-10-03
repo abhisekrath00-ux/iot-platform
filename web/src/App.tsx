@@ -22,6 +22,7 @@ import Assets from './pages/Assets';
 import Customers from './pages/Customers';
 import Users from './pages/Users';
 import Login from './pages/Login';
+import AcceptInvite from './pages/AcceptInvite';
 import Assistant from './pages/Assistant';
 import Kpis from './pages/Kpis';
 import Explorer from './pages/Explorer';
@@ -73,6 +74,7 @@ export default function App() {
   }, []);
   const signedOut = !localStorage.getItem('iot.token');
   const [tour, setTour] = useState(() => !tourDone(localStorage) && !!localStorage.getItem('iot.token'));
+  if (window.location.pathname === '/accept-invite') return <AcceptInvite />;
   if (signedOut) return <Login />;
   return (
     <div className="shell">

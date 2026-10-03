@@ -18,7 +18,14 @@ export default function Users() {
   const [role, setRole] = useState('viewer');
   const [password, setPassword] = useState('');
   const [msg, setMsg] = useState('');
-  const load = () => { api<UserRow[]>('/v1/users').then(setRows).catch(e => setMsg(String(e))); };
+  const [invites, setInvites] = useState<{ id: string; email: string; role: string; expires_at: string }[]>([]);
+  const [invEmail, setInvEmail] = useState('');
+  const [invRole, setInvRole] = useState('viewer');
+  const [link, setLink] = useState('');
+  const load = () => {
+    api<UserRow[]>('/v1/users').then(setRows).catch(e => setMsg(String(e)));
+    api<typeof invites>('/v1/users/invites').then(setInvites).catch(() => setInvites([]));
+  };
   useEffect(load, []);
   const act = async (fn: () => Promise<unknown>, ok: string) => {
     setMsg('');
@@ -50,6 +57,21 @@ export default function Users() {
             </tr>))}</tbody>
         </table>
       )}
+      <div className="card" style={{ maxWidth: 640, margin: '20px 0' }}>
+        <b>Invite by link</b>
+        <p className="muted">Needs local sign-in. The link is shown once and works once for 7 days. Send it through a channel you trust; the platform sends no email.</p>
+        <form onSubmit={async e => { e.preventDefault(); setLink(''); try { const j = await api<{ token: string }>('/v1/users/invites', { method: 'POST', body: JSON.stringify({ email: invEmail, role: invRole }) }); setLink(`${window.location.origin}/accept-invite#${j.token}`); setInvEmail(''); load(); } catch (er) { setMsg(String(er)); } }}>
+          <label htmlFor="iv-email">Email</label>
+          <input id="iv-email" type="email" value={invEmail} onChange={e => setInvEmail(e.target.value)} required />
+          <label htmlFor="iv-role">Role</label>
+          <select id="iv-role" value={invRole} onChange={e => setInvRole(e.target.value)}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
+          <button type="submit">Create invitation link</button>
+        </form>
+        {link && <p><b>Copy now, it is not shown again:</b><br /><code style={{ wordBreak: 'break-all' }}>{link}</code></p>}
+        {invites.length > 0 && <table><thead><tr><th>Pending</th><th>Role</th><th>Expires</th><th /></tr></thead><tbody>{invites.map(i => (
+          <tr key={i.id}><td>{i.email}</td><td>{i.role}</td><td>{new Date(i.expires_at).toLocaleDateString()}</td>
+            <td><button className="ghost" onClick={() => act(() => api(`/v1/users/invites/${i.id}`, { method: 'DELETE' }), 'Invitation revoked.')}>Revoke</button></td></tr>))}</tbody></table>}
+      </div>
       <div className="card" style={{ maxWidth: 640, margin: '20px 0' }}>
         <b>Add a user</b>
         <form onSubmit={e => { e.preventDefault(); act(() => api('/v1/users', { method: 'POST', body: JSON.stringify({ email, display_name: name, role, password: password || undefined }) }), 'User added.').then(() => { setEmail(''); setName(''); setPassword(''); }); }}>
