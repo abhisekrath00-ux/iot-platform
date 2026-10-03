@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { correlation, normalise } from './explorer';
+import { correlation, normalise, stats } from './explorer';
 
 const s = (vs: number[]) => vs.map((v, i) => ({ t: i, v }));
 
@@ -23,5 +23,14 @@ describe('explorer', () => {
     const a = Array.from({ length: 10 }, (_, t) => ({ t, v: t }));
     const b = Array.from({ length: 10 }, (_, k) => ({ t: k + 5, v: (k + 5) * 2 }));
     expect(correlation(a, b)!.n).toBe(5);
+  });
+  it('describes a series and fits a daily slope', () => {
+    const day = 86400000;
+    const st = stats([0, 1, 2, 3].map(i => ({ t: i * day, v: 10 + 2 * i })))!;
+    expect(st.min).toBe(10); expect(st.max).toBe(16); expect(st.avg).toBe(13);
+    expect(st.slopePerDay).toBeCloseTo(2); expect(st.changePct).toBeCloseTo(60);
+    expect(stats([])).toBeNull();
+    expect(stats([{ t: 0, v: 0 }, { t: 1, v: 1 }])!.slopePerDay).toBeNull();
+    expect(stats([{ t: 0, v: 0 }, { t: 1, v: 5 }, { t: 2, v: 6 }])!.changePct).toBeNull();
   });
 });

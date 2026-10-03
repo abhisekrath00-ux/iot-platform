@@ -28,3 +28,22 @@ export function correlation(a: Sample[], b: Sample[]): { r: number; n: number } 
   if (sxx === 0 || syy === 0) return null;
   return { r: sxy / Math.sqrt(sxx * syy), n };
 }
+
+export interface Stats { n: number; min: number; max: number; avg: number; first: number; last: number; changePct: number | null; slopePerDay: number | null; }
+
+/** Plain descriptive statistics of a series. Slope is a least-squares line through the points, per day; null under 3 points. */
+export function stats(s: Sample[]): Stats | null {
+  if (s.length === 0) return null;
+  const vs = s.map(p => p.v);
+  const avg = vs.reduce((a, b) => a + b, 0) / vs.length;
+  const first = s[0].v, last = s[s.length - 1].v;
+  let slope: number | null = null;
+  if (s.length >= 3) {
+    const dayMs = 86400000, t0 = s[0].t;
+    const xs = s.map(p => (p.t - t0) / dayMs), mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+    let sxy = 0, sxx = 0;
+    xs.forEach((x, i) => { sxy += (x - mx) * (vs[i] - avg); sxx += (x - mx) ** 2; });
+    slope = sxx === 0 ? null : sxy / sxx;
+  }
+  return { n: s.length, min: Math.min(...vs), max: Math.max(...vs), avg, first, last, changePct: first === 0 ? null : ((last - first) / Math.abs(first)) * 100, slopePerDay: slope };
+}

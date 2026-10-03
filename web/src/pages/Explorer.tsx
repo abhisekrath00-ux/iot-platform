@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Empty from '../components/Empty';
 import { api, Device, LatestPoint } from '../lib/api';
-import { correlation, normalise, Norm, Sample } from '../lib/explorer';
+import { correlation, normalise, Norm, Sample, stats } from '../lib/explorer';
 
 interface Row { t: string; avg: number; }
 interface Sel { device: string; point: string; }
@@ -19,6 +19,8 @@ export default function Explorer() {
   const [norm, setNorm] = useState<Norm>('minmax');
   const [data, setData] = useState<Record<string, Sample[]>>({});
   const [err, setErr] = useState('');
+  const [compare, setCompare] = useState(false);
+  const [prev, setPrev] = useState<Record<string, Sample[]>>({});
 
   useEffect(() => { api<Device[]>('/v1/devices').then(setDevices).catch(e => setErr(String(e))); }, []);
   useEffect(() => { if (dev) api<LatestPoint[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(dev)}`).then(setPts).catch(() => setPts([])); else setPts([]); }, [dev]);
@@ -30,9 +32,19 @@ export default function Explorer() {
       .then(entries => setData(Object.fromEntries(entries)));
   }, [sel, days]);
 
+  useEffect(() => {
+    if (!compare) { setPrev({}); return; }
+    const to = new Date(Date.now() - days * 86400000), from = new Date(to.getTime() - days * 86400000);
+    const bucket = days > 14 ? 'day' : 'hour';
+    Promise.all(sel.map(s => api<Row[]>(`/v1/telemetry/rollup?device_id=${encodeURIComponent(s.device)}&point_id=${encodeURIComponent(s.point)}&from=${from.toISOString()}&to=${to.toISOString()}&bucket=${bucket}`)
+      .then(rows => [key(s), rows.map(r => ({ t: new Date(r.t).getTime() + days * 86400000, v: r.avg }))] as const).catch(() => [key(s), []] as const)))
+      .then(entries => setPrev(Object.fromEntries(entries)));
+  }, [sel, days, compare]);
+
   const add = (p: string) => { if (sel.length < 6 && !sel.some(s => s.device === dev && s.point === p)) setSel([...sel, { device: dev, point: p }]); };
   const series = useMemo(() => sel.map((s, i) => ({ s, color: COLORS[i], raw: data[key(s)] ?? [], shown: normalise(data[key(s)] ?? [], norm) })), [sel, data, norm]);
-  const all = series.flatMap(x => x.shown);
+  const prevShown = compare ? series.map(x => normalise(prev[key(x.s)] ?? [], norm)) : [];
+  const all = [...series.flatMap(x => x.shown), ...prevShown.flat()];
   const W = 720, H = 260, P = 34;
   const t0 = Math.min(...all.map(p => p.t)), t1 = Math.max(...all.map(p => p.t));
   const mn = Math.min(...all.map(p => p.v)), mx = Math.max(...all.map(p => p.v));
@@ -53,6 +65,7 @@ export default function Explorer() {
         <select aria-label="Window" value={days} onChange={e => setDays(+e.target.value)} style={{ width: 'auto' }}>
           <option value={1}>24 h</option><option value={7}>7 d</option><option value={30}>30 d</option><option value={90}>90 d</option>
         </select>
+        <label className="muted" style={{ fontSize: 13 }}><input type="checkbox" style={{ width: 'auto' }} checked={compare} onChange={e => setCompare(e.target.checked)} /> compare with previous period</label>
         <select aria-label="Scale" value={norm} onChange={e => setNorm(e.target.value as Norm)} style={{ width: 'auto' }}>
           <option value="minmax">Scale each 0 to 1</option><option value="zscore">Z-score</option><option value="raw">Raw values, one axis</option>
         </select>
@@ -70,10 +83,18 @@ export default function Explorer() {
               <text x={4} y={H - P} fontSize="10" fill="currentColor" opacity="0.7">{Number(mn.toFixed(2))}</text>
               <text x={P} y={H - 10} fontSize="10" fill="currentColor" opacity="0.7">{new Date(t0).toLocaleString()}</text>
               <text x={W - 8} y={H - 10} fontSize="10" textAnchor="end" fill="currentColor" opacity="0.7">{new Date(t1).toLocaleString()}</text>
+              {prevShown.map((sh, i) => <polyline key={`p${i}`} fill="none" stroke={series[i].color} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.55" points={sh.map(p => `${X(p.t)},${Y(p.v)}`).join(' ')} />)}
               {series.map(x => <polyline key={key(x.s)} fill="none" stroke={x.color} strokeWidth="2" points={x.shown.map(p => `${X(p.t)},${Y(p.v)}`).join(' ')} />)}
             </svg>
           )}
           {norm === 'raw' && <div className="muted" style={{ fontSize: 12 }}>Raw values share one axis, so signals with different units are hard to compare. Use a scaled view for shape.</div>}
+          <table style={{ marginTop: 10 }}>
+            <thead><tr><th>Signal</th><th>Samples</th><th>Min</th><th>Avg</th><th>Max</th><th>First to last</th><th>Trend per day</th>{compare && <th>Avg vs previous</th>}</tr></thead>
+            <tbody>{series.map(x => { const st = stats(x.raw); const ps = stats(prev[key(x.s)] ?? []); const f = (n: number) => Number(n.toFixed(2)); return (
+              <tr key={key(x.s)}><td>{label(x.s)}</td><td>{st?.n ?? 0}</td><td>{st ? f(st.min) : '-'}</td><td>{st ? f(st.avg) : '-'}</td><td>{st ? f(st.max) : '-'}</td>
+                <td>{st?.changePct == null ? '-' : `${f(st.changePct)}%`}</td><td>{st?.slopePerDay == null ? '-' : f(st.slopePerDay)}</td>
+                {compare && <td>{st && ps && ps.avg !== 0 ? `${f(((st.avg - ps.avg) / Math.abs(ps.avg)) * 100)}%` : '-'}</td>}</tr>); })}</tbody>
+          </table>
           {sel.length > 1 && (
             <table style={{ marginTop: 10 }}>
               <thead><tr><th>Pair</th><th>Correlation (Pearson r)</th><th>Shared samples</th></tr></thead>
@@ -81,7 +102,7 @@ export default function Explorer() {
                 <tr key={key(a.s) + key(b.s)}><td>{label(a.s)} vs {label(b.s)}</td><td>{c ? c.r.toFixed(2) : 'not enough data'}</td><td>{c?.n ?? '-'}</td></tr>); }))}</tbody>
             </table>
           )}
-          <p className="muted" style={{ fontSize: 12 }}>Statistical, computed in your browser from the averages shown. Correlated with, not caused by: two signals moving together does not mean one drives the other.</p>
+          <p className="muted" style={{ fontSize: 12 }}>Statistical, computed in your browser from the averages shown; dashed lines are the previous period of the same length. Correlated with, not caused by: two signals moving together does not mean one drives the other.</p>
         </div>
       )}
     </>
