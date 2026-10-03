@@ -112,6 +112,18 @@ func (d Definition) HasHTTPNodes() bool {
 	return false
 }
 
+func (d Definition) HasContextNodes() bool {
+	if d.Graph == nil {
+		return false
+	}
+	for _, n := range d.Graph.Nodes {
+		if n.Type == "context" {
+			return true
+		}
+	}
+	return false
+}
+
 // IsScheduled reports whether the flow starts from a timed inject node rather
 // than a reading.
 func (d Definition) IsScheduled() bool {

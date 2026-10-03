@@ -159,7 +159,7 @@ export default function FlowEditor() {
   const hints = problems(g);
   const width = Math.max(900, ...g.nodes.map(n => n.x + NODE_W + 60));
   const height = Math.max(460, ...g.nodes.map(n => n.y + NODE_H + 60));
-  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', 'rate_limit', 'split', 'join', ...(fnOn ? ['function' as NodeType] : []), ...(httpOn ? ['http' as NodeType] : []), ...(ctlOn ? ['control' as NodeType] : [])];
+  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', 'rate_limit', 'split', 'join', 'context', ...(fnOn ? ['function' as NodeType] : []), ...(httpOn ? ['http' as NodeType] : []), ...(ctlOn ? ['control' as NodeType] : [])];
   const status = (f: FlowRow) => (f.published_version ? `published v${f.published_version}${f.latest_version && f.latest_version > f.published_version ? ` (draft v${f.latest_version} pending)` : ''}` : 'draft, not published') + (f.enabled ? '' : ' - disabled');
 
   return (
@@ -304,6 +304,7 @@ function summary(n: GNode): string {
     case 'range': return `${n.in_min}-${n.in_max} to ${n.out_min}-${n.out_max}`;
     case 'function': return 'JavaScript';
     case 'http': return `${n.method} ${n.url}`;
+    case 'context': return `${n.mode} ${n.scope}.${n.key}`;
     case 'split': return `one per item of ${n.property}`;
     case 'join': return `${n.mode ?? 'list'} into vars.${n.target}`;
     case 'control': return n.target_id ? 'asks for approval' : 'pick a target';
@@ -432,6 +433,22 @@ function Props({ n, g, channels, upd, connectTo, remove, setStartKind }: {
         <label htmlFor="np-ht">Store in variable (also sets vars.NAME_status)</label>
         <input id="np-ht" maxLength={32} value={n.target ?? ''} onChange={e => upd({ target: e.target.value })} />
         <p className="muted">Output 1 = success (2xx), output 2 = failure or timeout. Dry runs never send the request. Loopback and link-local addresses are blocked; private networks are allowed.</p>
+      </>}
+      {n.type === 'context' && <>
+        <label htmlFor="np-cm">Operation</label>
+        <select id="np-cm" value={n.mode ?? 'incr'} onChange={e => upd({ mode: e.target.value })}><option value="get">Read</option><option value="set">Set</option><option value="incr">Add to</option></select>
+        <label htmlFor="np-cs">Scope</label>
+        <select id="np-cs" value={n.scope ?? 'flow'} onChange={e => upd({ scope: e.target.value })}><option value="flow">This flow only</option><option value="global">All flows (global)</option></select>
+        <label htmlFor="np-ck">Key (letters, digits, underscore)</label>
+        <input id="np-ck" maxLength={32} value={n.key ?? ''} onChange={e => upd({ key: e.target.value })} />
+        {n.mode !== 'get' && <>
+          <label htmlFor="np-cv">{n.mode === 'set' ? 'Value to store' : 'Amount to add'}</label>
+          <input id="np-cv" type="number" step="any" disabled={!!n.use_value} value={n.value ?? 0} onChange={e => upd({ value: parseFloat(e.target.value) || 0 })} />
+          <label><input type="checkbox" checked={!!n.use_value} onChange={e => upd({ use_value: e.target.checked })} style={{ width: 'auto' }} /> Use the message value instead</label>
+        </>}
+        <label htmlFor="np-ct">{n.mode === 'get' ? 'Store in variable' : 'Also store the result in variable (optional)'}</label>
+        <input id="np-ct" maxLength={32} value={n.target ?? ''} onChange={e => upd({ target: e.target.value })} />
+        <p className="muted">Numbers only, up to 100 keys per scope, kept between runs. Output 1 = done, output 2 = key not set or store error. Dry runs do not read or write.</p>
       </>}
       {n.type === 'split' && <>
         <label htmlFor="np-sp">List to split (a variable holding a list, e.g. vars.items from an HTTP node that picks a JSON list)</label>

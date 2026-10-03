@@ -76,7 +76,22 @@ type Node struct {
 	// join: collects every message that reaches it in this run and emits one: Mode list|sum|avg|min|max|count, result in vars.<Target>.
 	TargetID string `json:"target_id,omitempty"`
 	UseValue bool   `json:"use_value,omitempty"`
+	// context: numeric state that survives between runs. Mode get|set|incr, Scope flow|global, Key a name.
+	// get stores the value in vars.<Target> (port 0, or port 1 when the key is unset); set and incr use Value, or
+	// the message value when UseValue is set, and incr returns the new total in vars.<Target> when Target is given.
+	Scope string `json:"scope,omitempty"`
+	Key   string `json:"key,omitempty"`
 }
+
+// ContextStore keeps flow and global context values. nil means context nodes are off (dry runs).
+// Values are numbers only, bounded per scope, and tenant-isolated by the implementation.
+type ContextStore interface {
+	Get(scope, key string) (float64, bool, error)
+	Set(scope, key string, v float64) error
+	Incr(scope, key string, d float64) (float64, error)
+}
+
+const maxContextKeys = 100
 
 type SwitchRule struct {
 	Op    string `json:"op"` // == != > < >= <= contains else
@@ -130,6 +145,7 @@ type ExecOptions struct {
 	LimitKey  string           // scopes limiter state, e.g. tenant/flow id
 	Scheduled bool             // run an inject-started graph (the scheduler sets this)
 	HTTP      HTTPDoer         // nil: http nodes are disabled (feature off, or a dry run)
+	Context   ContextStore     // nil: context nodes pass through unchanged (dry run)
 	Control   ControlRequester // nil: control nodes raise nothing (feature off, or a dry run)
 }
 
@@ -644,6 +660,50 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 				continue
 			}
 			push(n.ID, "0", m, v.delay)
+		case "context":
+			if opt.Context == nil {
+				dbg(n, "context not read or written: this is a dry run or context storage is off")
+				push(n.ID, "0", m, v.delay)
+				continue
+			}
+			scope := "global"
+			if n.Scope != "global" {
+				scope = "flow/" + opt.LimitKey
+			}
+			delta := n.Value
+			if n.UseValue {
+				delta = m.Value
+			}
+			var cv float64
+			var cok bool
+			var cerr error
+			switch n.Mode {
+			case "get":
+				cv, cok, cerr = opt.Context.Get(scope, n.Key)
+				if cerr == nil && !cok {
+					dbg(n, "context key "+n.Key+" is not set")
+					push(n.ID, "1", m, v.delay)
+					continue
+				}
+			case "set":
+				cerr = opt.Context.Set(scope, n.Key, delta)
+				cv, cok = delta, true
+			default:
+				cv, cerr = opt.Context.Incr(scope, n.Key, delta)
+				cok = true
+			}
+			if cerr != nil {
+				dbg(n, "context failed: "+cerr.Error())
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			m = m.clone()
+			if n.Target != "" && setVar(&m, "vars."+n.Target, cv) != nil {
+				dbg(n, "context result could not be stored (too many variables)")
+				push(n.ID, "1", m, v.delay)
+				continue
+			}
+			push(n.ID, "0", m, v.delay)
 		case "control":
 			if opt.Control == nil {
 				dbg(n, "control request not raised: control nodes are disabled for this tenant or this is a dry run")
@@ -744,7 +804,7 @@ func validateGraph(g *Graph) error {
 		if from.Type == "switch" {
 			max = len(from.Rules)
 		}
-		if from.Type == "http" || from.Type == "control" {
+		if from.Type == "http" || from.Type == "control" || from.Type == "context" {
 			max = 2
 		}
 		pn, err := strconv.Atoi(p)
@@ -943,6 +1003,25 @@ func validateNode(n *Node) error {
 		}
 		if len(n.Extract) > 100 || !extractRe.MatchString(n.Extract) {
 			return fmt.Errorf("extract must be a dot path like main.temp")
+		}
+	case "context":
+		if n.Mode != "get" && n.Mode != "set" && n.Mode != "incr" {
+			return fmt.Errorf("context mode must be get, set or incr")
+		}
+		if n.Scope != "flow" && n.Scope != "global" {
+			return fmt.Errorf("context scope must be flow or global")
+		}
+		if !varName.MatchString(n.Key) {
+			return fmt.Errorf("context key must be a name of letters, digits and underscore")
+		}
+		if n.Target != "" && !validProp("vars."+n.Target, true) {
+			return fmt.Errorf("target must be a variable name")
+		}
+		if n.Mode == "get" && n.Target == "" {
+			return fmt.Errorf("a get needs a target variable")
+		}
+		if math.IsNaN(n.Value) || math.IsInf(n.Value, 0) {
+			return fmt.Errorf("value must be finite")
 		}
 	case "control":
 		if n.TargetID == "" || len(n.TargetID) > 64 || strings.ContainsAny(n.TargetID, "<>\x00 ") {

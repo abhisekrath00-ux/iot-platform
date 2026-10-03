@@ -70,6 +70,9 @@ func EvaluateWith(ctx context.Context, pool *pgxpool.Pool, n Notifier, fn Functi
 		if d.HasControlNodes() && tenantFeature(ctx, pool, tenantID, ControlFeature) {
 			opt.Control = &PGControl{Pool: pool, Tenant: tenantID, FlowID: id, FlowName: name, TrigDevice: deviceID, TrigPoint: pointID, TrigValue: value}
 		}
+		if d.HasContextNodes() {
+			opt.Context = &PGContext{Pool: pool, Tenant: tenantID}
+		}
 		er := d.Exec(value, deviceID, pointID, opt)
 		actions, ok := er.Actions, er.Matched
 		detail := debugDetail(er.Debug)
@@ -208,6 +211,9 @@ func RunScheduled(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 		}
 		if f.d.HasControlNodes() && tenantFeature(ctx, pool, f.tenant, ControlFeature) {
 			sopt.Control = &PGControl{Pool: pool, Tenant: f.tenant, FlowID: f.id, FlowName: f.name, TrigDevice: "", TrigPoint: "scheduled", TrigValue: 0}
+		}
+		if f.d.HasContextNodes() {
+			sopt.Context = &PGContext{Pool: pool, Tenant: f.tenant}
 		}
 		er := f.d.Exec(0, "", "", sopt)
 		outcome := "notified"
