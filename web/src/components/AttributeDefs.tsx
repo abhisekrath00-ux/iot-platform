@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
-interface Def { key: string; type: string; enum_values: string[]; unit: string; description: string; required: boolean; }
+interface Def { key: string; type: string; enum_values: string[]; unit: string; description: string; required: boolean; applies_to?: string; }
 
 // Typed attributes: define a name, a type (text, number, yes/no, or a list of allowed values) and
 // whether it is required. Device attributes are then checked against it. Other names stay free-form.
@@ -12,12 +12,13 @@ export default function AttributeDefs() {
   const [vals, setVals] = useState('');
   const [req, setReq] = useState(false);
   const [msg, setMsg] = useState('');
+  const [applies, setApplies] = useState('device');
   const load = () => api<Def[]>('/v1/attribute-defs').then(setDefs).catch(() => undefined);
   useEffect(() => { load(); }, []);
   async function add(e: React.FormEvent) {
     e.preventDefault(); setMsg('');
     try {
-      await api(`/v1/attribute-defs/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify({ type, enum_values: type === 'enum' ? vals.split(',').map(s => s.trim()).filter(Boolean) : [], required: req }) });
+      await api(`/v1/attribute-defs/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify({ type, enum_values: type === 'enum' ? vals.split(',').map(s => s.trim()).filter(Boolean) : [], required: req, applies_to: applies }) });
       setKey(''); setVals(''); setReq(false); load();
     } catch (e2) { setMsg(String(e2)); }
   }
@@ -30,11 +31,12 @@ export default function AttributeDefs() {
         <input aria-label="Attribute name" placeholder="name, e.g. zone" value={key} onChange={e => setKey(e.target.value)} style={{ maxWidth: 160 }} />
         <select aria-label="Attribute type" value={type} onChange={e => setType(e.target.value)} style={{ width: 120, flex: 'none' }}><option value="string">text</option><option value="number">number</option><option value="boolean">yes/no</option><option value="enum">one of</option></select>
         {type === 'enum' && <input aria-label="Allowed values" placeholder="A, B, C" value={vals} onChange={e => setVals(e.target.value)} style={{ maxWidth: 180 }} />}
+        <select aria-label="Applies to" value={applies} onChange={e => setApplies(e.target.value)} style={{ width: 130, flex: 'none' }}><option value="device">devices</option><option value="asset">assets</option><option value="both">devices and assets</option></select>
         <label className="muted"><input type="checkbox" style={{ width: 'auto' }} checked={req} onChange={e => setReq(e.target.checked)} /> required</label>
         <button type="submit" disabled={!key.trim()}>Add</button>
       </form>
-      {defs.length > 0 && <table style={{ marginTop: 10 }}><thead><tr><th>Name</th><th>Type</th><th>Required</th><th /></tr></thead>
-        <tbody>{defs.map(d => <tr key={d.key}><td>{d.key}</td><td>{d.type === 'enum' ? `one of ${d.enum_values.join(', ')}` : d.type}</td><td>{d.required ? 'yes' : ''}</td><td><button className="ghost" onClick={() => del(d.key)}>Remove</button></td></tr>)}</tbody></table>}
+      {defs.length > 0 && <table style={{ marginTop: 10 }}><thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Applies to</th><th /></tr></thead>
+        <tbody>{defs.map(d => <tr key={d.key}><td>{d.key}</td><td>{d.type === 'enum' ? `one of ${d.enum_values.join(', ')}` : d.type}</td><td>{d.required ? 'yes' : ''}</td><td>{d.applies_to === 'both' ? 'devices and assets' : d.applies_to === 'asset' ? 'assets' : 'devices'}</td><td><button className="ghost" onClick={() => del(d.key)}>Remove</button></td></tr>)}</tbody></table>}
       {msg && <p className="muted" role="status">{msg}</p>}
     </div>
   );

@@ -22,7 +22,7 @@ export function formatAttributes(a: Record<string, AttrValue>): string {
 }
 
 // Device attributes: labels such as owner, floor or serial. Metadata only, never sent to the device.
-export default function DeviceAttributes({ deviceId, attributes, onSaved }: { deviceId: string; attributes: Record<string, AttrValue>; onSaved: () => void }) {
+export default function DeviceAttributes({ deviceId, attributes, onSaved, kind = 'device' }: { deviceId: string; attributes: Record<string, AttrValue>; onSaved: () => void; kind?: 'device' | 'asset' }) {
   const [text, setText] = useState(formatAttributes(attributes));
   const [dirty, setDirty] = useState(false);
   const [msg, setMsg] = useState('');
@@ -31,14 +31,14 @@ export default function DeviceAttributes({ deviceId, attributes, onSaved }: { de
     setMsg('');
     try {
       const parsed = parseAttributes(text);
-      await api(`/v1/devices/${deviceId}/attributes`, { method: 'PUT', body: JSON.stringify({ attributes: parsed }) });
+      await api(`/v1/${kind === 'asset' ? 'assets' : 'devices'}/${deviceId}/attributes`, { method: 'PUT', body: JSON.stringify({ attributes: parsed }) });
       setDirty(false); setMsg('Saved.'); onSaved();
     } catch (e) { setMsg(String(e instanceof Error ? e.message : e)); }
   }
   return (
-    <div className="card" style={{ maxWidth: 520, marginTop: 16 }} role="region" aria-label="Device attributes">
+    <div className="card" style={{ maxWidth: 520, marginTop: 16 }} role="region" aria-label={`${kind === 'asset' ? 'Asset' : 'Device'} attributes`}>
       <b>Attributes</b>
-      <p className="muted">Labels for this device, one name=value per line (for example owner=plant team, floor=2). They are notes for people and reports; they are never sent to the device. Operators and admins can edit.</p>
+      <p className="muted">Labels for this {kind}, one name=value per line (for example owner=plant team, floor=2). They are notes for people and reports; they are never sent to the device. Operators and admins can edit.</p>
       <textarea aria-label="Attributes" rows={4} style={{ width: '100%' }} value={text} placeholder="owner=plant team" onChange={e => { setText(e.target.value); setDirty(true); }} />
       <div style={{ marginTop: 8 }}><button onClick={save} disabled={!dirty}>Save attributes</button></div>
       {msg && <p className="muted" role="status">{msg}</p>}

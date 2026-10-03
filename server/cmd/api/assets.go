@@ -19,7 +19,7 @@ func validAssetName(n string) bool {
 // client-side) with the number of devices attached to each.
 func (s *server) listAssets(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT a.id, a.parent_id, a.name, a.kind, (SELECT count(*) FROM devices d WHERE d.asset_id=a.id)
+		`SELECT a.id, a.parent_id, a.name, a.kind, (SELECT count(*) FROM devices d WHERE d.asset_id=a.id), a.attributes
 		 FROM assets a WHERE a.tenant_id=$1 ORDER BY a.name LIMIT 5000`, auth.Tenant(r))
 	if err != nil {
 		http.Error(w, "db", 500)
@@ -31,8 +31,9 @@ func (s *server) listAssets(w http.ResponseWriter, r *http.Request) {
 		var id, name, kind string
 		var parent *string
 		var n int
-		if rows.Scan(&id, &parent, &name, &kind, &n) == nil {
-			out = append(out, map[string]any{"id": id, "parent_id": parent, "name": name, "kind": kind, "devices": n})
+		var attrs map[string]any
+		if rows.Scan(&id, &parent, &name, &kind, &n, &attrs) == nil {
+			out = append(out, map[string]any{"id": id, "parent_id": parent, "name": name, "kind": kind, "devices": n, "attributes": attrs})
 		}
 	}
 	writeJSON(w, 200, out)
@@ -149,4 +150,40 @@ func (s *server) setDeviceAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "device.asset", r.PathValue("id"), map[string]any{"asset_id": in.AssetID})
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// PUT /v1/assets/{id}/attributes (admin, operator): replace the asset's attributes. Same rules as
+// device attributes (size, key shape, no secrets) plus the tenant's definitions that apply to assets.
+func (s *server) setAssetAttributes(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		Attributes map[string]any `json:"attributes"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&in); err != nil || in.Attributes == nil {
+		http.Error(w, "bad json: expected {\"attributes\": {...}}", 400)
+		return
+	}
+	if err := validateAttributes(in.Attributes); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if err := checkAttrDefs(s.loadAttrDefsFor(r.Context(), auth.Tenant(r), "asset"), in.Attributes); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	raw, _ := json.Marshal(in.Attributes)
+	id := r.PathValue("id")
+	ct, err := s.st.Pool.Exec(r.Context(), `UPDATE assets SET attributes=$1 WHERE id=$2 AND tenant_id=$3`, raw, id, auth.Tenant(r))
+	if err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	if ct.RowsAffected() == 0 {
+		http.Error(w, "not found", 404)
+		return
+	}
+	s.audit(r, "asset.attributes", id, map[string]any{"count": len(in.Attributes)})
+	writeJSON(w, 200, map[string]any{"attributes": in.Attributes})
 }

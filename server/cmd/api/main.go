@@ -177,6 +177,7 @@ func main() {
 	api.HandleFunc("POST /v1/kpis", s.createKPI)
 	api.HandleFunc("DELETE /v1/kpis/{id}", s.deleteKPI)
 	api.HandleFunc("POST /v1/assets", s.createAsset)
+	api.HandleFunc("PUT /v1/assets/{id}/attributes", s.setAssetAttributes)
 	api.HandleFunc("POST /v1/assets/{id}/files", s.uploadAssetFile)
 	api.HandleFunc("GET /v1/assets/{id}/files", s.listAssetFiles)
 	api.HandleFunc("GET /v1/assets/{id}/files/{fid}", s.downloadAssetFile)

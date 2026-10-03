@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
 import AssetFiles from '../components/AssetFiles';
+import DeviceAttributes from '../components/DeviceAttributes';
 import Relations from '../components/Relations';
 import { api, Device } from '../lib/api';
 
-interface Asset { id: string; parent_id: string | null; name: string; kind: string; devices: number; }
+interface Asset { id: string; parent_id: string | null; name: string; kind: string; devices: number; attributes?: Record<string, string | number | boolean>; }
 
 export default function Assets() {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -15,6 +16,7 @@ export default function Assets() {
   const [devId, setDevId] = useState('');
   const [assetId, setAssetId] = useState('');
   const [msg, setMsg] = useState('');
+  const [attrAsset, setAttrAsset] = useState('');
 
   const load = () => {
     api<Asset[]>('/v1/assets').then(setAssets).catch(e => setMsg(String(e)));
@@ -67,6 +69,16 @@ export default function Assets() {
       </div>
       <Relations assets={assets} />
       <AssetFiles assets={assets} />
+      {assets.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <label htmlFor="as-attr">Edit attributes of</label>
+          <select id="as-attr" value={attrAsset} onChange={e => setAttrAsset(e.target.value)} style={{ maxWidth: 320 }}>
+            <option value="">choose an asset</option>
+            {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          {attrAsset && <DeviceAttributes key={attrAsset} kind="asset" deviceId={attrAsset} attributes={assets.find(a => a.id === attrAsset)?.attributes ?? {}} onSaved={() => { api<Asset[]>('/v1/assets').then(setAssets).catch(() => undefined); }} />}
+        </div>
+      )}
       <div className="card" style={{ maxWidth: 640, marginBottom: 20 }}>
         <b>Attach a device</b>
         <label htmlFor="as-dev">Device</label>

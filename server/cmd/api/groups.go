@@ -153,20 +153,26 @@ type attrDef struct {
 	Unit        string   `json:"unit"`
 	Description string   `json:"description"`
 	Required    bool     `json:"required"`
+	AppliesTo   string   `json:"applies_to"` // device (default) | asset | both
 }
 
 var defKeyRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,39}$`)
 
 func (s *server) loadAttrDefs(ctx context.Context, tenant string) map[string]attrDef {
+	return s.loadAttrDefsFor(ctx, tenant, "device")
+}
+
+// loadAttrDefsFor returns the definitions that apply to a kind of thing ("device" or "asset").
+func (s *server) loadAttrDefsFor(ctx context.Context, tenant, kind string) map[string]attrDef {
 	out := map[string]attrDef{}
-	rows, err := s.st.Pool.Query(ctx, `SELECT key,type,enum_values,unit,description,required FROM attribute_defs WHERE tenant_id=$1`, tenant)
+	rows, err := s.st.Pool.Query(ctx, `SELECT key,type,enum_values,unit,description,required,applies_to FROM attribute_defs WHERE tenant_id=$1 AND applies_to IN ($2,'both')`, tenant, kind)
 	if err != nil {
 		return out
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var d attrDef
-		rows.Scan(&d.Key, &d.Type, &d.EnumValues, &d.Unit, &d.Description, &d.Required)
+		rows.Scan(&d.Key, &d.Type, &d.EnumValues, &d.Unit, &d.Description, &d.Required, &d.AppliesTo)
 		out[d.Key] = d
 	}
 	return out
@@ -218,7 +224,21 @@ func checkAttrDefs(defs map[string]attrDef, a map[string]any) error {
 }
 
 func (s *server) listAttrDefs(w http.ResponseWriter, r *http.Request) {
-	defs := s.loadAttrDefs(r.Context(), auth.Tenant(r))
+	var defs map[string]attrDef
+	if k := r.URL.Query().Get("for"); k == "device" || k == "asset" {
+		defs = s.loadAttrDefsFor(r.Context(), auth.Tenant(r), k)
+	} else {
+		rows, err := s.st.Pool.Query(r.Context(), `SELECT key,type,enum_values,unit,description,required,applies_to FROM attribute_defs WHERE tenant_id=$1`, auth.Tenant(r))
+		defs = map[string]attrDef{}
+		if err == nil {
+			for rows.Next() {
+				var d attrDef
+				rows.Scan(&d.Key, &d.Type, &d.EnumValues, &d.Unit, &d.Description, &d.Required, &d.AppliesTo)
+				defs[d.Key] = d
+			}
+			rows.Close()
+		}
+	}
 	out := make([]attrDef, 0, len(defs))
 	for _, d := range defs {
 		out = append(out, d)
@@ -237,6 +257,13 @@ func (s *server) putAttrDef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Key = r.PathValue("key")
+	if d.AppliesTo == "" {
+		d.AppliesTo = "device"
+	}
+	if d.AppliesTo != "device" && d.AppliesTo != "asset" && d.AppliesTo != "both" {
+		http.Error(w, "applies_to must be device, asset or both", 400)
+		return
+	}
 	if !defKeyRe.MatchString(d.Key) || len(d.Unit) > 20 || len(d.Description) > 200 {
 		http.Error(w, "bad key, unit or description", 400)
 		return
@@ -259,9 +286,9 @@ func (s *server) putAttrDef(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "type must be string, number, boolean or enum", 400)
 		return
 	}
-	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO attribute_defs(tenant_id,key,type,enum_values,unit,description,required) VALUES($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (tenant_id,key) DO UPDATE SET type=EXCLUDED.type, enum_values=EXCLUDED.enum_values, unit=EXCLUDED.unit, description=EXCLUDED.description, required=EXCLUDED.required`,
-		auth.Tenant(r), d.Key, d.Type, d.EnumValues, d.Unit, d.Description, d.Required); err != nil {
+	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO attribute_defs(tenant_id,key,type,enum_values,unit,description,required,applies_to) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT (tenant_id,key) DO UPDATE SET type=EXCLUDED.type, enum_values=EXCLUDED.enum_values, unit=EXCLUDED.unit, description=EXCLUDED.description, required=EXCLUDED.required, applies_to=EXCLUDED.applies_to`,
+		auth.Tenant(r), d.Key, d.Type, d.EnumValues, d.Unit, d.Description, d.Required, d.AppliesTo); err != nil {
 		http.Error(w, "db", 500)
 		return
 	}
