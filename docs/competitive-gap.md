@@ -143,3 +143,10 @@ service. Expressions will be a small safe expression language, not the
 function node sandbox.
 
 | AI assistant (agentic, any OpenAI-compatible model, confirm gate) | Built, fake-model-tested only. Slack and email access built, simulator-tested only. See [assistant.md](assistant.md). |
+
+## Gap-list pass, 2026-10-03
+| Item | Status |
+|---|---|
+| Dashboard import/export | Built: `GET /v1/dashboards/{id}/export`, `POST /v1/dashboards/import` (`hexmon-dashboard/1`), UI buttons. Widgets on devices the target tenant lacks are kept and listed. Tested. |
+| Flow split and join nodes | Built and unit-tested. Split takes a list variable (the HTTP node can now pick a JSON list of plain values, max 100); join combines everything that reaches it in one run (list, sum, avg, min, max, count). Not exported to Node-RED files. Join does not wait across separate runs. |
+| Flow inject (timer) and HTTP request nodes | Already built earlier; the previous version of this list wrongly showed them missing. |

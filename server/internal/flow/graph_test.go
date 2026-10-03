@@ -287,3 +287,63 @@ func TestInjectStartsOnlyWhenScheduled(t *testing.T) {
 		t.Fatal("5s interval accepted")
 	}
 }
+
+func TestSplitAndJoin(t *testing.T) {
+	mk := func(mode string, join bool) Definition {
+		nodes := []Node{trig(),
+			{ID: "h", Type: "http", Method: "GET", URL: "http://10.0.0.7/api/readings", Target: "items", Extract: "data.readings"},
+			{ID: "sp", Type: "split", Property: "vars.items"}}
+		edges := []Edge{{From: "t", To: "h"}, {From: "h", Port: "0", To: "sp"}}
+		if join {
+			nodes = append(nodes, Node{ID: "j", Type: "join", Mode: mode, Target: "agg"}, Node{ID: "n", Type: "notify", ChannelID: "c", Message: "agg {vars.agg} last {value}"})
+			edges = append(edges, Edge{From: "sp", To: "j"}, Edge{From: "j", To: "n"})
+		} else {
+			nodes = append(nodes, Node{ID: "n", Type: "notify", ChannelID: "c", Message: "item {vars.index}/{vars.count} = {vars.item}"})
+			edges = append(edges, Edge{From: "sp", To: "n"})
+		}
+		g := Graph{Nodes: nodes, Edges: edges}
+		return Definition{Graph: &g}
+	}
+	doer := &fakeHTTP{status: 200, body: `{"data":{"readings":[3,5,10,2]}}`}
+	opt := ExecOptions{HTTP: doer}
+	d := mk("", false)
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+	r := d.Exec(20, "d", "p", opt)
+	if len(r.Actions) != 4 || r.Actions[0].Message != "item 0/4 = 3" || r.Actions[3].Message != "item 3/4 = 2" {
+		t.Fatalf("split: %+v %+v", r.Actions, r.Debug)
+	}
+	for mode, want := range map[string]string{"sum": "agg 20 last 20", "avg": "agg 5 last 5", "max": "agg 10 last 10", "min": "agg 2 last 2", "count": "agg 4 last 4"} {
+		d := mk(mode, true)
+		if err := Validate(d); err != nil {
+			t.Fatal(err)
+		}
+		r := d.Exec(20, "d", "p", opt)
+		if len(r.Actions) != 1 || r.Actions[0].Message != want {
+			t.Fatalf("join %s: %+v %+v", mode, r.Actions, r.Debug)
+		}
+	}
+	// a list in a variable that is not a list ends that path and says so
+	d = mk("sum", true)
+	d.Graph.Nodes[2].Property = "vars.nothing"
+	if r := d.Exec(20, "d", "p", opt); len(r.Actions) != 0 || len(r.Debug) == 0 {
+		t.Fatalf("split of a non-list: %+v", r)
+	}
+	// a bad join is refused at save time
+	d = mk("median", true)
+	if Validate(d) == nil {
+		t.Fatal("join mode median accepted")
+	}
+	d = mk("sum", true)
+	d.Graph.Nodes[3].Target = "a.b"
+	if Validate(d) == nil {
+		t.Fatal("join target with a dot accepted")
+	}
+	// lists with nested objects are refused by the http node
+	bad := &fakeHTTP{status: 200, body: `{"data":{"readings":[{"a":1}]}}`}
+	d = mk("sum", true)
+	if r := d.Exec(20, "d", "p", ExecOptions{HTTP: bad}); len(r.Actions) != 0 {
+		t.Fatalf("nested list should fail: %+v", r)
+	}
+}

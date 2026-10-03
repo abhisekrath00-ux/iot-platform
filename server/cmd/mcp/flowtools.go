@@ -48,6 +48,8 @@ var nodeCatalogue = map[string]any{
 		{"type": "range", "fields": "in_min, in_max (differ), out_min, out_max, clamp", "ports": "0"},
 		{"type": "inject", "fields": "seconds (60-86400 interval), value, device_id, point_id (labels); an alternative start node, exactly one start node per flow", "ports": "0"},
 		{"type": "rate_limit", "fields": "seconds (1-86400): lets one message per window pass", "ports": "0"},
+		{"type": "split", "fields": "property: a variable holding a list (for example vars.items); sends one message per item, max 100, with vars.item, vars.index, vars.count", "ports": "0"},
+		{"type": "join", "fields": "mode (list|sum|avg|min|max|count), target (bare variable name): combines every message reaching it in one run into one", "ports": "0"},
 		{"type": "debug", "fields": "message", "ports": "none"},
 		{"type": "notify", "fields": "channel_id (an existing notification channel), message", "ports": "none"},
 	},

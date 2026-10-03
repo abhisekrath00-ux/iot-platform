@@ -2,7 +2,7 @@
 // The server is the authority on validity; these keep the editor from building
 // graphs it already knows will be refused.
 
-export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range' | 'rate_limit' | 'inject' | 'http' | 'control';
+export type NodeType = 'trigger' | 'switch' | 'change' | 'condition' | 'delay' | 'debug' | 'notify' | 'function' | 'template' | 'range' | 'rate_limit' | 'inject' | 'http' | 'control' | 'split' | 'join';
 
 export interface GNode {
   id: string; type: NodeType; name?: string; x: number; y: number;
@@ -21,7 +21,7 @@ export const NODE_H = 52;
 
 export const LABELS: Record<NodeType, string> = {
   trigger: 'Reading', switch: 'Switch', change: 'Change', condition: 'Condition',
-  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range', rate_limit: 'Rate limit', inject: 'Timer', http: 'HTTP request', control: 'Control request'
+  delay: 'Delay', debug: 'Debug', notify: 'Notify', function: 'Function', template: 'Template', range: 'Range', rate_limit: 'Rate limit', inject: 'Timer', http: 'HTTP request', control: 'Control request', split: 'Split list', join: 'Join'
 };
 
 export function portCount(n: GNode): number {
@@ -56,6 +56,8 @@ export function defaults(type: NodeType): Partial<GNode> {
     case 'function': return { code: 'return msg;' };
     case 'control': return { target_id: '', value: 1, use_value: false };
     case 'http': return { method: 'GET', url: 'http://', body: '', target: 'result', extract: '' };
+    case 'split': return { property: 'vars.items' };
+    case 'join': return { mode: 'list', target: 'joined' };
     default: return {};
   }
 }

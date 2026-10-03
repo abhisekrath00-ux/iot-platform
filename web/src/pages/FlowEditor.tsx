@@ -159,7 +159,7 @@ export default function FlowEditor() {
   const hints = problems(g);
   const width = Math.max(900, ...g.nodes.map(n => n.x + NODE_W + 60));
   const height = Math.max(460, ...g.nodes.map(n => n.y + NODE_H + 60));
-  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', 'rate_limit', ...(fnOn ? ['function' as NodeType] : []), ...(httpOn ? ['http' as NodeType] : []), ...(ctlOn ? ['control' as NodeType] : [])];
+  const types: NodeType[] = ['switch', 'change', 'condition', 'delay', 'debug', 'notify', 'template', 'range', 'rate_limit', 'split', 'join', ...(fnOn ? ['function' as NodeType] : []), ...(httpOn ? ['http' as NodeType] : []), ...(ctlOn ? ['control' as NodeType] : [])];
   const status = (f: FlowRow) => (f.published_version ? `published v${f.published_version}${f.latest_version && f.latest_version > f.published_version ? ` (draft v${f.latest_version} pending)` : ''}` : 'draft, not published') + (f.enabled ? '' : ' - disabled');
 
   return (
@@ -304,6 +304,8 @@ function summary(n: GNode): string {
     case 'range': return `${n.in_min}-${n.in_max} to ${n.out_min}-${n.out_max}`;
     case 'function': return 'JavaScript';
     case 'http': return `${n.method} ${n.url}`;
+    case 'split': return `one per item of ${n.property}`;
+    case 'join': return `${n.mode ?? 'list'} into vars.${n.target}`;
     case 'control': return n.target_id ? 'asks for approval' : 'pick a target';
   }
 }
@@ -430,6 +432,18 @@ function Props({ n, g, channels, upd, connectTo, remove, setStartKind }: {
         <label htmlFor="np-ht">Store in variable (also sets vars.NAME_status)</label>
         <input id="np-ht" maxLength={32} value={n.target ?? ''} onChange={e => upd({ target: e.target.value })} />
         <p className="muted">Output 1 = success (2xx), output 2 = failure or timeout. Dry runs never send the request. Loopback and link-local addresses are blocked; private networks are allowed.</p>
+      </>}
+      {n.type === 'split' && <>
+        <label htmlFor="np-sp">List to split (a variable holding a list, e.g. vars.items from an HTTP node that picks a JSON list)</label>
+        <input id="np-sp" maxLength={60} value={n.property ?? ''} onChange={e => upd({ property: e.target.value })} />
+        <p className="muted">Sends one message per item (max 100). Each carries vars.item, vars.index, vars.count, and value when the item is a number.</p>
+      </>}
+      {n.type === 'join' && <>
+        <label htmlFor="np-jm">Combine the messages that reach this node in one run</label>
+        <select id="np-jm" value={n.mode ?? 'list'} onChange={e => upd({ mode: e.target.value })}>{['list', 'sum', 'avg', 'min', 'max', 'count'].map(m => <option key={m}>{m}</option>)}</select>
+        <label htmlFor="np-jt">Store result in variable</label>
+        <input id="np-jt" maxLength={40} value={n.target ?? ''} onChange={e => upd({ target: e.target.value })} />
+        <p className="muted">Waits until every other path of the run has finished, then sends one message. For sum, avg, min, max and count the result is also the new value.</p>
       </>}
       {n.type === 'control' && <ControlProps n={n} upd={upd} />}
       {n.type === 'function' && <>

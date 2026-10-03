@@ -27,6 +27,8 @@ const (
 	maxStringSize = 256
 )
 
+const maxSplit = 100
+
 func isStart(t string) bool { return t == "trigger" || t == "inject" }
 
 type Node struct {
@@ -70,6 +72,8 @@ type Node struct {
 	Extract string `json:"extract,omitempty"` // dot path into a JSON response, e.g. main.temp; empty = whole body
 	// control: ask for a change to an allowlisted target (never actuates; needs approval). Port 0 = request raised, 1 = refused.
 	// The value is Value, or the message value when UseValue is set. The target checks it; nothing is clamped.
+	// split: Property names a list (for example vars.items from an http node); one message per element.
+	// join: collects every message that reaches it in this run and emits one: Mode list|sum|avg|min|max|count, result in vars.<Target>.
 	TargetID string `json:"target_id,omitempty"`
 	UseValue bool   `json:"use_value,omitempty"`
 }
@@ -436,7 +440,55 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 	visits := 0
 	httpCalls, controlCalls := 0, 0
 	dbg := func(n *Node, s string) { res.Debug = append(res.Debug, DebugEntry{Node: n.ID, Message: s}) }
-	for len(queue) > 0 {
+	type joinBuf struct {
+		vals  []float64
+		last  Msg
+		delay time.Duration
+	}
+	joins := map[string]*joinBuf{}
+	flushJoins := func() bool {
+		did := false
+		for i := range g.Nodes { // graph order keeps runs deterministic
+			n := &g.Nodes[i]
+			jb := joins[n.ID]
+			if n.Type != "join" || jb == nil || len(jb.vals) == 0 {
+				continue
+			}
+			m := jb.last.clone()
+			var list []any
+			sum, mn, mx := 0.0, jb.vals[0], jb.vals[0]
+			for _, f := range jb.vals {
+				list = append(list, f)
+				sum += f
+				mn, mx = math.Min(mn, f), math.Max(mx, f)
+			}
+			switch n.Mode {
+			case "sum":
+				m.Value = sum
+			case "avg":
+				m.Value = sum / float64(len(jb.vals))
+			case "min":
+				m.Value = mn
+			case "max":
+				m.Value = mx
+			case "count":
+				m.Value = float64(len(jb.vals))
+			}
+			if n.Mode == "" || n.Mode == "list" {
+				m.Vars[n.Target] = list
+			} else {
+				m.Vars[n.Target] = m.Value
+			}
+			delete(joins, n.ID)
+			push(n.ID, "0", m, jb.delay)
+			did = true
+		}
+		return did
+	}
+	for {
+		if len(queue) == 0 && !flushJoins() {
+			break
+		}
 		v := queue[0]
 		queue = queue[1:]
 		visits++
@@ -486,6 +538,38 @@ func execGraph(g *Graph, value float64, deviceID, pointID string, opt ExecOption
 				d = maxPathDelay * time.Second
 			}
 			push(n.ID, "0", m, d)
+		case "split":
+			pv, have := m.get(n.Property)
+			list, ok := pv.([]any)
+			if !have || !ok {
+				dbg(n, "split: "+n.Property+" is not a list")
+				continue
+			}
+			if len(list) > maxSplit {
+				list = list[:maxSplit]
+				dbg(n, fmt.Sprintf("split: list cut to %d items", maxSplit))
+			}
+			for i, it := range list {
+				c := m.clone()
+				c.Vars["item"], c.Vars["index"], c.Vars["count"] = it, float64(i), float64(len(list))
+				if f, isNum := toFloat(it); isNum {
+					c.Value = f
+				}
+				push(n.ID, "0", c, v.delay)
+			}
+		case "join":
+			jb := joins[n.ID]
+			if jb == nil {
+				jb = &joinBuf{}
+				joins[n.ID] = jb
+			}
+			if len(jb.vals) < maxSplit {
+				jb.vals = append(jb.vals, m.Value)
+			}
+			jb.last = m
+			if v.delay > jb.delay {
+				jb.delay = v.delay
+			}
 		case "template":
 			m = m.clone()
 			if err := setVar(&m, "vars."+n.Target, render(n.Template, m)); err != nil {
@@ -813,6 +897,19 @@ func validateNode(n *Node) error {
 		if len(n.Message) > 500 {
 			return fmt.Errorf("message too long")
 		}
+	case "split":
+		if !validProp(n.Property, false) {
+			return fmt.Errorf("split needs a property such as vars.items")
+		}
+	case "join":
+		switch n.Mode {
+		case "", "list", "sum", "avg", "min", "max", "count":
+		default:
+			return fmt.Errorf("join mode must be list, sum, avg, min, max or count")
+		}
+		if n.Target == "" || len(n.Target) > 40 || strings.ContainsAny(n.Target, ". ") {
+			return fmt.Errorf("join needs a bare variable name as target")
+		}
 	case "inject":
 		if n.Seconds < 60 || n.Seconds > 86400 {
 			return fmt.Errorf("inject interval 60-86400 seconds")
@@ -942,6 +1039,22 @@ func httpResult(body []byte, path string) (any, error) {
 			return nil, fmt.Errorf("value longer than %d bytes", maxStringSize)
 		}
 		return x, nil
+	case []any: // a short list of plain values, for a split node
+		if len(x) > maxSplit {
+			return nil, fmt.Errorf("list longer than %d items", maxSplit)
+		}
+		for _, it := range x {
+			switch e := it.(type) {
+			case float64, bool:
+			case string:
+				if len(e) > 200 {
+					return nil, fmt.Errorf("list item longer than 200 bytes")
+				}
+			default:
+				return nil, fmt.Errorf("path %q: list items must be numbers, strings or booleans", path)
+			}
+		}
+		return x, nil
 	}
-	return nil, fmt.Errorf("path %q is missing or not a number, string or boolean", path)
+	return nil, fmt.Errorf("path %q is missing or not a number, string, boolean or list", path)
 }
