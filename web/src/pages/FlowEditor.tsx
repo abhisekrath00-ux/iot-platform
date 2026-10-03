@@ -1,3 +1,4 @@
+import FragmentBar from '../components/FragmentBar';
 import { History, emptyHistory, record, redo, undo } from '../lib/history';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
@@ -213,6 +214,7 @@ export default function FlowEditor() {
         <span className="muted">Add:</span>
         {types.map(t => <button key={t} type="button" className="ghost" onClick={() => setG(cur => addNode(cur, t, 60 + (cur.nodes.length % 5) * 30, 40 + cur.nodes.length * 40 % 300))}>+ {LABELS[t]}</button>)}
       </div>
+      <FragmentBar g={g} setG={fn => setG(fn)} />
       <div className="fe-layout">
         <div className="fe-canvas card" style={{ padding: 0 }}>
           <svg
@@ -301,7 +303,7 @@ function summary(n: GNode): string {
     case 'debug': return n.message || 'debug';
     case 'rate_limit': return `1 per ${n.seconds}s`;
     case 'template': return `vars.${n.target}`;
-    case 'range': return `${n.in_min}-${n.in_max} to ${n.out_min}-${n.out_max}`;
+    case 'range': return `${n.in_min ?? 0}-${n.in_max ?? 0} to ${n.out_min ?? 0}-${n.out_max ?? 0}`;
     case 'function': return 'JavaScript';
     case 'http': return `${n.method} ${n.url}`;
     case 'context': return `${n.mode} ${n.scope}.${n.key}`;
