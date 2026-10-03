@@ -250,3 +250,40 @@ func TestPDFDrawsCharts(t *testing.T) {
 		t.Fatalf("matrix charts %d", n)
 	}
 }
+
+func TestHeaderFooterOnEveryPDFPageAndHTML(t *testing.T) {
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	m := Metric{"meter-1", "kwh"}
+	var rows []Bucket
+	for i := 0; i < 120; i++ { // enough rows for several pages
+		rows = append(rows, Bucket{Start: t0.Add(time.Duration(i) * time.Hour), Avg: 1, Min: 1, Max: 1, Sum: 1, Count: 1})
+	}
+	d := Definition{Metrics: []Metric{m}, WindowHours: 200, GroupBy: "hour", Header: "Plant A (confidential)", Footer: "Prepared by Ops"}
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+	pdf := string(RenderPDF("t", d, map[Metric][]Bucket{m: rows}, t0))
+	pages := strings.Count(pdf, "/Type /Page /")
+	if pages < 2 || strings.Count(pdf, "(Plant A \\(confidential\\))") != pages || strings.Count(pdf, "(Prepared by Ops)") != pages {
+		t.Fatalf("pages=%d header=%d footer=%d", pages, strings.Count(pdf, "Plant A"), strings.Count(pdf, "Prepared by Ops"))
+	}
+	h := Render("t", Definition{Metrics: d.Metrics, WindowHours: 1, GroupBy: "hour", Header: "<b>H</b>", Footer: "F&F"}, map[Metric][]Bucket{m: rows}, t0)
+	if !strings.Contains(h, "&lt;b&gt;H&lt;/b&gt;") || !strings.Contains(h, "F&amp;F") || strings.Contains(h, "<b>H</b>") {
+		t.Fatal("header and footer must be escaped in HTML")
+	}
+	for name, bad := range map[string]Definition{
+		"long header": {Header: strings.Repeat("x", 81)},
+		"control":     {Footer: "a\nb"},
+	} {
+		bad.Metrics, bad.WindowHours, bad.GroupBy = d.Metrics, 1, "hour"
+		if Validate(bad) == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	// matrix layout renders the footer too
+	md := d
+	md.Layout = "matrix"
+	if !strings.Contains(Render("t", md, map[Metric][]Bucket{m: rows}, t0), "Prepared by Ops") {
+		t.Fatal("matrix HTML lost the footer")
+	}
+}

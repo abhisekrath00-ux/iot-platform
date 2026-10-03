@@ -127,15 +127,15 @@ Status is from this repo's code. Nothing here is "Have" unless built and tested.
 | Tables with row groups and subtotals | Optional summary by asset or site: per (group, point) rows with devices/samples/avg/min/max/sum and per-point grand totals; HTML, CSV, XLSX, PDF. Points are never added together | Have (tested; one grouping level, not nested; not opened in real Excel) | 4 |
 | Matrix (cross-tab, e.g. device by day) | Matrix layout: time rows by point columns, avg/min/max/sum, column totals; HTML, PDF, Excel, CSV | Have (basic: one measure, one level of grouping) | 5 |
 | Charts embedded in a report | Preview chart in builder UI | Partial (not rendered into delivered output) | 6 |
-| Expressions (computed columns, formatting, conditionals) | None | Missing | 7 |
-| Page header/footer, page numbers, hard page breaks | HTML only | Missing | 8 |
+| Expressions (computed columns, formatting, conditionals) | Up to 5 computed columns on the matrix layout, from the safe KPI expression language (numbers, + - * /, point references of the report; validated; no functions or loops). HTML, PDF, Excel, CSV | Partial (no number formatting or conditionals; matrix layout only) | 7 |
+| Page header/footer, page numbers, hard page breaks | PDF has "Page n of m" on every page, optional header and footer text, a repeating column header, and a chart never splits across pages | Partial (custom header and footer text, 80 characters each, on every PDF page and in the HTML, tested and checked on a rendered page; no logo, no manual page breaks; HTML does not repeat them per printed page) | 8 |
 | Scheduled delivery to email/Slack | Cron delivery wired | Have | - |
 | Saved, versioned report definitions | Saved reports exist | Partial (no versions) | 9 |
 | Drill-through and subreports | None | Missing | 10 |
 | Word, PowerPoint, image export | None | Missing, not planned (PDF and Excel cover the need) | - |
 
 Build order: parameters, PDF, Excel, grouped tables with subtotals, matrix,
-embedded charts, expressions. PDF must work air-gapped, so it is generated
+embedded charts, expressions (computed columns are built; see the table). PDF must work air-gapped, so it is generated
 server-side with a Go library or a pure-Go renderer; no browser or cloud
 service. Expressions will be a small safe expression language, not the
 function node sandbox.

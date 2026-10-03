@@ -33,6 +33,10 @@ type Definition struct {
 	// Rollup adds a summary section grouped by "asset" or "site" with a subtotal
 	// per group and point and a grand total per point. Empty means off.
 	Rollup string `json:"rollup,omitempty"`
+	// Header and Footer are optional text (at most 80 printable characters) printed on every PDF
+	// page, and at the top and bottom of the HTML. No markup; it is escaped.
+	Header string `json:"header,omitempty"`
+	Footer string `json:"footer,omitempty"`
 	// GroupLabels maps device_id to its asset or site name. Filled by the server
 	// at render time from the database, never stored or read from a request.
 	GroupLabels map[string]string `json:"-"`
@@ -96,6 +100,16 @@ func Validate(d Definition) error {
 	case "", "asset", "site":
 	default:
 		return ErrBadRollup
+	}
+	for _, t := range []struct{ name, v string }{{"header", d.Header}, {"footer", d.Footer}} {
+		if len(t.v) > 80 {
+			return fmt.Errorf("%s must be at most 80 characters", t.name)
+		}
+		for _, r := range t.v {
+			if r < 32 || r == 127 {
+				return fmt.Errorf("%s must not contain control characters", t.name)
+			}
+		}
 	}
 	if len(d.Computed) > 0 {
 		if d.Layout != "matrix" {
@@ -181,6 +195,9 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		`td,th{border:1px solid #ddd;padding:6px 10px;text-align:right;font-size:13px}` +
 		`th{background:#f5f5f5;text-align:left}td:first-child,th:first-child{text-align:left}` +
 		`.meta{color:#666;font-size:12px}</style>`)
+	if d.Header != "" {
+		b.WriteString(`<p class="meta">` + html.EscapeString(d.Header) + `</p>`)
+	}
 	b.WriteString(`<h1>` + html.EscapeString(title) + `</h1>`)
 	fmt.Fprintf(&b, `<p class="meta">Generated %s - window %dh, grouped by %s</p>`,
 		generated.UTC().Format(time.RFC3339), d.WindowHours, html.EscapeString(d.GroupBy))
@@ -204,6 +221,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		}
 		b.WriteString(`</tr></table>`)
 		writeRollupHTML(&b, d, series)
+		writeFooter(&b, d)
 		return b.String()
 	}
 	keys := make([]Metric, 0, len(series))
@@ -233,7 +251,14 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		b.WriteString(`</table>`)
 	}
 	writeRollupHTML(&b, d, series)
+	writeFooter(&b, d)
 	return b.String()
+}
+
+func writeFooter(b *strings.Builder, d Definition) {
+	if d.Footer != "" {
+		b.WriteString(`<p class="meta" style="margin-top:28px">` + html.EscapeString(d.Footer) + `</p>`)
+	}
 }
 
 func writeRollupHTML(b *strings.Builder, d Definition, series map[Metric][]Bucket) {

@@ -312,6 +312,12 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 			y -= 14
 		}
 		fmt.Fprintf(&c, "BT /F1 8 Tf 40 24 Td (Page %d of %d) Tj ET\n", i+1, len(pages))
+		if d.Header != "" {
+			fmt.Fprintf(&c, "BT /F1 8 Tf 40 826 Td (%s) Tj ET\n", esc(d.Header))
+		}
+		if d.Footer != "" {
+			fmt.Fprintf(&c, "BT /F1 8 Tf 140 24 Td (%s) Tj ET\n", esc(d.Footer))
+		}
 		obj(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents %d 0 R >>", 6+i*2))
 		obj(fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", c.Len(), c.String()))
 	}

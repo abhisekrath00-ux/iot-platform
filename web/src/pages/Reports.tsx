@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
 
 interface Metric { device_id: string; point_id: string; }
-interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; computed?: { name: string; expr: string }[]; }
+interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; computed?: { name: string; expr: string }[]; }
 interface ReportRow { id: string; name: string; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
@@ -17,6 +17,8 @@ export default function Reports() {
   const [layout, setLayout] = useState('');
   const [agg, setAgg] = useState('avg');
   const [rollup, setRollup] = useState('');
+  const [header, setHeader] = useState('');
+  const [footer, setFooter] = useState('');
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
   const [pw, setPw] = useState<Record<string, { w?: string; g?: string }>>({});
   const [cron, setCron] = useState('');
@@ -45,7 +47,7 @@ export default function Reports() {
         method: 'POST',
         body: JSON.stringify({
           name,
-          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined },
+          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined },
           schedule_cron: cron || '',
           channel_id: channelId || ''
         })
@@ -60,7 +62,7 @@ export default function Reports() {
     try {
       const r = await api<{ html: string; rows: number }>('/v1/reports/preview', {
         method: 'POST',
-        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined } })
+        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined } })
       });
       setPreviewHTML(r.html); setPreviewRows(r.rows);
     } catch (e2) { setMsg(String(e2)); }
@@ -109,6 +111,11 @@ export default function Reports() {
           <select value={rollup} onChange={e => setRollup(e.target.value)} aria-label="Summary grouping">
             <option value="">No summary</option><option value="asset">Asset (subtotal per asset and point, plus totals)</option><option value="site">Site (subtotal per site and point, plus totals)</option>
           </select>
+          <label>Page header and footer (optional, up to 80 characters each; printed on every PDF page)</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input maxLength={80} placeholder="Header, e.g. Plant A - confidential" aria-label="Report header" value={header} onChange={e => setHeader(e.target.value)} />
+            <input maxLength={80} placeholder="Footer, e.g. Prepared by Operations" aria-label="Report footer" value={footer} onChange={e => setFooter(e.target.value)} />
+          </div>
           <label>Layout</label>
           <select value={layout} onChange={e => setLayout(e.target.value)}>
             <option value="">One table per point</option><option value="matrix">Matrix (time rows, point columns)</option>
