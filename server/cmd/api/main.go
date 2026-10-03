@@ -130,6 +130,11 @@ func main() {
 	api.HandleFunc("PUT /v1/flow-fragments/{id}", s.updateFragment)
 	api.HandleFunc("GET /v1/flow-fragments/{id}/usage", s.fragmentUsage)
 	api.HandleFunc("POST /v1/flows/{id}/refresh-subflows", s.refreshSubflows)
+	api.HandleFunc("GET /v1/users", s.listUsers)
+	api.HandleFunc("POST /v1/users", s.createUser)
+	api.HandleFunc("PUT /v1/users/{id}", s.updateUser)
+	api.HandleFunc("PUT /v1/users/{id}/password", s.resetUserPassword)
+	api.HandleFunc("POST /v1/me/password", s.changeOwnPassword)
 	api.HandleFunc("GET /v1/customers", s.listCustomers)
 	api.HandleFunc("POST /v1/customers", s.createCustomer)
 	api.HandleFunc("DELETE /v1/customers/{id}", s.deleteCustomer)
@@ -333,6 +338,9 @@ func main() {
 	defer ssoRL.Close()
 	mux.HandleFunc("POST /v1/assistant/inbound/slack/{tenant}", s.inboundSlack) // public; acts only on a valid signature
 	mux.HandleFunc("POST /v1/assistant/inbound/email/{tenant}", s.inboundEmail)
+	loginRL := auth.NewRateLimiter(10, 5)
+	defer loginRL.Close()
+	mux.Handle("POST /auth/login", loginRL.Middleware(http.HandlerFunc(s.localLogin)))
 	mux.Handle("GET /auth/oidc/login", ssoRL.Middleware(http.HandlerFunc(s.oidcLogin)))
 	mux.Handle("GET /auth/oidc/callback", ssoRL.Middleware(http.HandlerFunc(s.oidcCallback)))
 
@@ -346,7 +354,7 @@ func main() {
 	}
 	mux.HandleFunc("POST /v1/lorawan/uplink", s.lorawanUplink) // device token auth, like /v1/device/ingest
 	mux.HandleFunc("POST /v1/device/ingest", s.deviceIngest)   // device token auth, outside the session middleware
-	s.inner = s.invalidateOnWrite(s.customerScope(api))
+	s.inner = s.invalidateOnWrite(s.activeUser(s.customerScope(api)))
 	mux.Handle("/v1/", auth.Middleware(s.secret, s.resolveAPIKey)(s.inner))
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).

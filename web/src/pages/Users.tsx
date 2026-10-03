@@ -1,0 +1,70 @@
+import { useEffect, useState } from 'react';
+import Empty from '../components/Empty';
+import { api } from '../lib/api';
+
+interface UserRow { id: string; email: string; display_name: string; role: string; disabled: boolean; has_password: boolean; last_login_at: string | null; customer_id: string | null; }
+const ROLES = ['admin', 'operator', 'installer', 'viewer'];
+const ROLE_HELP: Record<string, string> = {
+  admin: 'Everything, including users, secrets, API keys and customers.',
+  operator: 'Day-to-day changes: flows, rules, reports, device setup, control requests and approvals (never your own request).',
+  installer: 'Read-only, plus bulk device import.',
+  viewer: 'Read-only.',
+};
+
+export default function Users() {
+  const [rows, setRows] = useState<UserRow[]>([]);
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('viewer');
+  const [password, setPassword] = useState('');
+  const [msg, setMsg] = useState('');
+  const load = () => { api<UserRow[]>('/v1/users').then(setRows).catch(e => setMsg(String(e))); };
+  useEffect(load, []);
+  const act = async (fn: () => Promise<unknown>, ok: string) => {
+    setMsg('');
+    try { await fn(); setMsg(ok); load(); } catch (e) { setMsg(String(e)); }
+  };
+  const reset = (u: UserRow) => {
+    const pw = window.prompt(`New password for ${u.email} (12 to 128 characters)`);
+    if (pw) act(() => api(`/v1/users/${u.id}/password`, { method: 'PUT', body: JSON.stringify({ password: pw }) }), 'Password set.');
+  };
+  return (
+    <>
+      <h1>Users</h1>
+      <p className="muted">People who can sign in to this workspace. Single sign-on users are matched by email. Passwords only work if the deployment enables local sign-in. Admin session only. You cannot change or disable your own account, and the workspace always keeps one active admin.</p>
+      {msg && <p className="muted" role="status">{msg}</p>}
+      {rows.length === 0 ? <Empty title="No users" hint="Add the first one below." /> : (
+        <table>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Password</th><th>Last sign-in</th><th>Status</th><th /></tr></thead>
+          <tbody>{rows.map(u => (
+            <tr key={u.id}>
+              <td>{u.display_name}</td><td>{u.email}</td>
+              <td><select aria-label={`Role for ${u.email}`} value={u.role} onChange={e => act(() => api(`/v1/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ role: e.target.value }) }), 'Role changed.')}>{ROLES.map(r => <option key={r}>{r}</option>)}</select></td>
+              <td>{u.has_password ? 'set' : 'SSO only'}</td>
+              <td>{u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'never'}</td>
+              <td>{u.disabled ? <span className="pill">disabled</span> : 'active'}</td>
+              <td>
+                <button className="ghost" onClick={() => act(() => api(`/v1/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ disabled: !u.disabled }) }), u.disabled ? 'Enabled.' : 'Disabled. Their sessions stop working now.')}>{u.disabled ? 'Enable' : 'Disable'}</button>{' '}
+                <button className="ghost" onClick={() => reset(u)}>Set password</button>
+              </td>
+            </tr>))}</tbody>
+        </table>
+      )}
+      <div className="card" style={{ maxWidth: 640, margin: '20px 0' }}>
+        <b>Add a user</b>
+        <form onSubmit={e => { e.preventDefault(); act(() => api('/v1/users', { method: 'POST', body: JSON.stringify({ email, display_name: name, role, password: password || undefined }) }), 'User added.').then(() => { setEmail(''); setName(''); setPassword(''); }); }}>
+          <label htmlFor="us-email">Email</label>
+          <input id="us-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+          <label htmlFor="us-name">Name</label>
+          <input id="us-name" value={name} onChange={e => setName(e.target.value)} required />
+          <label htmlFor="us-role">Role</label>
+          <select id="us-role" value={role} onChange={e => setRole(e.target.value)}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
+          <p className="muted">{ROLE_HELP[role]}</p>
+          <label htmlFor="us-pw">Initial password (optional, only if local sign-in is enabled)</label>
+          <input id="us-pw" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} />
+          <button type="submit">Add user</button>
+        </form>
+      </div>
+    </>
+  );
+}

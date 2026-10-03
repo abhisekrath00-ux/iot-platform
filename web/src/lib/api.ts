@@ -10,8 +10,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {})
     }
   });
+  if (res.status === 401 && token && !path.startsWith('/auth/')) {
+    // expired, revoked or disabled: back to sign-in
+    localStorage.removeItem('iot.token');
+    if (typeof window !== 'undefined' && window.location) window.location.reload();
+  }
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-  return res.json();
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export interface Device { id: string; profile: string; name: string; gateway_id: string; created_at: string; tags?: string[]; }

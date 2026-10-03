@@ -123,3 +123,6 @@ Sign-in is by SSO (the identity provider enforces its own MFA). Workspaces can a
 
 ## Customer scoping
 Customer-scoped users are confined by a default-deny allowlist and per-device checks. Design, threat table and limits: [customers-design.md](customers-design.md). Tested against a real database; not independently reviewed.
+
+## Local sign-in
+Off by default (`LOCAL_LOGIN=1` enables it). When on: PBKDF2-HMAC-SHA256, rate limit, account lockout, audited, disabled users cut off per request. Details and limits: [saas-design.md](saas-design.md). This replaces the earlier statement that the platform keeps no passwords, for deployments that opt in.

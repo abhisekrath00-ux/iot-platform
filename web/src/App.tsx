@@ -20,6 +20,8 @@ import Reports from './pages/Reports';
 import Profiles from './pages/Profiles';
 import Assets from './pages/Assets';
 import Customers from './pages/Customers';
+import Users from './pages/Users';
+import Login from './pages/Login';
 import Assistant from './pages/Assistant';
 import Kpis from './pages/Kpis';
 import Explorer from './pages/Explorer';
@@ -40,13 +42,14 @@ const icons: Record<string, JSX.Element> = {
   'Reports': <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 13h7M9 17h7M9 9h3"/></svg>,
   'KPIs': <svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>,
   'Customers': <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 3-6 6-6s6 2.500 6 6M16 11a3 3 0 100-6M18 14c2 .8 3 2.800 3 6"/></svg>,
+  'Users': <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>,
   'Assets': <svg viewBox="0 0 24 24"><path d="M12 3v6M5 21v-6h14v6M12 9H5v6M12 9h7v6"/></svg>,
   'Profiles': <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>,
   'Audit': <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>,
   'Settings': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 00-2.2-1.3L14 3h-4l-.4 2.5a7 7 0 00-2.2 1.3l-2.3-1-2 3.4 2 1.5a7 7 0 000 2.6l-2 1.5 2 3.4 2.3-1a7 7 0 002.2 1.3L10 21h4l.4-2.5a7 7 0 002.2-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3z"/></svg>,
 };
 
-const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/customers", "Customers"], ["/kpis", "KPIs"], ["/map", "Map"], ["/explorer", "Explorer"], ["/onboarding", "Add device"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/assistant", "Assistant"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
+const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/customers", "Customers"], ["/users", "Users"], ["/kpis", "KPIs"], ["/map", "Map"], ["/explorer", "Explorer"], ["/onboarding", "Add device"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/assistant", "Assistant"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
 
 export default function App() {
   const [theme, toggle] = useTheme();
@@ -68,7 +71,9 @@ export default function App() {
       }
     }).catch(() => {});
   }, []);
+  const signedOut = !localStorage.getItem('iot.token');
   const [tour, setTour] = useState(() => !tourDone(localStorage) && !!localStorage.getItem('iot.token'));
+  if (signedOut) return <Login />;
   return (
     <div className="shell">
       {tour && <Tour onClose={() => setTour(false)} />}
@@ -79,6 +84,7 @@ export default function App() {
         ))}
         <div className="spacer" />
         <button className="theme" onClick={() => setTour(true)}>Take the tour</button>
+        <button className="theme" onClick={() => { localStorage.removeItem('iot.token'); window.location.assign('/'); }}>Sign out</button>
         <button className="theme" onClick={toggle}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
       </nav>
       <main>
@@ -97,6 +103,7 @@ export default function App() {
           <Route path="/profiles" element={<Profiles />} />
           <Route path="/assets" element={<Assets />} />
           <Route path="/customers" element={<Customers />} />
+          <Route path="/users" element={<Users />} />
           <Route path="/assistant" element={<Assistant />} />
           <Route path="/kpis" element={<Kpis />} />
           <Route path="/map" element={<MapPage />} />
