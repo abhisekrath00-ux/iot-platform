@@ -21,10 +21,12 @@ import Profiles from './pages/Profiles';
 import Assets from './pages/Assets';
 import Assistant from './pages/Assistant';
 import Kpis from './pages/Kpis';
+import Explorer from './pages/Explorer';
 import MapPage from './pages/MapPage';
 
 const icons: Record<string, JSX.Element> = {
   'Map': <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.5-6-10a6 6 0 0112 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2"/></svg>,
+  'Explorer': <svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 5-8 4 5"/><path d="M3 21h18"/></svg>,
   'Fleet': <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>,
   'Devices': <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/></svg>,
   'Add device': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>,
@@ -42,7 +44,7 @@ const icons: Record<string, JSX.Element> = {
   'Settings': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 00-2.2-1.3L14 3h-4l-.4 2.5a7 7 0 00-2.2 1.3l-2.3-1-2 3.4 2 1.5a7 7 0 000 2.6l-2 1.5 2 3.4 2.3-1a7 7 0 002.2 1.3L10 21h4l.4-2.5a7 7 0 002.2-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3z"/></svg>,
 };
 
-const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/kpis", "KPIs"], ["/map", "Map"], ["/onboarding", "Add device"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/assistant", "Assistant"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
+const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/kpis", "KPIs"], ["/map", "Map"], ["/explorer", "Explorer"], ["/onboarding", "Add device"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/assistant", "Assistant"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
 
 export default function App() {
   const [theme, toggle] = useTheme();
@@ -95,6 +97,7 @@ export default function App() {
           <Route path="/assistant" element={<Assistant />} />
           <Route path="/kpis" element={<Kpis />} />
           <Route path="/map" element={<MapPage />} />
+          <Route path="/explorer" element={<Explorer />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
