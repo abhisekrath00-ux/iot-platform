@@ -6,6 +6,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { api, LatestPoint } from '../lib/api';
 import DeviceTwin, { Health } from '../components/DeviceTwin';
 import ForecastCard from '../components/ForecastCard';
+import DeviceAttributes, { AttrValue } from '../components/DeviceAttributes';
 
 interface SeriesPoint { t: string; v: number; quality?: string; aggregated?: boolean; }
 const RANGES: [string, number][] = [['24 hours', 24], ['7 days', 168], ['30 days', 720], ['90 days', 2160], ['1 year', 8760]];
@@ -19,6 +20,7 @@ export default function DeviceDetail() {
   const [anom, setAnom] = useState<{ samples: number; enough_data: boolean; min_samples: number; anomalies: { t: number; value: number; score: number; median: number }[] } | null>(null);
   const [err, setErr] = useState('');
   const [health, setHealth] = useState<Health | null>(null);
+  const [shadow, setShadow] = useState<{ reported: Record<string, { stale: boolean; age_seconds: number }>; attributes: Record<string, AttrValue> } | null>(null);
   const [meta, setMeta] = useState<{ name: string; profile: string } | null>(null);
 
   useEffect(() => {
@@ -28,8 +30,9 @@ export default function DeviceDetail() {
       .catch(e => setErr(String(e)));
     const loadHealth = () => api<Health>(`/v1/devices/${id}/health`).then(setHealth).catch(() => undefined);
     api<{ id: string; name: string; profile: string }[]>(`/v1/devices?q=${encodeURIComponent(id)}`).then(d => { const m = d.find(x => x.id === id); if (m) setMeta(m); }).catch(() => undefined);
-    load(); loadHealth();
-    const t = setInterval(() => { load(); loadHealth(); }, 10000);
+    const loadShadow = () => api<NonNullable<typeof shadow>>(`/v1/devices/${id}/shadow`).then(setShadow).catch(() => undefined);
+    load(); loadHealth(); loadShadow();
+    const t = setInterval(() => { load(); loadHealth(); loadShadow(); }, 10000);
     return () => clearInterval(t);
   }, [id]);
 
@@ -54,10 +57,12 @@ export default function DeviceDetail() {
             <div className="muted">{p.point_id}</div>
             <div className="kpi">{formatValue(p.value)} <small>{p.unit}</small></div>
             <span className={`pill ${p.quality === 'measured' ? 'ok' : 'warn'}`}>{p.quality}</span>
+            {shadow?.reported[p.point_id]?.stale && <span className="pill warn" style={{ marginLeft: 6 }} title="Older than three polling intervals">stale</span>}
             <div className="muted" style={{ fontSize: 12 }}>{new Date(p.observed_at).toLocaleString()}</div>
           </div>
         ))}
       </div>
+      {id && shadow && <DeviceAttributes deviceId={id} attributes={shadow.attributes} onSaved={() => api<NonNullable<typeof shadow>>(`/v1/devices/${id}/shadow`).then(setShadow).catch(() => undefined)} />}
       {latest.length > 0 && (
         <>
           <div style={{ margin: '18px 0 8px' }}>

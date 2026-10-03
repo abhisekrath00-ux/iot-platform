@@ -45,6 +45,8 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
 	mux.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
 	mux.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
+	mux.HandleFunc("GET /v1/devices/{id}/shadow", s.getShadow)
+	mux.HandleFunc("PUT /v1/devices/{id}/attributes", s.setDeviceAttributes)
 	mux.HandleFunc("GET /v1/escalation", s.getEscalation)
 	mux.HandleFunc("PUT /v1/escalation", s.putEscalation)
 	mux.HandleFunc("POST /v1/reports/preview", s.previewReport)
@@ -475,5 +477,44 @@ func TestIntegrationEscalationRepeat(t *testing.T) {
 	rules.EvaluateEscalations(ctx, s.st.Pool, fn)
 	if len(fn.emails) != 3 {
 		t.Fatalf("acknowledged alert still reminded: %v", fn.emails)
+	}
+}
+
+func TestIntegrationShadow(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-sh")
+	seed(t, s, "itest-sh2")
+	// seed gives 'temp' readings 1..5 minutes old; the newest (1 minute, value 21) must win, and with a
+	// 5 s polling interval (30 s floor) a 1-minute-old reading is stale
+	w := call(h, "itest-sh", "viewer", "GET", "/v1/devices/itest-sh-dev/shadow", "")
+	var out struct {
+		Reported map[string]struct {
+			Value float64
+			Stale bool
+		}
+		Attributes map[string]any
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil || out.Reported["temp"].Value != 21 || !out.Reported["temp"].Stale {
+		t.Fatalf("shadow: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(h, "itest-sh", "viewer", "PUT", "/v1/devices/itest-sh-dev/attributes", `{"attributes":{"floor":2}}`); w.Code != 403 {
+		t.Fatalf("viewer set attributes: %d", w.Code)
+	}
+	if w := call(h, "itest-sh", "operator", "PUT", "/v1/devices/itest-sh-dev/attributes", `{"attributes":{"nested":{"a":1}}}`); w.Code != 400 {
+		t.Fatalf("nested attribute: %d", w.Code)
+	}
+	if w := call(h, "itest-sh", "operator", "PUT", "/v1/devices/itest-sh-dev/attributes", `{"attributes":{"floor":2,"owner":"plant team"}}`); w.Code != 200 {
+		t.Fatalf("set attributes: %d %s", w.Code, w.Body.String())
+	}
+	w = call(h, "itest-sh", "viewer", "GET", "/v1/devices/itest-sh-dev/shadow", "")
+	if !strings.Contains(w.Body.String(), `"owner":"plant team"`) {
+		t.Fatalf("attributes missing: %s", w.Body.String())
+	}
+	// another tenant sees nothing and cannot write
+	if w := call(h, "itest-sh2", "viewer", "GET", "/v1/devices/itest-sh-dev/shadow", ""); w.Code != 404 {
+		t.Fatalf("cross-tenant shadow: %d", w.Code)
+	}
+	if w := call(h, "itest-sh2", "admin", "PUT", "/v1/devices/itest-sh-dev/attributes", `{"attributes":{"x":1}}`); w.Code != 404 {
+		t.Fatalf("cross-tenant attributes: %d", w.Code)
 	}
 }

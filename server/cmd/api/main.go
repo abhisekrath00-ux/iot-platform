@@ -159,6 +159,8 @@ func main() {
 	api.HandleFunc("POST /v1/assets", s.createAsset)
 	api.HandleFunc("DELETE /v1/assets/{id}", s.deleteAsset)
 	api.HandleFunc("GET /v1/devices/{id}/health", s.deviceHealth)
+	api.HandleFunc("GET /v1/devices/{id}/shadow", s.getShadow)
+	api.HandleFunc("PUT /v1/devices/{id}/attributes", s.setDeviceAttributes)
 	api.HandleFunc("GET /v1/api-keys", s.listAPIKeys)
 	api.HandleFunc("POST /v1/api-keys", s.createAPIKey)
 	api.HandleFunc("DELETE /v1/api-keys/{id}", s.revokeAPIKey)
