@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
 
 interface Metric { device_id: string; point_id: string; }
-interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; }
+interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; }
 interface ReportRow { id: string; name: string; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; version?: number; }
 interface VersionRow { version: number; name: string; definition: ReportDef; schedule_cron: string | null; replaced_by: string; replaced_at: string; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
@@ -20,6 +20,7 @@ export default function Reports() {
   const [rollup, setRollup] = useState('');
   const [header, setHeader] = useState('');
   const [footer, setFooter] = useState('');
+  const [theme, setTheme] = useState('light');
   const [insights, setInsights] = useState(false);
   const [compare, setCompare] = useState(false);
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
@@ -54,7 +55,7 @@ export default function Reports() {
         method: editingId ? 'PUT' : 'POST',
         body: JSON.stringify({
           name,
-          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined },
+          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined },
           schedule_cron: cron || '',
           channel_id: channelId || ''
         })
@@ -69,7 +70,7 @@ export default function Reports() {
     try {
       const r = await api<{ html: string; rows: number }>('/v1/reports/preview', {
         method: 'POST',
-        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined } })
+        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined } })
       });
       setPreviewHTML(r.html); setPreviewRows(r.rows);
     } catch (e2) { setMsg(String(e2)); }
@@ -80,7 +81,7 @@ export default function Reports() {
     const d = r.definition;
     setEditingId(r.id); setName(r.name); setMetrics(d.metrics.length ? d.metrics : [{ device_id: '', point_id: '' }]);
     setWindowHours(d.window_hours); setGroupBy(d.group_by); setLayout(d.layout ?? ''); setAgg(d.agg ?? 'avg'); setRollup(d.rollup ?? '');
-    setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setInsights(!!d.insights); setCompare(!!d.compare); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
+    setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setTheme(d.theme ?? 'light'); setInsights(!!d.insights); setCompare(!!d.compare); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
     setMsg(''); window.scrollTo({ top: 0 });
   }
   function cancelEdit() { setEditingId(''); setName(''); setCron(''); setMsg(''); }
@@ -146,6 +147,8 @@ export default function Reports() {
             <input maxLength={80} placeholder="Header text" aria-label="Report header" value={header} onChange={e => setHeader(e.target.value)} />
             <input maxLength={80} placeholder="Footer text" aria-label="Report footer" value={footer} onChange={e => setFooter(e.target.value)} />
           </div>
+          <label>Page theme (PDF and HTML)</label>
+          <select aria-label="Report theme" value={theme} onChange={e => setTheme(e.target.value)}><option value="light">Light</option><option value="dark">Dark</option></select>
           <label>Layout</label>
           <select value={layout} onChange={e => setLayout(e.target.value)}>
             <option value="">One table per point</option><option value="matrix">Matrix (time rows, point columns)</option>

@@ -338,3 +338,56 @@ func TestRenderPDFLogoEmbedsImage(t *testing.T) {
 		t.Fatalf("drawn size %.1f x %.1f", w, h)
 	}
 }
+
+func TestThemeAndLogoAcrossFormats(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 60, 20))
+	for x := 0; x < 60; x++ {
+		for y := 0; y < 20; y++ {
+			img.Set(x, y, color.NRGBA{R: 10, G: 120, B: 200, A: 255})
+		}
+	}
+	m := Metric{DeviceID: "d", PointID: "p"}
+	d := Definition{Metrics: []Metric{m}, WindowHours: 1, GroupBy: "hour", Theme: "dark", Logo: img}
+	series := map[Metric][]Bucket{m: {{Start: time.Unix(0, 0), Count: 1, Avg: 1, Min: 1, Max: 1}}}
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+	d.Theme = "neon"
+	if Validate(d) == nil {
+		t.Fatal("unknown theme accepted")
+	}
+	d.Theme = "dark"
+	if h := Render("t", d, series, time.Unix(0, 0)); !strings.Contains(h, "background:#16181d") || !strings.Contains(h, "data:image/png;base64,") {
+		t.Fatal("HTML lacks dark theme or logo")
+	}
+	d.Theme = "light"
+	if h := Render("t", d, series, time.Unix(0, 0)); strings.Contains(h, "#16181d") {
+		t.Fatal("light theme has dark CSS")
+	}
+	d.Theme = "dark"
+	if p := RenderPDF("t", d, series, time.Unix(0, 0)); !bytes.Contains(p, []byte("0.09 0.10 0.12 rg")) {
+		t.Fatal("PDF lacks dark background")
+	}
+	x, err := RenderXLSX(d, series)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(x), int64(len(x)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for _, f := range zr.File {
+		have[f.Name] = true
+	}
+	for _, n := range []string{"xl/media/logo.png", "xl/drawings/drawing1.xml", "xl/worksheets/_rels/sheet1.xml.rels"} {
+		if !have[n] {
+			t.Fatalf("xlsx missing %s", n)
+		}
+	}
+	d.Logo = nil
+	x, _ = RenderXLSX(d, series)
+	if zr, _ := zip.NewReader(bytes.NewReader(x), int64(len(x))); len(zr.File) != 5 {
+		t.Fatalf("logo-less xlsx has %d parts", len(zr.File))
+	}
+}

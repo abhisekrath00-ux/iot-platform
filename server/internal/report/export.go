@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"image"
+	"image/png"
 	"math"
 	"strings"
 	"time"
@@ -28,19 +29,45 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		return err
 	}
 	const hdr = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n"
+	var logoPNG []byte
+	if d.Logo != nil {
+		var pb bytes.Buffer
+		if png.Encode(&pb, d.Logo) == nil && pb.Len() < 400<<10 {
+			logoPNG = pb.Bytes()
+		}
+	}
 	files := []struct{ n, b string }{
 		{"[Content_Types].xml", hdr + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`},
 		{"_rels/.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
 		{"xl/workbook.xml", hdr + `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>`},
 		{"xl/_rels/workbook.xml.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`},
 	}
+	if logoPNG != nil {
+		files[0].b = strings.Replace(files[0].b, `<Default Extension="xml"`, `<Default Extension="png" ContentType="image/png"/><Default Extension="xml"`, 1)
+		files[0].b = strings.Replace(files[0].b, `</Types>`, `<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>`, 1)
+		w, h := logoSize(d.Logo)
+		files = append(files,
+			struct{ n, b string }{"xl/worksheets/_rels/sheet1.xml.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>`},
+			struct{ n, b string }{"xl/drawings/_rels/drawing1.xml.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo.png"/></Relationships>`},
+			struct{ n, b string }{"xl/drawings/drawing1.xml", hdr + fmt.Sprintf(`<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><xdr:oneCellAnchor><xdr:from><xdr:col>10</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="%d" cy="%d"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="Logo"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`, int(w*12700), int(h*12700), int(w*12700), int(h*12700))},
+		)
+	}
 	for _, f := range files {
 		if err := add(f.n, f.b); err != nil {
 			return nil, err
 		}
 	}
+	if logoPNG != nil {
+		if err := add("xl/media/logo.png", string(logoPNG)); err != nil {
+			return nil, err
+		}
+	}
+	drawingTag := ""
+	if logoPNG != nil {
+		drawingTag = `<drawing r:id="rId1"/>`
+	}
 	var sb strings.Builder
-	sb.WriteString(hdr + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`)
+	sb.WriteString(hdr + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData>`)
 	row := 0
 	str := func(s string) string {
 		var e bytes.Buffer
@@ -87,7 +114,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		}
 		emit(total, true)
 		rollupRows()
-		sb.WriteString(`</sheetData></worksheet>`)
+		sb.WriteString(`</sheetData>` + drawingTag + `</worksheet>`)
 		if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
 			return nil, err
 		}
@@ -112,7 +139,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		}
 	}
 	rollupRows()
-	sb.WriteString(`</sheetData></worksheet>`)
+	sb.WriteString(`</sheetData>` + drawingTag + `</worksheet>`)
 	if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
 		return nil, err
 	}
@@ -127,13 +154,14 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 // a repeating column header, and "Page n of m" on every page. Text is limited
 // to printable ASCII; other characters become '?'.
 func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated time.Time) []byte {
-	return RenderPDFLogo(title, d, series, generated, nil)
+	return RenderPDFLogo(title, d, series, generated, d.Logo)
 }
 
 // RenderPDFLogo is RenderPDF with an optional logo (decoded PNG or JPEG) drawn top right on
 // the first page. The logo is embedded as a Flate-compressed RGB image, composited over white.
 func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, generated time.Time, logo image.Image) []byte {
 	const perPage = 52
+	dark := d.Theme == "dark"
 	type line struct {
 		text  string
 		bold  bool
@@ -318,10 +346,13 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 	obj("<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold /Encoding /WinAnsiEncoding >>")
 	for i, pg := range pages {
 		var c strings.Builder
+		if dark {
+			c.WriteString("0.09 0.10 0.12 rg 0 0 595 842 re f 0.92 g\n")
+		}
 		y := 800
 		for _, l := range pg {
 			if l.chart != nil {
-				chartOps(&c, l.chart, l.title, y, esc)
+				chartOps(&c, l.chart, l.title, y, esc, dark)
 			}
 			f := "F1"
 			if l.bold {
@@ -371,7 +402,11 @@ const chartSlots = 11
 // avg as a solid line, min and max as thin grey lines, value range on the left,
 // first and last bucket time underneath. y is the baseline of the first reserved
 // text line; the chart fills the following chartSlots lines. No fonts or images.
-func chartOps(c *strings.Builder, rows []Bucket, title string, y int, esc func(string) string) {
+func chartOps(c *strings.Builder, rows []Bucket, title string, y int, esc func(string) string, dark bool) {
+	frame, band, avg := "0.6 G", "0.75 G", "0 G"
+	if dark {
+		frame, band, avg = "0.45 G", "0.4 G", "0.45 0.7 1 RG"
+	}
 	const x0, w, h = 70.0, 485.0, 100.0
 	top := float64(y) - 4
 	bottom := top - h - 14 // room above for the title
@@ -398,7 +433,7 @@ func chartOps(c *strings.Builder, rows []Bucket, title string, y int, esc func(s
 		return x0 + float64(i)/float64(len(rows)-1)*w
 	}
 	fmt.Fprintf(c, "BT /F2 8 Tf %.0f %.1f Td (%s) Tj ET\n", x0, top-8, esc(title+"  (avg, min, max)"))
-	fmt.Fprintf(c, "0.6 G 0.5 w %.1f %.1f %.1f %.1f re S\n", x0, bottom, w, plotTop-bottom)
+	fmt.Fprintf(c, "%s 0.5 w %.1f %.1f %.1f %.1f re S\n", frame, x0, bottom, w, plotTop-bottom)
 	fmt.Fprintf(c, "BT /F1 7 Tf 40 %.1f Td (%s) Tj ET\n", plotTop-6, esc(fmt.Sprintf("%.4g", hi)))
 	fmt.Fprintf(c, "BT /F1 7 Tf 40 %.1f Td (%s) Tj ET\n", bottom, esc(fmt.Sprintf("%.4g", lo)))
 	fmt.Fprintf(c, "BT /F1 7 Tf %.0f %.1f Td (%s) Tj ET\n", x0, bottom-8, esc(rows[0].Start.UTC().Format("2006-01-02 15:04")))
@@ -428,10 +463,14 @@ func chartOps(c *strings.Builder, rows []Bucket, title string, y int, esc func(s
 		}
 		c.WriteString("S\n")
 	}
-	series(func(b Bucket) float64 { return b.Max }, "0.75 G", 0.5)
-	series(func(b Bucket) float64 { return b.Min }, "0.75 G", 0.5)
-	series(func(b Bucket) float64 { return b.Avg }, "0 G", 1.2)
-	c.WriteString("0 G 1 w\n")
+	series(func(b Bucket) float64 { return b.Max }, band, 0.5)
+	series(func(b Bucket) float64 { return b.Min }, band, 0.5)
+	series(func(b Bucket) float64 { return b.Avg }, avg, 1.2)
+	if dark {
+		c.WriteString("0.92 g 0.92 G 1 w\n")
+	} else {
+		c.WriteString("0 G 1 w\n")
+	}
 }
 
 // logoSize returns the drawn size in points: at most 90 wide and 28 high, aspect kept.

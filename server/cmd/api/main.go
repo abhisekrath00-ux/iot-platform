@@ -1561,7 +1561,7 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 	case "pdf":
 		w.Header().Set("Content-Type", "application/pdf")
 		w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.pdf"`)
-		w.Write(report.RenderPDFLogo(name, def, series, time.Now(), s.tenantLogoImage(r.Context(), auth.Tenant(r))))
+		w.Write(report.RenderPDF(name, def, series, time.Now()))
 		return
 	case "xlsx":
 		b, err := report.RenderXLSX(def, series)

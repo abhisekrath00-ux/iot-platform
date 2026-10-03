@@ -4,10 +4,14 @@
 package report
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/kpi"
 	"html"
+	"image"
+	"image/png"
 	"math"
 	"sort"
 	"strconv"
@@ -41,6 +45,10 @@ type Definition struct {
 	// against the window just before it (window up to 45 days). See insights.go.
 	Insights bool `json:"insights,omitempty"`
 	Compare  bool `json:"compare,omitempty"`
+	// Theme is "" or "light" (white pages, default) or "dark" (dark pages with light text in HTML and PDF).
+	Theme string `json:"theme,omitempty"`
+	// Logo is the tenant's logo, filled by the server at render time and never stored in the definition.
+	Logo image.Image `json:"-"`
 	// Previous holds the preceding window's buckets for Compare. Filled by the server at render time.
 	Previous map[Metric][]Bucket `json:"-"`
 	// GroupLabels maps device_id to its asset or site name. Filled by the server
@@ -93,6 +101,9 @@ func Validate(d Definition) error {
 	}
 	if BucketExpr(d.GroupBy) == "" {
 		return ErrBadGroupBy
+	}
+	if d.Theme != "" && d.Theme != "light" && d.Theme != "dark" {
+		return fmt.Errorf("theme must be light or dark")
 	}
 	if d.Layout != "" && d.Layout != "matrix" {
 		return ErrBadLayout
@@ -203,7 +214,18 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		`h1{font-size:20px}h2{font-size:15px;margin-top:28px}table{border-collapse:collapse;width:100%}` +
 		`td,th{border:1px solid #ddd;padding:6px 10px;text-align:right;font-size:13px}` +
 		`th{background:#f5f5f5;text-align:left}td:first-child,th:first-child{text-align:left}` +
-		`.meta{color:#666;font-size:12px}</style>`)
+		`.meta{color:#666;font-size:12px}`)
+	if d.Theme == "dark" {
+		b.WriteString(`html{background:#16181d}body{color:#e8e8ea}td,th{border-color:#3a3d45}th{background:#22252c}.meta{color:#a0a3ab}`)
+	}
+	b.WriteString(`</style>`)
+	if d.Logo != nil {
+		var pb bytes.Buffer
+		if png.Encode(&pb, d.Logo) == nil && pb.Len() < 400<<10 {
+			w, h := logoSize(d.Logo)
+			fmt.Fprintf(&b, `<img alt="" src="data:image/png;base64,%s" style="float:right;width:%.0fpx;height:%.0fpx">`, base64.StdEncoding.EncodeToString(pb.Bytes()), w*1.33, h*1.33)
+		}
+	}
 	if d.Header != "" {
 		b.WriteString(`<p class="meta">` + html.EscapeString(d.Header) + `</p>`)
 	}
