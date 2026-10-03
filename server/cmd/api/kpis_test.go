@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestIntegrationKPIs(t *testing.T) {
@@ -67,5 +68,55 @@ func TestIntegrationKPIs(t *testing.T) {
 	}
 	if call(api, "itest-kp1", "operator", "DELETE", "/v1/kpis/"+id, "").Code != 200 {
 		t.Fatal("delete")
+	}
+}
+
+func TestIntegrationKPIHistory(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-kh")
+	seed(t, s, "itest-kh2")
+	ctx := t.Context()
+	clean := func() {
+		s.st.Pool.Exec(ctx, `DELETE FROM kpis WHERE tenant_id IN ('itest-kh','itest-kh2')`)
+		s.st.Pool.Exec(ctx, `DELETE FROM telemetry_rollup_hourly WHERE tenant_id='itest-kh'`)
+	}
+	clean()
+	t.Cleanup(clean)
+	// an old hour that exists only as a rollup (raw already purged): avg 40, plus the seeded recent raw readings
+	s.st.Pool.Exec(ctx, `INSERT INTO telemetry_rollup_hourly(tenant_id,device_id,point_id,bucket,n,sum,min,max) VALUES('itest-kh','itest-kh-dev','temp',date_trunc('hour', now()) - interval '5 hours',4,160,30,50)`)
+	api := http.NewServeMux()
+	api.HandleFunc("POST /v1/kpis", s.createKPI)
+	api.HandleFunc("GET /v1/kpis/{id}/history", s.kpiHistory)
+	w := call(api, "itest-kh", "operator", "POST", "/v1/kpis", `{"name":"Temp x2","expression":"{itest-kh-dev.temp} * 2","unit":"C"}`)
+	var c struct{ ID string }
+	json.Unmarshal(w.Body.Bytes(), &c)
+	h := call(api, "itest-kh", "viewer", "GET", "/v1/kpis/"+c.ID+"/history?hours=12", "")
+	var o struct {
+		Points []struct {
+			T time.Time
+			V float64
+		}
+		Min, Max float64
+	}
+	json.Unmarshal(h.Body.Bytes(), &o)
+	if h.Code != 200 || len(o.Points) < 2 {
+		t.Fatalf("history: %d %s", h.Code, h.Body.String())
+	}
+	if o.Points[0].V != 80 { // the rollup-only hour: 160/4 = 40, doubled
+		t.Fatalf("the rollup hour should read 80, got %+v", o.Points)
+	}
+	for i := 1; i < len(o.Points); i++ {
+		if !o.Points[i].T.After(o.Points[i-1].T) {
+			t.Fatal("points must be in time order")
+		}
+	}
+	if o.Min != 46 || o.Max != 80 {
+		t.Fatalf("min/max: %+v", o)
+	}
+	if call(api, "itest-kh2", "viewer", "GET", "/v1/kpis/"+c.ID+"/history", "").Code != 404 {
+		t.Fatal("another tenant read it")
+	}
+	if call(api, "itest-kh", "viewer", "GET", "/v1/kpis/"+c.ID+"/history?hours=9999", "").Code != 400 {
+		t.Fatal("hours cap")
 	}
 }

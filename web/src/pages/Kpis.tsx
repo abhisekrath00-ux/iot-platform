@@ -4,6 +4,37 @@ import { api } from '../lib/api';
 
 interface Kpi { id: string; name: string; expression: string; unit: string; value: number | null; stale: boolean; error?: string; }
 
+interface Hist { points: { t: string; v: number }[]; min?: number; max?: number; avg?: number; }
+
+function Trend({ id, unit }: { id: string; unit: string }) {
+  const [h, setH] = useState<Hist | null>(null);
+  const [hours, setHours] = useState(24);
+  useEffect(() => { api<Hist>(`/v1/kpis/${id}/history?hours=${hours}`).then(setH).catch(() => setH(null)); }, [id, hours]);
+  const pts = h?.points ?? [];
+  const W = 260, H = 70;
+  const mn = h?.min ?? 0, mx = h?.max ?? 1, span = mx - mn || 1;
+  const t0 = pts.length ? new Date(pts[0].t).getTime() : 0;
+  const t1 = pts.length ? new Date(pts[pts.length - 1].t).getTime() : 1;
+  const x = (t: string) => pts.length < 2 ? W / 2 : ((new Date(t).getTime() - t0) / ((t1 - t0) || 1)) * (W - 8) + 4;
+  const y = (v: number) => H - 6 - ((v - mn) / span) * (H - 12);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <select aria-label="History window" value={hours} onChange={e => setHours(Number(e.target.value))} style={{ width: 'auto' }}>
+        <option value={24}>24 h</option><option value={168}>7 d</option><option value={720}>30 d</option>
+      </select>
+      {pts.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>No history yet for this window.</div> : (
+        <>
+          <svg role="img" aria-label={`Trend, ${pts.length} hourly points`} width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
+            <polyline fill="none" stroke="var(--accent, #4f8cff)" strokeWidth="2" points={pts.map(p => `${x(p.t)},${y(p.v)}`).join(' ')} />
+            {pts.length === 1 && <circle cx={x(pts[0].t)} cy={y(pts[0].v)} r="3" fill="var(--accent, #4f8cff)" />}
+          </svg>
+          <div className="muted" style={{ fontSize: 12 }}>min {Number(mn.toFixed(2))} / avg {Number((h?.avg ?? 0).toFixed(2))} / max {Number(mx.toFixed(2))} {unit}, hourly averages</div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Kpis() {
   const [kpis, setKpis] = useState<Kpi[]>([]);
   const [name, setName] = useState('');
@@ -27,6 +58,7 @@ export default function Kpis() {
                 {k.error && <span className="pill bad">{k.error}</span>}
                 {k.stale && !k.error && <span className="pill warn">stale input</span>}
                 <div className="muted" style={{ fontSize: 12, marginTop: 6 }}><code>{k.expression}</code></div>
+                <Trend id={k.id} unit={k.unit} />
                 <button className="ghost" style={{ marginTop: 8 }} aria-label={`Delete ${k.name}`} onClick={() => api(`/v1/kpis/${k.id}`, { method: 'DELETE' }).then(load).catch(e => setMsg(String(e)))}>Delete</button>
               </div>
             ))}

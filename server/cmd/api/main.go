@@ -165,6 +165,7 @@ func main() {
 	api.HandleFunc("GET /v1/branding", s.getBranding)
 	api.HandleFunc("PUT /v1/branding", s.putBranding)
 	api.HandleFunc("GET /v1/kpis", s.listKPIs)
+	api.HandleFunc("GET /v1/kpis/{id}/history", s.kpiHistory)
 	api.HandleFunc("POST /v1/kpis", s.createKPI)
 	api.HandleFunc("DELETE /v1/kpis/{id}", s.deleteKPI)
 	api.HandleFunc("POST /v1/assets", s.createAsset)

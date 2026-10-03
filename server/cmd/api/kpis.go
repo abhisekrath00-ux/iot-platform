@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -137,6 +140,80 @@ func (s *server) listKPIs(w http.ResponseWriter, r *http.Request) {
 			item["stale"] = stale
 		}
 		out = append(out, item)
+	}
+	writeJSON(w, 200, out)
+}
+
+// GET /v1/kpis/{id}/history?hours=24 (1-720): the KPI over time, one point per hour. Each input is
+// averaged per hour (from hourly rollups, plus raw readings for hours not yet rolled up), then the
+// expression is applied to the hours where every input has data. For a ratio this is the ratio of
+// hourly averages, not the average of the ratio. Nothing is stored: it is computed from telemetry.
+func (s *server) kpiHistory(w http.ResponseWriter, r *http.Request) {
+	hours := 24
+	if v := r.URL.Query().Get("hours"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 720 {
+			http.Error(w, "hours must be 1-720", 400)
+			return
+		}
+		hours = n
+	}
+	var name, expr, unit string
+	if s.st.Pool.QueryRow(r.Context(), `SELECT name,expression,unit FROM kpis WHERE id=$1 AND tenant_id=$2`, r.PathValue("id"), auth.Tenant(r)).Scan(&name, &expr, &unit) != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	e, err := kpi.Parse(expr)
+	if err != nil {
+		http.Error(w, "stored expression invalid", 500)
+		return
+	}
+	since := time.Now().Add(-time.Duration(hours) * time.Hour).Truncate(time.Hour)
+	perBucket := map[time.Time]map[string]float64{}
+	for _, ref := range e.Refs {
+		rows, err := s.st.Pool.Query(r.Context(), `
+			WITH r AS (SELECT bucket b, sum/NULLIF(n,0) v FROM telemetry_rollup_hourly WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND bucket>=$4),
+			     t AS (SELECT date_trunc('hour',observed_at) b, avg(value) v FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND quality='measured' AND observed_at>=$4 GROUP BY 1)
+			SELECT b, v FROM r WHERE v IS NOT NULL UNION ALL SELECT b, v FROM t WHERE b NOT IN (SELECT b FROM r)`,
+			auth.Tenant(r), ref.Device, ref.Point, since)
+		if err != nil {
+			http.Error(w, "db", 500)
+			return
+		}
+		for rows.Next() {
+			var b time.Time
+			var v float64
+			if rows.Scan(&b, &v) == nil {
+				if perBucket[b] == nil {
+					perBucket[b] = map[string]float64{}
+				}
+				perBucket[b][ref.String()] = v
+			}
+		}
+		rows.Close()
+	}
+	type pt struct {
+		T time.Time `json:"t"`
+		V float64   `json:"v"`
+	}
+	pts := []pt{}
+	for b, vals := range perBucket {
+		if len(vals) != len(e.Refs) {
+			continue
+		}
+		if v, err := e.Eval(vals); err == nil && !math.IsNaN(v) && !math.IsInf(v, 0) {
+			pts = append(pts, pt{b, v})
+		}
+	}
+	sort.Slice(pts, func(i, j int) bool { return pts[i].T.Before(pts[j].T) })
+	out := map[string]any{"id": r.PathValue("id"), "name": name, "unit": unit, "hours": hours, "points": pts,
+		"note": "Hourly averages of each input, then the expression. Hours where any input has no data are left out."}
+	if len(pts) > 0 {
+		mn, mx, sum := pts[0].V, pts[0].V, 0.0
+		for _, p := range pts {
+			mn, mx, sum = math.Min(mn, p.V), math.Max(mx, p.V), sum+p.V
+		}
+		out["min"], out["max"], out["avg"] = mn, mx, sum/float64(len(pts))
 	}
 	writeJSON(w, 200, out)
 }
