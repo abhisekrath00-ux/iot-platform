@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
-interface Step { severity: string; step: number; after_minutes: number; channel_id: string; }
+interface Step { severity: string; step: number; after_minutes: number; channel_id: string; schedule_id?: string; }
+interface Sched { id: string; name: string; on_call_channel: string; }
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
 
 // Escalation: if an alert stays open and unacknowledged, notify more channels after set delays.
@@ -16,11 +17,13 @@ const GROUPS = [
 export default function EscalationPolicy() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [schedules, setSchedules] = useState<Sched[]>([]);
   const [msg, setMsg] = useState('');
   const [rep, setRep] = useState({ every_minutes: 0, max: 0 });
   const [quiet, setQuiet] = useState({ start: '', end: '', timezone: '' });
   useEffect(() => {
     api<{ steps: Step[]; repeat?: { every_minutes: number; max: number }; quiet?: { start: string; end: string; timezone: string } }>('/v1/escalation').then(r => { setSteps(r.steps); if (r.repeat) setRep(r.repeat); if (r.quiet) setQuiet(r.quiet); }).catch(() => undefined);
+    api<Sched[]>('/v1/oncall').then(setSchedules).catch(() => undefined);
     api<Channel[]>('/v1/notifications/channels').then(c => setChannels(c.filter(x => x.enabled))).catch(() => undefined);
   }, []);
   const renumber = (list: Step[]) => {
@@ -52,8 +55,12 @@ export default function EscalationPolicy() {
               <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 after <input aria-label={`Minutes for step ${i + 1}`} type="number" min={1} max={10080} style={{ width: 72, minWidth: 72, flex: 'none' }} value={s.after_minutes} onChange={e => upd(i, { after_minutes: +e.target.value })} /> min
               </label>
-              <select aria-label={`Channel for step ${i + 1}`} title={channels.find(c => c.id === s.channel_id)?.target} value={s.channel_id} onChange={e => upd(i, { channel_id: e.target.value })}>
-                <option value="">notify... choose a channel</option>{channels.map(c => <option key={c.id} value={c.id}>{c.type}: {c.target}</option>)}
+              <select aria-label={`Who to notify for step ${i + 1}`} title={channels.find(c => c.id === s.channel_id)?.target}
+                value={s.schedule_id ? `sc:${s.schedule_id}` : s.channel_id ? `ch:${s.channel_id}` : ''}
+                onChange={e => { const v = e.target.value; upd(i, v.startsWith('sc:') ? { schedule_id: v.slice(3), channel_id: '' } : { channel_id: v.slice(3), schedule_id: '' }); }}>
+                <option value="">notify... choose</option>
+                <optgroup label="Channel">{channels.map(c => <option key={c.id} value={`ch:${c.id}`}>{c.type}: {c.target}</option>)}</optgroup>
+                {schedules.length > 0 && <optgroup label="Whoever is on call">{schedules.map(sc => <option key={sc.id} value={`sc:${sc.id}`}>on call: {sc.name}</option>)}</optgroup>}
               </select>
               <button className="ghost" onClick={() => setSteps(renumber(steps.filter((_, j) => j !== i)))}>Remove</button>
             </div>

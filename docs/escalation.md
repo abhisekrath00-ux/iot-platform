@@ -23,9 +23,18 @@ If an alert stays open and unacknowledged, more channels are notified after set 
   setting; empty start/end clear it. The zone database is compiled into the server, so it works in air-gapped images.
 - A step whose channel was deleted or disabled is skipped and logged.
 
-Not built: on-call schedules and rotations, SMS or Teams. Tested with unit tests
+## On-call rotations
+
+An admin defines a rotation (`POST /v1/oncall`): a start time (anchor), a shift length in hours (1-720) and an ordered list
+of 1-20 notification channels. Each channel takes one shift in turn and the list repeats; before the anchor the rotation
+runs backwards, so the anchor can be any past or future time. An escalation step names either a channel or a rotation
+(`schedule_id`); with a rotation, whoever is on duty when the step fires gets it. `GET /v1/oncall` shows who is on call now
+and when the shift ends. A rotation used by a step cannot be deleted. A rotation is a list of channels, not people: no
+per-person availability, overrides, swaps or holiday calendars. The on-call channel is chosen at send time.
+
+Not built: SMS or Teams, per-person schedules, overrides. Tested with unit tests
 for ordering and validation and an integration test against Postgres with a fake notifier (order, no repeat, ack stops it,
-admin only, other tenant's channel refused). Not tested against real SMTP or Slack.
+admin only, other tenant's channel refused). On-call rotation order and wrap-around have unit tests, and an integration test sends to the channel on duty and checks it changes with the rotation. Not tested against real SMTP or Slack.
 
 ## Maintenance windows
 

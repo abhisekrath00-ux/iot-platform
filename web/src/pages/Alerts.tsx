@@ -4,6 +4,7 @@ import Empty from '../components/Empty';
 import RootCause from '../components/RootCause';
 import Maintenance from '../components/Maintenance';
 import EscalationPolicy from '../components/EscalationPolicy';
+import OnCall from '../components/OnCall';
 
 const FILTERS = ['open', 'acknowledged', 'resolved', 'all'] as const;
 type Filter = typeof FILTERS[number];
@@ -107,6 +108,7 @@ export default function Alerts() {
         </div>
       )}
       <Maintenance />
+      <OnCall />
       <EscalationPolicy />
     </>
   );

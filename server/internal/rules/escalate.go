@@ -16,7 +16,10 @@ type Step struct {
 	Severity     string `json:"severity"`
 	Step         int    `json:"step"`
 	AfterMinutes int    `json:"after_minutes"`
-	ChannelID    string `json:"channel_id"`
+	ChannelID    string `json:"channel_id,omitempty"`
+	// ScheduleID names an on-call schedule instead of one fixed channel: whoever is on duty when the
+	// step fires gets it. Exactly one of ChannelID and ScheduleID is set.
+	ScheduleID string `json:"schedule_id,omitempty"`
 }
 
 // Repeat resends the last step of an alert's chain while the alert stays open and
@@ -188,8 +191,8 @@ func ValidateSteps(steps []Step) error {
 		default:
 			return fmt.Errorf("severity must be empty (any), info, warning or critical")
 		}
-		if s.ChannelID == "" {
-			return fmt.Errorf("every step needs a channel")
+		if (s.ChannelID == "") == (s.ScheduleID == "") {
+			return fmt.Errorf("every step needs a channel or an on-call schedule, not both")
 		}
 		if s.AfterMinutes < 1 || s.AfterMinutes > 10080 {
 			return fmt.Errorf("after_minutes must be 1-10080")
@@ -249,13 +252,13 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 	for _, a := range open {
 		steps, ok := cache[a.tenant]
 		if !ok {
-			sr, err := pool.Query(ctx, `SELECT severity, step, after_minutes, channel_id FROM escalation_steps WHERE tenant_id=$1`, a.tenant)
+			sr, err := pool.Query(ctx, `SELECT severity, step, after_minutes, COALESCE(channel_id,''), COALESCE(schedule_id,'') FROM escalation_steps WHERE tenant_id=$1`, a.tenant)
 			if err != nil {
 				continue
 			}
 			for sr.Next() {
 				var s Step
-				if sr.Scan(&s.Severity, &s.Step, &s.AfterMinutes, &s.ChannelID) == nil {
+				if sr.Scan(&s.Severity, &s.Step, &s.AfterMinutes, &s.ChannelID, &s.ScheduleID) == nil {
 					steps = append(steps, s)
 				}
 			}
@@ -293,10 +296,20 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 		if err != nil || tag.RowsAffected() == 0 {
 			continue
 		}
+		chID := st.ChannelID
+		if st.ScheduleID != "" {
+			var sc Schedule
+			if pool.QueryRow(ctx, `SELECT anchor, shift_hours, channel_ids FROM oncall_schedules WHERE id=$1 AND tenant_id=$2`, st.ScheduleID, a.tenant).
+				Scan(&sc.Anchor, &sc.ShiftHours, &sc.ChannelIDs) != nil {
+				log.Printf("escalation: alert %s step %d: on-call schedule %s missing", a.id, st.Step, st.ScheduleID)
+				continue
+			}
+			chID, _, _ = OnCall(sc, time.Now())
+		}
 		var typ, target string
 		var enabled bool
-		if pool.QueryRow(ctx, `SELECT type, target, enabled FROM notification_channels WHERE id=$1 AND tenant_id=$2`, st.ChannelID, a.tenant).Scan(&typ, &target, &enabled) != nil || !enabled {
-			log.Printf("escalation: alert %s step %d: channel %s missing or disabled", a.id, st.Step, st.ChannelID)
+		if pool.QueryRow(ctx, `SELECT type, target, enabled FROM notification_channels WHERE id=$1 AND tenant_id=$2`, chID, a.tenant).Scan(&typ, &target, &enabled) != nil || !enabled {
+			log.Printf("escalation: alert %s step %d: channel %s missing or disabled", a.id, st.Step, chID)
 			continue
 		}
 		msg := fmt.Sprintf("ESCALATION step %d (unacknowledged for %d min): %s", st.Step, int(a.age), a.msg)

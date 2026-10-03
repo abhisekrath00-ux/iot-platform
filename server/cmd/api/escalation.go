@@ -13,7 +13,7 @@ import (
 // GET /v1/escalation: the tenant's escalation policy.
 func (s *server) getEscalation(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT severity, step, after_minutes, channel_id FROM escalation_steps WHERE tenant_id=$1 ORDER BY severity, step`, auth.Tenant(r))
+		`SELECT severity, step, after_minutes, COALESCE(channel_id,''), COALESCE(schedule_id,'') FROM escalation_steps WHERE tenant_id=$1 ORDER BY severity, step`, auth.Tenant(r))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -22,7 +22,7 @@ func (s *server) getEscalation(w http.ResponseWriter, r *http.Request) {
 	out := []rules.Step{}
 	for rows.Next() {
 		var st rules.Step
-		if rows.Scan(&st.Severity, &st.Step, &st.AfterMinutes, &st.ChannelID) == nil {
+		if rows.Scan(&st.Severity, &st.Step, &st.AfterMinutes, &st.ChannelID, &st.ScheduleID) == nil {
 			out = append(out, st)
 		}
 	}
@@ -77,12 +77,17 @@ func (s *server) putEscalation(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, st := range in.Steps {
 		var n int
-		if tx.QueryRow(r.Context(), `SELECT count(*) FROM notification_channels WHERE id=$1 AND tenant_id=$2 AND enabled`, st.ChannelID, tenant).Scan(&n); n == 0 {
+		if st.ScheduleID != "" {
+			if tx.QueryRow(r.Context(), `SELECT count(*) FROM oncall_schedules WHERE id=$1 AND tenant_id=$2`, st.ScheduleID, tenant).Scan(&n); n == 0 {
+				http.Error(w, "on-call schedule "+st.ScheduleID+" not found", 400)
+				return
+			}
+		} else if tx.QueryRow(r.Context(), `SELECT count(*) FROM notification_channels WHERE id=$1 AND tenant_id=$2 AND enabled`, st.ChannelID, tenant).Scan(&n); n == 0 {
 			http.Error(w, "channel "+st.ChannelID+" not found or disabled", 400)
 			return
 		}
-		if _, err := tx.Exec(r.Context(), `INSERT INTO escalation_steps(id,tenant_id,severity,step,after_minutes,channel_id) VALUES($1,$2,$3,$4,$5,$6)`,
-			uuid.NewString(), tenant, st.Severity, st.Step, st.AfterMinutes, st.ChannelID); err != nil {
+		if _, err := tx.Exec(r.Context(), `INSERT INTO escalation_steps(id,tenant_id,severity,step,after_minutes,channel_id,schedule_id) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''))`,
+			uuid.NewString(), tenant, st.Severity, st.Step, st.AfterMinutes, st.ChannelID, st.ScheduleID); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
