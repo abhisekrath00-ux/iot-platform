@@ -20,6 +20,8 @@ function importProblems(e: unknown): string {
 export default function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [q, setQ] = useState('');
+  const [readOnly, setReadOnly] = useState(false);
+  useEffect(() => { api<{ role: string; customer_id?: string }>('/v1/me').then(m => setReadOnly(m.role === 'viewer' || !!m.customer_id)).catch(() => {}); }, []);
   const [tag, setTag] = useState('');
   const [group, setGroup] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
@@ -87,7 +89,7 @@ export default function Devices() {
         <input style={{ flex: 1, maxWidth: 360 }} placeholder="Search name, id or profile" value={q} onChange={e => setQ(e.target.value)} />
         {tag && <button className="ghost" onClick={() => setTag('')}>tag: {tag} ✕</button>}
       </div>
-      <div style={{ marginBottom: 12 }}>
+      {!readOnly && <div style={{ marginBottom: 12 }}>
         <label className="muted" style={{ fontSize: 12 }}>Import CSV (gateway_id, profile_id, name, tags, asset_id){' '}
           <input type="file" accept=".csv,text/csv" onChange={e => { void pickFile(e.target.files?.[0]); e.target.value = ''; }} />
         </label>
@@ -101,8 +103,8 @@ export default function Devices() {
         </div>
         {imp && <span> Valid: {imp.would} devices. <button onClick={confirmImport}>Create {imp.would}</button> <button className="ghost" onClick={() => setImp(null)}>Cancel</button></span>}
         {impMsg && <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{impMsg}</p>}
-      </div>
-      <DeviceGroups selected={group} onSelect={setGroup} />
+      </div>}
+      {!readOnly && <DeviceGroups selected={group} onSelect={setGroup} />}
       {allTags.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
           {allTags.map(t => <button key={t} className={tag === t ? '' : 'ghost'} onClick={() => setTag(tag === t ? '' : t)}>{t}</button>)}
@@ -112,7 +114,7 @@ export default function Devices() {
       {devices.length === 0 && !err ? (
         filtered
           ? <Empty title="No matching devices" hint="Clear the search or tag filter to see the whole fleet." action={<button onClick={() => { setQ(''); setTag(''); setGroup(''); }}>Clear filters</button>} />
-          : <Empty title="No devices yet" hint="Add a device to start collecting data." action={<Link to="/onboarding"><button>Add a device</button></Link>} />
+          : <Empty title="No devices yet" hint={readOnly ? "No devices are assigned to you yet." : "Add a device to start collecting data."} action={readOnly ? undefined : <Link to="/onboarding"><button>Add a device</button></Link>} />
       ) : (
       <table>
         <thead><tr><th>Name</th><th>Profile</th><th>Gateway</th><th>Tags</th><th>Added</th></tr></thead>
