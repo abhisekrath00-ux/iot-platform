@@ -80,7 +80,7 @@ export default function Users() {
           <select id="cr-base" value={rBase} onChange={e => setRBase(e.target.value)}>{['operator', 'installer', 'viewer'].map(r => <option key={r}>{r}</option>)}</select>
           <p className="muted" style={{ marginBottom: 4 }}>Deny:</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>{groups.flatMap(g => [`write:${g}`, `read:${g}`]).map(d => (
-            <label key={d} className="muted" style={{ fontSize: 12 }}><input type="checkbox" checked={rDen.includes(d)} onChange={e => setRDen(e.target.checked ? [...rDen, d] : rDen.filter(x => x !== d))} /> {d}</label>))}</div>
+            <label key={d} className="muted" style={{ fontSize: 12 }}><input type="checkbox" style={{ width: "auto", display: "inline" }} checked={rDen.includes(d)} onChange={e => setRDen(e.target.checked ? [...rDen, d] : rDen.filter(x => x !== d))} /> {d}</label>))}</div>
           <button type="submit">Create role</button>
         </form>
       </div>
