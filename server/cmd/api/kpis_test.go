@@ -110,7 +110,13 @@ func TestIntegrationKPIHistory(t *testing.T) {
 			t.Fatal("points must be in time order")
 		}
 	}
-	if o.Min != 46 || o.Max != 80 {
+	// min and max must match the returned points (the recent raw hours average differently depending on the
+	// minute the test runs, so their exact values are not pinned)
+	lo, hi := o.Points[0].V, o.Points[0].V
+	for _, p := range o.Points {
+		lo, hi = min(lo, p.V), max(hi, p.V)
+	}
+	if o.Min != lo || o.Max != hi || o.Max != 80 {
 		t.Fatalf("min/max: %+v", o)
 	}
 	if call(api, "itest-kh2", "viewer", "GET", "/v1/kpis/"+c.ID+"/history", "").Code != 404 {

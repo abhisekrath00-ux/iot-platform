@@ -31,6 +31,7 @@ func TestIntegrationSessionRevocationAndLiveRole(t *testing.T) {
 		w.Write([]byte(auth.Role(r)))
 	})
 	mux.HandleFunc("GET /v1/me", s.me)
+	mux.HandleFunc("POST /v1/me/sessions/revoke", s.revokeOwnSessions)
 	h := authMiddleware(secret)(s.activeUser(mux))
 	token := func(role string, iat time.Time) string {
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{TenantID: "itest-sr1", Role: role,
@@ -70,5 +71,15 @@ func TestIntegrationSessionRevocationAndLiveRole(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"role":"operator"`) || !strings.Contains(w.Body.String(), `"customer_name":"Plant A"`) {
 		t.Fatalf("me = %d %s", w.Code, w.Body)
+	}
+	// sign out everywhere: the token used for the call and every earlier one stop working
+	pool.Exec(ctx, `UPDATE users SET tokens_valid_after=NULL WHERE id='sr-u'`)
+	cur := token("operator", time.Now().Add(-2*time.Second))
+	rv := httptest.NewRequest("POST", "/v1/me/sessions/revoke", nil)
+	rv.Header.Set("Authorization", "Bearer "+cur)
+	rw := httptest.NewRecorder()
+	h.ServeHTTP(rw, rv)
+	if rw.Code != 204 || get(cur).Code != 401 {
+		t.Fatalf("revoke own sessions = %d", rw.Code)
 	}
 }

@@ -131,6 +131,7 @@ func main() {
 	api.HandleFunc("GET /v1/flow-fragments/{id}/usage", s.fragmentUsage)
 	api.HandleFunc("POST /v1/flows/{id}/refresh-subflows", s.refreshSubflows)
 	api.HandleFunc("GET /v1/me", s.me)
+	api.HandleFunc("POST /v1/me/sessions/revoke", s.revokeOwnSessions)
 	api.HandleFunc("GET /v1/users", s.listUsers)
 	api.HandleFunc("GET /v1/users/invites", s.listInvites)
 	api.HandleFunc("POST /v1/users/invites", s.createInvite)

@@ -96,6 +96,7 @@ export default function App() {
         <div className="spacer" />
         <button className="theme" onClick={() => setTour(true)}>Take the tour</button>
         <button className="theme" onClick={() => { localStorage.removeItem('iot.token'); window.location.assign('/'); }}>Sign out</button>
+        <button className="theme" onClick={() => { api('/v1/me/sessions/revoke', { method: 'POST' }).catch(() => {}).finally(() => { localStorage.removeItem('iot.token'); window.location.assign('/'); }); }}>Sign out everywhere</button>
         <button className="theme" onClick={toggle}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
       </nav>
       <main>

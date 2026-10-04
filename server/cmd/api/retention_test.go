@@ -52,7 +52,7 @@ func TestIntegrationRollupAndPurge(t *testing.T) {
 
 	// Purge raw older than 7 days: old rows go (including the 'missing' row), rollup and recent stay.
 	del, err := retention.Purge(ctx, pool, time.Now().Add(-7*24*time.Hour))
-	if err != nil || del != 11 {
+	if err != nil || del < 11 { // Purge is global: other tenants' old rows in a shared database add to the count; this tenant's are asserted below
 		t.Fatalf("purge deleted %d err=%v, want 11", del, err)
 	}
 	var raw int

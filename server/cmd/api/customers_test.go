@@ -196,7 +196,7 @@ func TestScopedUsersAreDeniedEveryUnlistedRoute(t *testing.T) {
 		allowedGET["/v1/telemetry/"+k] = true
 	}
 	for _, rt := range routes {
-		if (rt[0] == "GET" && allowedGET[rt[1]]) || (rt[0] == "POST" && rt[1] == "/v1/me/password") {
+		if (rt[0] == "GET" && allowedGET[rt[1]]) || (rt[0] == "POST" && (rt[1] == "/v1/me/password" || rt[1] == "/v1/me/sessions/revoke")) {
 			continue
 		}
 		// This check needs no database: a scoped user is simulated by calling the deny logic's inputs directly.

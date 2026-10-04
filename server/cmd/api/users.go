@@ -370,3 +370,19 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, out)
 }
+
+// POST /v1/me/sessions/revoke: sign this user out everywhere (every token issued up to now stops working,
+// including the one used for this call). A session cannot be revoked by an API key or the assistant.
+func (s *server) revokeOwnSessions(w http.ResponseWriter, r *http.Request) {
+	if auth.ViaKey(r) {
+		http.Error(w, "not available to API keys or the assistant", http.StatusForbidden)
+		return
+	}
+	tag, err := s.st.Pool.Exec(r.Context(), `UPDATE users SET tokens_valid_after=now() WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r))
+	if err != nil || tag.RowsAffected() == 0 {
+		http.Error(w, "unavailable", 503)
+		return
+	}
+	s.audit(r, "auth.sessions_revoked", auth.User(r), nil)
+	w.WriteHeader(204)
+}
