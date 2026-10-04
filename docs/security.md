@@ -128,3 +128,10 @@ Customer-scoped users are confined by a default-deny allowlist and per-device ch
 
 ## Local sign-in
 Off by default (`LOCAL_LOGIN=1` enables it). When on: PBKDF2-HMAC-SHA256, rate limit, account lockout, audited, disabled users cut off per request. Details and limits: [saas-design.md](saas-design.md). This replaces the earlier statement that the platform keeps no passwords, for deployments that opt in.
+
+## Request body limits
+
+Every API request body is capped at 1 MiB (`auth.BodyLimit`), whatever the handler does. Only two upload
+endpoints get a 6 MiB ceiling: `POST /v1/telemetry/import` (4 MiB CSV) and `POST /v1/assets/{id}/files` (5 MiB);
+those handlers still enforce their own exact limits. A request that declares more is refused with 413 before it is
+read, and an undeclared (chunked) body is cut off at the limit. Tested in `internal/auth/bodylimit_test.go`.

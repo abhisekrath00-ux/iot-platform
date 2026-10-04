@@ -461,7 +461,7 @@ func main() {
 		log.Printf("index sink enabled: %s index %s", sc.URL, sc.Index)
 		go leader.Run(ctx, st.Pool, leaderIndexSink, "index-sink", 30*time.Second, indexsink.New(sc, st.Pool).Run)
 	}
-	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: auth.SecurityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: auth.SecurityHeaders(auth.BodyLimit(mux)), ReadHeaderTimeout: 10 * time.Second}
 	if os.Getenv("MDNS_ADVERTISE") == "true" {
 		port, _ := strconv.Atoi(envOr("API_PORT", "8000"))
 		scheme := "https"
