@@ -22,6 +22,9 @@ export default function Users() {
   const [invites, setInvites] = useState<{ id: string; email: string; role: string; expires_at: string }[]>([]);
   const [invEmail, setInvEmail] = useState('');
   const [invRole, setInvRole] = useState('viewer');
+  const [mailOn, setMailOn] = useState(false);
+  const [sendMail, setSendMail] = useState(false);
+  useEffect(() => { fetch('/auth/config').then(r => (r.ok ? r.json() : null)).then(c => setMailOn(!!c?.email_invites)).catch(() => {}); }, []);
   const [link, setLink] = useState('');
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
@@ -88,11 +91,12 @@ export default function Users() {
       <div className="card" style={{ maxWidth: 640, margin: '20px 0' }}>
         <b>Invite by link</b>
         <p className="muted">Needs local sign-in. The link is shown once and works once for 7 days. Send it through a channel you trust; the platform sends no email.</p>
-        <form onSubmit={async e => { e.preventDefault(); setLink(''); try { const j = await api<{ token: string }>('/v1/users/invites', { method: 'POST', body: JSON.stringify({ email: invEmail, role: invRole, customer_id: invCust || null }) }); setLink(`${window.location.origin}/accept-invite#${j.token}`); setInvEmail(''); load(); } catch (er) { setMsg(String(er)); } }}>
+        <form onSubmit={async e => { e.preventDefault(); setLink(''); try { const j = await api<{ token: string; emailed?: boolean }>('/v1/users/invites', { method: 'POST', body: JSON.stringify({ email: invEmail, role: invRole, customer_id: invCust || null, send_email: sendMail }) }); if (j.emailed) setMsg('Invitation emailed. You can still copy the link below.'); setLink(`${window.location.origin}/accept-invite#${j.token}`); setInvEmail(''); load(); } catch (er) { setMsg(String(er)); } }}>
           <label htmlFor="iv-email">Email</label>
           <input id="iv-email" type="email" value={invEmail} onChange={e => setInvEmail(e.target.value)} required />
           <label htmlFor="iv-role">Role</label>
           <select id="iv-role" value={invRole} onChange={e => setInvRole(e.target.value)}>{ROLES.map(r => <option key={r}>{r}</option>)}</select>
+          {mailOn && <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={sendMail} onChange={e => setSendMail(e.target.checked)} style={{ width: 'auto' }} />Email the link</label>}
           <label htmlFor="iv-cust">Limit to a customer (optional)</label>
           <select id="iv-cust" value={invCust} onChange={e => setInvCust(e.target.value)}><option value="">Whole workspace</option>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
           <button type="submit">Create invitation link</button>

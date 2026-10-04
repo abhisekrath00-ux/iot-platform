@@ -9,7 +9,8 @@ export default function Login() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [signup, setSignup] = useState(false);
-  useEffect(() => { fetch('/auth/config').then(r => (r.ok ? r.json() : null)).then(c => setSignup(!!c?.self_signup)).catch(() => {}); }, []);
+  const [reset, setReset] = useState(false);
+  useEffect(() => { fetch('/auth/config').then(r => (r.ok ? r.json() : null)).then(c => { setSignup(!!c?.self_signup); setReset(!!c?.password_reset); }).catch(() => {}); }, []);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg(''); setBusy(true);
@@ -44,6 +45,7 @@ export default function Login() {
           <button type="submit" disabled={busy}>Sign in</button>
         </form>
         <p className="muted" style={{ marginBottom: 0 }}><a href="/auth/oidc/login">Sign in with single sign-on</a></p>
+        {reset && <p className="muted" style={{ marginBottom: 0 }}><a href="/forgot-password">Forgot your password?</a></p>}
         {signup && <p className="muted" style={{ marginBottom: 0 }}><a href="/signup">Create a workspace</a></p>}
       </div>
     </div>

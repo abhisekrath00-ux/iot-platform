@@ -34,7 +34,7 @@ func selfSignupCap() int {
 
 // GET /auth/config (public): lets the sign-in page know which options to show.
 func (s *server) authConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"self_signup": selfSignupEnabled(), "local_login": localLoginEnabled()})
+	writeJSON(w, 200, map[string]any{"self_signup": selfSignupEnabled(), "local_login": localLoginEnabled(), "password_reset": localLoginEnabled() && s.mailConfigured(), "email_invites": s.mailConfigured()})
 }
 
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)

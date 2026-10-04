@@ -23,6 +23,7 @@ import Customers from './pages/Customers';
 import Users from './pages/Users';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import PasswordReset from './pages/PasswordReset';
 import AcceptInvite from './pages/AcceptInvite';
 import Assistant from './pages/Assistant';
 import Kpis from './pages/Kpis';
@@ -87,6 +88,8 @@ export default function App() {
   const [tour, setTour] = useState(() => !tourDone(localStorage) && !!localStorage.getItem('iot.token'));
   if (window.location.pathname === '/accept-invite') return <AcceptInvite />;
   if (window.location.pathname === '/signup' && signedOut) return <Signup />;
+  if (window.location.pathname === '/forgot-password' && signedOut) return <PasswordReset mode="forgot" />;
+  if (window.location.pathname === '/reset-password') return <PasswordReset mode="reset" />;
   if (signedOut) return <Login />;
   return (
     <div className="shell">

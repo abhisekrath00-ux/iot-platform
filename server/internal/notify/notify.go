@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/smtp"
 	"os"
+	"strings"
 )
 
 type Notifier struct {
@@ -35,7 +36,17 @@ func (n *Notifier) Email(ctx context.Context, to []string, subject, body string)
 	if n.smtpHost == "" || n.from == "" {
 		return fmt.Errorf("smtp not configured")
 	}
-	msg := []byte("From: " + n.from + "\r\nSubject: " + subject + "\r\n\r\n" + body + "\r\n")
+	// header values must not carry line breaks (header injection)
+	for _, h := range append([]string{subject, n.from}, to...) {
+		if strings.ContainsAny(h, "\r\n") {
+			return fmt.Errorf("invalid mail header")
+		}
+	}
+	if len(to) == 0 {
+		return fmt.Errorf("no recipient")
+	}
+	msg := []byte("From: " + n.from + "\r\nTo: " + strings.Join(to, ", ") + "\r\nSubject: " + subject +
+		"\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" + body + "\r\n")
 	var auth smtp.Auth
 	if n.smtpUser != "" {
 		auth = smtp.PlainAuth("", n.smtpUser, n.smtpPass, n.smtpHost)
@@ -62,6 +73,10 @@ func (n *Notifier) Slack(ctx context.Context, channel, text string) error {
 	}
 	return nil
 }
+
+// Configured reports whether outgoing mail is set up (SMTP_HOST and ALERT_FROM_EMAIL). Mail is optional and
+// off by default: an air-gapped deployment with no relay simply has no email features.
+func (n *Notifier) Configured() bool { return n.smtpHost != "" && n.from != "" }
 
 func envOr(k, d string) string {
 	if v := os.Getenv(k); v != "" {

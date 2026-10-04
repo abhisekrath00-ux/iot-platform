@@ -35,6 +35,7 @@ func (s *server) createInvite(w http.ResponseWriter, r *http.Request) {
 		Email      string  `json:"email"`
 		Role       string  `json:"role"`
 		CustomerID *string `json:"customer_id"`
+		SendEmail  bool    `json:"send_email"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&raw) != nil {
 		http.Error(w, "bad json", 400)
@@ -56,6 +57,10 @@ func (s *server) createInvite(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unknown customer", 404)
 			return
 		}
+	}
+	if raw.SendEmail && !s.mailConfigured() {
+		http.Error(w, "email is not configured on this deployment; copy the link instead", 409)
+		return
 	}
 	var taken bool
 	s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM users WHERE lower(email)=lower($1))`, email).Scan(&taken)
@@ -79,7 +84,13 @@ func (s *server) createInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "user.invite", id, map[string]any{"email": email, "role": raw.Role})
-	writeJSON(w, 201, map[string]any{"id": id, "token": token, "path": "/accept-invite#" + token, "expires_at": exp})
+	emailed := false
+	if raw.SendEmail {
+		var tname string
+		s.st.Pool.QueryRow(r.Context(), `SELECT name FROM tenants WHERE id=$1`, auth.Tenant(r)).Scan(&tname)
+		emailed = s.emailInvite(r.Context(), email, "/accept-invite#"+token, tname)
+	}
+	writeJSON(w, 201, map[string]any{"id": id, "token": token, "path": "/accept-invite#" + token, "expires_at": exp, "emailed": emailed})
 }
 
 func (s *server) listInvites(w http.ResponseWriter, r *http.Request) {

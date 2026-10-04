@@ -357,6 +357,8 @@ func main() {
 	signupRL := auth.NewRateLimiter(3, 3)
 	defer signupRL.Close()
 	mux.Handle("POST /auth/signup", signupRL.Middleware(http.HandlerFunc(s.selfSignup)))
+	mux.Handle("POST /auth/forgot", signupRL.Middleware(http.HandlerFunc(s.forgotPassword)))
+	mux.Handle("POST /auth/reset", loginRL.Middleware(http.HandlerFunc(s.resetPassword)))
 	mux.HandleFunc("GET /auth/config", s.authConfig)
 	mux.Handle("POST /auth/accept-invite", loginRL.Middleware(http.HandlerFunc(s.acceptInvite)))
 	mux.Handle("GET /auth/oidc/login", ssoRL.Middleware(http.HandlerFunc(s.oidcLogin)))
