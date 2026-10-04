@@ -7,7 +7,7 @@ Audit of 2026-10-04, written from the code and docs in this repo, not from memor
 - **Simulator-only**: code exists and passes tests against a simulator or fake that I wrote from the spec. Never run against a real device, broker, model, Slack workspace or mail gateway.
 - **Not built**: does not exist.
 
-Across everything: about 420 Go tests and 51 web tests pass locally (full gate plus an empty-database run before each push). **Remote CI has not run since the GitHub Actions minutes ran out, so nothing here is remote-verified.** No outside security review has been done. UI pages were checked in headless Chrome by hand on a subset, not by an automated browser suite.
+Across everything: about 444 Go test functions (server 322, edge 122) and 55 web tests pass locally (full gate plus an empty-database run before each push). **Remote CI has not run since the GitHub Actions minutes ran out, so nothing here is remote-verified.** No outside security review has been done. UI pages were checked in headless Chrome by hand on a subset, not by an automated browser suite.
 
 ## Product basics (the original brief)
 | Asked for | Status | Notes |
