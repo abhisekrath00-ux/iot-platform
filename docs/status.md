@@ -26,7 +26,7 @@ Across everything: about 420 Go tests and 51 web tests pass locally (full gate p
 ## Parity targets (ThingsBoard, Siemens Insights Hub, Node-RED, Report Builder)
 | Area | Status | Notes |
 |---|---|---|
-| Multi-tenancy, RBAC, SSO (OIDC), audit log | Built | SAML not built. |
+| Multi-tenancy, RBAC, SSO (OIDC), audit log | Built | SAML: use an OIDC bridge (docs/sso-saml.md), native SAML deliberately not built. |
 | Customer / sub-customer hierarchy | Built | Read-only scope for devices, alerts, telemetry; default-deny; leak tests. Dashboards and reports can be shared per customer (built 2026-10-04, leak-tested). No scoped flows, assets or branding. |
 | Multi-user workspaces: user admin, local sign-in, invitations, session revocation | Built | See saas-design.md. Custom roles (base role minus denied groups, built 2026-10-04). Quotas and usage metering built 2026-10-04 (operator-set limits, trigger-enforced; no billing or payment processor). MFA (TOTP) at local sign-in built 2026-10-04 (opt-in per user, no tenant-wide enforcement, no recovery codes). Opt-in self sign-up built 2026-10-04 (off by default, unverified email, capped). Optional email invites and password reset built 2026-10-04 (need an SMTP relay; tested with a fake mailer only). |
 | Dashboards, widgets, data walls, digital twin | Partial | 8 widgets (not 300), twin card is 2.5D SVG, no 3D. |
@@ -47,7 +47,7 @@ Across everything: about 420 Go tests and 51 web tests pass locally (full gate p
 | Modbus RTU/TCP, OPC UA (incl. secure modes), SNMP v2c/v3, BACnet/IP, DNP3, IEC 60870-5-104, CoAP, LwM2M object reads, CAN (SocketCAN receive), LoRaWAN ingest, direct MQTT, serial JSON | Simulator-only (serial and Modbus also unit tested; no real devices) |
 | IEC 61850 MMS | Simulator-only, labelled partial and unverified |
 | Writes on any protocol | Not built. Modbus writes are approval-only and the edge drivers are read-only; control goes through approvals, four-eyes and the edge gate with a simulated actuator. |
-| LwM2M server, CAN FD, J1939, DBC import, SAML | Not built |
+| LwM2M server, CAN FD, J1939, DBC import | Not built |
 
 ## AI
 | Asked for | Status | Notes |
