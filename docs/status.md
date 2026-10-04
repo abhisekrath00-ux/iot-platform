@@ -28,7 +28,7 @@ Across everything: about 420 Go tests and 51 web tests pass locally (full gate p
 |---|---|---|
 | Multi-tenancy, RBAC, SSO (OIDC), audit log | Built | SAML not built. |
 | Customer / sub-customer hierarchy | Built | Read-only scope for devices, alerts, telemetry; default-deny; leak tests. Dashboards and reports can be shared per customer (built 2026-10-04, leak-tested). No scoped flows, assets or branding. |
-| Multi-user workspaces: user admin, local sign-in, invitations, session revocation | Built | See saas-design.md. Custom roles (base role minus denied groups, built 2026-10-04). Quotas and usage metering built 2026-10-04 (operator-set limits, trigger-enforced; no billing or payment processor). No MFA at sign-in, email invites or reset, public self sign-up. |
+| Multi-user workspaces: user admin, local sign-in, invitations, session revocation | Built | See saas-design.md. Custom roles (base role minus denied groups, built 2026-10-04). Quotas and usage metering built 2026-10-04 (operator-set limits, trigger-enforced; no billing or payment processor). MFA (TOTP) at local sign-in built 2026-10-04 (opt-in per user, no tenant-wide enforcement, no recovery codes). No email invites or reset, public self sign-up. |
 | Dashboards, widgets, data walls, digital twin | Partial | 8 widgets (not 300), twin card is 2.5D SVG, no 3D. |
 | Rules, alarms (ack, assign, escalation, on-call, maintenance windows) | Built | No SMS or Teams channels. |
 | Asset hierarchy, relations, attributes | Built / partial | No relation-driven dashboards. |

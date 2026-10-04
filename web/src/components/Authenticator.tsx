@@ -24,7 +24,7 @@ export default function Authenticator() {
   return (
     <div className="card" style={{ maxWidth: 760, marginTop: 20 }}>
       <b>Authenticator app (second factor)</b>
-      <p className="muted">{st.required_for_approval ? 'Your workspace requires a code to approve control commands.' : 'Optional unless an admin switches on "Authenticator code to approve control commands".'}</p>
+      <p className="muted">{st.required_for_approval ? 'Your workspace requires a code to approve control commands.' : 'Once on, it is also asked for when you sign in with a password. Optional for control approval unless an admin switches on "Authenticator code to approve control commands".'}</p>
       {!st.available && <p className="muted">The server has no SECRETS_KEY, so this cannot be stored.</p>}
       {st.enrolled ? (
         <form onSubmit={remove} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

@@ -293,6 +293,7 @@ func (s *server) localLogin(w http.ResponseWriter, r *http.Request) {
 	var raw struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		Code     string `json:"code"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&raw) != nil {
 		http.Error(w, "bad json", 400)
@@ -328,6 +329,21 @@ func (s *server) localLogin(w http.ResponseWriter, r *http.Request) {
 		s.st.Pool.Exec(r.Context(), `INSERT INTO audit_log(tenant_id,actor,action,target,detail) VALUES($1,$2,'auth.login_failed',$2,$3)`, tenant, id, `{"reason":"`+map[bool]string{true: "disabled", false: "bad password"}[ok]+`"}`)
 		http.Error(w, generic, 401)
 		return
+	}
+	// Second factor: a user who enrolled an authenticator must present a current code after the password.
+	// A missing code asks for one (and is not a failed attempt); a wrong code counts toward the lockout.
+	if _, enrolled, _, _ := s.totpSecretFor(r.Context(), tenant, id); enrolled {
+		if strings.TrimSpace(raw.Code) == "" {
+			writeJSON(w, 401, map[string]any{"mfa_required": true, "error": "enter the code from your authenticator"})
+			return
+		}
+		if !s.verifyTOTPFor(r.Context(), tenant, id, raw.Code) {
+			s.st.Pool.Exec(r.Context(), `UPDATE users SET failed_logins=failed_logins+1,
+				locked_until = CASE WHEN failed_logins+1 >= $2 THEN now() + make_interval(secs => $3) ELSE locked_until END WHERE id=$1`, id, maxFailedLogins, lockoutFor.Seconds())
+			s.st.Pool.Exec(r.Context(), `INSERT INTO audit_log(tenant_id,actor,action,target,detail) VALUES($1,$2,'auth.login_failed',$2,'{"reason":"bad code"}')`, tenant, id)
+			writeJSON(w, 401, map[string]any{"mfa_required": true, "error": "that code is not valid"})
+			return
+		}
 	}
 	s.st.Pool.Exec(r.Context(), `UPDATE users SET failed_logins=0, locked_until=NULL, last_login_at=now() WHERE id=$1`, id)
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
@@ -416,5 +432,30 @@ func (s *server) revokeOwnSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "auth.sessions_revoked", auth.User(r), nil)
+	w.WriteHeader(204)
+}
+
+// DELETE /v1/users/{id}/totp: an admin removes a locked-out user's authenticator so they can sign in with
+// their password and enrol a new one. Admin session only; audited; ends the user's sessions.
+func (s *server) resetUserTOTP(w http.ResponseWriter, r *http.Request) {
+	if !userAdminOnly(w, r) {
+		return
+	}
+	t, id := auth.Tenant(r), r.PathValue("id")
+	if id == auth.User(r) {
+		http.Error(w, "remove your own authenticator from Settings (it needs a current code)", 409)
+		return
+	}
+	tag, err := s.st.Pool.Exec(r.Context(), `DELETE FROM user_totp WHERE user_id=$1 AND tenant_id=$2`, id, t)
+	if err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "that user has no authenticator", 404)
+		return
+	}
+	s.st.Pool.Exec(r.Context(), `UPDATE users SET tokens_valid_after=now() WHERE id=$1 AND tenant_id=$2`, id, t)
+	s.audit(r, "user.totp_reset", id, nil)
 	w.WriteHeader(204)
 }

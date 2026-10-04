@@ -6,6 +6,7 @@ package main
 // "require_totp_approval". An API key or the assistant can never approve anyway.
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -20,14 +21,18 @@ const featureTOTP = "require_totp_approval"
 func totpName(user string) string { return "totp:" + user }
 
 func (s *server) totpSecret(r *http.Request) (secret []byte, confirmed bool, last int64, ok bool) {
+	return s.totpSecretFor(r.Context(), auth.Tenant(r), auth.User(r))
+}
+
+func (s *server) totpSecretFor(ctx context.Context, tenant, user string) (secret []byte, confirmed bool, last int64, ok bool) {
 	var blob []byte
-	if s.st.Pool.QueryRow(r.Context(), `SELECT secret, confirmed, last_step FROM user_totp WHERE user_id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r)).Scan(&blob, &confirmed, &last) != nil {
+	if s.st.Pool.QueryRow(ctx, `SELECT secret, confirmed, last_step FROM user_totp WHERE user_id=$1 AND tenant_id=$2`, user, tenant).Scan(&blob, &confirmed, &last) != nil {
 		return nil, false, 0, false
 	}
 	if s.secrets == nil || len(s.secrets.Key) == 0 {
 		return nil, false, 0, false
 	}
-	v, err := secrets.Open(s.secrets.Key, auth.Tenant(r), totpName(auth.User(r)), blob)
+	v, err := secrets.Open(s.secrets.Key, tenant, totpName(user), blob)
 	if err != nil {
 		return nil, false, 0, false
 	}
@@ -36,7 +41,11 @@ func (s *server) totpSecret(r *http.Request) (secret []byte, confirmed bool, las
 
 // verifyTOTP checks a code for the signed-in user and, if good, burns its time step.
 func (s *server) verifyTOTP(r *http.Request, code string) bool {
-	secret, confirmed, last, ok := s.totpSecret(r)
+	return s.verifyTOTPFor(r.Context(), auth.Tenant(r), auth.User(r), code)
+}
+
+func (s *server) verifyTOTPFor(ctx context.Context, tenant, user, code string) bool {
+	secret, confirmed, last, ok := s.totpSecretFor(ctx, tenant, user)
 	if !ok || !confirmed {
 		return false
 	}
@@ -45,7 +54,7 @@ func (s *server) verifyTOTP(r *http.Request, code string) bool {
 		return false
 	}
 	// claim the step atomically so two requests with one code cannot both pass
-	tag, err := s.st.Pool.Exec(r.Context(), `UPDATE user_totp SET last_step=$3 WHERE user_id=$1 AND tenant_id=$2 AND last_step<$3`, auth.User(r), auth.Tenant(r), step)
+	tag, err := s.st.Pool.Exec(ctx, `UPDATE user_totp SET last_step=$3 WHERE user_id=$1 AND tenant_id=$2 AND last_step<$3`, user, tenant, step)
 	return err == nil && tag.RowsAffected() == 1
 }
 

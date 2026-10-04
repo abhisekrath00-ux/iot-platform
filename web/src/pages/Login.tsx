@@ -4,13 +4,19 @@ import { useState } from 'react';
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [needCode, setNeedCode] = useState(false);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg(''); setBusy(true);
     try {
-      const res = await fetch('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+      const res = await fetch('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, code: code || undefined }) });
+      if (res.status === 401) {
+        const j = await res.json().catch(() => null);
+        if (j?.mfa_required) { setNeedCode(true); setMsg(code ? 'That code is not valid. Try the next one.' : 'Enter the 6-digit code from your authenticator app.'); return; }
+      }
       if (res.status === 404) { setMsg('Password sign-in is not enabled here. Use single sign-on.'); return; }
       if (res.status === 429) { setMsg('Too many attempts. Try again in a few minutes.'); return; }
       if (!res.ok) { setMsg('Invalid email or password.'); return; }
@@ -28,6 +34,10 @@ export default function Login() {
           <input id="li-email" type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required />
           <label htmlFor="li-pw">Password</label>
           <input id="li-pw" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required />
+          {needCode && <>
+            <label htmlFor="li-code">Authenticator code</label>
+            <input id="li-code" inputMode="numeric" autoComplete="one-time-code" maxLength={7} value={code} onChange={e => setCode(e.target.value)} autoFocus required />
+          </>}
           {msg && <p className="muted" role="alert">{msg}</p>}
           <button type="submit" disabled={busy}>Sign in</button>
         </form>
