@@ -72,11 +72,13 @@ export default function App() {
       }
     }).catch(() => {});
   }, []);
-  const [me, setMe] = useState<{ role: string; customer_id?: string; customer_name?: string } | null>(null);
+  const [me, setMe] = useState<{ role: string; customer_id?: string; customer_name?: string; denied?: string[] } | null>(null);
   useEffect(() => { if (localStorage.getItem('iot.token')) api<NonNullable<typeof me>>('/v1/me').then(setMe).catch(() => {}); }, []);
   const visible = items.filter(([to]) => {
     if (!me) return true;
     if (me.customer_id) return ['/devices', '/alerts', '/map'].includes(to);
+    const hide: Record<string, string> = { '/reports': 'reports', '/dashboards': 'dashboards', '/flows': 'flows', '/commands': 'control', '/audit': 'audit', '/assistant': 'assistant' };
+    if (hide[to] && me.denied?.includes(`read:${hide[to]}`)) return false;
     if (me.role !== 'admin') return !['/users', '/customers'].includes(to);
     return true;
   });

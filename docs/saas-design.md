@@ -29,11 +29,14 @@ Status: first slice built and tested against a real Postgres. Not remote-CI veri
 - Customer-scoped users: read-only devices, values and alerts inside their customer subtree (customers-design.md).
 Permissions are enforced per endpoint by role checks in the handlers; there is no permission matrix editor.
 
+## Custom roles
+A custom role is a built-in base role (operator, installer or viewer, never admin) minus denied capability groups: control, flows, reports, dashboards, alerts, devices, fleet, assets, assistant, audit. Each denial is `write:<group>` (all non-GET requests under the group's paths) or `read:<group>` (everything). It can only take access away: the handlers still check the base role, and the deny list is applied in the same per-request check that applies the live role. It also limits the AI assistant for that user, and the UI hides pages whose read is denied. API keys carry their own role and are not affected. Admin only; a role in use cannot be deleted; editing the base role moves members at once. Limits: groups are path prefixes, not per-object permissions; no custom role can grant more than its base; no per-customer roles. Tested with the real middleware, including the assistant path and cross-tenant refusal.
+
 ## Threats considered
 Credential stuffing (rate limit, lockout, generic errors, timing), password storage (salted PBKDF2, never logged, never returned), privilege escalation (admin-only, key/AI refusal, last-admin and self-change guards), cross-tenant management (tenant-scoped queries, 404), stale access after offboarding (per-request disabled check).
 
 ## Not built (honest limits)
-- Custom roles or per-permission RBAC, groups, per-customer roles.
+- Per-object permissions, user groups, per-customer roles, roles that grant more than a base role.
 - Self-service sign-up, emailed invitations (links are copied by an admin), email verification, password reset by email (an admin sets passwords). An invitation may be limited to one customer; the scope is applied when it is accepted.
 - MFA at sign-in (SSO providers own MFA; TOTP exists only for approving control commands).
 - Session list and per-device sign-out. "Sign out everywhere" exists (`POST /v1/me/sessions/revoke`, tested); revocation is all-sessions-before-a-time only. Tokens are not refreshed: they expire after 12 hours.

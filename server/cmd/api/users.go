@@ -43,7 +43,7 @@ func (s *server) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.st.Pool.Query(r.Context(), `SELECT u.id, u.email, u.display_name, u.role, u.disabled_at IS NOT NULL,
-		u.password_hash IS NOT NULL, u.last_login_at, s.customer_id
+		u.password_hash IS NOT NULL, u.last_login_at, s.customer_id, u.custom_role_id
 		FROM users u LEFT JOIN user_customer_scope s ON s.user_id=u.id AND s.tenant_id=u.tenant_id
 		WHERE u.tenant_id=$1 AND u.id NOT LIKE 'flow-%' ORDER BY u.email LIMIT 2000`, auth.Tenant(r))
 	if err != nil {
@@ -56,10 +56,10 @@ func (s *server) listUsers(w http.ResponseWriter, r *http.Request) {
 		var id, email, name, role string
 		var disabled, hasPw bool
 		var last *time.Time
-		var cust *string
-		if rows.Scan(&id, &email, &name, &role, &disabled, &hasPw, &last, &cust) == nil {
+		var cust, crole *string
+		if rows.Scan(&id, &email, &name, &role, &disabled, &hasPw, &last, &cust, &crole) == nil {
 			out = append(out, map[string]any{"id": id, "email": email, "display_name": name, "role": role,
-				"disabled": disabled, "has_password": hasPw, "last_login_at": last, "customer_id": cust})
+				"disabled": disabled, "has_password": hasPw, "last_login_at": last, "customer_id": cust, "custom_role_id": crole})
 		}
 	}
 	writeJSON(w, 200, out)
@@ -133,9 +133,10 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Role        *string `json:"role"`
-		DisplayName *string `json:"display_name"`
-		Disabled    *bool   `json:"disabled"`
+		CustomRoleID *string `json:"custom_role_id"`
+		Role         *string `json:"role"`
+		DisplayName  *string `json:"display_name"`
+		Disabled     *bool   `json:"disabled"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil {
 		http.Error(w, "bad json", 400)
@@ -150,13 +151,28 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	var role string
 	var disabled bool
+	var curCustom *string
 	// lock the tenant's admin rows so two concurrent changes cannot both remove the last admin
-	if err := tx.QueryRow(r.Context(), `SELECT role, disabled_at IS NOT NULL FROM users WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, id, t).Scan(&role, &disabled); err != nil {
+	if err := tx.QueryRow(r.Context(), `SELECT role, disabled_at IS NOT NULL, custom_role_id FROM users WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, id, t).Scan(&role, &disabled, &curCustom); err != nil {
 		http.Error(w, "user not found", 404)
 		return
 	}
 	newRole, newDisabled := role, disabled
+	newCustom := curCustom
+	if in.CustomRoleID != nil {
+		if *in.CustomRoleID == "" {
+			newCustom = nil
+		} else {
+			var base string
+			if err := tx.QueryRow(r.Context(), `SELECT base_role FROM custom_roles WHERE id=$1 AND tenant_id=$2`, *in.CustomRoleID, t).Scan(&base); err != nil {
+				http.Error(w, "unknown custom role", 404)
+				return
+			}
+			newRole, newCustom = base, in.CustomRoleID
+		}
+	}
 	if in.Role != nil {
+		newCustom = nil
 		if !validRoles[*in.Role] {
 			http.Error(w, "role must be admin, operator, installer or viewer", 400)
 			return
@@ -187,10 +203,10 @@ func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 		n := strings.TrimSpace(*name)
 		name = &n
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE users SET role=$3, display_name=COALESCE($4, display_name),
+	if _, err := tx.Exec(r.Context(), `UPDATE users SET role=$3, custom_role_id=$6, display_name=COALESCE($4, display_name),
 		disabled_at = CASE WHEN $5 THEN COALESCE(disabled_at, now()) ELSE NULL END,
 		failed_logins = CASE WHEN $5 THEN failed_logins ELSE 0 END, locked_until = CASE WHEN $5 THEN locked_until ELSE NULL END
-		WHERE id=$1 AND tenant_id=$2`, id, t, newRole, name, newDisabled); err != nil || tx.Commit(r.Context()) != nil {
+		WHERE id=$1 AND tenant_id=$2`, id, t, newRole, name, newDisabled, newCustom); err != nil || tx.Commit(r.Context()) != nil {
 		http.Error(w, "db", 500)
 		return
 	}
@@ -328,7 +344,13 @@ func (s *server) localLogin(w http.ResponseWriter, r *http.Request) {
 // row (API-key owners are users; system principals are not) pass unchanged.
 func (s *server) activeUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth.ViaKey(r) { // API keys and the assistant carry their own role and lifecycle
+		if auth.ViaKey(r) { // API keys carry their own role and lifecycle; the assistant runs as the user, so a custom role still limits it
+			if auth.ViaAI(r) {
+				if d := s.customDenied(r); len(d) > 0 && (d[0] == "__fail_closed__" || deniedByRole(d, r.Method, r.URL.Path)) {
+					http.Error(w, "your role does not allow this", http.StatusForbidden)
+					return
+				}
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -351,6 +373,10 @@ func (s *server) activeUser(next http.Handler) http.Handler {
 			}
 			// The database role is authoritative: a demotion applies to tokens already issued.
 			r = auth.WithRole(r, role)
+			if d := s.customDenied(r); len(d) > 0 && (d[0] == "__fail_closed__" || deniedByRole(d, r.Method, r.URL.Path)) {
+				http.Error(w, "your role does not allow this", http.StatusForbidden)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -367,6 +393,9 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 	var cid, cname string
 	if s.st.Pool.QueryRow(r.Context(), `SELECT c.id, c.name FROM user_customer_scope s JOIN customers c ON c.id=s.customer_id WHERE s.tenant_id=$1 AND s.user_id=$2`, auth.Tenant(r), auth.User(r)).Scan(&cid, &cname) == nil {
 		out["customer_id"], out["customer_name"] = cid, cname
+	}
+	if d := s.customDenied(r); len(d) > 0 && d[0] != "__fail_closed__" {
+		out["denied"] = d
 	}
 	writeJSON(w, 200, out)
 }
