@@ -30,7 +30,7 @@ Across everything: about 420 Go tests and 51 web tests pass locally (full gate p
 | Customer / sub-customer hierarchy | Built | Read-only scope for devices, alerts, telemetry; default-deny; leak tests. Dashboards and reports can be shared per customer (built 2026-10-04, leak-tested). No scoped flows, assets or branding. |
 | Multi-user workspaces: user admin, local sign-in, invitations, session revocation | Built | See saas-design.md. Custom roles (base role minus denied groups, built 2026-10-04). Quotas and usage metering built 2026-10-04 (operator-set limits, trigger-enforced; no billing or payment processor). MFA (TOTP) at local sign-in built 2026-10-04 (opt-in per user, no tenant-wide enforcement, no recovery codes). Opt-in self sign-up built 2026-10-04 (off by default, unverified email, capped). Optional email invites and password reset built 2026-10-04 (need an SMTP relay; tested with a fake mailer only). |
 | Dashboards, widgets, data walls, digital twin | Partial | 8 widgets (not 300), twin card is 2.5D SVG, no 3D. |
-| Rules, alarms (ack, assign, escalation, on-call, maintenance windows) | Built | No SMS or Teams channels. |
+| Rules, alarms (ack, assign, escalation, on-call, maintenance windows) | Built | SMS (operator HTTP gateway) and Teams channels are optional, fake-tested only. |
 | Asset hierarchy, relations, attributes | Built / partial | No relation-driven dashboards. |
 | KPIs and derived points | Partial | Formulas, history and widgets; no KPI alerting. |
 | Node-RED style flows | Built / partial | Own engine and editor; Node-RED file import is a subset; real Node-RED not embedded; admin-defined custom node types (saved function presets, no SDK or typed parameters). |
@@ -68,6 +68,8 @@ Across everything: about 420 Go tests and 51 web tests pass locally (full gate p
 |---|---|
 | Automated tests | Built, local only |
 | CI pipeline defined (go, web, security scan, compose smoke) | Built; not running (Actions quota) |
-| Docs (design, security, deployment, hazard analysis, honest gap list) | Built |
+| Docs (design, security, deployment, hazard analysis, honest gap list, pilot-readiness checklist) | Built |
+| Notification channel admin: send test (real delivery path), enable\/disable, delete refused while escalation steps, on-call schedules, reports or flows use it (built 2026-10-04, tested) | Built |
+| Startup config audit (`api -check-config`, `STRICT_CONFIG=1`) | Built, tested |
 | Security hardening review by an outside party | Not done |
 | Load and soak on target hardware, real-device pilots | Not done |

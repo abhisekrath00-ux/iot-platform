@@ -23,6 +23,7 @@ On-prem must run fully without the vendor cloud.
    images, never in git. Rotate `JWT_SIGNING_SECRET` and DB creds on schedule.
    `SECRETS_KEY` (base64, 32 bytes) enables the per-tenant encrypted secrets store; back it up separately from the database, since without it stored secrets cannot be read.
    `DB_MAX_CONNS` sets the per-replica DB pool (default max(20, 4 x CPUs)); size Postgres `max_connections` for replicas x pool.
+   Run `api -check-config` (see pilot-readiness.md) to catch weak or placeholder secrets; `STRICT_CONFIG=1` makes the API refuse to start on a FAIL.
 4. **Database.** Automated `pg_dump` (or WAL archiving) with a tested restore
    drill; document RPO/RTO with the customer. Telemetry partitions by month —
    see migrations; set retention per contract.

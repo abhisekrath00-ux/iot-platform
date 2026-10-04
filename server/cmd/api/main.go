@@ -21,6 +21,7 @@ import (
 	_ "time/tzdata" // zone database inside the binary: air-gapped images may have none (quiet hours use IANA zones)
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/configaudit"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/indexsink"
@@ -58,7 +59,22 @@ type server struct {
 
 func main() {
 	seed := flag.Bool("seed-demo", false, "insert demo tenant/site/gateway/devices then exit")
+	check := flag.Bool("check-config", false, "audit the environment for unsafe settings, print the report, exit non-zero on any FAIL")
 	flag.Parse()
+	findings := configaudit.Audit(os.Getenv)
+	if *check {
+		fmt.Print(configaudit.Format(findings))
+		if configaudit.HasFail(findings) {
+			os.Exit(1)
+		}
+		return
+	}
+	for _, f := range findings {
+		log.Printf("config %s %s: %s", f.Level, f.Key, f.Msg)
+	}
+	if os.Getenv("STRICT_CONFIG") == "1" && configaudit.HasFail(findings) {
+		log.Fatal("STRICT_CONFIG=1 and the configuration has FAIL findings (run api -check-config)")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -274,6 +290,9 @@ func main() {
 	api.HandleFunc("GET /v1/search", s.searchAll)
 	api.HandleFunc("GET /v1/notifications/channels", s.listChannels)
 	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
+	api.HandleFunc("POST /v1/notifications/channels/{id}/test", s.testChannel)
+	api.HandleFunc("PATCH /v1/notifications/channels/{id}", s.patchChannel)
+	api.HandleFunc("DELETE /v1/notifications/channels/{id}", s.deleteChannel)
 	api.HandleFunc("GET /v1/dashboards/{id}/export", s.exportDashboard)
 	api.HandleFunc("POST /v1/dashboards/import", s.importDashboard)
 	api.HandleFunc("POST /v1/dashboards", s.saveDashboard)

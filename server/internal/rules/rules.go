@@ -5,6 +5,7 @@ package rules
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -255,7 +256,18 @@ func dispatch(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, sev
 
 // dispatchOne sends one message to one channel with a 10s limit; failures are logged.
 func dispatchOne(ctx context.Context, n Notifier, typ, target, severity, msg, event string) {
+	if err := SendOne(ctx, n, typ, target, severity, msg, event); err != nil {
+		log.Printf("notify %s -> %s: %v", typ, target, err)
+	}
+}
+
+var errUnsupported = errors.New("this notifier cannot send to that channel type")
+
+// SendOne delivers one message to one channel with a 10s limit and returns the delivery error. The channel test
+// endpoint uses it, so a test exercises exactly the path a real alert takes.
+func SendOne(ctx context.Context, n Notifier, typ, target, severity, msg, event string) error {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	var err error
 	switch typ {
 	case "email":
@@ -267,36 +279,43 @@ func dispatchOne(ctx context.Context, n Notifier, typ, target, severity, msg, ev
 			Webhook(context.Context, string, string, map[string]any) error
 		}); ok {
 			err = wh.Webhook(cctx, target, event, map[string]any{"severity": severity, "message": msg})
+		} else {
+			err = errUnsupported
 		}
 	case "kafka":
 		if b, ok := n.(interface {
 			Kafka(context.Context, string, string, map[string]any) error
 		}); ok {
 			err = b.Kafka(cctx, target, event, map[string]any{"severity": severity, "message": msg})
+		} else {
+			err = errUnsupported
 		}
 	case "teams":
 		if b, ok := n.(interface {
 			Teams(context.Context, string, string, string) error
 		}); ok {
 			err = b.Teams(cctx, target, "[Hexmon IoT] "+severity+" alert", msg)
+		} else {
+			err = errUnsupported
 		}
 	case "sms":
 		if b, ok := n.(interface {
 			SMS(context.Context, string, string) error
 		}); ok {
 			err = b.SMS(cctx, target, "["+severity+"] "+msg)
+		} else {
+			err = errUnsupported
 		}
 	case "amqp":
 		if b, ok := n.(interface {
 			AMQP(context.Context, string, string, map[string]any) error
 		}); ok {
 			err = b.AMQP(cctx, target, event, map[string]any{"severity": severity, "message": msg})
+		} else {
+			err = errUnsupported
 		}
 	}
-	cancel()
-	if err != nil {
-		log.Printf("notify %s -> %s: %v", typ, target, err)
-	}
+	return err
 }
 
 func firstNonEmpty(a, b string) string {

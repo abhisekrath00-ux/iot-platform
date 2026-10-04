@@ -25,6 +25,21 @@ export default function Settings() {
   const load = () => api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(e => setMsg(String(e)));
   useEffect(() => { load(); api<{ product_name: string; accent: string }>('/v1/branding').then(b => { setBName(b.product_name); setBAccent(b.accent); }).catch(() => {}); }, []);
 
+  async function testCh(c: Channel) {
+    setMsg(`Sending a test to ${c.type} ${c.target}...`);
+    try {
+      const r = await api<{ ok: boolean; error?: string }>(`/v1/notifications/channels/${c.id}/test`, { method: 'POST' });
+      setMsg(r.ok ? `Test sent to ${c.target}. Check that it arrived.` : `Test failed: ${r.error}`);
+    } catch (e) { setMsg(String(e)); }
+  }
+  async function toggleCh(c: Channel) {
+    try { await api(`/v1/notifications/channels/${c.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !c.enabled }) }); load(); } catch (e) { setMsg(String(e)); }
+  }
+  async function delCh(c: Channel) {
+    if (!window.confirm(`Delete the ${c.type} channel ${c.target}?`)) return;
+    try { await api(`/v1/notifications/channels/${c.id}`, { method: 'DELETE' }); setMsg('Channel deleted.'); load(); } catch (e) { setMsg(String(e)); }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMsg('');
@@ -52,9 +67,14 @@ export default function Settings() {
         </form>
         {msg && <p className="muted">{msg}</p>}
         <table style={{ marginTop: 16 }}>
-          <thead><tr><th>Type</th><th>Target</th><th>Status</th></tr></thead>
+          <thead><tr><th>Type</th><th>Target</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {channels.map(c => <tr key={c.id}><td>{c.type}</td><td>{c.target}</td><td className="muted">{c.enabled ? 'on' : 'off'}</td></tr>)}
+            {channels.map(c => <tr key={c.id}><td>{c.type}</td><td>{c.target}</td><td className="muted">{c.enabled ? 'on' : 'off'}</td>
+              <td style={{ whiteSpace: 'nowrap' }}>
+                <button type="button" className="ghost" onClick={() => testCh(c)}>Send test</button>{' '}
+                <button type="button" className="ghost" onClick={() => toggleCh(c)}>{c.enabled ? 'Disable' : 'Enable'}</button>{' '}
+                <button type="button" className="ghost" onClick={() => delCh(c)}>Delete</button>
+              </td></tr>)}
           </tbody>
         </table>
       </div>
