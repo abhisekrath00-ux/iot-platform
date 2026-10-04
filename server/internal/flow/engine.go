@@ -148,6 +148,18 @@ func dispatch(pool *pgxpool.Pool, n Notifier, tenantID, flowID, flowName, device
 			derr = n.Email(bg, []string{target}, "Flow: "+flowName, a.Message)
 		case "slack":
 			derr = n.Slack(bg, target, "["+flowName+"] "+a.Message)
+		case "teams":
+			if t, ok := n.(interface {
+				Teams(context.Context, string, string, string) error
+			}); ok {
+				derr = t.Teams(bg, target, "Flow: "+flowName, a.Message)
+			}
+		case "sms":
+			if t, ok := n.(interface {
+				SMS(context.Context, string, string) error
+			}); ok {
+				derr = t.SMS(bg, target, "["+flowName+"] "+a.Message)
+			}
 		case "webhook":
 			if wh, ok := n.(interface {
 				Webhook(context.Context, string, string, map[string]any) error

@@ -44,10 +44,10 @@ export default function Settings() {
         <form onSubmit={submit}>
           <label>Type</label>
           <select value={type} onChange={e => setType(e.target.value)}>
-            <option value="email">Email</option><option value="slack">Slack channel</option><option value="webhook">Webhook (HTTPS URL)</option>
+            <option value="email">Email</option><option value="slack">Slack channel</option><option value="webhook">Webhook (HTTPS URL)</option><option value="teams">Microsoft Teams (webhook URL)</option><option value="sms">SMS (needs a gateway)</option>
           </select>
-          <label>{type === 'email' ? 'Email address' : 'Slack channel ID'}</label>
-          <input value={target} onChange={e => setTarget(e.target.value)} placeholder={type === 'email' ? 'ops@yourcompany.com' : 'C0123456789'} required />
+          <label>{({ email: 'Email address', slack: 'Slack channel ID', webhook: 'Webhook URL', teams: 'Teams incoming-webhook URL (https)', sms: 'Phone number (+country code)' } as Record<string, string>)[type]}</label>
+          <input value={target} onChange={e => setTarget(e.target.value)} placeholder={({ email: 'ops@yourcompany.com', slack: 'C0123456789', webhook: 'https://example.com/hook', teams: 'https://...webhook.office.com/...', sms: '+4915112345678' } as Record<string, string>)[type]} required />
           <div style={{ marginTop: 14 }}><button type="submit">Add channel</button></div>
         </form>
         {msg && <p className="muted">{msg}</p>}

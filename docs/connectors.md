@@ -239,3 +239,11 @@ Status: target validation, the address guard and channel creation are tested. Th
 those libraries and were NOT tested against a real broker here. Not built: TLS, Kafka SASL, AMQP over TLS (so use only
 on a trusted network segment), schema registry, keyed partitioning beyond the event name, and a bus as an *ingest* source
 (telemetry in over Kafka/AMQP) or a bulk telemetry sink. Those are the next steps if you need them.
+
+## Microsoft Teams and SMS channels (optional, off by default)
+
+Both appear as notification channel types. Neither does anything until an admin adds a channel, and SMS cannot be added until the operator sets a gateway, so an air-gapped site that sets neither never makes an outbound call.
+
+- **Teams**: target is an https incoming-webhook URL. The platform POSTs a MessageCard (`title`, `text`). Same SSRF-safe client as webhooks (loopback, link-local and metadata addresses refused at dial time, no redirects). Tested against a local receiver only; not verified against Microsoft's service or the newer Workflows webhooks.
+- **SMS**: the operator sets `SMS_GATEWAY_URL` (and optionally `SMS_GATEWAY_TOKEN`, sent as a Bearer token). The URL is deployment configuration, never tenant input. The platform POSTs `{"to": "+4915112345678", "message": "..."}` (message cut to 480 characters); any 2xx is success. To use Twilio, Vonage or a modem, put a small bridge in front that speaks this contract. A gateway on loopback needs `SMS_GATEWAY_ALLOW_LOOPBACK=1`. Numbers must be international format. Tested against a local receiver only.
+- Used by alert rules, flow notify nodes and scheduled report delivery.

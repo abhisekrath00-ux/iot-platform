@@ -1470,6 +1470,14 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 			if err := n.Webhook(ctx, target, "report.ready", map[string]any{"report": name, "rows": total}); err != nil {
 				return fail(err)
 			}
+		case "teams":
+			if err := n.Teams(ctx, target, "Report ready", name+" ("+fmt.Sprint(total)+" rows)"); err != nil {
+				return fail(err)
+			}
+		case "sms":
+			if err := n.SMS(ctx, target, "Report ready: "+name); err != nil {
+				return fail(err)
+			}
 		case "kafka":
 			if err := n.Kafka(ctx, target, "report.ready", map[string]any{"report": name, "rows": total}); err != nil {
 				return fail(err)
@@ -2041,9 +2049,25 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		Target string `json:"target"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Target == "" ||
-		(in.Type != "email" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp") {
-		http.Error(w, "type (email|slack|webhook|kafka|amqp) and target required", 400)
+		(in.Type != "email" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp" && in.Type != "teams" && in.Type != "sms") {
+		http.Error(w, "type (email|slack|webhook|teams|sms|kafka|amqp) and target required", 400)
 		return
+	}
+	if in.Type == "teams" {
+		if err := notify.ValidateTeamsURL(in.Target); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
+	if in.Type == "sms" {
+		if !notify.SMSConfigured() {
+			http.Error(w, "SMS is not configured on this deployment (the operator sets SMS_GATEWAY_URL)", 409)
+			return
+		}
+		if err := notify.ValidatePhone(in.Target); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 	}
 	if in.Type == "webhook" {
 		if err := notify.ValidateWebhookURL(in.Target); err != nil {

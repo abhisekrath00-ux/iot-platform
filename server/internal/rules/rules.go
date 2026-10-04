@@ -274,6 +274,18 @@ func dispatchOne(ctx context.Context, n Notifier, typ, target, severity, msg, ev
 		}); ok {
 			err = b.Kafka(cctx, target, event, map[string]any{"severity": severity, "message": msg})
 		}
+	case "teams":
+		if b, ok := n.(interface {
+			Teams(context.Context, string, string, string) error
+		}); ok {
+			err = b.Teams(cctx, target, "[Hexmon IoT] "+severity+" alert", msg)
+		}
+	case "sms":
+		if b, ok := n.(interface {
+			SMS(context.Context, string, string) error
+		}); ok {
+			err = b.SMS(cctx, target, "["+severity+"] "+msg)
+		}
 	case "amqp":
 		if b, ok := n.(interface {
 			AMQP(context.Context, string, string, map[string]any) error

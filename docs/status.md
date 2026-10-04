@@ -39,7 +39,7 @@ Across everything: about 420 Go tests and 51 web tests pass locally (full gate p
 | Geofences and map | Partial | Hand-entered positions, circular zones, self-hosted tiles. No enter/exit alerts, polygons or GPS tracks. |
 | OTA / fleet updates | Partial, unit-tested only | Staged rollout of edge agent releases with signed manifests. No MCU or PLC firmware flashing, no key rotation. |
 | White-label | Partial | Name, accent, logo. No custom domain or email templates. |
-| Notifications | Partial | SMTP, Slack, webhook, Kafka, AMQP. No SMS or Teams. |
+| Notifications | Partial | SMTP, Slack, webhook, Kafka, AMQP. Microsoft Teams (incoming-webhook card) and SMS (operator's HTTP gateway, `SMS_GATEWAY_URL`) built 2026-10-04, both optional and unused unless configured; tested against local receivers only, never against Microsoft or a real SMS provider. SMS is the generic JSON contract, not a Twilio/Vonage client. |
 
 ## Protocols and SCADA connectivity
 | Protocol | Status |
