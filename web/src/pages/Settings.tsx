@@ -53,7 +53,7 @@ export default function Settings() {
   return (
     <>
       <h1>Settings</h1>
-      <div className="card" style={{ maxWidth: 480, marginBottom: 20 }}>
+      <div className="card" style={{ maxWidth: 760, marginBottom: 20 }}>
         <b>Notification channels</b>
         <p className="muted">Alerts from your rules go to these destinations. Email uses your SMTP server (deployment env), Slack uses a bot token.</p>
         <form onSubmit={submit}>
