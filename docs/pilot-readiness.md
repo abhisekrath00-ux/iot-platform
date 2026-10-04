@@ -23,6 +23,7 @@ unencrypted broker, open self sign-up, test switches left on.
 | TLS in front of web and API; MQTT on 8883 with mTLS | deployment.md section 1 | Yes (WARN is acceptable only on a closed lab network) |
 | Backups taken and one restore rehearsed | `scripts/backup.sh`, `scripts/restore.sh`, backup-restore.md | Yes |
 | `SECRETS_KEY` backed up separately from the database | backup-restore.md | Yes if you use stored secrets |
+| Behind the bundled nginx: `TRUSTED_PROXIES` set to the web container network (`docker network inspect`), API port 8000 not published | Compose file, security.md | Yes, else all users share one sign-in rate-limit bucket |
 | First admin has MFA (TOTP) enabled | Users page | Yes |
 | Tenant quotas set (`tenantctl quota`) | `GET /v1/usage` | Yes if more than one tenant |
 | Self sign-up off (default) | `-check-config` | Yes unless you intend it |

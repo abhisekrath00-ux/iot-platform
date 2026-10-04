@@ -5,7 +5,7 @@ practices, TUF. These inform the backlog; nothing here is a certification claim.
 
 ## Enforced in code today
 
-- Rate limiting on unauthenticated paths (enrollment claim 5/min, SSO 20/min, per client IP, X-Forwarded-For not trusted).
+- Rate limiting on unauthenticated paths (enrollment claim 5/min, SSO 20/min, sign-in, sign-up and reset, per client IP). X-Forwarded-For is trusted only from proxies listed in `TRUSTED_PROXIES` (default none). Behind the bundled nginx set it to the web container network, otherwise every user shares the proxy address and one bucket, so one person can lock everyone out of sign-in. Do not publish API port 8000 directly when you set it.
 - Security headers on all API responses (nosniff, frame DENY, no-referrer, CSP `default-src 'none'`, no-store).
 - Enrollment claim codes: 160-bit, SHA-256 at rest, single-use, expiring, constant-time compare, identical error for unknown code vs serial mismatch (no oracle).
 - OIDC: discovery issuer check, RS256 JWKS signature verification, single-use state + nonce (10 min TTL), SSO never auto-creates users.

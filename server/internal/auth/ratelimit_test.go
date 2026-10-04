@@ -56,3 +56,39 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestClientIP(t *testing.T) {
+	proxy := ParseTrustedProxies("172.18.0.0/16, 10.0.0.9, junk, ")
+	if len(proxy) != 2 {
+		t.Fatalf("parsed %d entries", len(proxy))
+	}
+	req := func(remote string, xff ...string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = remote
+		for _, x := range xff {
+			r.Header.Add("X-Forwarded-For", x)
+		}
+		return r
+	}
+	for _, c := range []struct {
+		name string
+		r    *http.Request
+		want string
+	}{
+		{"no trusted proxy: header ignored", req("203.0.113.5:4000", "1.2.3.4"), "203.0.113.5"},
+		{"direct client claims a header: ignored", req("203.0.113.5:4000", "198.51.100.1"), "203.0.113.5"},
+		{"via the proxy: header used", req("172.18.0.3:5000", "198.51.100.7"), "198.51.100.7"},
+		{"spoofed extra entry on the left is ignored", req("172.18.0.3:5000", "9.9.9.9, 198.51.100.7"), "198.51.100.7"},
+		{"two proxies", req("172.18.0.3:5000", "198.51.100.7, 10.0.0.9"), "198.51.100.7"},
+		{"proxy without header", req("172.18.0.3:5000"), "172.18.0.3"},
+		{"malformed header: fall back", req("172.18.0.3:5000", "not-an-ip"), "172.18.0.3"},
+	} {
+		trusted := proxy
+		if c.name == "no trusted proxy: header ignored" {
+			trusted = nil
+		}
+		if got := clientIP(c.r, trusted); got != c.want {
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
+		}
+	}
+}
