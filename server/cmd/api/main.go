@@ -271,6 +271,7 @@ func main() {
 	api.HandleFunc("POST /v1/dashboards/import", s.importDashboard)
 	api.HandleFunc("POST /v1/dashboards", s.saveDashboard)
 	api.HandleFunc("PUT /v1/dashboards/{id}", s.updateDashboard)
+	api.HandleFunc("PUT /v1/dashboards/{id}/customer", s.setDashboardCustomer)
 	api.HandleFunc("DELETE /v1/dashboards/{id}", s.deleteDashboard)
 	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
 	api.HandleFunc("GET /v1/gateways/{id}/edge-config", s.gatewayEdgeConfig)
@@ -290,6 +291,7 @@ func main() {
 	api.HandleFunc("POST /v1/reports/{id}/run", s.runReport)
 	api.HandleFunc("POST /v1/reports/preview", s.previewReport)
 	api.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
+	api.HandleFunc("PUT /v1/reports/{id}/customer", s.setReportCustomer)
 	s.cached(api, "GET /v1/points", s.listPoints)
 	api.HandleFunc("GET /v1/export/telemetry.csv", s.exportTelemetryCSV)
 	api.HandleFunc("GET /v1/retention", s.getRetention)
@@ -887,8 +889,13 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) listDashboards(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, name, layout FROM dashboards WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
+	q, args := `SELECT id, name, layout, customer_id FROM dashboards WHERE tenant_id=$1 ORDER BY created_at DESC`, []any{auth.Tenant(r)}
+	if cid := scopeOf(r); cid != "" { // a customer-scoped user sees only dashboards shared with their customer subtree
+		q = `WITH RECURSIVE ` + strings.Replace(customerSubtreeCTE, "%s", "$2", 1) + ` SELECT id, name, layout, customer_id FROM dashboards
+			WHERE tenant_id=$1 AND customer_id IN (SELECT id FROM csub) ORDER BY created_at DESC`
+		args = append(args, cid)
+	}
+	rows, err := s.st.Pool.Query(r.Context(), q, args...)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -898,8 +905,9 @@ func (s *server) listDashboards(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, name string
 		var layout json.RawMessage
-		rows.Scan(&id, &name, &layout)
-		out = append(out, map[string]any{"id": id, "name": name, "layout": layout})
+		var cust *string
+		rows.Scan(&id, &name, &layout, &cust)
+		out = append(out, map[string]any{"id": id, "name": name, "layout": layout, "customer_id": cust})
 	}
 	writeJSON(w, 200, out)
 }
@@ -940,6 +948,10 @@ func (s *server) updateDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
 		http.Error(w, "name required", 400)
+		return
+	}
+	if bad := s.layoutLeaks(r.Context(), auth.Tenant(r), id, string(in.Layout)); bad != "" {
+		http.Error(w, "this dashboard is shared with a customer and references a device outside it: "+bad, 409)
 		return
 	}
 	res, err := s.st.Pool.Exec(r.Context(),
@@ -1295,9 +1307,15 @@ func (s *server) createProfile(w http.ResponseWriter, r *http.Request) {
 // --- report builder ---
 
 func (s *server) listReports(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, name, definition, schedule_cron, channel_id, last_run_at, created_at, version
-		 FROM reports WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
+	q, args := `SELECT id, name, definition, schedule_cron, channel_id, last_run_at, created_at, version, customer_id
+		 FROM reports WHERE tenant_id=$1 ORDER BY created_at DESC`, []any{auth.Tenant(r)}
+	scoped := scopeOf(r)
+	if scoped != "" { // a customer-scoped user sees only reports shared with their subtree
+		q = `WITH RECURSIVE ` + strings.Replace(customerSubtreeCTE, "%s", "$2", 1) + ` SELECT id, name, definition, schedule_cron, channel_id, last_run_at, created_at, version, customer_id
+		 FROM reports WHERE tenant_id=$1 AND customer_id IN (SELECT id FROM csub) ORDER BY created_at DESC`
+		args = append(args, scoped)
+	}
+	rows, err := s.st.Pool.Query(r.Context(), q, args...)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -1311,9 +1329,13 @@ func (s *server) listReports(w http.ResponseWriter, r *http.Request) {
 		var lastRun *time.Time
 		var createdAt time.Time
 		var version int
-		rows.Scan(&id, &name, &def, &cron, &channelID, &lastRun, &createdAt, &version)
+		var cust *string
+		rows.Scan(&id, &name, &def, &cron, &channelID, &lastRun, &createdAt, &version, &cust)
+		if scoped != "" { // delivery settings are not for customers
+			cron, channelID = nil, nil
+		}
 		out = append(out, map[string]any{"id": id, "name": name, "definition": json.RawMessage(def),
-			"schedule_cron": cron, "channel_id": channelID, "last_run_at": lastRun, "created_at": createdAt, "version": version})
+			"schedule_cron": cron, "channel_id": channelID, "last_run_at": lastRun, "created_at": createdAt, "version": version, "customer_id": cust})
 	}
 	writeJSON(w, 200, out)
 }
@@ -1549,9 +1571,20 @@ func (s *server) previewReport(w http.ResponseWriter, r *http.Request) {
 func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 	var name string
 	var defBytes []byte
-	if err := s.st.Pool.QueryRow(r.Context(),
-		`SELECT name, definition FROM reports WHERE id=$1 AND tenant_id=$2`, r.PathValue("id"), auth.Tenant(r)).
-		Scan(&name, &defBytes); err != nil {
+	q, args := `SELECT name, definition FROM reports WHERE id=$1 AND tenant_id=$2`, []any{r.PathValue("id"), auth.Tenant(r)}
+	if cid := scopeOf(r); cid != "" {
+		// a customer-scoped user may download only a report shared with their subtree, and cannot override
+		// anything: run-time parameters (such as a different device) could reach outside the customer
+		for k := range r.URL.Query() {
+			if k != "format" && k != "theme" {
+				http.Error(w, "customer-scoped users cannot change report parameters", 403)
+				return
+			}
+		}
+		q = `WITH RECURSIVE ` + strings.Replace(customerSubtreeCTE, "%s", "$3", 1) + ` SELECT name, definition FROM reports WHERE id=$2 AND tenant_id=$1 AND customer_id IN (SELECT id FROM csub)`
+		args = []any{auth.Tenant(r), r.PathValue("id"), cid}
+	}
+	if err := s.st.Pool.QueryRow(r.Context(), q, args...).Scan(&name, &defBytes); err != nil {
 		http.Error(w, "report not found", 404)
 		return
 	}

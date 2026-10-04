@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ import (
 
 const maxReportVersions = 100
 
+var errReportOutsideCustomer = errors.New("this report is shared with a customer and uses a device outside it")
+
 type reportState struct {
 	name       string
 	definition []byte
@@ -37,13 +40,27 @@ func (s *server) writeReportVersion(ctx context.Context, tenant, id, user string
 	defer tx.Rollback(ctx)
 	var cur reportState
 	var ver int
-	err = tx.QueryRow(ctx, `SELECT name, definition, schedule_cron, channel_id, version FROM reports WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, id, tenant).
-		Scan(&cur.name, &cur.definition, &cur.cron, &cur.channelID, &ver)
+	var shared *string
+	err = tx.QueryRow(ctx, `SELECT name, definition, schedule_cron, channel_id, version, customer_id FROM reports WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, id, tenant).
+		Scan(&cur.name, &cur.definition, &cur.cron, &cur.channelID, &ver, &shared)
 	if err == pgx.ErrNoRows {
 		return 0, false, nil
 	}
 	if err != nil {
 		return 0, false, err
+	}
+	if shared != nil { // a report shared with a customer may only use that customer's devices
+		var nd struct {
+			Metrics []struct {
+				DeviceID string `json:"device_id"`
+			} `json:"metrics"`
+		}
+		json.Unmarshal(next.definition, &nd)
+		for _, m := range nd.Metrics {
+			if !s.deviceInScope(ctx, tenant, *shared, m.DeviceID) {
+				return 0, false, errReportOutsideCustomer
+			}
+		}
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO report_versions(report_id,version,name,definition,schedule_cron,channel_id,superseded_by) VALUES($1,$2,$3,$4,$5,$6,$7)`,
 		id, ver, cur.name, cur.definition, cur.cron, cur.channelID, user); err != nil {
@@ -104,6 +121,10 @@ func (s *server) updateReport(w http.ResponseWriter, r *http.Request) {
 	def, _ := json.Marshal(in.Definition)
 	id := r.PathValue("id")
 	v, found, err := s.writeReportVersion(r.Context(), tenant, id, auth.User(r), reportState{name, def, cron, channelID})
+	if errors.Is(err, errReportOutsideCustomer) {
+		http.Error(w, err.Error(), 409)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -174,6 +195,10 @@ func (s *server) restoreReportVersion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	v, found, err := s.writeReportVersion(r.Context(), tenant, id, auth.User(r), old)
+	if errors.Is(err, errReportOutsideCustomer) {
+		http.Error(w, err.Error(), 409)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

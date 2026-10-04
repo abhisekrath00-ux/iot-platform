@@ -76,7 +76,7 @@ export default function App() {
   useEffect(() => { if (localStorage.getItem('iot.token')) api<NonNullable<typeof me>>('/v1/me').then(setMe).catch(() => {}); }, []);
   const visible = items.filter(([to]) => {
     if (!me) return true;
-    if (me.customer_id) return ['/devices', '/alerts', '/map'].includes(to);
+    if (me.customer_id) return ['/devices', '/alerts', '/map', '/dashboards', '/reports'].includes(to);
     const hide: Record<string, string> = { '/reports': 'reports', '/dashboards': 'dashboards', '/flows': 'flows', '/commands': 'control', '/audit': 'audit', '/assistant': 'assistant' };
     if (hide[to] && me.denied?.includes(`read:${hide[to]}`)) return false;
     if (me.role !== 'admin') return !['/users', '/customers'].includes(to);

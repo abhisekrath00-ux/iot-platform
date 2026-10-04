@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
+import ShareWithCustomer from '../components/ShareWithCustomer';
 
 interface Metric { device_id: string; point_id: string; }
 interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; }
-interface ReportRow { id: string; name: string; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; version?: number; }
+interface ReportRow { id: string; name: string; customer_id?: string | null; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; version?: number; }
 interface VersionRow { version: number; name: string; definition: ReportDef; schedule_cron: string | null; replaced_by: string; replaced_at: string; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
@@ -11,6 +12,9 @@ interface Channel { id: string; type: string; target: string; enabled: boolean; 
 export default function Reports() {
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [me, setMe] = useState<{ role: string; customer_id?: string } | null>(null);
+  useEffect(() => { api<{ role: string; customer_id?: string }>('/v1/me').then(setMe).catch(() => {}); }, []);
+  const scoped = !!me?.customer_id;
   const [name, setName] = useState('');
   const [metrics, setMetrics] = useState<Metric[]>([{ device_id: '', point_id: '' }]);
   const [windowHours, setWindowHours] = useState(24);
@@ -107,7 +111,7 @@ export default function Reports() {
   return (
     <>
       <h1>Reports</h1>
-      <div className="card" style={{ maxWidth: 680, marginBottom: 20 }}>
+      {!scoped && <div className="card" style={{ maxWidth: 680, marginBottom: 20 }}>
         <b>New report</b>
         <form onSubmit={submit}>
           <label>Name</label>
@@ -185,7 +189,8 @@ export default function Reports() {
           </div>
         </form>
         {msg && <p className="muted">{msg}</p>}
-      </div>
+      </div>}
+      {scoped && msg && <p className="muted">{msg}</p>}
       {previewHTML && (
         <div className="card" style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '12px 18px', display: 'flex', justifyContent: 'space-between' }}>
@@ -202,7 +207,7 @@ export default function Reports() {
             {r.schedule_cron ? <>schedule {r.schedule_cron} - </> : 'on demand - '}
             {r.last_run_at ? `last run ${new Date(r.last_run_at).toLocaleString()}` : 'never run'}
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }} aria-label="Run parameters">
+          {!scoped && <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }} aria-label="Run parameters">
             <span className="muted">Parameters for downloads:</span>
             <input type="number" min={1} max={2160} style={{ width: 90 }} placeholder={`${r.definition.window_hours}h`} aria-label="Window hours"
               value={pw[r.id]?.w ?? ''} onChange={e => setPw({ ...pw, [r.id]: { ...pw[r.id], w: e.target.value } })} />
@@ -213,15 +218,16 @@ export default function Reports() {
               <option value="">{r.definition.metrics[0].device_id}</option>
               {devices.filter(d => d.id !== r.definition.metrics[0].device_id).map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
             </select>}
-          </div>
+          </div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button onClick={() => runNow(r.id)}>Run now</button>
+            {!scoped && <><button onClick={() => runNow(r.id)}>Run now</button>
             <button className="ghost" onClick={() => edit(r)}>Edit</button>
-            <button className="ghost" onClick={() => showHistory(r.id)} aria-expanded={hist?.id === r.id}>History</button>
+            <button className="ghost" onClick={() => showHistory(r.id)} aria-expanded={hist?.id === r.id}>History</button></>}
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=csv`, `${r.name}.csv`).catch(e => setMsg(String(e)))}>CSV</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=html`, `${r.name}.html`).catch(e => setMsg(String(e)))}>HTML</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=pdf`, `${r.name}.pdf`).catch(e => setMsg(String(e)))}>PDF</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=xlsx`, `${r.name}.xlsx`).catch(e => setMsg(String(e)))}>Excel</button>
+            {me?.role === 'admin' && !scoped && <ShareWithCustomer path={`/v1/reports/${r.id}/customer`} value={r.customer_id} onDone={load} onError={setMsg} />}
           </div>
           {hist?.id === r.id && (
             <div style={{ marginTop: 10 }} role="region" aria-label="Report history">
@@ -238,7 +244,7 @@ export default function Reports() {
           )}
         </div>
       ))}
-      {reports.length === 0 && <p className="muted">No reports yet.</p>}
+      {reports.length === 0 && <p className="muted">{scoped ? 'No reports have been shared with you yet.' : 'No reports yet.'}</p>}
     </>
   );
 }

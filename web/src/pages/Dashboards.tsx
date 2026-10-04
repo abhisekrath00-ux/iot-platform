@@ -1,12 +1,13 @@
 import { chart as ct } from '../lib/theme';
 import { formatValue } from '../lib/format';
 import { useEffect, useMemo, useState } from 'react';
+import ShareWithCustomer from '../components/ShareWithCustomer';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
 import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem } from '../lib/widgets';
 import { GaugeWidget, BarWidget, StatusWidget, TableWidget, StatWidget, IndicatorWidget, AlarmsWidget, NoteWidget } from '../components/Widgets';
 
-interface Dashboard { id: string; name: string; layout: { widgets?: Widget[] }; }
+interface Dashboard { id: string; name: string; customer_id?: string | null; layout: { widgets?: Widget[] }; }
 
 const TEMPLATES = [
   { id: 'blank', name: 'Blank', desc: 'Empty canvas. Add widgets yourself.' },
@@ -121,6 +122,9 @@ export default function Dashboards() {
       if (r.missing_devices.length) setErr(`Imported. These devices do not exist here, so their widgets show no data until repointed: ${r.missing_devices.join(', ')}`);
     } catch (e2) { setErr(String(e2)); }
   }
+  const [me, setMe] = useState<{ role: string; customer_id?: string } | null>(null);
+  useEffect(() => { api<{ role: string; customer_id?: string }>('/v1/me').then(setMe).catch(() => {}); }, []);
+  const scoped = !!me?.customer_id;
   const loadBoards = () => api<Dashboard[]>('/v1/dashboards').then(d => {
     setBoards(d);
     if (sel) setSel(d.find(b => b.id === sel.id) ?? null);
@@ -233,7 +237,7 @@ export default function Dashboards() {
       {!wall && <h1>Dashboards</h1>}
       {err && <p className="muted">{err}</p>}
 
-      {!wall && <div className="card" style={{ marginBottom: 16 }}>
+      {!wall && !scoped && <div className="card" style={{ marginBottom: 16 }}>
         <div className="muted" style={{ marginBottom: 8 }}>New dashboard</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
           <div><label>Name</label><input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Plant overview" /></div>
@@ -262,7 +266,7 @@ export default function Dashboards() {
         {boards.map(b => (
           <button key={b.id} className={sel?.id === b.id ? '' : 'ghost'} onClick={() => { setSel(b); setName(b.name); setEditing(false); }}>{b.name}</button>
         ))}
-        {boards.length === 0 && <span className="muted">No dashboards yet.</span>}
+        {boards.length === 0 && <span className="muted">{scoped ? 'No dashboards have been shared with you yet.' : 'No dashboards yet.'}</span>}
       </div>}
 
       {sel && (
@@ -277,9 +281,10 @@ export default function Dashboards() {
               </>
             ) : (
               <>
-                <button className="ghost" onClick={() => setEditing(true)}>Edit</button>
+                {!scoped && <button className="ghost" onClick={() => setEditing(true)}>Edit</button>}
                 <button className="ghost" onClick={() => setWall(true)} disabled={widgets.length === 0}>Wall mode</button>
-                <button className="ghost" onClick={exportBoard}>Export</button>
+                {!scoped && <button className="ghost" onClick={exportBoard}>Export</button>}
+                {me?.role === 'admin' && !scoped && <ShareWithCustomer path={`/v1/dashboards/${sel.id}/customer`} value={sel.customer_id} onDone={loadBoards} onError={setErr} />}
               </>
             )}
           </div>

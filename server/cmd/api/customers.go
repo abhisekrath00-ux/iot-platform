@@ -40,9 +40,10 @@ func (s *server) deviceInScope(ctx context.Context, tenant, customer, device str
 }
 
 var (
-	scopedDevicePath = regexp.MustCompile(`^/v1/devices/([^/]+)/health$`)
-	scopedAlertPath  = regexp.MustCompile(`^/v1/alerts/([^/]+)$`)
-	scopedTelemetry  = map[string]bool{"latest": true, "series": true, "count": true, "rollup": true, "anomalies": true, "forecast": true, "related": true}
+	scopedDevicePath     = regexp.MustCompile(`^/v1/devices/([^/]+)/health$`)
+	scopedAlertPath      = regexp.MustCompile(`^/v1/alerts/([^/]+)$`)
+	scopedReportDownload = regexp.MustCompile(`^/v1/reports/[^/]+/download$`)
+	scopedTelemetry      = map[string]bool{"latest": true, "series": true, "count": true, "rollup": true, "anomalies": true, "forecast": true, "related": true}
 )
 
 // scopedAllows is the allowlist: the only requests a customer-scoped user may make. Anything else is refused.
@@ -54,7 +55,10 @@ func scopedAllows(method, p string) bool {
 		return false
 	}
 	switch p {
-	case "/v1/devices", "/v1/alerts", "/v1/features", "/v1/map/config", "/v1/me":
+	case "/v1/devices", "/v1/alerts", "/v1/features", "/v1/map/config", "/v1/me", "/v1/dashboards", "/v1/reports":
+		return true
+	}
+	if scopedReportDownload.MatchString(p) {
 		return true
 	}
 	return (strings.HasPrefix(p, "/v1/telemetry/") && scopedTelemetry[strings.TrimPrefix(p, "/v1/telemetry/")]) ||
@@ -270,5 +274,113 @@ func (s *server) setCustomerUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "customer.user.set", id, map[string]any{"customer": id, "user": user})
+	w.WriteHeader(204)
+}
+
+// layoutLeaks returns the first device id found in the layout that lies outside the customer a dashboard is
+// shared with ("" when the dashboard is not shared or the layout is clean). The match is a substring test on
+// the layout text, so it errs on the side of refusing.
+func (s *server) layoutLeaks(ctx context.Context, tenant, dashboard, layout string) string {
+	var bad string
+	s.st.Pool.QueryRow(ctx, `WITH RECURSIVE `+strings.Replace(customerSubtreeCTE, "%s", "(SELECT customer_id FROM dashboards WHERE id=$2 AND tenant_id=$1)", 1)+`
+		SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND (SELECT customer_id FROM dashboards WHERE id=$2 AND tenant_id=$1) IS NOT NULL
+		  AND (d.customer_id IS NULL OR d.customer_id NOT IN (SELECT id FROM csub)) AND strpos($3, d.id) > 0 LIMIT 1`, tenant, dashboard, layout).Scan(&bad)
+	return bad
+}
+
+// PUT /v1/dashboards/{id}/customer {customer_id|null}: share a dashboard with one customer subtree. Admin session only.
+func (s *server) setDashboardCustomer(w http.ResponseWriter, r *http.Request) {
+	if auth.ViaKey(r) || !requireRole(w, r, "admin") {
+		if auth.ViaKey(r) {
+			http.Error(w, "not available to API keys or the assistant", http.StatusForbidden)
+		}
+		return
+	}
+	var in struct {
+		CustomerID *string `json:"customer_id"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in) != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	t, id := auth.Tenant(r), r.PathValue("id")
+	var layout string
+	if s.st.Pool.QueryRow(r.Context(), `SELECT layout::text FROM dashboards WHERE id=$1 AND tenant_id=$2`, id, t).Scan(&layout) != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	if in.CustomerID != nil {
+		var ok bool
+		s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM customers WHERE id=$1 AND tenant_id=$2)`, *in.CustomerID, t).Scan(&ok)
+		if !ok {
+			http.Error(w, "unknown customer", 404)
+			return
+		}
+		// refuse a layout that names a device outside the customer
+		var bad string
+		s.st.Pool.QueryRow(r.Context(), `WITH RECURSIVE `+strings.Replace(customerSubtreeCTE, "%s", "$2", 1)+`
+			SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND (d.customer_id IS NULL OR d.customer_id NOT IN (SELECT id FROM csub)) AND strpos($3, d.id) > 0 LIMIT 1`,
+			t, *in.CustomerID, layout).Scan(&bad)
+		if bad != "" {
+			http.Error(w, "the dashboard references a device outside that customer: "+bad, 409)
+			return
+		}
+	}
+	if _, err := s.st.Pool.Exec(r.Context(), `UPDATE dashboards SET customer_id=$3 WHERE id=$1 AND tenant_id=$2`, id, t, in.CustomerID); err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	s.audit(r, "dashboard.share", id, map[string]any{"customer_id": in.CustomerID})
+	w.WriteHeader(204)
+}
+
+// PUT /v1/reports/{id}/customer {customer_id|null}: share a report with one customer subtree. Admin session
+// only. Every metric must be a device of that subtree; a scoped user also gets no run-time overrides.
+func (s *server) setReportCustomer(w http.ResponseWriter, r *http.Request) {
+	if auth.ViaKey(r) {
+		http.Error(w, "not available to API keys or the assistant", http.StatusForbidden)
+		return
+	}
+	if !requireRole(w, r, "admin") {
+		return
+	}
+	var in struct {
+		CustomerID *string `json:"customer_id"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in) != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	t, id := auth.Tenant(r), r.PathValue("id")
+	var defBytes []byte
+	if s.st.Pool.QueryRow(r.Context(), `SELECT definition FROM reports WHERE id=$1 AND tenant_id=$2`, id, t).Scan(&defBytes) != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	if in.CustomerID != nil {
+		var ok bool
+		s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM customers WHERE id=$1 AND tenant_id=$2)`, *in.CustomerID, t).Scan(&ok)
+		if !ok {
+			http.Error(w, "unknown customer", 404)
+			return
+		}
+		var def struct {
+			Metrics []struct {
+				DeviceID string `json:"device_id"`
+			} `json:"metrics"`
+		}
+		json.Unmarshal(defBytes, &def)
+		for _, m := range def.Metrics {
+			if !s.deviceInScope(r.Context(), t, *in.CustomerID, m.DeviceID) {
+				http.Error(w, "the report uses a device outside that customer: "+m.DeviceID, 409)
+				return
+			}
+		}
+	}
+	if _, err := s.st.Pool.Exec(r.Context(), `UPDATE reports SET customer_id=$3 WHERE id=$1 AND tenant_id=$2`, id, t, in.CustomerID); err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	s.audit(r, "report.share", id, map[string]any{"customer_id": in.CustomerID})
 	w.WriteHeader(204)
 }

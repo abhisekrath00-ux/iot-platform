@@ -39,7 +39,10 @@ Admin session only (not API keys, not the assistant): create/delete customers, a
 `TestIntegrationCustomerScope` (list, alert, health, telemetry, rollup, cross-tenant, writes, key refusal, unscope) and `TestScopedUsersAreDeniedEveryUnlistedRoute` (every registered route outside the allowlist is refused). Sabotaging the device-list filter makes the first test fail.
 
 ## Not covered (honest limits)
-- Scoped users are read-only and see devices, values and alerts only. No dashboards, reports, flows, assets or maps per customer. Those need their own scoping design.
+- Scoped users are read-only and see devices, values and alerts, plus dashboards and reports an admin has shared with their customer. No flows or assets per customer.
+- Sharing: `PUT /v1/dashboards/{id}/customer` and `PUT /v1/reports/{id}/customer` (admin session only, never an API key or the assistant). The server refuses to share, and refuses later edits of, a dashboard layout or report definition that names a device outside the customer subtree (409).
+- A scoped user may GET `/v1/dashboards`, GET `/v1/reports` and download a shared report. The download refuses any run-time parameter except `format` and `theme` (so no `device=` override), and the report list hides schedule and delivery channel. Preview, run, versions, edit and export stay denied.
+- Tested by `dashscope_test.go` and `reportscope_test.go` (cross-customer, cross-tenant, unshare, sabotage-checked).
 - Rows are not tagged by customer for alerts without a device, so those are hidden from scoped users.
 - No per-customer branding, quotas or billing. One scope per user.
 - Real-time streams and exports are not on the allowlist.
