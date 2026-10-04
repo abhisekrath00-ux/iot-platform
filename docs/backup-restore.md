@@ -57,3 +57,19 @@ reindex).
 
 Air-gapped note: everything above runs on the platform host with no network.
 Backups leave the box only via media the site already sanctions.
+
+## Rehearsal record (2026-10-04)
+
+The mechanism behind `scripts/backup.sh` and `restore.sh` (`pg_dump -Fc`, `pg_restore --clean --if-exists --no-owner`)
+was rehearsed against a development Postgres 16.2 holding about 11,600 telemetry rows, 27,500 audit rows, 166
+devices, 152 flows and 41 users. The dump restored into a fresh database with identical row counts for telemetry,
+devices, flows, audit_log, users and the newer tables, and the API booted on the restored database (all
+migrations re-ran cleanly) and served requests.
+
+What this does not prove: the shell scripts themselves were not run (they call `docker compose exec`, and there is
+no Docker in the development environment), and nothing was restored on a clean host or a different Postgres
+build. Do a full rehearsal with the scripts on the pilot host before relying on them.
+
+Lesson from the rehearsal: `pg_dump` must be the same major version as the server (a v14 client refused to dump a
+v16 server). The scripts run it inside the Postgres container, which satisfies this; if you dump from the host,
+match the version.
