@@ -178,3 +178,9 @@ function node sandbox.
 - Live by-reference subflows: built, see subflows.md (version-pinned, expansion at save time, manual refresh and publish). Not built: nesting, parameters, named exits.
 
 - Multi-user workspace layer (user management, optional local sign-in, tenant provisioning tool, sign-in page): first slice built, see saas-design.md for what is and is not covered (no custom roles, invitations, MFA at sign-in, quotas or billing).
+
+## Optional OpenSearch / Elasticsearch telemetry sink
+
+| Capability | Competitor | Status | Note |
+|---|---|---|---|
+| Push telemetry into a customer's own OpenSearch/Elasticsearch | ThingsBoard (rule-engine external nodes), Insights Hub integrations | Partial | One-way, idempotent, off by default, LAN-only if you wish. Tested against a fake `_bulk` endpoint only. See search-sink.md. No index templates, no read-back, no retention sync. |

@@ -23,6 +23,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/indexsink"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/leader"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/mdns"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
@@ -434,6 +435,13 @@ func main() {
 	// Hourly rollups always; raw-data purge only when RAW_RETENTION_DAYS is set (default: keep everything).
 	retDays, _ := strconv.Atoi(os.Getenv("RAW_RETENTION_DAYS"))
 	go leader.Run(ctx, st.Pool, leaderRetention, "retention", 30*time.Second, retention.Job(st.Pool, retDays, time.Hour))
+	// Optional telemetry index sink (OpenSearch / Elasticsearch). Off unless INDEX_SINK_URL is set; see docs/search-sink.md.
+	if sc, err := indexsink.FromEnv(os.Getenv); err != nil {
+		log.Fatalf("index sink: %v", err)
+	} else if sc != nil {
+		log.Printf("index sink enabled: %s index %s", sc.URL, sc.Index)
+		go leader.Run(ctx, st.Pool, leaderIndexSink, "index-sink", 30*time.Second, indexsink.New(sc, st.Pool).Run)
+	}
 	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: auth.SecurityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
 	if os.Getenv("MDNS_ADVERTISE") == "true" {
 		port, _ := strconv.Atoi(envOr("API_PORT", "8000"))
@@ -477,6 +485,9 @@ const leaderKPIRules int64 = 0x4845584D4F52
 
 // leaderAutoCommands is the advisory lock key for the automatic command dispatcher.
 const leaderAutoCommands int64 = 0x4845584D4155
+
+// leaderIndexSink is the advisory lock key for the optional telemetry index sink.
+const leaderIndexSink int64 = 0x4845584D4F51
 
 // leaderRetention is the advisory lock key for the rollup/retention job.
 const leaderRetention int64 = 0x4845584D4F50

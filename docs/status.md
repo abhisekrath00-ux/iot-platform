@@ -61,7 +61,7 @@ Across everything: about 420 Go tests and 51 web tests pass locally (full gate p
 | Asked for | Status | Notes |
 |---|---|---|
 | Production time-series store | Partial | Partitioned Postgres with hourly and daily rollups and retention. TimescaleDB and others evaluated, not adopted; no throughput figure measured on target hardware. No compression. |
-| Search | Partial | Postgres-based `GET /v1/search`. Elasticsearch/OpenSearch not built. |
+| Search | Partial | Postgres-based `GET /v1/search`. Optional telemetry index sink to OpenSearch/Elasticsearch (off by default, docs/search-sink.md): simulator-tested only, not run against a real cluster, nothing queries it back. |
 
 ## Quality and process
 | Item | Status |
