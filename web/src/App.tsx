@@ -84,6 +84,12 @@ export default function App() {
     if (me.role !== 'admin') return !['/users', '/customers'].includes(to);
     return true;
   });
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const on = () => setOnline(true), off = () => setOnline(false);
+    window.addEventListener('online', on); window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
   const signedOut = !localStorage.getItem('iot.token');
   const [tour, setTour] = useState(() => !tourDone(localStorage) && !!localStorage.getItem('iot.token'));
   if (window.location.pathname === '/accept-invite') return <AcceptInvite />;
@@ -94,6 +100,7 @@ export default function App() {
   return (
     <div className="shell">
       {tour && <Tour onClose={() => setTour(false)} />}
+      {!online && <div role="status" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50, textAlign: 'center', padding: '6px 12px', background: '#b45309', color: '#fff', fontSize: 13 }}>You are offline. The app opened from this device, but live data needs a connection to the server.</div>}
       <nav>
         <div className="brand">{logo ? <img src={logo} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }} /> : <span className="logo">{brand.slice(0, 1).toUpperCase()}</span>}{brand}</div>
         {me?.customer_name && <div className="muted" style={{ padding: '0 12px 8px' }}>{me.customer_name}</div>}

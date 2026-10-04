@@ -19,7 +19,7 @@ Across everything: about 420 Go tests and 51 web tests pass locally (full gate p
 | Dashboard to add devices, many sensor types | Built | Onboarding wizard, profiles, bulk CSV, auto-discovery scan (fakes only), 8 widget types, wall mode. |
 | Drag-and-drop flows and triggers, multiple flows | Built | Node-graph editor, versions, simulator, import/export, fragments and live subflows. No nested subflows or parameters. |
 | MCP server for AI models | Built | 14 tools, read plus drafts, never actuates. Tested with scripted clients, not with a real model. |
-| Mobile application | Partial | Responsive web plus home-screen manifest. No native app, no push, no offline. |
+| Mobile application | Partial | Responsive web, home-screen manifest, and an offline app shell (service worker, built 2026-10-04): the UI opens with no connection and shows an offline banner. It caches only the static shell; API, auth and health calls are never cached, so no data is available offline. Verified in headless Chrome (install, cache, offline reload). No native app, no push notifications, no offline data or queued writes. |
 | Secure by design | Built, unreviewed | mTLS gateways, ACLs, hashed keys, encrypted secrets, audit log, rate limits, default-deny scoping. No external review. |
 | Connect STM32 and other devices | Built (serial/direct MQTT), simulator-only for hardware | Firmware examples in connectors.md. |
 
