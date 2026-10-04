@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 /** Local sign-in (only when the deployment sets LOCAL_LOGIN=1) with a link to SSO. */
 export default function Login() {
@@ -8,6 +8,8 @@ export default function Login() {
   const [needCode, setNeedCode] = useState(false);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [signup, setSignup] = useState(false);
+  useEffect(() => { fetch('/auth/config').then(r => (r.ok ? r.json() : null)).then(c => setSignup(!!c?.self_signup)).catch(() => {}); }, []);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg(''); setBusy(true);
@@ -42,6 +44,7 @@ export default function Login() {
           <button type="submit" disabled={busy}>Sign in</button>
         </form>
         <p className="muted" style={{ marginBottom: 0 }}><a href="/auth/oidc/login">Sign in with single sign-on</a></p>
+        {signup && <p className="muted" style={{ marginBottom: 0 }}><a href="/signup">Create a workspace</a></p>}
       </div>
     </div>
   );

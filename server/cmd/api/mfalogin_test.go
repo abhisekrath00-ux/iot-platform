@@ -43,7 +43,7 @@ func TestIntegrationLoginMFA(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth/login", s.localLogin)
-	mux.HandleFunc("DELETE /v1/users/{id}/totp", s.resetUserTOTP)
+	mux.HandleFunc("POST /v1/users/{id}/totp/reset", s.resetUserTOTP)
 	h := s.activeUser(mux)
 	login := func(user, code string) *httptest.ResponseRecorder {
 		body := `{"email":"` + user + `@mf-test.example","password":"` + pw + `"`
@@ -85,7 +85,7 @@ func TestIntegrationLoginMFA(t *testing.T) {
 	pool.Exec(ctx, `UPDATE users SET failed_logins=0, locked_until=NULL WHERE id='mf-bob'`)
 	// reset rules: admin only, own tenant only, not self
 	del := func(tenant, actor, role, id string) int {
-		return callAs(h, tenant, actor, role, "DELETE", "/v1/users/"+id+"/totp", "").Code
+		return callAs(h, tenant, actor, role, "POST", "/v1/users/"+id+"/totp/reset", "").Code
 	}
 	if c := del("itest-mf1", "mf-plain", "viewer", "mf-bob"); c != 403 {
 		t.Fatalf("viewer reset = %d", c)

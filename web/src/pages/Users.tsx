@@ -63,7 +63,7 @@ export default function Users() {
               <td>
                 <button className="ghost" onClick={() => act(() => api(`/v1/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ disabled: !u.disabled }) }), u.disabled ? 'Enabled.' : 'Disabled. Their sessions stop working now.')}>{u.disabled ? 'Enable' : 'Disable'}</button>{' '}
                 <button className="ghost" onClick={() => reset(u)}>Set password</button>
-                <button className="ghost" onClick={() => { if (window.confirm(`Remove ${u.email}'s authenticator and end their sessions? Use this if they lost their phone.`)) act(() => api(`/v1/users/${u.id}/totp`, { method: 'DELETE' }), 'Authenticator removed.'); }}>Reset authenticator</button>
+                <button className="ghost" onClick={() => { if (window.confirm(`Remove ${u.email}'s authenticator and end their sessions? Use this if they lost their phone.`)) act(() => api(`/v1/users/${u.id}/totp/reset`, { method: 'POST' }), 'Authenticator removed.'); }}>Reset authenticator</button>
               </td>
             </tr>))}</tbody>
         </table>
