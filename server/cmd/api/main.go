@@ -259,6 +259,7 @@ func main() {
 	api.HandleFunc("GET /v1/attribute-defs", s.listAttrDefs)
 	api.HandleFunc("PUT /v1/attribute-defs/{key}", s.putAttrDef)
 	api.HandleFunc("DELETE /v1/attribute-defs/{key}", s.deleteAttrDef)
+	api.HandleFunc("GET /v1/usage", s.usage)
 	api.HandleFunc("GET /v1/dashboards", s.listDashboards)
 	s.cached(api, "GET /v1/fleet", s.fleetStatus)
 	api.HandleFunc("GET /v1/audit", s.listAudit)
@@ -572,6 +573,9 @@ func (s *server) createDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.GatewayID == "" || in.Profile == "" || in.Name == "" {
 		http.Error(w, "gateway_id, profile, name required", 400)
+		return
+	}
+	if !s.quotaOK(w, r, "devices", 1) {
 		return
 	}
 	id := uuid.NewString()

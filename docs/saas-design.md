@@ -11,6 +11,7 @@ Status: first slice built and tested against a real Postgres. Not remote-CI veri
 ## Built
 | Piece | Detail |
 | --- | --- |
+| Quotas and usage | Operator sets limits with `tenantctl quota set --tenant ID\|* [--devices N] [--users N] [--api-keys N] [--customers N]` (-1 = unlimited; `*` is the default for tenants without a row), `quota show`. Enforced twice: a clear 409 in each create handler, and an atomic database trigger (per-tenant advisory lock) that holds under concurrent inserts. Users count pending invites; revoked or expired API keys do not count. A tenant admin sees use against limits in Settings (`GET /v1/usage`, plus 24h and 30d data-point counts) but cannot change limits. No payment processor, invoicing or plans exist, by design. |
 | Tenant provisioning | `go run ./cmd/tenantctl create --id --name --admin-email [--password-stdin]`, `list`. One transaction, first admin created. |
 | User management | `GET/POST /v1/users`, `PUT /v1/users/{id}` (role, name, disabled), `PUT /v1/users/{id}/password`. Admin session only: API keys and the assistant are refused. All audited. |
 | Guards | One active admin always remains (row-locked check, so two concurrent changes cannot remove the last one). You cannot change or disable your own account. Cross-tenant ids answer 404. |

@@ -28,6 +28,9 @@ func (s *server) createInvite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invitations need local sign-in (LOCAL_LOGIN=1); with single sign-on add the user directly", 409)
 		return
 	}
+	if !s.quotaOK(w, r, "users", 1) {
+		return
+	}
 	var raw struct {
 		Email      string  `json:"email"`
 		Role       string  `json:"role"`

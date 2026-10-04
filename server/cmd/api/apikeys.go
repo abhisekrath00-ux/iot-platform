@@ -63,6 +63,9 @@ func (s *server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "admin session required", 403)
 		return
 	}
+	if !s.quotaOK(w, r, "api_keys", 1) {
+		return
+	}
 	var in struct {
 		Name   string   `json:"name"`
 		Role   string   `json:"role"`

@@ -166,6 +166,9 @@ func (s *server) assignCommissionProfile(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "session already has a device", 409)
 		return
 	}
+	if !s.quotaOK(w, r, "devices", 1) {
+		return
+	}
 	var driverProfile string
 	var points []byte
 	if err := s.st.Pool.QueryRow(r.Context(),

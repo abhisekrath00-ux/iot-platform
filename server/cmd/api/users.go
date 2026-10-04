@@ -74,6 +74,9 @@ func (s *server) createUser(w http.ResponseWriter, r *http.Request) {
 	if !userAdminOnly(w, r) {
 		return
 	}
+	if !s.quotaOK(w, r, "users", 1) {
+		return
+	}
 	var in struct {
 		Email, DisplayName, Role, Password string
 	}

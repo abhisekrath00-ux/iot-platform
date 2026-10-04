@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import ApiKeys from '../components/ApiKeys';
 import RetentionCard from '../components/RetentionCard';
+import UsageCard from '../components/UsageCard';
 import DirectDevices from '../components/DirectDevices';
 import EdgeRules from '../components/EdgeRules';
 import FeatureToggles from '../components/FeatureToggles';
@@ -81,6 +82,7 @@ export default function Settings() {
         </form>
         {bMsg && <p className="muted" role="status">{bMsg}</p>}
       </div>
+      <UsageCard />
       <RetentionCard />
       <DirectDevices />
       <FeatureToggles />

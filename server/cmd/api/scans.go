@@ -281,6 +281,9 @@ func (s *server) addScannedDevice(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "profile points corrupt", 500)
 		return
 	}
+	if !s.quotaOK(w, r, "devices", 1) {
+		return
+	}
 	devID := uuid.NewString()
 	cfg, _ := json.Marshal(map[string]any{"device_profile_id": in.ProfileID, "connection": in.Connection, "added_from_scan": sid})
 	tx, err := s.st.Pool.Begin(r.Context())

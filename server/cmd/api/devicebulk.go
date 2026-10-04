@@ -158,6 +158,9 @@ func (s *server) bulkCreateDevices(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]any{"created": 0, "problems": problems})
 		return
 	}
+	if !s.quotaOK(w, r, "devices", len(rows)) {
+		return
+	}
 	if r.URL.Query().Get("dry_run") == "1" {
 		writeJSON(w, 200, map[string]any{"created": 0, "would_create": len(rows), "problems": []string{}})
 		return

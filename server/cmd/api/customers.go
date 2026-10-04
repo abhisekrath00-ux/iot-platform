@@ -148,6 +148,9 @@ func (s *server) createCustomer(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if !s.quotaOK(w, r, "customers", 1) {
+		return
+	}
 	var in struct {
 		Name     string  `json:"name"`
 		ParentID *string `json:"parent_id"`
