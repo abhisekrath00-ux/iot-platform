@@ -79,3 +79,16 @@ uses function nodes to harm other tenants or the platform.
 - Escape: no known path; none proven absent.
 - Mitigations beyond code: keep the feature off unless needed, keep admins few,
   review the audit log for `feature.set` and flow publishes.
+
+## Custom node types (admin-defined templates)
+
+An admin of a tenant with `function_nodes` enabled can save a function node's code as a named custom node
+type (`/v1/node-templates`, migration 0061; name up to 60 chars, unique per tenant ignoring case, code up to
+4000 bytes, at most 100 per tenant). Each type appears in the flow editor's Add list. Adding one **copies** the
+code into an ordinary function node: it is checked, sandboxed and limited exactly like hand-written code, and
+editing or deleting a template never changes flows that already copied it.
+
+- Admin session only. Operators, viewers, API keys and the assistant get 403. With the feature off, 403.
+- Code is compile-checked on save. Every change is audited (`node_template.create/update/delete`).
+- Tested: tenant isolation (list, update, delete), role and feature gates, validation, uniqueness, audit
+  (sabotage-checked). Not built: typed parameters or custom ports per template.

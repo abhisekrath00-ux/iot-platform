@@ -53,7 +53,7 @@ func TestIntegrationSelfSignup(t *testing.T) {
 	t.Setenv("LOCAL_LOGIN", "1")
 	var tenants int
 	pool.QueryRow(ctx, `SELECT count(*) FROM tenants`).Scan(&tenants)
-	t.Setenv("SELF_SIGNUP_MAX_TENANTS", fmt.Sprint(tenants+3))
+	t.Setenv("SELF_SIGNUP_MAX_TENANTS", fmt.Sprint(tenants+200))
 	w := post(body("signup-test-a", "a@signup-test.example"))
 	if w.Code != 201 || !strings.Contains(w.Body.String(), `"role":"admin"`) || !strings.Contains(w.Body.String(), `"token"`) {
 		t.Fatalf("sign-up = %d %s", w.Code, w.Body.String())

@@ -7,6 +7,7 @@ import {
   portCount, portY, problems, prunePorts, removeNode
 } from '../lib/graph';
 
+interface NodeTpl { id: string; name: string; description: string; code: string; }
 interface Channel { id: string; type: string; target: string; }
 interface FlowRow { id: string; name: string; definition: any; enabled: boolean; published_version?: number | null; latest_version?: number | null; }
 interface TestResult { matched: boolean; actions: { channel_id: string; message: string; delay_seconds: number }[]; debug: { node: string; message: string }[]; }
@@ -30,6 +31,8 @@ export default function FlowEditor() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [flows, setFlows] = useState<FlowRow[]>([]);
   const [fnOn, setFnOn] = useState(false);
+  const [tpls, setTpls] = useState<NodeTpl[]>([]);
+  const [tplMsg, setTplMsg] = useState('');
   const [httpOn, setHttpOn] = useState(false);
   const [ctlOn, setCtlOn] = useState(false);
   const [mgrMsg, setMgrMsg] = useState('');
@@ -55,11 +58,22 @@ export default function FlowEditor() {
   const setG = (fn: (g: Graph) => Graph, dirty = true) => patchTab(tab.key, t => ({ g: fn(t.g), dirty: dirty || t.dirty }));
   const g = tab.g;
 
+  const loadTpls = () => api<NodeTpl[]>('/v1/node-templates').then(setTpls).catch(() => setTpls([]));
+  async function saveTpl(name: string, code: string) {
+    const n = window.prompt('Name for this custom node type', name || '');
+    if (!n) return;
+    try { await api('/v1/node-templates', { method: 'POST', body: JSON.stringify({ name: n, description: '', code }) }); setTplMsg(`Saved "${n}". It is now in the Add list.`); loadTpls(); }
+    catch (e) { setTplMsg(String(e)); }
+  }
+  async function delTpl(t: NodeTpl) {
+    if (!window.confirm(`Delete custom node type "${t.name}"? Flows that already use it keep their copy of the code.`)) return;
+    try { await api(`/v1/node-templates/${t.id}`, { method: 'DELETE' }); setTplMsg(`Deleted "${t.name}".`); loadTpls(); } catch (e) { setTplMsg(String(e)); }
+  }
   const loadFlows = () => api<FlowRow[]>('/v1/flows').then(setFlows).catch(() => {});
   useEffect(() => {
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
     loadFlows();
-    api<{ function_nodes: boolean; http_nodes?: boolean; control_nodes?: boolean }>('/v1/features').then(f => { setFnOn(f.function_nodes); setHttpOn(!!f.http_nodes); setCtlOn(!!f.control_nodes); }).catch(() => {});
+    api<{ function_nodes: boolean; http_nodes?: boolean; control_nodes?: boolean }>('/v1/features').then(f => { setFnOn(f.function_nodes); if (f.function_nodes) loadTpls(); setHttpOn(!!f.http_nodes); setCtlOn(!!f.control_nodes); }).catch(() => {});
   }, []);
 
   const node = g.nodes.find(n => n.id === tab.sel) ?? null;
@@ -213,7 +227,19 @@ export default function FlowEditor() {
         <input aria-label="Flow name" value={tab.name} disabled={!!tab.flowId} title={tab.flowId ? 'Use Rename in the list above' : ''} onChange={e => patchTab(tab.key, { name: e.target.value, dirty: true })} placeholder="Flow name" style={{ maxWidth: 260 }} />
         <span className="muted">Add:</span>
         {types.map(t => <button key={t} type="button" className="ghost" onClick={() => setG(cur => addNode(cur, t, 60 + (cur.nodes.length % 5) * 30, 40 + cur.nodes.length * 40 % 300))}>+ {LABELS[t]}</button>)}
+        {fnOn && tpls.map(t => <button key={t.id} type="button" className="ghost" title={t.description || 'Custom node type'} onClick={() => setG(cur => {
+          const r = addNode(cur, 'function', 60 + (cur.nodes.length % 5) * 30, 40 + cur.nodes.length * 40 % 300);
+          const last = r.nodes[r.nodes.length - 1];
+          return { ...r, nodes: r.nodes.map(n => (n === last ? { ...n, name: t.name, code: t.code } : n)) };
+        })}>+ {t.name}</button>)}
       </div>
+      {fnOn && (tpls.length > 0 || tplMsg) && <div className="card" style={{ marginBottom: 10 }}>
+        <b>Custom node types</b> <span className="muted">(admin-defined function presets; adding one copies its code into a normal function node, which runs in the same sandbox)</span>
+        {tplMsg && <p role="status" className="muted">{tplMsg}</p>}
+        <table className="fe-flows"><tbody>
+          {tpls.map(t => <tr key={t.id}><td>{t.name}</td><td className="muted"><code>{t.code.slice(0, 70)}{t.code.length > 70 ? '...' : ''}</code></td><td><button type="button" className="ghost" onClick={() => delTpl(t)}>Delete</button></td></tr>)}
+        </tbody></table>
+      </div>}
       <FragmentBar g={g} setG={fn => setG(fn)} />
       <div className="fe-layout">
         <div className="fe-canvas card" style={{ padding: 0 }}>
@@ -260,7 +286,7 @@ export default function FlowEditor() {
           </svg>
         </div>
         <div className="fe-side">
-          {node ? <Props n={node} g={g} channels={channels} upd={p => upd(node.id, p)}
+          {node ? <Props saveTpl={saveTpl} n={node} g={g} channels={channels} upd={p => upd(node.id, p)}
             connectTo={(port, to) => tryConnect(node.id, port, to)}
             setStartKind={k => setG(cur => setStart(cur, k))}
             remove={() => { setG(cur => removeNode(cur, node.id)); patchTab(tab.key, { sel: null }); }} /> :
@@ -314,7 +340,8 @@ function summary(n: GNode): string {
   }
 }
 
-function Props({ n, g, channels, upd, connectTo, remove, setStartKind }: {
+function Props({ n, g, channels, upd, connectTo, remove, setStartKind, saveTpl }: {
+  saveTpl: (name: string, code: string) => void;
   setStartKind: (k: 'trigger' | 'inject') => void;
   n: GNode; g: Graph; channels: Channel[]; upd: (p: Partial<GNode>) => void;
   connectTo: (port: number, to: string) => void; remove: () => void;
@@ -470,6 +497,7 @@ function Props({ n, g, channels, upd, connectTo, remove, setStartKind }: {
         <label htmlFor="np-code">JavaScript (admin only; runs in a sandbox)</label>
         <textarea id="np-code" rows={8} value={n.code ?? ''} maxLength={4000} onChange={e => upd({ code: e.target.value })} style={{ fontFamily: 'ui-monospace, monospace', width: '100%' }} />
         <p className="muted">Receives <code>msg</code>, returns it. 50 ms and memory limits apply. See docs/function-nodes.md.</p>
+        <button type="button" className="ghost" disabled={!(n.code ?? '').trim()} onClick={() => saveTpl(n.name ?? '', n.code ?? '')}>Save as custom node type</button>
       </>}
       {portCount(n) > 0 && <>
         <label>Connect this node to</label>

@@ -33,7 +33,7 @@ Across everything: about 420 Go tests and 51 web tests pass locally (full gate p
 | Rules, alarms (ack, assign, escalation, on-call, maintenance windows) | Built | No SMS or Teams channels. |
 | Asset hierarchy, relations, attributes | Built / partial | No relation-driven dashboards. |
 | KPIs and derived points | Partial | Formulas, history and widgets; no KPI alerting. |
-| Node-RED style flows | Built / partial | Own engine and editor; Node-RED file import is a subset; real Node-RED not embedded; no custom node SDK. |
+| Node-RED style flows | Built / partial | Own engine and editor; Node-RED file import is a subset; real Node-RED not embedded; admin-defined custom node types (saved function presets, no SDK or typed parameters). |
 | Function node (sandboxed JS) | Built, unreviewed | Off by default, admin only. |
 | Report Builder parity: layouts, params, CSV/HTML/PDF/XLSX, schedules, themes, logos, insights | Built / partial | No drill-through or subreports, charts not rendered into delivered files, no Word/PowerPoint. |
 | Geofences and map | Partial | Hand-entered positions, circular zones, self-hosted tiles. No enter/exit alerts, polygons or GPS tracks. |
