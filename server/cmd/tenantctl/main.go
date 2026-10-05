@@ -3,6 +3,7 @@
 //
 //	DATABASE_URL=... tenantctl create --id acme --name "Acme Foods" --admin-email admin@acme.example [--admin-name "Admin"] [--password-stdin]
 //	DATABASE_URL=... tenantctl list
+//	DATABASE_URL=... tenantctl ai-connect --tenant acme [--base-url http://ai-runtime:8090/v1] [--model qwen3-1.7b]
 package main
 
 import (
@@ -95,6 +96,27 @@ func main() {
 		fmt.Printf("created tenant %s with admin %s (%s)\n", *id, *email, uid)
 	case "quota":
 		quotaCmd(ctx, st)
+	case "ai-connect":
+		// Points a tenant's AI assistant at the bundled local runtime. No key is stored: the runtime is only
+		// reachable on the compose network. Operator action, like the rest of tenantctl.
+		fs := flag.NewFlagSet("ai-connect", flag.ExitOnError)
+		tenant := fs.String("tenant", "", "tenant id")
+		base := fs.String("base-url", "http://ai-runtime:8090/v1", "OpenAI-compatible base URL")
+		model := fs.String("model", "qwen3-1.7b", "model name")
+		fs.Parse(os.Args[2:])
+		if !idRe.MatchString(*tenant) || !strings.HasPrefix(*base, "http://ai-runtime:") && !strings.HasPrefix(*base, "http://localhost:") || strings.TrimSpace(*model) == "" || len(*model) > 200 {
+			fatal("need --tenant ID, --model NAME and a --base-url on the bundled runtime (http://ai-runtime:PORT/v1)")
+		}
+		tag, err := st.Pool.Exec(ctx, `INSERT INTO ai_settings(tenant_id,enabled,base_url,model,key_secret,updated_by)
+			SELECT id,true,$2,$3,'','tenantctl' FROM tenants WHERE id=$1
+			ON CONFLICT (tenant_id) DO UPDATE SET enabled=true, base_url=EXCLUDED.base_url, model=EXCLUDED.model, updated_by='tenantctl', updated_at=now()`, *tenant, *base, *model)
+		if err != nil {
+			fatal("could not save the AI settings: " + err.Error())
+		}
+		if tag.RowsAffected() == 0 {
+			fatal("no such tenant: " + *tenant)
+		}
+		fmt.Printf("AI assistant for %s connected to %s (model %s)\n", *tenant, *base, *model)
 	default:
 		fatal("unknown command " + os.Args[1])
 	}
