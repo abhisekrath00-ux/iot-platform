@@ -27,12 +27,19 @@ function RandAlnum($n) {
 function RandB64 { return [Convert]::ToBase64String((RandBytes 32)) }
 function Dc { & docker compose @args 2>&1 | Add-Content -Path $Log; if ($LASTEXITCODE -ne 0) { throw "docker compose $args failed" } }
 
+$uiFile = Join-Path $PSScriptRoot "hx-ui.ps1"
+$hasUi = Test-Path $uiFile
+if ($hasUi) { . $uiFile }
 function Banner {
-  $c = @("Cyan","Cyan","Blue","Blue","DarkBlue","Magenta")
-  $art = @("  #   #  #####","  #   #    #    HexThings","  #####    #    industrial IoT platform","  #   #    #","  #   #    #    guided installer","")
-  Write-Host ""
-  for ($i = 0; $i -lt $art.Count; $i++) { Write-Host $art[$i] -ForegroundColor $c[$i] }
-  Write-Host ""
+  if ($hasUi) { Hx-Wordmark "guided installer" -Animate; Hx-Footer; Write-Host "" }
+  else {
+    $c = @("Cyan","Cyan","Blue","Blue","DarkBlue","Magenta")
+    $art = @("  #   #  #####","  #   #    #    HexThings","  #####    #    industrial IoT platform","  #   #    #","  #   #    #    guided installer","")
+    Write-Host ""
+    for ($i = 0; $i -lt $art.Count; $i++) { Write-Host $art[$i] -ForegroundColor $c[$i] }
+    Write-Host ""
+    Write-Host "  Made with <3 by Hexmon Technology"
+  }
   Add-Content -Path $Log -Value "HexThings guided installer"
 }
 Banner; Say "1. Checking this machine"
@@ -172,3 +179,4 @@ Say "  Open:      http://localhost:$WebPort"; Say "  Workspace: $Workspace"; Say
 if ($Pass) { Say "  Password:  $Pass"; Say "             (also saved in install-credentials.txt; change it and delete the file)" }
 Say ""; Say "  Manage: hexthings status | update | backup | restore | logs | version   (open a new terminal first)"
 if ($script:Warnings -gt 0) { Say "  Note: $($script:Warnings) warning(s) above. The log is in $Log." }
+Write-Host ""; if ($hasUi) { Hx-Footer } else { Write-Host "  Made with <3 by Hexmon Technology" }

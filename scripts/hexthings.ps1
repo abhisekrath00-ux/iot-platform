@@ -3,9 +3,9 @@
 #            backup | restore FILE | ai [status|connect] | open | help
 # Run from anywhere once the installer has put `hexthings` on your PATH, or: .\scripts\hexthings.ps1 status
 # Every docker call checks its exit code. NOT TESTED on Windows: parsed and partly run under PowerShell 7 on Linux.
-param([Parameter(Position = 0)][string]$Command = "help", [Parameter(Position = 1)][string]$Arg = "",
+param([Parameter(Position = 0)][string]$Command = "", [Parameter(Position = 1)][string]$Arg = "",
       [switch]$Yes, [switch]$NoBackup, [switch]$Follow, [string]$Workspace = "", [string]$Dir = "backups")
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Continue"; $ProgressPreference = "SilentlyContinue"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not (Test-Path (Join-Path $Root "docker-compose.yml"))) { Write-Host "Cannot find the HexThings folder (docker-compose.yml) above $PSScriptRoot"; exit 1 }
 Set-Location $Root
@@ -23,11 +23,7 @@ function Bad($m)  { if ($Color) { Write-Host "  $($sym.bad)  " -ForegroundColor 
 function Bar($n, $t) { $w = 20; $f = [int]($w * $n / $t); ($sym.on * $f) + ($sym.off * ($w - $f)) }
 $script:stepNo = 0; $script:stepTotal = 1
 function Step($title) { $script:stepNo++; Write-Host ""; Paint "| $($script:stepNo)/$($script:stepTotal)  $title   $(Bar $script:stepNo $script:stepTotal)" Cyan }
-function Banner($sub) {
-  $art = @("  #   #  #####", "  #   #    #    HexThings", "  #####    #    $sub", "  #   #    #", "  #   #    #")
-  $col = @("Cyan", "Cyan", "Blue", "DarkBlue", "Magenta")
-  Write-Host ""; for ($i = 0; $i -lt $art.Count; $i++) { Paint $art[$i] $col[$i] }; Write-Host ""
-}
+function Banner($sub) { Hx-Wordmark $sub }
 function Spin($msg, [scriptblock]$work) {  # runs the work, shows elapsed seconds on one line
   $sw = [Diagnostics.Stopwatch]::StartNew()
   $job = Start-Job -ScriptBlock $work
@@ -37,6 +33,13 @@ function Spin($msg, [scriptblock]$work) {  # runs the work, shows elapsed second
   $out = Receive-Job $job; Remove-Job $job; return $out
 }
 
+$uiFile = Join-Path $PSScriptRoot "hx-ui.ps1"
+if (Test-Path $uiFile) { . $uiFile } else {
+  function Hx-Wordmark($Sub = "", [switch]$Animate) { Write-Host ""; Write-Host "  HexThings  $Sub"; Write-Host "" }
+  function Hx-Footer { Write-Host "  Made with <3 by Hexmon Technology" }
+  function Hx-Startup($Sub = "") { Hx-Wordmark $Sub; Hx-Footer }
+  function Hx-Menu($Title, $Items, $Hints) { return -2 }
+}
 # ---- helpers -------------------------------------------------------------------------------------
 function EnvVal($k, $d) { if (Test-Path .env) { $m = Select-String -Path .env -Pattern "^$k=(.*)$" | Select-Object -First 1; if ($m -and $m.Matches[0].Groups[1].Value.Trim()) { return $m.Matches[0].Groups[1].Value.Trim() } }; return $d }
 $WebPort = EnvVal "WEB_PORT" "8080"
@@ -168,6 +171,8 @@ function Do-Ai {
     if ($up) { Ok "ai-runtime is running" } else { Warn "ai-runtime is not running" }
   }
 }
+$toolsFile = Join-Path $PSScriptRoot "hx-tools.ps1"
+if (Test-Path $toolsFile) { . $toolsFile } else { function Do-Menu { Do-Help } }
 function Do-Help {
   Banner "management"
   Write-Host "  hexthings status               what is running, version, last backup"
@@ -181,10 +186,23 @@ function Do-Help {
   Write-Host "  hexthings restore FILE [-Yes]  restore a backup (replaces current data)"
   Write-Host "  hexthings ai [status|connect]  local AI model status / connect the assistant"
   Write-Host "  hexthings open                 open the web app in your browser"
+  Write-Host ""
+  Write-Host "  hexthings                      interactive menu (arrows or numbers)"
+  Write-Host "  hexthings dash                 live dashboard: CPU, memory, alerts, database"
+  Write-Host "  hexthings diag                 diagnostics: docker, services, ports, database, disk, logs"
+  Write-Host "  hexthings support              support zip with versions, state and redacted logs"
+  Write-Host "  hexthings prune | vacuum | reindex   maintenance"
+  Write-Host "  hexthings shell [service]      shell inside a container"
+  Write-Host "  hexthings apitest | info       health checks with timings / versions"
+  Write-Host ""
+  Hx-Footer
 }
 switch ($Command.ToLower()) {
   "status" { Do-Status } "start" { Do-Start } "stop" { Do-Stop } "restart" { Do-Restart } "logs" { Do-Logs }
   "version" { Do-Version } "update" { Do-Update "" } "patch" { if (-not $Arg) { Bad "usage: hexthings patch FILE.zip"; exit 1 }; Do-Update $Arg }
   "backup" { Do-Backup } "restore" { Do-Restore } "ai" { Do-Ai } "open" { Start-Process "http://localhost:$WebPort" }
+  "" { Do-Menu } "menu" { Do-Menu } "dash" { Do-Dash } "dashboard" { Do-Dash }
+  "diag" { Do-Diagnose } "diagnose" { Do-Diagnose } "diagnostics" { Do-Diagnose } "support" { Do-Support }
+  "prune" { Do-Prune } "vacuum" { Do-Vacuum } "reindex" { Do-Reindex } "shell" { Do-Shell } "apitest" { Do-ApiTest } "info" { Do-Info }
   default { Do-Help }
 }
