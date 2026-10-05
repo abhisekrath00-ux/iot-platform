@@ -84,3 +84,4 @@ Across everything: about 444 Go test functions (server 322, edge 122) and 55 web
 - One-command bootstrap `scripts/get.sh` / `scripts/get.ps1` (public repo only; never run end to end, get.ps1 never run).
 
 - DB-backed Go tests re-run on a throwaway local Postgres 14 (Oct 5): all server packages pass. Remote CI still not run.
+- Sites: `POST /v1/sites` (admin) and an inline "Create site" in Add device and Commission a sensor; new workspaces made by tenantctl/the installer get a "Main site". Before this there was no way to create a site in the UI or API. DB-tested; UI not screenshot-tested.
