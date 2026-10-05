@@ -98,6 +98,7 @@ func seed(t testing.TB, s *server, tenant string) {
 		`INSERT INTO gateways(id,tenant_id,site_id,serial,status) VALUES('` + tenant + `-gw','` + tenant + `','` + tenant + `-site','SER-` + tenant + `','active') ON CONFLICT DO NOTHING`,
 		`DELETE FROM telemetry WHERE tenant_id='` + tenant + `'`,
 		`DELETE FROM telemetry_rollup_hourly WHERE tenant_id='` + tenant + `'`,
+		`DELETE FROM telemetry_rollup_daily WHERE tenant_id='` + tenant + `'`, // a running API's retention job rolls seeded rows up; stale daily rows double-count
 		`DELETE FROM points WHERE device_id IN (SELECT id FROM devices WHERE tenant_id='` + tenant + `')`,
 		`DELETE FROM devices WHERE tenant_id='` + tenant + `'`,
 		`INSERT INTO devices(id,tenant_id,gateway_id,profile,name,config) VALUES('` + tenant + `-dev','` + tenant + `','` + tenant + `-gw','modbus-tcp','Boiler PLC',
