@@ -175,7 +175,7 @@ func TestLocalRuntimeSeesOnlyTypedTools(t *testing.T) {
 			t.Fatal("the generic tool must not be offered to a local runtime")
 		}
 	}
-	if len(offered) < 10 {
+	if len(offered) < 4 || len(offered) > 12 { // a short, per-turn menu so the prompt fits a small context
 		t.Fatalf("typed tools missing: %v", offered)
 	}
 	if len(res.trace) != 1 || res.trace[0].Status != "refused" {
