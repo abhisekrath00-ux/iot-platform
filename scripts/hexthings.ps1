@@ -140,7 +140,15 @@ function Do-Update([string]$fromZip) {
 }
 function Do-Ai {
   NeedDocker; $script:stepTotal = 1; Banner "local AI"; Step "Local AI assistant"
-  if ($Arg -eq "connect") {
+  if ($Arg -eq "stop") {
+    if ((Dc stop ai-runtime) -ne 0) { Bad "could not stop the AI runtime"; exit 1 }
+    Ok "AI model stopped. The platform keeps running; the assistant answers 'no model' until: hexthings ai start"
+  } elseif ($Arg -eq "start") {
+    if (-not (Test-Path "models\model.gguf")) { Bad "no models\model.gguf, nothing to start"; exit 1 }
+    $env:AI_MODEL_SHA256 = (Get-FileHash "models\model.gguf" -Algorithm SHA256).Hash.ToLower()
+    if ((Dc up -d ai-runtime) -ne 0) { Bad "could not start the AI runtime"; exit 1 }
+    Ok "AI model starting (the first answer is slow while it loads, about 10-60 seconds)"
+  } elseif ($Arg -eq "connect") {
     if (-not (Test-Path "models\model.gguf")) { Bad "no models\model.gguf. Re-run the installer with AI (get.ps1) or copy a .gguf there first."; exit 1 }
     if (-not $Workspace -and (Test-Path install-credentials.txt)) { $m = Select-String -Path install-credentials.txt -Pattern "^Workspace:\s*(\S+)" | Select-Object -First 1; if ($m) { $Workspace = $m.Matches[0].Groups[1].Value } }
     if (-not $Workspace) { Bad "tell me the workspace: hexthings ai connect -Workspace my-plant"; exit 1 }
@@ -157,7 +165,8 @@ function Do-Ai {
 function Do-Help {
   Banner "management"
   Write-Host "  hexthings status               what is running, version, last backup"
-  Write-Host "  hexthings start | stop | restart"
+  Write-Host "  hexthings start | stop | restart   (stop also stops the AI model)"
+  Write-Host "  hexthings ai stop | start | status   (only the AI model; the platform keeps running)"
   Write-Host "  hexthings logs [service] [-Follow]"
   Write-Host "  hexthings version              installed version and whether a newer one exists"
   Write-Host "  hexthings update [-NoBackup]   backup, download the latest, rebuild, check health"
