@@ -225,6 +225,9 @@ func Resolve(name, argsJSON string) (*Call, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %v", p.Name, err)
 		}
+		if s == "" && !p.Required {
+			continue // an empty optional value means "not given"; never send it
+		}
 		vals[p.Name] = s
 	}
 	c := &Call{Tool: t, Method: t.Method, Path: t.Path, Query: map[string]string{}}
