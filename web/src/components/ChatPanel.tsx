@@ -112,9 +112,14 @@ export default function ChatPanel() {
                 <div className="muted" style={{ fontSize: 11 }}>{t.role === 'user' ? 'You' : 'Assistant'}</div>
                 {t.role === 'user' ? <div style={{ whiteSpace: 'pre-wrap' }}>{t.content}</div> : (
                   <div role={t.error ? 'alert' : undefined} style={t.error ? { color: '#dc2626' } : undefined}>
-                    {t.plan && t.plan.length > 0 && <ol className="muted" style={{ margin: '4px 0', paddingLeft: 20, fontSize: 12 }}>{t.plan.map((p, j) => <li key={j}>{p}</li>)}</ol>}
+                    {t.plan && t.plan.length > 0 && (
+                      <details style={{ margin: '4px 0' }}>
+                        <summary className="muted" style={{ fontSize: 12 }}>Plan ({t.plan.length})</summary>
+                        <ol className="muted" style={{ margin: '4px 0', paddingLeft: 20, fontSize: 12 }}>{t.plan.map((p, j) => <li key={j}>{p}</li>)}</ol>
+                      </details>
+                    )}
                     {t.steps && t.steps.length > 0 && (
-                      <details open={t.live} style={{ margin: '4px 0' }}>
+                      <details style={{ margin: '4px 0' }}>
                         <summary className="muted" style={{ fontSize: 12 }}>{t.steps.length} step{t.steps.length === 1 ? '' : 's'}</summary>
                         {t.steps.map((s, j) => <div key={j} className="muted" style={{ fontSize: 11 }}><span className={`pill ${s.status === 'ok' ? 'ok' : s.status === 'proposed' ? '' : 'warn'}`}>{s.status}</span> {s.tool}: {s.detail}</div>)}
                       </details>
