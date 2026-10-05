@@ -12,3 +12,6 @@ CREATE TABLE IF NOT EXISTS ai_profiles (
   PRIMARY KEY (tenant_id, id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ai_profiles_name ON ai_profiles (tenant_id, lower(name));
+-- Model capability: 'auto' (local runtime = small, hosted = full), 'small' or 'full'.
+ALTER TABLE ai_profiles ADD COLUMN IF NOT EXISTS capability TEXT NOT NULL DEFAULT 'auto';
+ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS capability TEXT NOT NULL DEFAULT 'auto';
