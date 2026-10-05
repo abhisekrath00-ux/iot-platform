@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
-interface P { id: string; name: string; base_url: string; model: string; has_key: boolean; builtin: boolean; active: boolean; }
+interface P { id: string; name: string; base_url: string; model: string; has_key: boolean; builtin: boolean; active: boolean; capability: string; small_model_mode: boolean; }
 interface L { profiles: P[]; enabled: boolean; secrets_available: boolean; }
 
 // Saved AI provider profiles: add each provider once (key stored encrypted, never shown again),
@@ -13,18 +13,19 @@ export default function AIProfiles({ onChange }: { onChange?: () => void }) {
   const [url, setUrl] = useState('');
   const [model, setModel] = useState('');
   const [key, setKey] = useState('');
+  const [cap, setCap] = useState('auto');
   const [msg, setMsg] = useState('');
   const load = () => api<L>('/v1/ai/profiles').then(setL).catch(() => undefined);
   useEffect(() => { load(); }, []);
   function open(p?: P) {
-    setEdit(p ? p.id : 'new'); setName(p?.name ?? ''); setUrl(p?.base_url ?? ''); setModel(p?.model ?? ''); setKey(''); setMsg('');
+    setEdit(p ? p.id : 'new'); setName(p?.name ?? ''); setUrl(p?.base_url ?? ''); setModel(p?.model ?? ''); setCap(p?.capability ?? 'auto'); setKey(''); setMsg('');
   }
   async function run(path: string, init: RequestInit, ok?: string) {
     setMsg('');
     try { const r = await api<L>(path, init); setL(r); if (ok) setMsg(ok); onChange?.(); } catch (e) { setMsg(String(e)); }
   }
   async function save(clearKey = false) {
-    const body = JSON.stringify({ name, base_url: url, model, ...(key ? { api_key: key } : {}), clear_key: clearKey });
+    const body = JSON.stringify({ name, base_url: url, model, capability: cap, ...(key ? { api_key: key } : {}), clear_key: clearKey });
     await run(edit === 'new' ? '/v1/ai/profiles' : `/v1/ai/profiles/${edit}`, { method: edit === 'new' ? 'POST' : 'PUT', body }, 'Saved.');
     setKey(''); setEdit(null);
   }
@@ -47,12 +48,13 @@ export default function AIProfiles({ onChange }: { onChange?: () => void }) {
         {l.profiles.map(p => <option key={p.id} value={p.id}>{p.name} - {p.model}</option>)}
       </select>
       <table style={{ width: '100%', marginTop: 12 }}>
-        <thead><tr><th>Name</th><th>Model</th><th>Key</th><th /></tr></thead>
+        <thead><tr><th>Name</th><th>Model</th><th>Mode</th><th>Key</th><th /></tr></thead>
         <tbody>
           {l.profiles.map(p => (
             <tr key={p.id}>
               <td>{p.name} {p.active && <span className="pill ok">active</span>}</td>
               <td>{p.model}</td>
+              <td>{p.small_model_mode ? 'small model' : 'full'}</td>
               <td>{p.builtin ? 'none needed' : p.has_key ? 'stored' : 'none'}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 {!p.active && <button className="ghost" onClick={() => run(`/v1/ai/profiles/${p.id}/activate`, { method: 'POST' }, 'Switched.')}>Use</button>}{' '}
@@ -73,6 +75,12 @@ export default function AIProfiles({ onChange }: { onChange?: () => void }) {
           <input id="pf-url" placeholder="https://openrouter.ai/api/v1" value={url} onChange={e => setUrl(e.target.value)} />
           <label htmlFor="pf-model">Model name</label>
           <input id="pf-model" placeholder="gpt-4o" value={model} onChange={e => setModel(e.target.value)} />
+          <label htmlFor="pf-cap">Model capability</label>
+          <select id="pf-cap" value={cap} onChange={e => setCap(e.target.value)}>
+            <option value="auto">Auto (local runtime = small, hosted = full)</option>
+            <option value="small">Small (compact prompt, short tool menu, fixed answers)</option>
+            <option value="full">Full (complete prompt and all tools, for bigger models)</option>
+          </select>
           <label htmlFor="pf-key">API key <span className="muted">(never shown again)</span></label>
           <input id="pf-key" type="password" autoComplete="off" placeholder={edit !== 'new' ? 'leave empty to keep the stored key' : 'sk-...'} value={key} onChange={e => setKey(e.target.value)} disabled={!l.secrets_available} />
           {!l.secrets_available && <p className="muted" style={{ fontSize: 12 }}>Storing a key needs SECRETS_KEY on the server.</p>}
