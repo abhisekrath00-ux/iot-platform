@@ -84,6 +84,7 @@ func TestIntegrationAssistant(t *testing.T) {
 	api.HandleFunc("GET /v1/ai/settings", s.getAISettings)
 	api.HandleFunc("PUT /v1/ai/settings", s.putAISettings)
 	api.HandleFunc("POST /v1/ai/test", s.testAI)
+	api.HandleFunc("GET /v1/ai/activity", s.aiActivity)
 	api.HandleFunc("POST /v1/assistant/chat", s.assistantChat)
 	api.HandleFunc("GET /v1/assistant/actions", s.listAssistantActions)
 	api.HandleFunc("POST /v1/assistant/actions/{id}/confirm", s.confirmAssistantAction)
@@ -230,5 +231,61 @@ func TestIntegrationAssistant(t *testing.T) {
 	}
 	if w := call(api, "itest-as", "operator", "POST", "/v1/assistant/actions/"+id3+"/confirm", ""); w.Code != 409 {
 		t.Fatalf("confirm after reject: %d", w.Code)
+	}
+
+	// typed mode: the model works through the registry; a read runs, a write is only proposed,
+	// bad arguments never reach the API, and the user's own role still decides what confirm can do
+	t.Setenv("AI_TOOL_MODE", "typed")
+	pool.Exec(ctx, `UPDATE alerts SET status='open', acknowledged_by=NULL WHERE id='itest-as-a1'`)
+	fm.mu.Lock()
+	fm.requests = nil
+	fm.script = []map[string]any{
+		toolMsg("t1", "list_alerts", `{"status":"open"}`),
+		toolMsg("t2", "acknowledge_alert", `{"alert_id":"itest-as-a1"}`),
+		toolMsg("t3", "get_alert", `{"alert_id":"../users"}`),
+		toolMsg("t4", "api_request", `{"method":"GET","path":"/v1/alerts"}`),
+		{"role": "assistant", "content": "One open alert; acknowledging it is waiting for you."},
+	}
+	fm.mu.Unlock()
+	_, o = chat("itest-as", "viewer", "ack the pump alert")
+	tr, _ := json.Marshal(o["trace"])
+	if !strings.Contains(string(tr), `"tool":"list_alerts"`) || !strings.Contains(string(tr), "[READ]") || !strings.Contains(string(tr), "[LOW_RISK_WRITE]") ||
+		strings.Count(string(tr), `"refused"`) != 2 {
+		t.Fatalf("typed trace: %s", tr)
+	}
+	pend, _ := o["pending"].([]any)
+	if len(pend) != 1 || !strings.Contains(pend[0].(map[string]any)["summary"].(string), "Acknowledge alert itest-as-a1") {
+		t.Fatalf("typed pending (impact statement): %v", o["pending"])
+	}
+	pool.QueryRow(ctx, `SELECT status FROM alerts WHERE id='itest-as-a1'`).Scan(&st)
+	if st != "open" {
+		t.Fatalf("a proposal must not change anything: %s", st)
+	}
+	id4 := pend[0].(map[string]any)["id"].(string)
+	// a viewer cannot acknowledge alerts, so confirming the AI's proposal cannot either
+	call(api, "itest-as", "viewer", "POST", "/v1/assistant/actions/"+id4+"/confirm", "")
+	pool.QueryRow(ctx, `SELECT status FROM alerts WHERE id='itest-as-a1'`).Scan(&st)
+	if st != "open" {
+		t.Fatalf("the assistant must inherit the user's role: viewer acknowledged an alert (%s)", st)
+	}
+
+	// the admin activity view is built from the audit trail: refused calls are visible, other
+	// tenants and non-admins see nothing
+	if w := call(api, "itest-as", "operator", "GET", "/v1/ai/activity", ""); w.Code != 403 {
+		t.Fatalf("activity must be admin only: %d", w.Code)
+	}
+	w = call(api, "itest-as", "admin", "GET", "/v1/ai/activity", "")
+	var act map[string]any
+	json.Unmarshal(w.Body.Bytes(), &act)
+	if w.Code != 200 || act["runs"].(float64) < 3 || act["refused_tool_calls"].(float64) < 2 || act["changes_confirmed"].(float64) < 1 || act["changes_rejected"].(float64) < 1 {
+		t.Fatalf("activity: %d %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "acknowledge_alert") || strings.Contains(w.Body.String(), "sk-secret") {
+		t.Fatalf("activity should list tools used and never secrets: %s", w.Body.String())
+	}
+	w = call(api, "itest-as2", "admin", "GET", "/v1/ai/activity", "")
+	json.Unmarshal(w.Body.Bytes(), &act)
+	if act["runs"].(float64) != 0 || len(act["recent"].([]any)) != 0 {
+		t.Fatalf("another tenant's activity leaked: %s", w.Body.String())
 	}
 }

@@ -325,11 +325,12 @@ func (s *server) assistantChat(w http.ResponseWriter, r *http.Request) {
 	}
 	res := s.runAgent(r.Context(), cfg, tenant, user, role, msgs, runCtx{via: "web"})
 	if res.err != nil {
+		s.audit(r, "assistant.run", user, map[string]any{"model": c.Model, "error": truncStr(res.err.Error(), 200), "tool_calls": res.tools, "trace": traceForAudit(res.trace)})
 		writeJSON(w, 502, map[string]any{"error": res.err.Error(), "trace": res.trace, "plan": res.plan, "pending": res.pending})
 		return
 	}
 	reply, trace, plan, pending, tools, calls := res.reply, res.trace, res.plan, res.pending, res.tools, res.calls
-	s.audit(r, "assistant.run", user, map[string]any{"model": c.Model, "model_calls": calls + 1, "tool_calls": tools, "proposed_changes": len(pending)})
+	s.audit(r, "assistant.run", user, map[string]any{"model": c.Model, "model_calls": calls + 1, "tool_calls": tools, "proposed_changes": len(pending), "trace": traceForAudit(trace)})
 	writeJSON(w, 200, map[string]any{"reply": reply, "plan": plan, "trace": trace, "pending": pending, "model": c.Model,
 		"note": "Changes wait for your confirmation. Answers come from the model you connected and can be wrong."})
 }
@@ -613,14 +614,15 @@ func (s *server) assistantChatStream(w http.ResponseWriter, r *http.Request, cfg
 	send("start", map[string]any{"model": model})
 	res := s.runAgent(r.Context(), cfg, tenant, user, role, msgs, runCtx{via: "web", emit: send})
 	if r.Context().Err() != nil {
-		s.audit(r, "assistant.run", user, map[string]any{"model": model, "cancelled": true, "tool_calls": res.tools})
+		s.audit(r, "assistant.run", user, map[string]any{"model": model, "cancelled": true, "tool_calls": res.tools, "trace": traceForAudit(res.trace)})
 		return
 	}
 	if res.err != nil {
+		s.audit(r, "assistant.run", user, map[string]any{"model": model, "error": truncStr(res.err.Error(), 200), "tool_calls": res.tools, "streamed": true, "trace": traceForAudit(res.trace)})
 		send("error", map[string]any{"error": res.err.Error(), "trace": res.trace, "plan": res.plan, "pending": res.pending})
 		return
 	}
-	s.audit(r, "assistant.run", user, map[string]any{"model": model, "model_calls": res.calls + 1, "tool_calls": res.tools, "proposed_changes": len(res.pending), "streamed": true})
+	s.audit(r, "assistant.run", user, map[string]any{"model": model, "model_calls": res.calls + 1, "tool_calls": res.tools, "proposed_changes": len(res.pending), "streamed": true, "trace": traceForAudit(res.trace)})
 	send("final", map[string]any{"reply": res.reply, "plan": res.plan, "trace": res.trace, "pending": res.pending, "model": model,
 		"note": "Changes wait for your confirmation. Answers come from the model you connected and can be wrong."})
 }
@@ -686,4 +688,17 @@ func toolsFor(cfg llm.Config) []llm.Tool {
 		return assistantTools
 	}
 	return append([]llm.Tool{assistantTools[0]}, aitools.Specs()...)
+}
+
+// traceForAudit keeps what an admin needs to review a run: which tools, in what order, with what
+// outcome. Details are cut short; tool results and the user's text are not stored here.
+func traceForAudit(tr []traceStep) []map[string]string {
+	out := []map[string]string{}
+	for i, t := range tr {
+		if i >= maxAgentTools+5 {
+			break
+		}
+		out = append(out, map[string]string{"tool": t.Tool, "status": t.Status, "detail": truncStr(t.Detail, 160)})
+	}
+	return out
 }

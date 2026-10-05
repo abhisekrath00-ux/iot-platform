@@ -9,6 +9,7 @@ import FeatureToggles from '../components/FeatureToggles';
 import Authenticator from '../components/Authenticator';
 import AttributeDefs from '../components/AttributeDefs';
 import AISettings from '../components/AISettings';
+import AIActivity from '../components/AIActivity';
 import AssistantChannels from '../components/AssistantChannels';
 
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
@@ -109,6 +110,7 @@ export default function Settings() {
       <Authenticator />
       <AttributeDefs />
       <AISettings />
+      <AIActivity />
       <AssistantChannels />
       <EdgeRules />
       <ApiKeys />
