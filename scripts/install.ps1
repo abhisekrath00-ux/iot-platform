@@ -18,7 +18,7 @@ function Dc { & docker compose @args 2>&1 | Add-Content -Path $Log; if ($LASTEXI
 
 function Banner {
   $c = @("Cyan","Cyan","Blue","Blue","DarkBlue","Magenta")
-  $art = @("      __________","    /   ______   \\","   /   |  __  |   \\    HexThings","   \\   | |__| |   /    industrial IoT platform","    \\  |______|  /     guided installer","      \\________/")
+  $art = @("  #   #  #####","  #   #    #    HexThings","  #####    #    industrial IoT platform","  #   #    #","  #   #    #    guided installer","")
   Write-Host ""
   for ($i = 0; $i -lt $art.Count; $i++) { Write-Host $art[$i] -ForegroundColor $c[$i] }
   Write-Host ""
