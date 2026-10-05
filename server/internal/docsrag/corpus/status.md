@@ -81,3 +81,4 @@ Across everything: about 444 Go test functions (server 322, edge 122) and 55 web
 - Built: HexThings name and logo (SVG/PNG, favicon, PWA icons), colour terminal installer with plain fallback (tested with a fake docker; real install never run), guided Linux edge installer `edge/packaging/install.sh` (tested with a fake binary only).
 - Not built: default HexThings logo in Report Builder, guided Windows edge installer (the ps1 banner is untested).
 - Technical identifiers (HexmonEdge service, /etc/hexmon, headers, image name) keep the old name for compatibility.
+- One-command bootstrap `scripts/get.sh` / `scripts/get.ps1` (public repo only; never run end to end, get.ps1 never run).
