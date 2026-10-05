@@ -8,9 +8,9 @@ if [ -n "${MODEL_SHA256:-}" ]; then
   got=$(sha256sum "$MODEL_FILE" | cut -d' ' -f1)
   [ "$got" = "$MODEL_SHA256" ] || { echo "ai-runtime: model checksum mismatch (got $got)" >&2; exit 1; }
 fi
-llama-server -m "$MODEL_FILE" --host 127.0.0.1 --port 8081 -t "${AI_THREADS:-2}" -c "${AI_CONTEXT:-3072}" --jinja &
+llama-server -m "$MODEL_FILE" --host 127.0.0.1 --port 8081 -t "${AI_THREADS:-2}" -c "${AI_CONTEXT:-6144}" --jinja &
 LLAMA=$!
-export MODEL_CONTEXT="${AI_CONTEXT:-3072}"
+export MODEL_CONTEXT="${AI_CONTEXT:-6144}"
 airuntime &
 FRONT=$!
 trap 'kill $LLAMA $FRONT 2>/dev/null' TERM INT
