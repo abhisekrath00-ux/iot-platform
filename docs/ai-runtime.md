@@ -60,7 +60,7 @@ same settings page; nothing here needs the internet at run time.
 | Measure | Value |
 |---|---|
 | Model file | 1.1 GB (sha256 b139949c...1897) |
-| Resident memory with `-c 3072` | about 1.1 GB |
+| Resident memory with `-c 6144` | about 1.5 GB peak measured after three real requests (full KV cache adds up to about 0.7 GB) |
 | Load time | about 6 s warm |
 | Prompt processing | about 50 tokens/s |
 | Generation | about 1 token/s when the machine is short of memory (page cache pressure), not representative of a proper host |
@@ -71,7 +71,7 @@ same settings page; nothing here needs the internet at run time.
 llama-server (commit d89651a, CPU only, `-t 2 -c 3072 --jinja`), real Qwen3-1.7B Q4_K_M, sha256 verified
 against the download: **resident memory 1.45 GB after load, 1.49 GB peak after a chat request**. A short
 reply ran at about 7 tokens/s generation and 27 tokens/s prompt processing on 2 CPUs, no GPU. This is the
-model process measured outside Docker. The compose `ai-runtime` limit is now 2 GB (`AI_MEM_LIMIT`).
+model process measured outside Docker. The compose `ai-runtime` limit is now 3 GB (`AI_MEM_LIMIT`).
 
 The whole stack inside 4-5 GB is an **estimate, not a measurement**: model about 1.5 GB, Elasticsearch heap
 512 MB (about 1 GB resident), Postgres, API, web and the other services about 1-1.5 GB. That is roughly
@@ -98,3 +98,7 @@ thrash; stop the model first.
 - The status endpoint reports state and model name only, never the address or key.
 - Page context is a short path of safe characters; it cannot carry instructions.
 - Streamed answers are rendered as text elements, never as HTML.
+
+## Context window and small-model prompts
+
+The default context is now 6144 tokens (`AI_CONTEXT`). A plain "hey" costs 836 prompt tokens, a create-site request 1343 and an alerts question 1309, measured with the real Qwen3-1.7B (direct requests to llama-server, 1.52 GB peak RSS; not the full API path, Docker not run). The system prompt is compact and only about 9 keyword-relevant tools are offered per turn. If the model still reports a context overflow, the API retries once with just the latest message, then shows a friendly message suggesting Clear or a larger `AI_CONTEXT`.
