@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HexThings Edge</title>
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--mute:#6e6e73;--line:#e5e5ea;--ok:#248a3d;--bad:#d70015;--warn:#b25000;--accent:#0071e3}
+@media(prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--text:#f5f5f7;--mute:#98989d;--line:#2c2c2e;--ok:#30d158;--bad:#ff453a;--warn:#ff9f0a;--accent:#0a84ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif}
+main{max-width:920px;margin:0 auto;padding:32px 20px}
+h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin:0}
+.sub{color:var(--mute);margin:2px 0 24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:24px}
+.card{background:var(--card);border-radius:16px;padding:16px 18px;box-shadow:0 0 0 1px var(--line)}
+.k{color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.v{font-size:22px;font-weight:600;margin-top:4px;word-break:break-all}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;background:var(--mute)}
+.ok{background:var(--ok)}.bad{background:var(--bad)}.warn{background:var(--warn)}
+h2{font-size:17px;margin:0 0 10px}
+.dev{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:14px 0;border-top:1px solid var(--line)}
+.dev:first-child{border-top:0}.dn{font-weight:600}.dm{color:var(--mute);font-size:13px}
+.vals{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.chip{background:var(--bg);border-radius:999px;padding:2px 10px;font-size:12px}
+.err{color:var(--bad);font-size:13px;margin-top:4px}.empty{color:var(--mute);padding:12px 0}
+</style></head><body><main>
+<h1>HexThings Edge</h1><p class="sub" id="sub">Local gateway status (read-only)</p>
+<div class="grid">
+<div class="card"><div class="k">Broker</div><div class="v"><span class="dot" id="bd"></span><span id="bs">...</span></div><div class="dm" id="bh"></div></div>
+<div class="card"><div class="k">Buffered</div><div class="v" id="q">-</div><div class="dm">messages waiting to upload</div></div>
+<div class="card"><div class="k">Uptime</div><div class="v" id="up">-</div></div>
+<div class="card"><div class="k">Version</div><div class="v" id="ver">-</div></div>
+</div>
+<div class="card"><h2>Devices</h2><div id="devs"><div class="empty">Loading...</div></div></div>
+<div class="card" style="margin-top:12px"><h2>Detected by this gateway</h2><div class="dm" id="dsub">Read-only proposals. Nothing is polled until someone adds it.</div><div id="found"><div class="empty">Loading...</div></div></div>
+</main>
+<script>
+function ago(s){if(!s||s.startsWith("0001"))return"never";var d=(Date.now()-new Date(s))/1000;return d<60?Math.round(d)+"s ago":d<3600?Math.round(d/60)+"m ago":Math.round(d/3600)+"h ago"}
+function dur(s){var h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?h+"h "+m+"m":m+"m "+(s%60)+"s"}
+function esc(t){return String(t).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function tick(){fetch("/api/status").then(function(r){return r.json()}).then(function(d){
+document.getElementById("sub").textContent=d.gateway_id+" \u00b7 tenant "+d.tenant_id;
+document.getElementById("bd").className="dot "+(d.connected?"ok":"bad");
+document.getElementById("bs").textContent=d.connected?"Connected":"Offline";
+document.getElementById("bh").textContent=d.broker+(d.broker_tls?" (mTLS)":" (no TLS)");
+document.getElementById("q").textContent=d.queue_depth;
+document.getElementById("up").textContent=dur(d.uptime_seconds);
+document.getElementById("ver").textContent=d.version||"dev";
+var h="";(d.devices||[]).forEach(function(x){
+var cls=x.last_error?"bad":(x.reads?"ok":"warn");
+var chips=Object.keys(x.last_values||{}).sort().map(function(k){return'<span class="chip">'+esc(k)+" "+esc(x.last_values[k])+"</span>"}).join("");
+h+='<div class="dev"><div><div class="dn"><span class="dot '+cls+'"></span>'+esc(x.id)+'</div><div class="dm">'+esc(x.driver)+" \u00b7 last read "+ago(x.last_ok)+" \u00b7 "+x.reads+" reads, "+x.errors+" errors</div>"+(chips?'<div class="vals">'+chips+"</div>":"")+(x.last_error?'<div class="err">'+esc(x.last_error)+"</div>":"")+"</div></div>"});
+document.getElementById("devs").innerHTML=h||'<div class="empty">No devices configured. Commission this gateway from the control plane.</div>'
+}).catch(function(){document.getElementById("bs").textContent="Agent unreachable"})}
+function found(){fetch("/api/discoveries").then(function(r){return r.json()}).then(function(d){
+var fs=d.findings||[];document.getElementById("dsub").textContent="Read-only proposals. Last scan: "+ago(d.last_run)+". Nothing is polled until someone adds it.";
+var h="";fs.forEach(function(f){var t="";
+if(f.kind==="modbus-rtu"){t="Serial "+esc(f.port)+" "+esc(f.baud)+"/"+esc(f.parity)+", address "+esc(f.address);var m=(f.matches||[])[0];t+=m?" \u2013 looks like "+esc(m.name)+" ("+Math.round(m.score*100)+"% of "+m.probed+" registers plausible)":" \u2013 answers, no profile matched"}
+else if(f.kind==="lan"){t="Network "+esc(f.host)+":"+esc(f.net_port)+" ("+esc(f.service)+")"}
+else{t="BACnet "+esc(f.host)+" device "+esc(f.instance)+" vendor "+esc(f.vendor)}
+h+='<div class="dev"><div><div class="dn">'+t+'</div><div class="dm">'+esc(f.state)+(f.confident?" \u00b7 confident match":"")+" \u00b7 first seen "+ago(f.first_seen)+"</div></div></div>"});
+document.getElementById("found").innerHTML=h||'<div class="empty">Nothing detected yet. The first scan starts shortly after the agent does.</div>';
+var n=(d.last_notes||[]).map(function(x){return'<div class="dm">'+esc(x)+"</div>"}).join("");if(n)document.getElementById("found").innerHTML+=n
+}).catch(function(){})}
+tick();found();setInterval(tick,3000);setInterval(found,15000)
+</script></body></html>
