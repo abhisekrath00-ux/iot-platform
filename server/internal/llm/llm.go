@@ -127,7 +127,7 @@ func Chat(ctx context.Context, cfg Config, msgs []Message, tools []Tool) (Messag
 }
 
 func buildBody(cfg Config, msgs []Message, tools []Tool, stream bool) map[string]any {
-	body := map[string]any{"model": cfg.Model, "messages": msgs, "temperature": 0.2}
+	body := map[string]any{"model": cfg.Model, "messages": msgs, "temperature": 0.1}
 	if len(tools) > 0 {
 		var ts []map[string]any
 		for _, t := range tools {
