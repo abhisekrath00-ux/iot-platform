@@ -139,5 +139,17 @@ func (s *server) investigate(w http.ResponseWriter, r *http.Request) {
 			ar.Close()
 		}
 	}
-	writeJSON(w, 200, map[string]any{"matched": matched, "truncated": len(devs) == 200, "report": diagnose.Run(in)})
+	rep := diagnose.Run(in)
+	switch r.URL.Query().Get("format") {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="investigation.csv"`)
+		rep.WriteCSV(w)
+		return
+	case "", "json":
+	default:
+		http.Error(w, "format must be json or csv", 400)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"matched": matched, "truncated": len(devs) == 200, "report": rep})
 }

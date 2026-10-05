@@ -60,6 +60,12 @@ func TestIntegrationInvestigate(t *testing.T) {
 		t.Fatalf("fix policies and the not-examined list must be present: %s", pj)
 	}
 
+	if w := call(mux, "itest-inv", "operator", "GET", "/v1/diagnostics/investigate?scope=North&format=csv", ""); w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/csv") || !strings.Contains(w.Body.String(), "critical") {
+		t.Fatalf("csv: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(mux, "itest-inv", "operator", "GET", "/v1/diagnostics/investigate?scope=North&format=xml", ""); w.Code != 400 {
+		t.Fatalf("bad format: %d", w.Code)
+	}
 	// access and isolation
 	if code, _ := get("itest-inv", "viewer", "north"); code != 403 {
 		t.Fatalf("viewer: %d", code)
