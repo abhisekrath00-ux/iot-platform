@@ -90,3 +90,4 @@ Across everything: about 444 Go test functions (server 322, edge 122) and 55 web
 
 - Local assistant context overflow fixed: compact prompt, per-turn tool subset, default context 6144, overflow retry (real model tested via llama-server only).
 - Settings > AI providers: saved provider profiles (name, base URL, model, encrypted write-only key per profile), one active, switch from a dropdown, test per profile, edit/delete, built-in local model profile. Admin-only, audited (`ai.profile.*`), off by default. Tested: API integration test with a fake model (key never returned, stored encrypted, switch without re-entering the key); UI type-checked only, not screenshot-tested yet.
+- Provider profiles have a capability (auto/small/full): small-model workarounds apply only in small mode; full models get the whole prompt, all tools and no fixed answers (fake-model tests only).
