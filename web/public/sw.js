@@ -6,7 +6,7 @@
  * nothing stale is shown as current. Offline, the app shell loads and each page shows its own "could not
  * reach the server" state.
  */
-var CACHE = 'hexmon-shell-v1';
+var CACHE = 'hexthings-shell-v2';
 
 // route decides how a request is handled: 'bypass' (let the browser do it), 'asset' (cache first, files are
 // content-hashed) or 'nav' (network first, fall back to the cached shell).
