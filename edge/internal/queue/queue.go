@@ -10,7 +10,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type Queue struct{ db *sql.DB }
+// DefaultMaxRows bounds the outbox. During a very long outage the oldest readings are dropped
+// rather than filling the gateway's disk (about 1M small readings is on the order of 200 MB).
+const DefaultMaxRows = 1_000_000
+
+type Queue struct {
+	db      *sql.DB
+	MaxRows int // 0 = DefaultMaxRows
+	puts    int
+	Dropped int64
+}
 
 type Item struct {
 	ID      int64
@@ -36,7 +45,22 @@ func Open(path string) (*Queue, error) {
 
 func (q *Queue) Put(ctx context.Context, topic string, payload []byte) error {
 	_, err := q.db.ExecContext(ctx, `INSERT INTO outbox(topic,payload) VALUES(?,?)`, topic, payload)
-	return err
+	if err != nil {
+		return err
+	}
+	q.puts++
+	if q.puts%500 == 0 { // check the bound every 500 puts, cheaply
+		max := q.MaxRows
+		if max <= 0 {
+			max = DefaultMaxRows
+		}
+		if res, e := q.db.ExecContext(ctx, `DELETE FROM outbox WHERE id <= (SELECT max(id) FROM outbox) - ?`, max); e == nil {
+			if n, _ := res.RowsAffected(); n > 0 {
+				q.Dropped += n
+			}
+		}
+	}
+	return nil
 }
 
 // Next returns up to n oldest items.

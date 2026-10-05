@@ -108,3 +108,26 @@ func TestReopenDurability(t *testing.T) {
 		t.Fatalf("depth after drain = %d", d)
 	}
 }
+
+func TestOutboxIsBounded(t *testing.T) {
+	q, err := Open(t.TempDir() + "/q.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	q.MaxRows = 100
+	ctx := context.Background()
+	for i := 0; i < 1000; i++ {
+		if err := q.Put(ctx, "t", []byte{byte(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, _ := q.Depth(ctx)
+	if n > 100+500 || q.Dropped == 0 {
+		t.Fatalf("depth %d dropped %d", n, q.Dropped)
+	}
+	it, _ := q.Next(ctx, 1)
+	if len(it) == 0 || it[0].Payload[0] == 0 {
+		t.Fatal("the oldest readings should be the ones dropped")
+	}
+}
