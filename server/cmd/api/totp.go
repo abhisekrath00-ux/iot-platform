@@ -91,7 +91,7 @@ func (s *server) totpBegin(w http.ResponseWriter, r *http.Request) {
 	}
 	var email string
 	s.st.Pool.QueryRow(r.Context(), `SELECT email FROM users WHERE id=$1`, auth.User(r)).Scan(&email)
-	writeJSON(w, 200, map[string]any{"secret": totp.Base32(secret), "uri": totp.URI("Hexmon IoT", email, secret),
+	writeJSON(w, 200, map[string]any{"secret": totp.Base32(secret), "uri": totp.URI("HexThings", email, secret),
 		"next": "Add it to your authenticator app, then confirm with the 6-digit code it shows."})
 }
 

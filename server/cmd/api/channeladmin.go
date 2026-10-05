@@ -43,7 +43,7 @@ func (s *server) testChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	channelTestAt.Store(id, time.Now())
 	var n rules.Notifier = s.replier()
-	err := rules.SendOne(r.Context(), n, typ, target, "test", "This is a test message from Hexmon IoT. If you can read it, alerts on this channel will arrive.", "channel.test")
+	err := rules.SendOne(r.Context(), n, typ, target, "test", "This is a test message from HexThings. If you can read it, alerts on this channel will arrive.", "channel.test")
 	res := map[string]any{"ok": err == nil}
 	if err != nil {
 		e := err.Error()
