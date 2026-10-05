@@ -28,6 +28,12 @@ AI_MODEL_SHA256=$(sha256sum models/model.gguf | cut -d' ' -f1) docker compose --
 Then in Settings, AI: base URL `http://ai-runtime:8090/v1`, model `qwen3-1.7b`, and the key if you set one.
 Raise `AI_TIMEOUT_SECONDS` on the API (default 90, max 600) on slow CPUs. Nothing is published on the host.
 
+## Air-gapped bundle
+
+`AI_MODEL_FILE=/path/model.gguf scripts/airgap-bundle.sh` adds the ai-runtime image and the model to the
+bundle; `install.sh` starts the `ai` profile when `model.gguf` is present. Without the variable the bundle
+has no AI. **Status: scripts pass `bash -n` only. They were never run (no Docker on the dev machine).**
+
 ## Model choice
 
 The default is Qwen3-1.7B Q4_K_M (Qwen3 has no 1.5B). Any GGUF that llama.cpp supports and that handles

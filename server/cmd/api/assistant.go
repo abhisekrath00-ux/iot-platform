@@ -347,6 +347,15 @@ type agentResult struct {
 	err     error
 }
 
+// ungroundedNote flags an answer that contains numbers although no tool was called: a small model
+// sometimes answers from nothing, and a figure with no source must not look like platform data.
+func ungroundedNote(reply string, toolCalls int) string {
+	if toolCalls > 0 || reply == "" || !strings.ContainsAny(reply, "0123456789") {
+		return ""
+	}
+	return "\n\n_Note: no platform data was read for this answer, so any numbers in it do not come from your system. Ask again or open the page to check._"
+}
+
 // runAgent is the agent loop: the model plans, calls tools, and the platform enforces the policy.
 func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, role string, msgs []llm.Message, rc runCtx) agentResult {
 	ctx, cancel := context.WithTimeout(parent, assistantTimeout())
@@ -393,6 +402,9 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 				}
 			}
 		}
+	}
+	if note := ungroundedNote(res.reply, res.tools); note != "" {
+		res.reply += note
 	}
 	if res.reply == "" {
 		res.reply = "I reached my step limit before finishing. Here is what I did so far; ask me to continue."
