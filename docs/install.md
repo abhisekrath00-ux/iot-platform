@@ -10,6 +10,14 @@ One command, the same steps online and air-gapped.
 
 Add `--yes` (`-Yes` on Windows) to accept every default and ask nothing.
 
+## One command (needs Docker)
+
+Linux / macOS: `curl -fsSL https://raw.githubusercontent.com/abhisekrath00-ux/iot-platform/main/scripts/get.sh | bash`
+
+Windows (PowerShell): `irm https://raw.githubusercontent.com/abhisekrath00-ux/iot-platform/main/scripts/get.ps1 | iex`
+
+Both download the source into `hexthings/` and run the guided installer with defaults. They need the repo to be public (a private repo needs `git clone` with a token, then `bash scripts/install.sh`). Tested: `get.sh` syntax and the installer it calls (with a fake Docker). Never run end to end, and `get.ps1` never run at all (no Docker or Windows machine here).
+
 ## What it does
 
 1. **Checks the machine:** Docker running, Compose v2, about 4 GB RAM, 10 GB disk, ports (web 8080, 8000, 1883, 5432). A busy web port stops the install with the fix; other busy ports are warnings. Nothing is started if a check fails.
