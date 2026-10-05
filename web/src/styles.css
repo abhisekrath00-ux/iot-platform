@@ -216,3 +216,7 @@ button.link { background: none; border: 0; box-shadow: none; padding: 0; color: 
 .fe-tab button { background: none; border: 0; box-shadow: none; padding: 8px 12px; color: var(--text); cursor: pointer; border-radius: 12px; }
 .fe-tab .x { padding: 8px 10px 8px 0; color: var(--muted); }
 .fe-tab-add { background: none; border: 0; box-shadow: none; font-size: 18px; padding: 4px 10px; color: var(--accent); cursor: pointer; }
+
+.md-table { border-collapse: collapse; width: 100%; margin: 6px 0; }
+.md-table th, .md-table td { border: 1px solid rgba(127,127,127,.35); padding: 3px 6px; text-align: left; vertical-align: top; }
+.md-table th { background: rgba(127,127,127,.12); }
