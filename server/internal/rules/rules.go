@@ -271,7 +271,7 @@ func SendOne(ctx context.Context, n Notifier, typ, target, severity, msg, event 
 	var err error
 	switch typ {
 	case "email":
-		err = n.Email(cctx, []string{target}, "[Hexmon IoT] "+severity+" alert", msg)
+		err = n.Email(cctx, []string{target}, "[HexThings] "+severity+" alert", msg)
 	case "slack":
 		err = n.Slack(cctx, target, "["+severity+"] "+msg)
 	case "webhook":
@@ -294,7 +294,7 @@ func SendOne(ctx context.Context, n Notifier, typ, target, severity, msg, event 
 		if b, ok := n.(interface {
 			Teams(context.Context, string, string, string) error
 		}); ok {
-			err = b.Teams(cctx, target, "[Hexmon IoT] "+severity+" alert", msg)
+			err = b.Teams(cctx, target, "[HexThings] "+severity+" alert", msg)
 		} else {
 			err = errUnsupported
 		}
