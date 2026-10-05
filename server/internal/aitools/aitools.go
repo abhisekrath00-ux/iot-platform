@@ -82,6 +82,22 @@ var all = []*Tool{
 	{Name: "get_telemetry", Description: "Time series of one point on one device.", Risk: Read, Method: "GET", Path: "/v1/telemetry/series",
 		Params: []Param{{Name: "device_id", Kind: "string", Required: true, Max: 128, In: "query"}, {Name: "point_id", Kind: "string", Required: true, Max: 128, In: "query"},
 			{Name: "hours", Kind: "int", Min: 1, Max: 720, In: "query", Desc: "window, default 24"}}},
+	{Name: "latest_values", Description: "Latest value of every point on one device.", Risk: Read, Method: "GET", Path: "/v1/telemetry/latest",
+		Params: []Param{{Name: "device_id", Kind: "string", Required: true, Max: 128, In: "query"}}},
+	{Name: "find_anomalies", Description: "Statistical anomalies in one point over a window (labelled statistics, not a diagnosis).", Risk: Read, Method: "GET", Path: "/v1/telemetry/anomalies",
+		Params: []Param{{Name: "device_id", Kind: "string", Required: true, Max: 128, In: "query"}, {Name: "point_id", Kind: "string", Required: true, Max: 128, In: "query"},
+			{Name: "hours", Kind: "int", Min: 1, Max: 720, In: "query", Desc: "window, default 24"}}},
+	{Name: "forecast_point", Description: "Statistical forecast of one point with its backtest accuracy. A projection, not a promise.", Risk: Read, Method: "GET", Path: "/v1/telemetry/forecast",
+		Params: []Param{{Name: "device_id", Kind: "string", Required: true, Max: 128, In: "query"}, {Name: "point_id", Kind: "string", Required: true, Max: 128, In: "query"}}},
+	{Name: "related_signals", Description: "Points that move together with one point (correlation only).", Risk: Read, Method: "GET", Path: "/v1/telemetry/related",
+		Params: []Param{{Name: "device_id", Kind: "string", Required: true, Max: 128, In: "query"}, {Name: "point_id", Kind: "string", Required: true, Max: 128, In: "query"}}},
+	{Name: "list_kpis", Description: "KPIs with their current values.", Risk: Read, Method: "GET", Path: "/v1/kpis"},
+	{Name: "list_groups", Description: "Device groups.", Risk: Read, Method: "GET", Path: "/v1/groups"},
+	{Name: "list_maintenance_windows", Description: "Active and recent maintenance windows (alerts are held while one is on).", Risk: Read, Method: "GET", Path: "/v1/maintenance"},
+	{Name: "downstream_impact", Description: "What depends on an asset or device (downstream relations).", Risk: Read, Method: "GET", Path: "/v1/relations/downstream",
+		Params: []Param{{Name: "kind", Kind: "enum", Enum: []string{"asset", "device"}, Required: true, In: "query"}, {Name: "id", Kind: "string", Required: true, Max: 128, In: "query"},
+			{Name: "relation", Kind: "string", Required: true, Max: 40, In: "query", Desc: "relation name, for example feeds"},
+			{Name: "depth", Kind: "int", Min: 1, Max: 10, In: "query"}}},
 	{Name: "fleet_summary", Description: "Fleet status counts: online, stale, offline devices and open alerts.", Risk: Read, Method: "GET", Path: "/v1/fleet"},
 	{Name: "list_gateways", Description: "Gateways with their last-seen state.", Risk: Read, Method: "GET", Path: "/v1/gateways"},
 	{Name: "list_assets", Description: "Assets (sites, lines, machines).", Risk: Read, Method: "GET", Path: "/v1/assets"},
@@ -258,7 +274,7 @@ func check(p Param, v any) (string, error) {
 	if p.Required && s == "" {
 		return "", errors.New("is empty")
 	}
-	if p.In == "path" || strings.HasSuffix(p.Name, "_id") {
+	if p.In == "path" || strings.HasSuffix(p.Name, "_id") || p.Name == "id" {
 		if s != "" && !idRE.MatchString(s) {
 			return "", errors.New("is not a valid id")
 		}
