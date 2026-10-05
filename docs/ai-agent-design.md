@@ -79,4 +79,14 @@ Eval harness (600+ cases across normal, ambiguous, invalid, security, tool-selec
 
 ## 8. Honest status today
 
-Nothing in sections 4-7 is built yet. The existing assistant has only been tested against a scripted fake model; no real model has ever been run against it.
+Phase 1 (runtime, model, chat UI) is built; phases 2-10 are not. Detail in docs/ai-runtime.md.
+
+| Item | State |
+|---|---|
+| llama.cpp built (CPU, portable flags) and Qwen3-1.7B Q4_K_M run on the 2 GB / 2 CPU dev machine | Measured, this machine only |
+| Model emits a correct structured tool call for a simple typed tool | Observed once with a hand-written tool schema (not a test, not the registry) |
+| `airuntime` front: /health /ready /version /model /metrics, keyed and allow-listed model API | Built, unit-tested against a fake llama-server; also run in front of the real one |
+| Streaming API (`POST /v1/assistant/chat?stream=1`) and `GET /v1/ai/status` | Built, unit-tested; run against the real model |
+| Chat side panel (streaming, markdown, steps, confirm cards, stop, page context, status dot) | Built, unit-tested helpers, screenshot-checked |
+| ai-runtime container image and compose profile | Written, **never built or run** (no Docker on the dev machine) |
+| Existing generic `api_request` tool with a 1.7B model | Observed to build a malformed path on a simple question; the policy refused it. This is the reason for phase 2 (typed tools). |

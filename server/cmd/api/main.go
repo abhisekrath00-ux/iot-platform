@@ -247,6 +247,7 @@ func main() {
 	api.HandleFunc("PUT /v1/ai/settings", s.putAISettings)
 	api.HandleFunc("POST /v1/ai/test", s.testAI)
 	api.HandleFunc("POST /v1/assistant/chat", s.assistantChat)
+	api.HandleFunc("GET /v1/ai/status", s.aiStatus)
 	api.HandleFunc("GET /v1/assistant/channel-settings", s.getChannelSettings)
 	api.HandleFunc("PUT /v1/assistant/channel-settings", s.putChannelSettings)
 	api.HandleFunc("GET /v1/assistant/links", s.listChannelLinks)

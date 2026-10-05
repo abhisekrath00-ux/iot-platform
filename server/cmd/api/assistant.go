@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,13 +23,12 @@ import (
 )
 
 const (
-	aiKeySecret      = "ai-api-key"
-	maxAgentCalls    = 12 // model calls per run
-	maxAgentTools    = 25 // tool executions per run
-	maxToolResult    = 12 << 10
-	actionTTL        = 30 * time.Minute
-	maxRunsPerHour   = 30
-	assistantTimeout = 3 * time.Minute
+	aiKeySecret    = "ai-api-key"
+	maxAgentCalls  = 12 // model calls per run
+	maxAgentTools  = 25 // tool executions per run
+	maxToolResult  = 12 << 10
+	actionTTL      = 30 * time.Minute
+	maxRunsPerHour = 30
 )
 
 type aiConfig struct {
@@ -45,7 +45,7 @@ func (s *server) aiConfigFor(ctx context.Context, tenant string) (aiConfig, bool
 }
 
 func (s *server) llmConfig(ctx context.Context, tenant string, c aiConfig) (llm.Config, error) {
-	cfg := llm.Config{BaseURL: c.BaseURL, Model: c.Model, Timeout: 90 * time.Second}
+	cfg := llm.Config{BaseURL: c.BaseURL, Model: c.Model, Timeout: aiTimeout(), NoThinking: isLocalRuntime(c.BaseURL)}
 	if c.KeyName != "" {
 		if s.secrets == nil || len(s.secrets.Key) == 0 {
 			return cfg, errors.New("the API key cannot be read: SECRETS_KEY is not configured")
@@ -202,6 +202,9 @@ type pendingAction struct {
 type runCtx struct {
 	via     string
 	autorun bool
+	// emit, when set, streams progress to the caller: "delta" (answer text), "step" (a traceStep),
+	// "plan" ([]string). It is called from the run's own goroutine.
+	emit func(event string, v any)
 }
 
 var assistantTools = []llm.Tool{
@@ -270,12 +273,13 @@ func (s *server) assistantChat(w http.ResponseWriter, r *http.Request) {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
+		Page string `json:"page"` // the screen the user is on, so "this device" has a meaning
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&in); err != nil || len(in.Messages) == 0 || len(in.Messages) > 30 {
 		http.Error(w, "send 1-30 messages", 400)
 		return
 	}
-	msgs := []llm.Message{{Role: "system", Content: systemPrompt(role)}}
+	msgs := []llm.Message{{Role: "system", Content: systemPrompt(role) + pageContext(in.Page)}}
 	for _, m := range in.Messages {
 		if (m.Role != "user" && m.Role != "assistant") || len(m.Content) > 8000 {
 			http.Error(w, "messages must be user or assistant text up to 8000 characters", 400)
@@ -294,6 +298,10 @@ func (s *server) assistantChat(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.llmConfig(r.Context(), tenant, c)
 	if err != nil {
 		writeJSON(w, 502, map[string]any{"error": err.Error()})
+		return
+	}
+	if r.URL.Query().Get("stream") == "1" {
+		s.assistantChatStream(w, r, cfg, c.Model, tenant, user, role, msgs)
 		return
 	}
 	res := s.runAgent(r.Context(), cfg, tenant, user, role, msgs, runCtx{via: "web"})
@@ -319,11 +327,17 @@ type agentResult struct {
 
 // runAgent is the agent loop: the model plans, calls tools, and the platform enforces the policy.
 func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, role string, msgs []llm.Message, rc runCtx) agentResult {
-	ctx, cancel := context.WithTimeout(parent, assistantTimeout)
+	ctx, cancel := context.WithTimeout(parent, assistantTimeout())
 	defer cancel()
 	var res agentResult
 	for ; res.calls < maxAgentCalls; res.calls++ {
-		m, err := llm.Chat(ctx, cfg, msgs, assistantTools)
+		var m llm.Message
+		var err error
+		if rc.emit != nil {
+			m, err = llm.ChatStream(ctx, cfg, msgs, assistantTools, func(d string) { rc.emit("delta", d) })
+		} else {
+			m, err = llm.Chat(ctx, cfg, msgs, assistantTools)
+		}
 		if err != nil {
 			res.err = err
 			return res
@@ -333,8 +347,12 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 			res.reply = m.Content
 			break
 		}
+		if rc.emit != nil && len(m.ToolCalls) > 0 && m.Content != "" {
+			rc.emit("discard", nil) // text streamed before a tool call is narration, not the answer
+		}
 		for _, tc := range m.ToolCalls {
 			res.tools++
+			before := len(res.trace)
 			var result string
 			if res.tools > maxAgentTools {
 				result = `{"error":"tool limit reached for this run; summarise what is done and what is left"}`
@@ -343,6 +361,14 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 				result = s.runAssistantTool(ctx, tenant, user, role, rc, tc, &res.trace, &res.plan, &res.pending)
 			}
 			msgs = append(msgs, llm.Message{Role: "tool", ToolCallID: tc.ID, Content: result})
+			if rc.emit != nil {
+				for _, st := range res.trace[before:] {
+					rc.emit("step", st)
+				}
+				if tc.Func.Name == "set_plan" {
+					rc.emit("plan", res.plan)
+				}
+			}
 		}
 	}
 	if res.reply == "" {
@@ -536,4 +562,50 @@ func (s *server) rejectAssistantAction(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "assistant.reject", r.PathValue("id"), nil)
 	writeJSON(w, 200, map[string]any{"status": "rejected"})
+}
+
+// assistantChatStream is assistantChat over server-sent events, so the panel can show the answer as
+// it is written and each step as it happens. Closing the connection cancels the run (and the model
+// request). The same policy, confirmation and audit apply; only the delivery differs.
+func (s *server) assistantChatStream(w http.ResponseWriter, r *http.Request, cfg llm.Config, model, tenant, user, role string, msgs []llm.Message) {
+	rc := http.NewResponseController(w)
+	rc.SetWriteDeadline(time.Time{}) // a slow CPU model must not hit the server write timeout
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(200)
+	if err := rc.Flush(); err != nil { // every wrapper in front of the handler must pass Flush through
+		return
+	}
+	send := func(ev string, v any) {
+		b, _ := json.Marshal(v)
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev, b)
+		rc.Flush()
+	}
+	send("start", map[string]any{"model": model})
+	res := s.runAgent(r.Context(), cfg, tenant, user, role, msgs, runCtx{via: "web", emit: send})
+	if r.Context().Err() != nil {
+		s.audit(r, "assistant.run", user, map[string]any{"model": model, "cancelled": true, "tool_calls": res.tools})
+		return
+	}
+	if res.err != nil {
+		send("error", map[string]any{"error": res.err.Error(), "trace": res.trace, "plan": res.plan, "pending": res.pending})
+		return
+	}
+	s.audit(r, "assistant.run", user, map[string]any{"model": model, "model_calls": res.calls + 1, "tool_calls": res.tools, "proposed_changes": len(res.pending), "streamed": true})
+	send("final", map[string]any{"reply": res.reply, "plan": res.plan, "trace": res.trace, "pending": res.pending, "model": model,
+		"note": "Changes wait for your confirmation. Answers come from the model you connected and can be wrong."})
+}
+
+var pageRE = regexp.MustCompile(`^/[A-Za-z0-9/_.-]{0,80}$`)
+
+// pageContext tells the model which screen the user is looking at. Only a short path of safe
+// characters gets through: it is user-controlled input and must never carry instructions. It adds
+// no data and no permission; the model still has to read through the tools the user's role allows.
+func pageContext(page string) string {
+	if !pageRE.MatchString(page) {
+		return ""
+	}
+	return "\nThe user is currently on the screen at " + page + " (for example /devices/<id> is one device, /alerts the alert list). Use it to interpret words like \"this\" or \"here\"; verify with a tool before stating facts about it."
 }

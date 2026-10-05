@@ -84,6 +84,25 @@ services:
       postgres: {condition: service_healthy}
     ports: ["8100:8100"]
 
+  # Optional local AI model (docs/ai-runtime.md). Off unless started with: docker compose --profile ai up
+  ai-runtime:
+    build: {context: ., dockerfile: deploy/ai-runtime/Dockerfile}
+    profiles: ["ai"]
+    environment:
+      MODEL_NAME: ${AI_MODEL_NAME:-qwen3-1.7b}
+      MODEL_QUANT: ${AI_MODEL_QUANT:-Q4_K_M}
+      MODEL_SHA256: ${AI_MODEL_SHA256:-}
+      AI_THREADS: ${AI_THREADS:-2}
+      AI_CONTEXT: ${AI_CONTEXT:-3072}
+      AI_RUNTIME_KEY: ${AI_RUNTIME_KEY:-}
+    volumes: ["${AI_MODEL_DIR:-./models}:/models:ro"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${AI_MEM_LIMIT:-4g}
+    restart: unless-stopped
+
   redis:
     # Optional: set REDIS_URL=redis:6379 on the api service to share OIDC
     # login state; add CACHE_BACKEND=redis to also share the response cache.

@@ -26,6 +26,7 @@ import Signup from './pages/Signup';
 import PasswordReset from './pages/PasswordReset';
 import AcceptInvite from './pages/AcceptInvite';
 import Assistant from './pages/Assistant';
+import ChatPanel from './components/ChatPanel';
 import Kpis from './pages/Kpis';
 import Explorer from './pages/Explorer';
 import MapPage from './pages/MapPage';
@@ -138,6 +139,7 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
+      <ChatPanel />
     </div>
   );
 }

@@ -54,6 +54,7 @@ Across everything: about 444 Go test functions (server 322, edge 122) and 55 web
 |---|---|---|
 | Advanced AI features | Partial | Forecast (Holt-Winters and ridge, backtest gate), anomaly detection, level shifts, correlation and root-cause hints, report insights. Statistical, labelled, never actuate. No pretrained or deep models. |
 | AI that can do everything in the software | Partial | The agent calls the whole `/v1` API as the signed-in user; reads run, changes wait for confirmation. It can never approve control, manage users, keys, secrets or switch targets to automatic, by design. Tested against a scripted fake model only. No real model tried. |
+| Local AI model and chat panel | Partial | Bundled `ai-runtime` (llama.cpp + Qwen3-1.7B Q4) with a streaming chat side panel, health/metrics and status API. Real model run and measured on the 2 GB dev machine only; the container image is unbuilt (no Docker here). Typed tools, RAG, workflows, remediation, reports and the eval suite are not built yet. See docs/ai-runtime.md and docs/ai-agent-design.md. |
 | Control from Slack and email | Simulator-only | Signed, fresh, one-time messages, verified identity linking, YES-code confirmation. No real Slack workspace or mail gateway used. |
 | Detailed analysis and better reports | Partial | Insights and period comparison in reports. |
 

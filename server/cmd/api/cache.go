@@ -59,4 +59,7 @@ type statusWriter struct {
 
 func (w *statusWriter) WriteHeader(c int) { w.code = c; w.ResponseWriter.WriteHeader(c) }
 
+// Unwrap lets http.ResponseController reach the real writer (flush, deadlines), which streaming needs.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func newCache() *respcache.Cache { return respcache.New(2000) }

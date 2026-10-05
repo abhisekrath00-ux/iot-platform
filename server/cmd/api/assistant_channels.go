@@ -423,7 +423,7 @@ func firstLines(t string) string {
 // handleChat processes one verified-channel message from a sender id (Slack member id or email).
 // to is where the reply goes (Slack DM channel or email address).
 func (s *server) handleChat(tenant, kind, sender, to, subject, text string) {
-	ctx, cancel := context.WithTimeout(context.Background(), assistantTimeout+30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), assistantTimeout()+30*time.Second)
 	defer cancel()
 	text = truncStr(firstLines(text), 8000)
 	reply := func(msg string) {
