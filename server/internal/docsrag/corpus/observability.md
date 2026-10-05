@@ -1,6 +1,6 @@
 # Observability (built-in, no Prometheus or Grafana)
 
-Status: backend built and tested (Go tests against Postgres). The web System Health and Dev tools pages are NOT built yet.
+Status: backend built and tested (Go tests against Postgres). Web pages: System health and Dev tools (admin only).
 
 ## What is collected (real)
 - API: requests/min, 4xx and 5xx per min, p50 and p95 latency (from the API process itself).
