@@ -58,6 +58,7 @@ func TestIntegrationAssistant(t *testing.T) {
 	for _, q := range []string{
 		`DELETE FROM assistant_actions WHERE tenant_id IN ('itest-as','itest-as2')`,
 		`DELETE FROM ai_settings WHERE tenant_id IN ('itest-as','itest-as2')`,
+		`DELETE FROM ai_profiles WHERE tenant_id IN ('itest-as','itest-as2')`,
 		`DELETE FROM secrets WHERE tenant_id IN ('itest-as','itest-as2')`,
 		`DELETE FROM commands WHERE tenant_id='itest-as'`,
 		`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('itest-as-other','itest-as','itest-as-other@example.test','O','operator') ON CONFLICT DO NOTHING`,
@@ -86,6 +87,12 @@ func TestIntegrationAssistant(t *testing.T) {
 	api.HandleFunc("GET /v1/ai/settings", s.getAISettings)
 	api.HandleFunc("PUT /v1/ai/settings", s.putAISettings)
 	api.HandleFunc("POST /v1/ai/test", s.testAI)
+	api.HandleFunc("GET /v1/ai/profiles", s.listAIProfiles)
+	api.HandleFunc("POST /v1/ai/profiles", s.saveAIProfile)
+	api.HandleFunc("PUT /v1/ai/profiles/{id}", s.saveAIProfile)
+	api.HandleFunc("DELETE /v1/ai/profiles/{id}", s.deleteAIProfile)
+	api.HandleFunc("POST /v1/ai/profiles/{id}/activate", s.activateAIProfile)
+	api.HandleFunc("POST /v1/ai/profiles/{id}/test", s.testAIProfile)
 	api.HandleFunc("GET /v1/ai/activity", s.aiActivity)
 	api.HandleFunc("POST /v1/assistant/chat", s.assistantChat)
 	api.HandleFunc("GET /v1/assistant/actions", s.listAssistantActions)
@@ -131,6 +138,46 @@ func TestIntegrationAssistant(t *testing.T) {
 	if w := call(api, "itest-as", "admin", "POST", "/v1/ai/test", ""); !strings.Contains(w.Body.String(), `"ok":true`) || fm.auth != "Bearer sk-secret-123" {
 		t.Fatalf("test call: %s auth=%q", w.Body.String(), fm.auth)
 	}
+
+	// provider profiles: admin only, key write-only and encrypted, switch without re-entering the key
+	if w := call(api, "itest-as", "operator", "GET", "/v1/ai/profiles", ""); w.Code != 403 {
+		t.Fatalf("operator profiles: %d", w.Code)
+	}
+	w = call(api, "itest-as", "admin", "POST", "/v1/ai/profiles", `{"name":"Fake A","base_url":"`+srv.URL+`","model":"fake-a","api_key":"sk-prof-AAA"}`)
+	if w.Code != 200 || strings.Contains(w.Body.String(), "sk-prof-AAA") || !strings.Contains(w.Body.String(), `"Fake A"`) || !strings.Contains(w.Body.String(), `"builtin":true`) {
+		t.Fatalf("create profile: %d %s", w.Code, w.Body.String())
+	}
+	var pid string
+	pool.QueryRow(ctx, `SELECT id FROM ai_profiles WHERE tenant_id='itest-as' AND name='Fake A'`).Scan(&pid)
+	if pid == "" {
+		t.Fatal("profile not stored")
+	}
+	if w := call(api, "itest-as", "admin", "POST", "/v1/ai/profiles", `{"name":"fake a","base_url":"`+srv.URL+`","model":"x"}`); w.Code != 409 {
+		t.Fatalf("duplicate name: %d", w.Code)
+	}
+	fm.script = []map[string]any{{"role": "assistant", "content": "ok"}}
+	if w := call(api, "itest-as", "admin", "POST", "/v1/ai/profiles/"+pid+"/test", ""); !strings.Contains(w.Body.String(), `"ok":true`) || fm.auth != "Bearer sk-prof-AAA" {
+		t.Fatalf("profile test: %s auth=%q", w.Body.String(), fm.auth)
+	}
+	if w := call(api, "itest-as", "admin", "POST", "/v1/ai/profiles/"+pid+"/activate", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"active":true`) {
+		t.Fatalf("activate: %d %s", w.Code, w.Body.String())
+	}
+	var am string
+	pool.QueryRow(ctx, `SELECT model FROM ai_settings WHERE tenant_id='itest-as'`).Scan(&am)
+	if am != "fake-a" {
+		t.Fatalf("active model %q", am)
+	}
+	if w := call(api, "itest-as", "admin", "DELETE", "/v1/ai/profiles/"+pid, ""); w.Code != 409 {
+		t.Fatalf("deleting the active profile: %d", w.Code)
+	}
+	if w := call(api, "itest-as", "admin", "POST", "/v1/ai/profiles/local/activate", ""); w.Code != 200 {
+		t.Fatalf("activate local: %d", w.Code)
+	}
+	if w := call(api, "itest-as", "admin", "DELETE", "/v1/ai/profiles/"+pid, ""); w.Code != 200 || strings.Contains(w.Body.String(), "Fake A") {
+		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
+	}
+	// restore the original connection for the rest of the test
+	call(api, "itest-as", "admin", "PUT", "/v1/ai/settings", `{"enabled":true,"base_url":"`+srv.URL+`","model":"fake-1"}`)
 
 	// the agent run: plan, read, propose an ack, try to approve a command, answer
 	fm.mu.Lock()
