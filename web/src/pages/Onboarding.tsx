@@ -159,6 +159,16 @@ export default function Onboarding() {
           <p>Show this to the installer once. It expires in 72 hours and is stored only as a hash.</p>
           <p><strong>Claim code:</strong> <code>{session.claim_code}</code></p>
           {session.enroll_string && <p>Or on the gateway run <code>edge-agent -enroll '{session.enroll_string}'</code> (one value: server address, code and serial). It contains the one-time code, so treat it as a secret.</p>}
+          {session.claim_code && (
+            <details open>
+              <summary>Install the edge app on the gateway</summary>
+              <p className="muted">Get the package for the gateway's system (built by <code>scripts/build-edge.sh</code> or the edge release; no internet is needed after that). Server address below is this page's address; change it if the gateway reaches the platform another way.</p>
+              <p><b>Ubuntu / Linux</b> (as root, in the unpacked folder):</p>
+              <pre style={{ overflowX: 'auto' }}>{`sudo ./install.sh --server ${window.location.origin} --code ${session.claim_code} --serial ${session.serial} --yes`}</pre>
+              <p><b>Windows</b> (elevated PowerShell, in the unpacked folder):</p>
+              <pre style={{ overflowX: 'auto' }}>{`.\\install.ps1 -Server ${window.location.origin} -Code ${session.claim_code} -Serial ${session.serial} -Yes`}</pre>
+            </details>
+          )}
           <canvas ref={qrRef} />
           <p className="muted">Waiting for gateway {session.serial} to claim... this advances automatically.</p>
         </div>
