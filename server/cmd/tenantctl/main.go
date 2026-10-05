@@ -85,6 +85,10 @@ func main() {
 		if _, err := tx.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role,password_hash) VALUES($1,$2,$3,$4,'admin',$5)`, uid, *id, *email, *aname, hash); err != nil {
 			fatal("admin email already registered or insert failed: " + err.Error())
 		}
+		// A first site so Add device and the commissioning wizard work straight away; rename or add more in the UI.
+		if _, err := tx.Exec(ctx, `INSERT INTO sites(id,tenant_id,name) VALUES($1,$2,'Main site') ON CONFLICT DO NOTHING`, *id+"-main", *id); err != nil {
+			fatal("could not create the default site: " + err.Error())
+		}
 		if err := tx.Commit(ctx); err != nil {
 			fatal(err.Error())
 		}
