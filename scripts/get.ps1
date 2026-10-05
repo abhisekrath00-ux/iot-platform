@@ -4,7 +4,7 @@
 # .env, secrets and install.log are kept), then runs the guided installer with defaults.
 $ErrorActionPreference = "Stop"
 $repo = if ($env:HEXTHINGS_REPO) { $env:HEXTHINGS_REPO } else { "abhisekrath00-ux/iot-platform" }
-$dir = if ($env:HEXTHINGS_DIR) { $env:HEXTHINGS_DIR } else { "hexthings" }
+$dir = if ($env:HEXTHINGS_DIR) { $env:HEXTHINGS_DIR } else { Join-Path $env:USERPROFILE "hexthings" }   # fixed location, never relative to where you run this
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Host "Docker is not installed. Install Docker Desktop (WSL2 backend), start it, then run this again."; return }
 $zip = Join-Path $env:TEMP "hexthings.zip"
 $tmp = Join-Path $env:TEMP "hexthings-src"
@@ -15,5 +15,8 @@ Expand-Archive $zip -DestinationPath $tmp -Force
 $src = (Get-ChildItem $tmp | Select-Object -First 1).FullName
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 Copy-Item -Path (Join-Path $src "*") -Destination $dir -Recurse -Force
+# an earlier version could nest a copy as hexthings\hexthings: remove that stale copy
+$nested = Join-Path $dir "hexthings"
+if (Test-Path (Join-Path $nested "docker-compose.yml")) { Remove-Item -Recurse -Force $nested }
 Set-Location $dir
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Yes

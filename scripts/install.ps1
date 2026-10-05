@@ -12,8 +12,16 @@ function Warn($m) { Say "  warn  $m"; $script:Warnings++ }
 function Fail($m) { Say "  FAIL  $m"; Say ""; Say "Nothing was started. Fix the line above and run the installer again; it is safe to re-run."; exit 1 }
 $script:Warnings = 0
 function Ask($q, $d) { if ($Yes) { return $d }; $a = Read-Host "$q [$d]"; if ($a) { return $a } else { return $d } }
-function RandAlnum($n) { $c = [char[]]([char]'a'..[char]'z' + [char]'A'..[char]'Z' + [char]'0'..[char]'9'); -join (1..$n | ForEach-Object { $c[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32($c.Length)] }) }
-function RandB64 { $b = New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]::Fill($b); [Convert]::ToBase64String($b) }
+# Windows PowerShell 5.1 (.NET Framework) has no RandomNumberGenerator.GetInt32/Fill: use the older provider.
+$script:Rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+function RandBytes($n) { $b = New-Object byte[] $n; $script:Rng.GetBytes($b); return ,$b }
+function RandAlnum($n) {
+  $chars = [char[]]"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  $sb = New-Object System.Text.StringBuilder
+  while ($sb.Length -lt $n) { foreach ($x in (RandBytes 64)) { if ($x -lt 248 -and $sb.Length -lt $n) { [void]$sb.Append($chars[$x % 62]) } } }
+  return $sb.ToString()
+}
+function RandB64 { return [Convert]::ToBase64String((RandBytes 32)) }
 function Dc { & docker compose @args 2>&1 | Add-Content -Path $Log; if ($LASTEXITCODE -ne 0) { throw "docker compose $args failed" } }
 
 function Banner {
@@ -51,7 +59,19 @@ else {
 }
 
 Say ""; Say "2. Setup"
-if (Test-Path .env) { Ok ".env exists and is kept as it is (secrets are not regenerated)" }
+if (Test-Path .env) {
+  $envLines = @(Get-Content .env); $fixed = $false
+  for ($i = 0; $i -lt $envLines.Count; $i++) {
+    foreach ($k in @("POSTGRES_PASSWORD", "JWT_SIGNING_SECRET", "SECRETS_KEY")) {
+      if ($envLines[$i] -match "^$k=(.*)$" -and ($Matches[1].Trim() -eq "" -or $Matches[1] -like "change-me*")) {
+        $v = if ($k -eq "SECRETS_KEY") { RandB64 } elseif ($k -eq "JWT_SIGNING_SECRET") { RandAlnum 64 } else { RandAlnum 32 }
+        $envLines[$i] = "$k=$v"; $fixed = $true
+      }
+    }
+  }
+  if ($fixed) { [System.IO.File]::WriteAllLines((Join-Path (Get-Location) ".env"), $envLines); Ok ".env had empty or placeholder secrets from an earlier failed run: new ones generated" }
+  else { Ok ".env exists and is kept as it is (secrets are not regenerated)" }
+}
 else {
   $lines = Get-Content .env.example | Where-Object { $_ -notmatch '^DATABASE_URL=' } | ForEach-Object {
     if ($_ -match '^POSTGRES_PASSWORD=') { "POSTGRES_PASSWORD=$(RandAlnum 32)" }
@@ -95,7 +115,7 @@ try {
     Ok "images loaded"
     Dc @aiProfile up -d --no-build
   } else { Dc @aiProfile up -d --build }
-} catch { Fail "$_ (see $Log)" }
+} catch { Say ""; Say "Last lines of $Log :"; Get-Content $Log -Tail 25 | ForEach-Object { Write-Host "  $_" }; Fail "$_ (see $Log)" }
 Ok "services started"
 Say "     waiting for the platform to answer ..."
 $up = $false
