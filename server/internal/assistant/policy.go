@@ -43,7 +43,7 @@ func w(method, pattern, what string) writeRule {
 }
 
 // writeAllowed is the complete list of changes the assistant may propose. Anything not listed is
-// refused: users and roles, API keys, secrets, SSO, feature switches, control targets (what may be
+// refused: users, roles and invitations, API keys, secrets, SSO, feature switches, control targets (what may be
 // actuated and whether it is automatic), approving or rejecting commands, data retention, broker
 // ACLs, device credentials, firmware rollout steps, edge-rule pushes, fake telemetry ingest and
 // the assistant's own settings stay human-only.
@@ -56,6 +56,8 @@ var writeAllowed = []writeRule{
 	w("POST", `/v1/groups`, "create a device group"),
 	w("DELETE", `/v1/groups/[^/]+`, "delete a device group"),
 	w("PUT", `/v1/groups/[^/]+/devices`, "set the devices in a group"),
+	w("POST", `/v1/sites`, "create a site"),
+	w("POST", `/v1/customers`, "create a customer"),
 	w("POST", `/v1/assets`, "create an asset"),
 	w("DELETE", `/v1/assets/[^/]+`, "delete an asset"),
 	w("POST", `/v1/relations`, "link two assets"),
@@ -87,6 +89,17 @@ var writeAllowed = []writeRule{
 	w("PUT", `/v1/branding`, "change branding"),
 	w("POST", `/v1/fleet/releases`, "register a firmware release"),
 	w("POST", `/v1/profiles`, "create a device profile"),
+}
+
+// WriteCatalog lists the changes the assistant may propose, for the prompt, so the model knows what
+// it can do and does not claim an allowed change is impossible. Generated from writeAllowed.
+func WriteCatalog() []string {
+	out := make([]string, 0, len(writeAllowed))
+	for _, r := range writeAllowed {
+		pat := strings.TrimSuffix(strings.TrimPrefix(r.re.String(), "^"), "$")
+		out = append(out, r.method+" "+pat+" : "+r.what)
+	}
+	return out
 }
 
 // Classify decides what to do with a request the model wants to make.

@@ -15,6 +15,12 @@ func TestClassify(t *testing.T) {
 		{"PUT", "/v1/dashboards/x", Confirm},
 		{"POST", "/v1/commands", Confirm}, // raising a request is allowed; approving is not
 		{"DELETE", "/v1/assets/a", Confirm},
+		{"POST", "/v1/sites", Confirm},
+		{"POST", "/v1/customers", Confirm},
+		{"PUT", "/v1/customers/c1/users/u1", Denied}, // scoping a user changes who sees what
+		{"POST", "/v1/users", Denied},
+		{"POST", "/v1/users/invites", Denied},
+		{"PUT", "/v1/users/u1", Denied},
 		// human-only
 		{"POST", "/v1/commands/c1/approve", Denied},
 		{"POST", "/v1/commands/c1/reject", Denied},
