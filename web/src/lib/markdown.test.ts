@@ -17,4 +17,10 @@ describe('parseBlocks', () => {
   it('does not loop on an unterminated code fence', () => {
     expect(parseBlocks('```\nabc')).toEqual([{ t: 'code', text: 'abc' }]);
   });
+  it('reads headings, tab-separated tables and pipe tables without a separator line', () => {
+    const b = parseBlocks('## Result\n\nname\tstate\npump\tup\n\n| a | b |\n| 1 | 2 |\n\n---');
+    expect(b.map(x => x.t)).toEqual(['h', 'table', 'table']);
+    expect((b[1] as { rows: string[][] }).rows).toEqual([['pump', 'up']]);
+    expect((b[2] as { head: string[] }).head).toEqual(['a', 'b']);
+  });
 });

@@ -5,11 +5,15 @@ import type { ReactNode } from 'react';
 // model (or text a model copied from a device name) cannot inject markup, scripts or links.
 export type Block =
   | { t: 'p'; text: string }
+  | { t: 'h'; text: string }
   | { t: 'ul' | 'ol'; items: string[] }
   | { t: 'code'; text: string }
   | { t: 'table'; head: string[]; rows: string[][] };
 
 const cells = (l: string) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+// Models often flatten a table into tab-separated or space-aligned rows, or drop the |---| line.
+const tabRow = (l: string) => l.split('\t').length >= 2;
+const pipeRow = (l: string) => (l.match(/\|/g) ?? []).length >= 2;
 const isSep = (l: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
 
 export function parseBlocks(src: string): Block[] {
@@ -22,6 +26,18 @@ export function parseBlocks(src: string): Block[] {
       for (i++; i < lines.length && !lines[i].trim().startsWith('```'); i++) buf.push(lines[i]);
       i++;
       out.push({ t: 'code', text: buf.join('\n') });
+    } else if (/^#{1,6}\s+\S/.test(l)) {
+      out.push({ t: 'h', text: l.replace(/^#{1,6}\s+/, '').replace(/\s+#+$/, '') }); i++;
+    } else if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(l)) {
+      i++;
+    } else if (tabRow(l) && i + 1 < lines.length && tabRow(lines[i + 1])) {
+      const rows: string[][] = [];
+      for (; i < lines.length && tabRow(lines[i]); i++) rows.push(lines[i].split('\t').map(c => c.trim()));
+      out.push({ t: 'table', head: rows[0], rows: rows.slice(1) });
+    } else if (pipeRow(l) && !isSep(l) && i + 1 < lines.length && pipeRow(lines[i + 1]) && !isSep(lines[i + 1])) {
+      const rows: string[][] = [];
+      for (; i < lines.length && pipeRow(lines[i]) && !isSep(lines[i]); i++) rows.push(cells(lines[i]));
+      out.push({ t: 'table', head: rows[0], rows: rows.slice(1) });
     } else if (l.includes('|') && i + 1 < lines.length && isSep(lines[i + 1])) {
       const head = cells(l); const rows: string[][] = [];
       for (i += 2; i < lines.length && lines[i].includes('|'); i++) rows.push(cells(lines[i]));
@@ -36,7 +52,7 @@ export function parseBlocks(src: string): Block[] {
       i++;
     } else {
       const buf: string[] = [];
-      for (; i < lines.length && lines[i].trim() !== '' && !lines[i].trim().startsWith('```') && !/^\s*([-*]|\d+[.)])\s+/.test(lines[i]) && !(lines[i].includes('|') && i + 1 < lines.length && isSep(lines[i + 1])); i++) buf.push(lines[i]);
+      for (; i < lines.length && lines[i].trim() !== '' && !lines[i].trim().startsWith('```') && !/^\s*([-*]|\d+[.)])\s+/.test(lines[i]) && !/^#{1,6}\s+\S/.test(lines[i]) && !tabRow(lines[i]) && !(lines[i].includes('|') && i + 1 < lines.length && isSep(lines[i + 1])); i++) buf.push(lines[i]);
       out.push({ t: 'p', text: buf.join('\n') });
     }
   }
@@ -63,12 +79,13 @@ export function Markdown({ text }: { text: string }) {
       {parseBlocks(text).map((b, i) => {
         switch (b.t) {
           case 'p': return <p key={i} style={{ margin: '4px 0', whiteSpace: 'pre-wrap' }}>{inline(b.text)}</p>;
+          case 'h': return <p key={i} style={{ margin: '8px 0 2px', fontWeight: 600 }}>{inline(b.text)}</p>;
           case 'ul': return <ul key={i} style={{ margin: '4px 0', paddingLeft: 20 }}>{b.items.map((x, j) => <li key={j}>{inline(x)}</li>)}</ul>;
           case 'ol': return <ol key={i} style={{ margin: '4px 0', paddingLeft: 20 }}>{b.items.map((x, j) => <li key={j}>{inline(x)}</li>)}</ol>;
           case 'code': return <pre key={i} style={{ margin: '4px 0', padding: 8, overflowX: 'auto', fontSize: 12, background: 'rgba(127,127,127,.15)', borderRadius: 6 }}>{b.text}</pre>;
           case 'table': return (
             <div key={i} style={{ overflowX: 'auto' }}>
-              <table style={{ fontSize: 12 }}><thead><tr>{b.head.map((h, j) => <th key={j}>{inline(h)}</th>)}</tr></thead>
+              <table className="md-table" style={{ fontSize: 12 }}><thead><tr>{b.head.map((h, j) => <th key={j}>{inline(h)}</th>)}</tr></thead>
                 <tbody>{b.rows.map((r, j) => <tr key={j}>{r.map((c, k) => <td key={k}>{inline(c)}</td>)}</tr>)}</tbody></table>
             </div>
           );
