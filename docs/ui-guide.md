@@ -25,3 +25,5 @@ It proposes, you confirm with one click in the chat, and it runs as you with you
 
 ## Things that do not exist
 A site colour setting, a Settings > Sites page, a Terraform provider and CSV device import. Control commands are listed under Control. Settings holds notification channels, branding and the AI model, not users or sites.
+
+**AI activity**: the Settings page has an AI activity card (admins only) listing what the assistant read and proposed. The assistant cannot list it for you; open Settings and scroll to it.
