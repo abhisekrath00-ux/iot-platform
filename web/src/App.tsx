@@ -57,7 +57,7 @@ const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/a
 
 export default function App() {
   const [theme, toggle] = useTheme();
-  const [brand, setBrand] = useState('Hexmon IoT');
+  const [brand, setBrand] = useState('HexThings');
   const [logo, setLogo] = useState('');
   useEffect(() => {
     if (!localStorage.getItem('iot.token')) return;
@@ -103,7 +103,7 @@ export default function App() {
       {tour && <Tour onClose={() => setTour(false)} />}
       {!online && <div role="status" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50, textAlign: 'center', padding: '6px 12px', background: '#b45309', color: '#fff', fontSize: 13 }}>You are offline. The app opened from this device, but live data needs a connection to the server.</div>}
       <nav>
-        <div className="brand">{logo ? <img src={logo} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }} /> : <span className="logo">{brand.slice(0, 1).toUpperCase()}</span>}{brand}</div>
+        <div className="brand">{logo ? <img src={logo} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }} /> : <img src="/logo-mark.svg" alt="" style={{ width: 28, height: 28 }} />}{brand}</div>
         {me?.customer_name && <div className="muted" style={{ padding: '0 12px 8px' }}>{me.customer_name}</div>}
         {visible.map(([to, label]) => (
           <NavLink key={to} to={to} end={to === '/'}>{icons[label]}{label}</NavLink>
