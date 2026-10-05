@@ -398,17 +398,37 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 	var res agentResult
 	rc.typedOnly = typedMode(cfg)
 	rc.files = &res.files
+	var prov llm.Provider = llm.OpenAICompat{Cfg: cfg}
+	if fb, ok := llm.FallbackFromEnv(cfg); ok {
+		prov = llm.WithFallback{Primary: prov, Secondary: llm.OpenAICompat{Cfg: fb}}
+	}
+	offered := map[string]bool{}
+	for _, t := range toolsFor(cfg) {
+		offered[t.Name] = true
+	}
+	seen := map[string]int{} // loop detection: the same call with the same arguments
 	for ; res.calls < maxAgentCalls; res.calls++ {
 		var m llm.Message
 		var err error
 		if rc.emit != nil {
-			m, err = llm.ChatStream(ctx, cfg, msgs, toolsFor(cfg), func(d string) { rc.emit("delta", d) })
+			m, err = prov.ChatStream(ctx, msgs, toolsFor(cfg), func(d string) { rc.emit("delta", d) })
 		} else {
-			m, err = llm.Chat(ctx, cfg, msgs, toolsFor(cfg))
+			m, err = prov.Chat(ctx, msgs, toolsFor(cfg))
 		}
 		if err != nil {
 			res.err = err
 			return res
+		}
+		// Models without native tool calling may answer with a JSON tool call as text (the
+		// structured-output contract). It is validated and gated exactly like a native call.
+		if len(m.ToolCalls) == 0 {
+			if tc, ok := llm.ParseTextToolCall(m.Content, offered); ok {
+				m.ToolCalls = []llm.ToolCall{tc}
+				m.Content = ""
+				if rc.emit != nil {
+					rc.emit("discard", nil)
+				}
+			}
 		}
 		msgs = append(msgs, m)
 		if len(m.ToolCalls) == 0 {
@@ -422,7 +442,12 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 			res.tools++
 			before := len(res.trace)
 			var result string
-			if res.tools > maxAgentTools {
+			sig := tc.Func.Name + "|" + tc.Func.Arguments
+			seen[sig]++
+			if seen[sig] > 2 {
+				result = `{"error":"you already made this exact call twice; do not repeat it. Answer with what you have, or say you could not get it"}`
+				res.trace = append(res.trace, traceStep{tc.Func.Name, "repeated call refused", "refused"})
+			} else if res.tools > maxAgentTools {
 				result = `{"error":"tool limit reached for this run; summarise what is done and what is left"}`
 				res.trace = append(res.trace, traceStep{tc.Func.Name, "tool limit reached", "refused"})
 			} else {
