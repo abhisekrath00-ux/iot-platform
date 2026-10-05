@@ -48,7 +48,7 @@ func TestRunAgentStreamsStepsAndAnswer(t *testing.T) {
 	s := &server{}
 	var events []string
 	var text strings.Builder
-	cfg := llm.Config{BaseURL: srv.URL, Model: "m", NoThinking: true}
+	cfg := llm.Config{BaseURL: srv.URL, Model: "m", NoThinking: true, Small: true}
 	res := s.runAgent(context.Background(), cfg, "t", "u", "viewer", []llm.Message{{Role: "user", Content: "hi"}},
 		runCtx{via: "web", emit: func(ev string, v any) {
 			events = append(events, ev)
@@ -165,7 +165,7 @@ func TestLocalRuntimeSeesOnlyTypedTools(t *testing.T) {
 	var offered []string
 	srv := scriptedTools(t, "api_request", `{"method":"GET","path":"/v1/users"}`, &offered)
 	defer srv.Close()
-	res := (&server{}).runAgent(context.Background(), llm.Config{BaseURL: srv.URL, Model: "m", NoThinking: true}, "t", "u", "admin",
+	res := (&server{}).runAgent(context.Background(), llm.Config{BaseURL: srv.URL, Model: "m", NoThinking: true, Small: true}, "t", "u", "admin",
 		[]llm.Message{{Role: "user", Content: "hi"}}, runCtx{emit: func(string, any) {}})
 	if res.err != nil {
 		t.Fatal(res.err)
@@ -187,9 +187,35 @@ func TestTypedToolRejectsBadArgumentsWithoutTouchingTheAPI(t *testing.T) {
 	var offered []string
 	srv := scriptedTools(t, "get_device_health", `{"device_id":"../users"}`, &offered)
 	defer srv.Close()
-	res := (&server{}).runAgent(context.Background(), llm.Config{BaseURL: srv.URL, Model: "m", NoThinking: true}, "t", "u", "admin",
+	res := (&server{}).runAgent(context.Background(), llm.Config{BaseURL: srv.URL, Model: "m", NoThinking: true, Small: true}, "t", "u", "admin",
 		[]llm.Message{{Role: "user", Content: "hi"}}, runCtx{emit: func(string, any) {}})
 	if res.err != nil || len(res.trace) != 1 || res.trace[0].Status != "refused" || !strings.Contains(res.trace[0].Detail, "valid id") {
 		t.Fatalf("%+v %v", res.trace, res.err)
+	}
+}
+
+// A hosted/bigger model (Small=false) is offered the generic api_request tool, its request is not
+// short-circuited by the fixed answers, and the model's own reply is returned.
+func TestFullModelIsOfferedGenericToolAndNotShortCircuited(t *testing.T) {
+	t.Setenv("AI_TOOL_MODE", "")
+	var offered []string
+	srv := scriptedTools(t, "api_request", `{"method":"GET","path":"/v1/devices"}`, &offered)
+	defer srv.Close()
+	res := (&server{}).runAgent(context.Background(), llm.Config{BaseURL: srv.URL, Model: "big"}, "t", "u", "admin",
+		[]llm.Message{{Role: "user", Content: "create a new device"}}, runCtx{emit: func(string, any) {}})
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if res.reply != "done" {
+		t.Fatalf("the fixed answer must not override a full model; reply=%q", res.reply)
+	}
+	has := false
+	for _, n := range offered {
+		if n == "api_request" {
+			has = true
+		}
+	}
+	if !has || len(offered) != len(assistantTools) {
+		t.Fatalf("a full model gets the whole generic menu: %v", offered)
 	}
 }

@@ -38,16 +38,40 @@ type aiConfig struct {
 	BaseURL string
 	Model   string
 	KeyName string
+	// Capability: "auto" (a local/private runtime is treated as small, anything else as full), "small" or "full".
+	Capability string
 }
 
 func (s *server) aiConfigFor(ctx context.Context, tenant string) (aiConfig, bool) {
 	var c aiConfig
-	err := s.st.Pool.QueryRow(ctx, `SELECT enabled, base_url, model, key_secret FROM ai_settings WHERE tenant_id=$1`, tenant).Scan(&c.Enabled, &c.BaseURL, &c.Model, &c.KeyName)
+	err := s.st.Pool.QueryRow(ctx, `SELECT enabled, base_url, model, key_secret, capability FROM ai_settings WHERE tenant_id=$1`, tenant).Scan(&c.Enabled, &c.BaseURL, &c.Model, &c.KeyName, &c.Capability)
 	return c, err == nil
 }
 
+// isSmallModel decides whether the small-model workarounds apply (compact prompt, short tool menu,
+// fixed answers). A hosted or bigger model gets the full prompt and tool set.
+func isSmallModel(c aiConfig) bool {
+	switch c.Capability {
+	case "small":
+		return true
+	case "full":
+		return false
+	}
+	return isLocalRuntime(c.BaseURL)
+}
+
+func capOrAuto(c string) string {
+	if c == "" {
+		return "auto"
+	}
+	return c
+}
+
+func validCapability(c string) bool { return c == "auto" || c == "small" || c == "full" }
+
 func (s *server) llmConfig(ctx context.Context, tenant string, c aiConfig) (llm.Config, error) {
-	cfg := llm.Config{BaseURL: c.BaseURL, Model: c.Model, Timeout: aiTimeout(), NoThinking: isLocalRuntime(c.BaseURL)}
+	small := isSmallModel(c)
+	cfg := llm.Config{BaseURL: c.BaseURL, Model: c.Model, Timeout: aiTimeout(), NoThinking: small && isLocalRuntime(c.BaseURL), Small: small}
 	if c.KeyName != "" {
 		if s.secrets == nil || len(s.secrets.Key) == 0 {
 			return cfg, errors.New("the API key cannot be read: SECRETS_KEY is not configured")
@@ -67,7 +91,7 @@ func (s *server) getAISettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, _ := s.aiConfigFor(r.Context(), auth.Tenant(r))
-	writeJSON(w, 200, map[string]any{"enabled": c.Enabled, "base_url": c.BaseURL, "model": c.Model, "has_key": c.KeyName != "",
+	writeJSON(w, 200, map[string]any{"enabled": c.Enabled, "base_url": c.BaseURL, "model": c.Model, "has_key": c.KeyName != "", "capability": capOrAuto(c.Capability),
 		"secrets_available": s.secrets != nil && len(s.secrets.Key) > 0})
 }
 
@@ -77,14 +101,19 @@ func (s *server) putAISettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Enabled  bool    `json:"enabled"`
-		BaseURL  string  `json:"base_url"`
-		Model    string  `json:"model"`
-		APIKey   *string `json:"api_key"`
-		ClearKey bool    `json:"clear_key"`
+		Enabled    bool    `json:"enabled"`
+		BaseURL    string  `json:"base_url"`
+		Model      string  `json:"model"`
+		APIKey     *string `json:"api_key"`
+		ClearKey   bool    `json:"clear_key"`
+		Capability string  `json:"capability"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&in); err != nil {
 		http.Error(w, "bad json", 400)
+		return
+	}
+	if in.Capability != "" && !validCapability(in.Capability) {
+		http.Error(w, "capability must be auto, small or full", 400)
 		return
 	}
 	in.BaseURL, in.Model = strings.TrimSpace(in.BaseURL), strings.TrimSpace(in.Model)
@@ -118,9 +147,16 @@ func (s *server) putAISettings(w http.ResponseWriter, r *http.Request) {
 		}
 		keyName = aiKeySecret
 	}
-	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO ai_settings(tenant_id,enabled,base_url,model,key_secret,updated_by) VALUES($1,$2,$3,$4,$5,$6)
-		ON CONFLICT (tenant_id) DO UPDATE SET enabled=EXCLUDED.enabled, base_url=EXCLUDED.base_url, model=EXCLUDED.model, key_secret=EXCLUDED.key_secret, updated_by=EXCLUDED.updated_by, updated_at=now()`,
-		tenant, in.Enabled, in.BaseURL, in.Model, keyName, auth.User(r)); err != nil {
+	capab := in.Capability
+	if capab == "" {
+		capab = cur.Capability
+	}
+	if capab == "" {
+		capab = "auto"
+	}
+	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO ai_settings(tenant_id,enabled,base_url,model,key_secret,updated_by,capability) VALUES($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (tenant_id) DO UPDATE SET enabled=EXCLUDED.enabled, base_url=EXCLUDED.base_url, model=EXCLUDED.model, key_secret=EXCLUDED.key_secret, updated_by=EXCLUDED.updated_by, capability=EXCLUDED.capability, updated_at=now()`,
+		tenant, in.Enabled, in.BaseURL, in.Model, keyName, auth.User(r), capab); err != nil {
 		http.Error(w, "db", 500)
 		return
 	}
@@ -395,7 +431,7 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 	var res agentResult
 	rc.typedOnly = typedMode(cfg)
 	rc.files = &res.files
-	if r, ok := cannedReply(lastUserText(msgs)); ok { // fixed answers for things the assistant cannot do; no model call
+	if r, ok := cannedReply(lastUserText(msgs)); ok && typedMode(cfg) { // fixed answers for things the assistant cannot do; no model call
 		if rc.emit != nil {
 			rc.emit("delta", r)
 		}
@@ -833,7 +869,7 @@ func typedMode(cfg llm.Config) bool {
 	case "generic":
 		return false
 	}
-	return cfg.NoThinking
+	return cfg.Small
 }
 
 func toolsFor(cfg llm.Config) []llm.Tool {

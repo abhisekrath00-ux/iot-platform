@@ -21,7 +21,7 @@ import (
 const maxAIProfiles = 20
 
 type aiProfile struct {
-	ID, Name, BaseURL, Model, KeySecret string
+	ID, Name, BaseURL, Model, KeySecret, Capability string
 }
 
 func localProfile() aiProfile {
@@ -33,7 +33,7 @@ func localProfile() aiProfile {
 	if model == "" {
 		model = "qwen3-1.7b"
 	}
-	return aiProfile{ID: "local", Name: "Local model (built in)", BaseURL: base, Model: model}
+	return aiProfile{ID: "local", Name: "Local model (built in)", BaseURL: base, Model: model, Capability: "small"}
 }
 
 func (s *server) aiProfileGet(ctx context.Context, tenant, id string) (aiProfile, bool) {
@@ -41,7 +41,7 @@ func (s *server) aiProfileGet(ctx context.Context, tenant, id string) (aiProfile
 		return localProfile(), true
 	}
 	p := aiProfile{ID: id}
-	err := s.st.Pool.QueryRow(ctx, `SELECT name, base_url, model, key_secret FROM ai_profiles WHERE tenant_id=$1 AND id=$2`, tenant, id).Scan(&p.Name, &p.BaseURL, &p.Model, &p.KeySecret)
+	err := s.st.Pool.QueryRow(ctx, `SELECT name, base_url, model, key_secret, capability FROM ai_profiles WHERE tenant_id=$1 AND id=$2`, tenant, id).Scan(&p.Name, &p.BaseURL, &p.Model, &p.KeySecret, &p.Capability)
 	return p, err == nil
 }
 
@@ -58,16 +58,16 @@ func (s *server) listAIProfiles(w http.ResponseWriter, r *http.Request) {
 	cur, _ := s.aiConfigFor(r.Context(), tenant)
 	out := []map[string]any{}
 	add := func(p aiProfile, builtin bool) {
-		active := cur.Enabled && cur.BaseURL == p.BaseURL && cur.Model == p.Model && cur.KeyName == p.KeySecret
-		out = append(out, map[string]any{"id": p.ID, "name": p.Name, "base_url": p.BaseURL, "model": p.Model, "has_key": p.KeySecret != "", "builtin": builtin, "active": active})
+		active := cur.Enabled && cur.BaseURL == p.BaseURL && cur.Model == p.Model && cur.KeyName == p.KeySecret && capOrAuto(cur.Capability) == capOrAuto(p.Capability)
+		out = append(out, map[string]any{"id": p.ID, "name": p.Name, "base_url": p.BaseURL, "model": p.Model, "has_key": p.KeySecret != "", "builtin": builtin, "active": active, "capability": capOrAuto(p.Capability), "small_model_mode": isSmallModel(aiConfig{BaseURL: p.BaseURL, Capability: p.Capability})})
 	}
 	add(localProfile(), true)
-	rows, err := s.st.Pool.Query(r.Context(), `SELECT id, name, base_url, model, key_secret FROM ai_profiles WHERE tenant_id=$1 ORDER BY lower(name)`, tenant)
+	rows, err := s.st.Pool.Query(r.Context(), `SELECT id, name, base_url, model, key_secret, capability FROM ai_profiles WHERE tenant_id=$1 ORDER BY lower(name)`, tenant)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var p aiProfile
-			if rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.Model, &p.KeySecret) == nil {
+			if rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.Model, &p.KeySecret, &p.Capability) == nil {
 				add(p, false)
 			}
 		}
@@ -76,11 +76,12 @@ func (s *server) listAIProfiles(w http.ResponseWriter, r *http.Request) {
 }
 
 type aiProfileIn struct {
-	Name     string  `json:"name"`
-	BaseURL  string  `json:"base_url"`
-	Model    string  `json:"model"`
-	APIKey   *string `json:"api_key"`
-	ClearKey bool    `json:"clear_key"`
+	Name       string  `json:"name"`
+	BaseURL    string  `json:"base_url"`
+	Model      string  `json:"model"`
+	APIKey     *string `json:"api_key"`
+	ClearKey   bool    `json:"clear_key"`
+	Capability string  `json:"capability"`
 }
 
 // POST /v1/ai/profiles (create) and PUT /v1/ai/profiles/{id} (edit; omit api_key to keep it).
@@ -107,6 +108,10 @@ func (s *server) saveAIProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	if in.Capability != "" && !validCapability(in.Capability) {
+		http.Error(w, "capability must be auto, small or full", 400)
+		return
+	}
 	tenant := auth.Tenant(r)
 	var cur aiProfile
 	if id == "" {
@@ -126,6 +131,10 @@ func (s *server) saveAIProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	capab := in.Capability
+	if capab == "" {
+		capab = capOrAuto(cur.Capability)
+	}
 	keyName, secretName := cur.KeySecret, "ai-key-"+id
 	if in.ClearKey {
 		keyName = ""
@@ -144,9 +153,9 @@ func (s *server) saveAIProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		keyName = secretName
 	}
-	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO ai_profiles(tenant_id,id,name,base_url,model,key_secret,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (tenant_id,id) DO UPDATE SET name=EXCLUDED.name, base_url=EXCLUDED.base_url, model=EXCLUDED.model, key_secret=EXCLUDED.key_secret, updated_by=EXCLUDED.updated_by, updated_at=now()`,
-		tenant, id, in.Name, in.BaseURL, in.Model, keyName, auth.User(r)); err != nil {
+	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO ai_profiles(tenant_id,id,name,base_url,model,key_secret,updated_by,capability) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT (tenant_id,id) DO UPDATE SET name=EXCLUDED.name, base_url=EXCLUDED.base_url, model=EXCLUDED.model, key_secret=EXCLUDED.key_secret, updated_by=EXCLUDED.updated_by, capability=EXCLUDED.capability, updated_at=now()`,
+		tenant, id, in.Name, in.BaseURL, in.Model, keyName, auth.User(r), capab); err != nil {
 		http.Error(w, "that name is already used", 409)
 		return
 	}
@@ -189,9 +198,9 @@ func (s *server) activateAIProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such profile", 404)
 		return
 	}
-	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO ai_settings(tenant_id,enabled,base_url,model,key_secret,updated_by) VALUES($1,true,$2,$3,$4,$5)
-		ON CONFLICT (tenant_id) DO UPDATE SET enabled=true, base_url=EXCLUDED.base_url, model=EXCLUDED.model, key_secret=EXCLUDED.key_secret, updated_by=EXCLUDED.updated_by, updated_at=now()`,
-		tenant, p.BaseURL, p.Model, p.KeySecret, auth.User(r)); err != nil {
+	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO ai_settings(tenant_id,enabled,base_url,model,key_secret,updated_by,capability) VALUES($1,true,$2,$3,$4,$5,$6)
+		ON CONFLICT (tenant_id) DO UPDATE SET enabled=true, base_url=EXCLUDED.base_url, model=EXCLUDED.model, key_secret=EXCLUDED.key_secret, updated_by=EXCLUDED.updated_by, capability=EXCLUDED.capability, updated_at=now()`,
+		tenant, p.BaseURL, p.Model, p.KeySecret, auth.User(r), capOrAuto(p.Capability)); err != nil {
 		http.Error(w, "db", 500)
 		return
 	}
@@ -210,7 +219,7 @@ func (s *server) testAIProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such profile", 404)
 		return
 	}
-	cfg, err := s.llmConfig(r.Context(), tenant, aiConfig{Enabled: true, BaseURL: p.BaseURL, Model: p.Model, KeyName: p.KeySecret})
+	cfg, err := s.llmConfig(r.Context(), tenant, aiConfig{Enabled: true, BaseURL: p.BaseURL, Model: p.Model, KeyName: p.KeySecret, Capability: p.Capability})
 	if err != nil {
 		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
 		return

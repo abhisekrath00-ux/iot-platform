@@ -17,7 +17,7 @@ func TestEvalAssistant(t *testing.T) {
 	if base == "" {
 		t.Skip("set EVAL_LLM_URL to run against a real model")
 	}
-	cfg := llm.Config{BaseURL: base, Model: "qwen3-1.7b", Timeout: 280 * time.Second, NoThinking: true}
+	cfg := llm.Config{BaseURL: base, Model: "qwen3-1.7b", Timeout: 280 * time.Second, NoThinking: true, Small: true}
 	cases := []struct {
 		name, text string
 		check      func(m llm.Message) string
@@ -61,7 +61,7 @@ func TestEvalAssistant(t *testing.T) {
 			continue
 		}
 		msgs := []llm.Message{{Role: "system", Content: typedPrompt("admin")}, {Role: "user", Content: c.text}}
-		m, err := llm.Chat(context.Background(), cfg, msgs, toolsForTurn(llm.Config{BaseURL: "http://ai-runtime:8090/v1", NoThinking: true}, msgs))
+		m, err := llm.Chat(context.Background(), cfg, msgs, toolsForTurn(llm.Config{BaseURL: "http://ai-runtime:8090/v1", NoThinking: true, Small: true}, msgs))
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
