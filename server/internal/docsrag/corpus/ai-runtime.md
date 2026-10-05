@@ -102,3 +102,9 @@ thrash; stop the model first.
 ## Context window and small-model prompts
 
 The default context is now 6144 tokens (`AI_CONTEXT`). A plain "hey" costs 836 prompt tokens, a create-site request 1343 and an alerts question 1309, measured with the real Qwen3-1.7B (direct requests to llama-server, 1.52 GB peak RSS; not the full API path, Docker not run). The system prompt is compact and only about 9 keyword-relevant tools are offered per turn. If the model still reports a context overflow, the API retries once with just the latest message, then shows a friendly message suggesting Clear or a larger `AI_CONTEXT`.
+
+## Server flags and fixed answers
+
+llama-server now runs with `-np 1 --cache-ram 0` (`AI_CACHE_RAM`). Without them it keeps several prompt caches and was killed by the out-of-memory killer on a 2 GB machine after the second request; with them the process stayed at about 1.5 GB resident.
+
+The assistant answers two requests without calling the model, because a 1.7B model invented endpoints for them: "AI activity" (points to Settings > AI activity) and "create a device" (points to Add device; devices cannot be created by the assistant). Greetings and small talk go to the model, and the prompt says "I don't know" is only for factual questions that no tool result or doc answers. Optional empty tool arguments (for example `parent_id: ""`) are now dropped instead of sent. An opt-in eval (`EVAL_LLM_URL=... go test -run TestEvalAssistant ./cmd/api`) holds the four cases from real use: hello, AI activity, create device, what can you do.
