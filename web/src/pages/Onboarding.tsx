@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { SiteSelect } from '../components/SiteSelect';
 import QRCode from 'qrcode';
 import { api, download, EXTRA_DRIVERS, NETWORK_DRIVERS } from '../lib/api';
 
@@ -85,6 +86,7 @@ export default function Onboarding() {
 
   async function start(e: React.FormEvent) {
     e.preventDefault(); setMsg('');
+    if (!site) { setMsg('Create a site first (use Create site above), then continue.'); return; }
     try {
       const r = await api<Session & { claim_code: string; qr_payload: string }>('/v1/commissioning/sessions', {
         method: 'POST', body: JSON.stringify({ site_id: site, serial })
@@ -144,10 +146,7 @@ export default function Onboarding() {
 
       {step === 0 && (
         <form onSubmit={start}>
-          <label>Site</label>
-          <select value={site} onChange={e => setSite(e.target.value)} required>
-            {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <SiteSelect sites={sites} site={site} setSite={setSite} onCreated={s => setSites(prev => [...prev, s])} />
           <label>Gateway serial</label>
           <input value={serial} onChange={e => setSerial(e.target.value)} placeholder="AXON-0007" required />
           <div style={{ marginTop: 16 }}><button type="submit">Create claim code</button></div>
