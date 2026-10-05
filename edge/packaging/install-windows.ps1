@@ -1,4 +1,4 @@
-# Installs or upgrades the Hexmon edge agent as a Windows service (elevated PowerShell).
+# Installs or upgrades the HexThings edge agent as a Windows service (elevated PowerShell).
 #   .\install-windows.ps1 [-ClaimApi URL -ClaimCode CODE -ClaimSerial SERIAL]
 # Re-running is the upgrade path: the old exe is kept as edge-agent.prev.exe, config and
 # identity are not touched, and if the new version is not healthy within 60 s the old exe is restored.
@@ -33,7 +33,7 @@ icacls $dir /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F
 if ($ClaimCode) { & $exe -claim-api $ClaimApi -claim-code $ClaimCode -claim-serial $ClaimSerial }
 
 if (-not $svc) {
-  New-Service -Name HexmonEdge -DisplayName "Hexmon Edge Agent" -BinaryPathName "`"$exe`" -config `"$dir\edge-agent.yaml`" -identity-dir `"$dir\data`"" -StartupType Automatic -Description "Hexmon edge gateway agent" | Out-Null
+  New-Service -Name HexmonEdge -DisplayName "HexThings Edge Agent" -BinaryPathName "`"$exe`" -config `"$dir\edge-agent.yaml`" -identity-dir `"$dir\data`"" -StartupType Automatic -Description "Hexmon edge gateway agent" | Out-Null
   sc.exe failure HexmonEdge reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
 }
 

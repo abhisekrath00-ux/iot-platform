@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs or upgrades the Hexmon edge agent as a systemd service
+# Installs or upgrades the HexThings edge agent as a systemd service
 # (Ubuntu, Debian, Raspberry Pi OS, any systemd distro; x86_64 and arm64).
 #
 #   sudo ./install-linux.sh [-claim-api URL -claim-code CODE -claim-serial SERIAL]
@@ -63,7 +63,7 @@ if [ "$SKIP_SYSTEMD" = 1 ]; then echo "installed to $PREFIX (systemd step skippe
 
 cat > "$UNIT_DIR/hexmon-edge.service" <<UNIT
 [Unit]
-Description=Hexmon edge agent
+Description=HexThings edge agent
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300

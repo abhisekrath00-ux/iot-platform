@@ -1,4 +1,4 @@
-# Removes the Hexmon edge agent service and executable. Config, identity and logs are kept unless -Purge.
+# Removes the HexThings edge agent service and executable. Config, identity and logs are kept unless -Purge.
 param([switch]$Purge)
 $ErrorActionPreference = "Stop"
 $dir = Join-Path $env:ProgramData "Hexmon\edge"

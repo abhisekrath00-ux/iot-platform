@@ -1,4 +1,4 @@
-# Hexmon edge agent - example config. Normally delivered by enrollment
+# HexThings edge agent - example config. Normally delivered by enrollment
 # (claim code) and fleet config releases; edit by hand only for bench tests.
 gateway_id: gw-demo-001
 tenant_id: tenant-demo

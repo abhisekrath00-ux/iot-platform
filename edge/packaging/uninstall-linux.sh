@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Removes the Hexmon edge agent service and binary. Config and identity are kept
+# Removes the HexThings edge agent service and binary. Config and identity are kept
 # unless you pass --purge (the identity cannot be re-created without a new claim code).
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "run as root (sudo)"; exit 1; }
