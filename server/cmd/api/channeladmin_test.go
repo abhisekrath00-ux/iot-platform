@@ -43,6 +43,8 @@ func TestIntegrationChannelAdmin(t *testing.T) {
 	for _, u := range [][3]string{{"ca-admin", "itest-ca1", "admin"}, {"ca-op", "itest-ca1", "operator"}, {"ca-admin2", "itest-ca2", "admin"}} {
 		pool.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES($1,$2,$1||'@ca-test.example','U',$3)`, u[0], u[1], u[2])
 	}
+	channelTestAt.Delete("ca-ch1") // process-global limiter: a repeated run (-count>1) must start clean
+	channelTestAt.Delete("ca-ch2")
 	fm := &flakyMail{}
 	s.notifier = fm
 	mux := http.NewServeMux()
