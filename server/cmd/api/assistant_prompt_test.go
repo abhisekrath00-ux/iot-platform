@@ -27,3 +27,23 @@ func TestPromptsCarryGroundingStyleAndFacts(t *testing.T) {
 		t.Error("generic prompt must list the site change as allowed")
 	}
 }
+
+func TestCannedReplies(t *testing.T) {
+	for in, want := range map[string]string{
+		"send me all AI activity":    "Settings",
+		"show the assistant history": "Settings",
+		"create a new device":        "Add device",
+		"how do I add a sensor":      "Add device",
+		"register a new PLC":         "Add device",
+	} {
+		r, ok := cannedReply(in)
+		if !ok || !strings.Contains(r, want) {
+			t.Errorf("%q -> %v %q", in, ok, r)
+		}
+	}
+	for _, in := range []string{"hello", "create a new site", "create a device group", "add an asset", "is the device online", "show alerts"} {
+		if r, ok := cannedReply(in); ok {
+			t.Errorf("%q must go to the model, got %q", in, r)
+		}
+	}
+}
