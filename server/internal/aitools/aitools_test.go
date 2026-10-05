@@ -2,6 +2,8 @@ package aitools
 
 import (
 	"strings"
+
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/llm"
 	"testing"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/assistant"
@@ -103,5 +105,24 @@ func TestSpecsAreStrictSchemas(t *testing.T) {
 		if s.Parameters["additionalProperties"] != false {
 			t.Errorf("%s allows extra arguments", s.Name)
 		}
+	}
+}
+
+func TestSpecsForIsShortAndRelevant(t *testing.T) {
+	names := func(ts []llm.Tool) string {
+		var n []string
+		for _, x := range ts {
+			n = append(n, x.Name)
+		}
+		return strings.Join(n, ",")
+	}
+	if got := SpecsFor("hey", 9); len(got) != 4 || !strings.Contains(names(got), "search_docs") {
+		t.Errorf("greeting: %s", names(got))
+	}
+	if got := names(SpecsFor("create a site called North", 9)); !strings.Contains(got, "create_site") {
+		t.Errorf("create: %s", got)
+	}
+	if got := SpecsFor("why did the alert fire on pump 1, any anomalies and a forecast, also kpi gateway rule report", 9); len(got) > 9 {
+		t.Errorf("cap: %d", len(got))
 	}
 }

@@ -303,3 +303,63 @@ func check(p Param, v any) (string, error) {
 	}
 	return s, nil
 }
+
+// SpecsFor returns a short list of tool definitions for one user message: a small base set plus
+// the groups whose keywords appear in the text, at most max tools, with descriptions cut to the
+// first sentence. It exists so a small local model's prompt fits its context window. Every tool is
+// still callable by name (Resolve does not depend on this list).
+func SpecsFor(text string, max int) []llm.Tool {
+	groups := []struct {
+		words []string
+		tools []string
+	}{
+		{[]string{"device", "health", "state", "value", "reading", "online", "offline", "stale", "temperature", "twin"}, []string{"get_device_health", "get_device_state", "latest_values"}},
+		{[]string{"telemetry", "series", "history", "trend", "hours", "last 24", "chart"}, []string{"get_telemetry", "latest_values"}},
+		{[]string{"anomal", "abnormal", "spike", "unusual"}, []string{"find_anomalies"}},
+		{[]string{"forecast", "predict", "projection"}, []string{"forecast_point"}},
+		{[]string{"correlat", "related", "together"}, []string{"related_signals"}},
+		{[]string{"alert", "alarm", "ack", "acknowledge", "comment", "why did"}, []string{"get_alert", "explain_alert", "acknowledge_alert", "comment_on_alert"}},
+		{[]string{"wrong", "problem", "issue", "investigate", "fix", "diagnos", "plant", "site"}, []string{"investigate_scope"}},
+		{[]string{"create", "add a", "new site", "new group", "new asset", "new customer", "make a"}, []string{"create_site", "create_asset", "create_customer", "create_group"}},
+		{[]string{"asset", "line", "machine", "downstream", "depends"}, []string{"list_assets", "downstream_impact"}},
+		{[]string{"group"}, []string{"list_groups"}},
+		{[]string{"report", "export", "download", "csv", "pdf"}, []string{"list_reports", "offer_report_download"}},
+		{[]string{"kpi", "oee"}, []string{"list_kpis"}},
+		{[]string{"gateway"}, []string{"list_gateways"}},
+		{[]string{"rule"}, []string{"list_rules"}},
+		{[]string{"maintenance"}, []string{"list_maintenance_windows"}},
+		{[]string{"command", "control"}, []string{"list_commands"}},
+		{[]string{"audit", "who changed"}, []string{"recent_audit"}},
+	}
+	low := strings.ToLower(text)
+	want := []string{"search_docs", "fleet_summary", "list_alerts", "list_devices"}
+	for _, g := range groups {
+		for _, w := range g.words {
+			if strings.Contains(low, w) {
+				want = append(want, g.tools...)
+				break
+			}
+		}
+	}
+	seen := map[string]bool{}
+	var out []llm.Tool
+	all := Specs()
+	idx := map[string]llm.Tool{}
+	for _, t := range all {
+		idx[t.Name] = t
+	}
+	for _, n := range want {
+		t, ok := idx[n]
+		if !ok || seen[n] || len(out) >= max {
+			continue
+		}
+		seen[n] = true
+		d := t.Description
+		if i := strings.Index(d, ". "); i > 0 && i < 140 {
+			d = d[:i+1] + d[strings.LastIndex(d, " ["):]
+		}
+		t.Description = d
+		out = append(out, t)
+	}
+	return out
+}
