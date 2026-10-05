@@ -12,7 +12,7 @@ for t in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
   name="hexmon-edge-$ver-$os-$arch"; stage="$out/$name"; mkdir -p "$stage"
   CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$ver" -o "$stage/edge-agent$ext" ./cmd/edge-agent
   cp packaging/edge-agent.example.yaml "$stage/"
-  if [ "$os" = linux ]; then cp packaging/install-linux.sh packaging/install.sh packaging/uninstall-linux.sh packaging/update-linux.sh "$stage/"; else cp packaging/install-windows.ps1 packaging/uninstall-windows.ps1 packaging/update-windows.ps1 "$stage/"; fi
+  if [ "$os" = linux ]; then cp packaging/install-linux.sh packaging/install.sh packaging/uninstall-linux.sh packaging/update-linux.sh "$stage/"; else cp packaging/install-windows.ps1 packaging/install.ps1 packaging/install.bat packaging/uninstall-windows.ps1 packaging/update-windows.ps1 "$stage/"; fi
   if [ "$os" = linux ] && command -v dpkg-deb >/dev/null; then
     deb="$out/hexmon-edge_${ver#v}_$arch.deb"; d="$(mktemp -d)"
     install -d "$d/DEBIAN" "$d/usr/bin" "$d/etc/hexmon" "$d/lib/systemd/system"
