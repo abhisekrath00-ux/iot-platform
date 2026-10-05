@@ -79,6 +79,8 @@ Across everything: about 444 Go test functions (server 322, edge 122) and 55 web
 ## HexThings rebrand and installers (Oct 5)
 
 - Built: HexThings name and logo (SVG/PNG, favicon, PWA icons), colour terminal installer with plain fallback (tested with a fake docker; real install never run), guided Linux edge installer `edge/packaging/install.sh` (tested with a fake binary only).
-- Not built: default HexThings logo in Report Builder, guided Windows edge installer (the ps1 banner is untested).
+- Reports now print the HexThings mark when a tenant has no logo of its own (tenant logo wins; unit-tested decode, DB tests pass). Guided Windows edge installer `install.ps1`/`install.bat` written, never run.
 - Technical identifiers (HexmonEdge service, /etc/hexmon, headers, image name) keep the old name for compatibility.
 - One-command bootstrap `scripts/get.sh` / `scripts/get.ps1` (public repo only; never run end to end, get.ps1 never run).
+
+- DB-backed Go tests re-run on a throwaway local Postgres 14 (Oct 5): all server packages pass. Remote CI still not run.
