@@ -34,6 +34,21 @@ Raise `AI_TIMEOUT_SECONDS` on the API (default 90, max 600) on slow CPUs. Nothin
 bundle; `install.sh` starts the `ai` profile when `model.gguf` is present. Without the variable the bundle
 has no AI. **Status: scripts pass `bash -n` only. They were never run (no Docker on the dev machine).**
 
+## What "trained on the software" means here
+
+No model is trained or fine-tuned on HexThings. The assistant is a stock Qwen3-1.7B. It knows the product
+through tools (read-only queries that really exist) and a search over the shipped docs (docsrag).
+Deterministic code does the facts and arithmetic; the model only phrases the answer. A 11-of-120 sample
+eval scored 6 right, so expect a small model to make mistakes.
+
+## Installer download
+
+`install.sh --ai-download` and `install.ps1 -AiDownload` (the one-command install does this by default;
+`HEXTHINGS_NO_AI=1` skips it) fetch the model once from Hugging Face, resume if interrupted, check the
+sha256 (a mismatch deletes the file), then start the `ai` profile and run
+`tenantctl ai-connect` so the assistant is connected without manual settings. For air-gapped hosts copy
+`models/model.gguf` in beforehand, or use the airgap bundle.
+
 ## Model choice
 
 The default is Qwen3-1.7B Q4_K_M (Qwen3 has no 1.5B). Any GGUF that llama.cpp supports and that handles
@@ -51,8 +66,19 @@ same settings page; nothing here needs the internet at run time.
 | Generation | about 1 token/s when the machine is short of memory (page cache pressure), not representative of a proper host |
 | First answer of a short chat through the API | tens of seconds (the system prompt is about 1,000 tokens) |
 
-These numbers say little about a production host. The 4-5 GB budget in the brief has not been measured
-because this machine cannot give it. Building the Go API while the model is loaded makes the machine
+### Memory and CPU-only (re-measured Oct 5 with the real pinned llama.cpp build and the real model)
+
+llama-server (commit d89651a, CPU only, `-t 2 -c 3072 --jinja`), real Qwen3-1.7B Q4_K_M, sha256 verified
+against the download: **resident memory 1.45 GB after load, 1.49 GB peak after a chat request**. A short
+reply ran at about 7 tokens/s generation and 27 tokens/s prompt processing on 2 CPUs, no GPU. This is the
+model process measured outside Docker. The compose `ai-runtime` limit is now 2 GB (`AI_MEM_LIMIT`).
+
+The whole stack inside 4-5 GB is an **estimate, not a measurement**: model about 1.5 GB, Elasticsearch heap
+512 MB (about 1 GB resident), Postgres, API, web and the other services about 1-1.5 GB. That is roughly
+4 GB. Docker was not available here, so the full stack was never run together. On a 4 GB machine use
+`--no-ai` or a smaller context (`AI_CONTEXT=2048`).
+
+The full 4-5 GB figure for the stack and the Docker build of the llama.cpp image remain unmeasured. Building the Go API while the model is loaded makes the machine
 thrash; stop the model first.
 
 ## What is tested and what is not
