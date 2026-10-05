@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SiteSelect } from './SiteSelect';
 import { api } from '../lib/api';
 
 interface Site { id: string; name: string; }
@@ -60,8 +61,7 @@ export default function DirectDevices() {
         {pwOn && <p role="alert" style={{ color: '#b45309', margin: '6px 0' }}>{warning}</p>}
       </div>
       <form onSubmit={create}>
-        <label>Site</label>
-        <select value={site} onChange={e => setSite(e.target.value)}>{sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+        <SiteSelect sites={sites} site={site} setSite={setSite} onCreated={s => setSites(prev => [...prev, s])} />
         <label>Device serial (broker username)</label>
         <input value={serial} onChange={e => setSerial(e.target.value)} placeholder="MCU-0001" required />
         <label>Authentication</label>
