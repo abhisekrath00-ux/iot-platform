@@ -52,6 +52,11 @@ func TestEmbeddedCorpusAnswersRealQuestions(t *testing.T) {
 		"what does the assistant refuse to do":                 "assistant.md",
 		"configure single sign-on with SAML":                   "sso-saml.md",
 		"what is the AI runtime memory use":                    "ai-runtime.md",
+		"how do I create a site":                               "ui-guide.md",
+		"can I set a colour for a site":                        "ui-guide.md",
+		"how do I add a user or invite someone":                "ui-guide.md",
+		"how do I create a customer and scope a user":          "ui-guide.md",
+		"is an asset the same as a customer":                   "ui-guide.md",
 	} {
 		h := ix.Search(q, 5)
 		found := false
