@@ -100,6 +100,8 @@ var all = []*Tool{
 			{Name: "depth", Kind: "int", Min: 1, Max: 10, In: "query"}}},
 	{Name: "search_docs", Description: "Search the platform's own documentation (setup, security, deployment, assistant, connectors). Use it for how-to and what-is questions; cite the doc and heading.", Risk: Read, Method: "GET", Path: "/v1/docs/search",
 		Params: []Param{{Name: "q", Kind: "string", Required: true, Max: 300, In: "query", Desc: "the question, in a few words"}}},
+	{Name: "investigate_scope", Description: "Investigate a site or asset by name (for example the north plant). Collects its devices, gateways and open alerts and returns findings computed by fixed rules: problem, evidence, likely cause, severity, recommended action, possible fix. Use this first for 'something is wrong at X'; then explain the result, do not recompute it.", Risk: Read, Method: "GET", Path: "/v1/diagnostics/investigate",
+		Params: []Param{{Name: "scope", Kind: "string", Required: true, Max: 80, In: "query", Desc: "site or asset name or part of it"}}},
 	{Name: "fleet_summary", Description: "Fleet status counts: online, stale, offline devices and open alerts.", Risk: Read, Method: "GET", Path: "/v1/fleet"},
 	{Name: "list_gateways", Description: "Gateways with their last-seen state.", Risk: Read, Method: "GET", Path: "/v1/gateways"},
 	{Name: "list_assets", Description: "Assets (sites, lines, machines).", Risk: Read, Method: "GET", Path: "/v1/assets"},
