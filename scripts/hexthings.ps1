@@ -142,12 +142,16 @@ function Do-Ai {
   NeedDocker; $script:stepTotal = 1; Banner "local AI"; Step "Local AI assistant"
   if ($Arg -eq "stop") {
     if ((Dc stop ai-runtime) -ne 0) { Bad "could not stop the AI runtime"; exit 1 }
-    Ok "AI model stopped. The platform keeps running; the assistant answers 'no model' until: hexthings ai start"
+    $still = @(docker compose --profile ai ps --status running --format "{{.Service}}" 2>$null) -contains "ai-runtime"
+    if ($still) { Bad "ai-runtime is STILL running after stop. Try: docker compose --profile ai stop ai-runtime"; exit 1 }
+    Ok "AI model stopped (verified: ai-runtime is not running). The platform keeps running; the assistant answers 'no model' until: hexthings ai start"
   } elseif ($Arg -eq "start") {
     if (-not (Test-Path "models\model.gguf")) { Bad "no models\model.gguf, nothing to start"; exit 1 }
     $env:AI_MODEL_SHA256 = (Get-FileHash "models\model.gguf" -Algorithm SHA256).Hash.ToLower()
     if ((Dc up -d ai-runtime) -ne 0) { Bad "could not start the AI runtime"; exit 1 }
-    Ok "AI model starting (the first answer is slow while it loads, about 10-60 seconds)"
+    Start-Sleep -Seconds 3
+    $upNow = @(docker compose --profile ai ps --status running --format "{{.Service}}" 2>$null) -contains "ai-runtime"
+    if ($upNow) { Ok "AI model started (verified running). The first answer is slow while it loads, about 10-60 seconds" } else { Bad "ai-runtime did not stay running. See: hexthings logs ai-runtime"; exit 1 }
   } elseif ($Arg -eq "connect") {
     if (-not (Test-Path "models\model.gguf")) { Bad "no models\model.gguf. Re-run the installer with AI (get.ps1) or copy a .gguf there first."; exit 1 }
     if (-not $Workspace -and (Test-Path install-credentials.txt)) { $m = Select-String -Path install-credentials.txt -Pattern "^Workspace:\s*(\S+)" | Select-Object -First 1; if ($m) { $Workspace = $m.Matches[0].Groups[1].Value } }
@@ -156,6 +160,8 @@ function Do-Ai {
     if ((Dc up -d ai-runtime) -ne 0) { Bad "could not start the AI runtime"; exit 1 }
     & docker compose exec -T api /bin/tenantctl ai-connect --tenant $Workspace 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { Ok "assistant for '$Workspace' connected to the local model" } else { Bad "could not connect the assistant" }
+  } elseif ($Arg -and $Arg -ne "status") {
+    Bad "unknown ai command '$Arg'. Use: hexthings ai stop | start | status | connect"; exit 1
   } else {
     if (Test-Path "models\model.gguf") { Ok "model file present ($([math]::Round((Get-Item 'models\model.gguf').Length / 1GB, 2)) GB)" } else { Warn "no model file" }
     $up = @(docker compose --profile ai ps --status running --format "{{.Service}}" 2>$null) -contains "ai-runtime"
