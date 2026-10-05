@@ -43,6 +43,7 @@ func toolMsg(id, name, args string) map[string]any {
 }
 
 func TestIntegrationAssistant(t *testing.T) {
+	t.Setenv("AI_TOOL_MODE", "generic") // these scripts drive the generic api_request tool; the typed mode has its own tests
 	s, _ := testServer(t)
 	seed(t, s, "itest-as")
 	seed(t, s, "itest-as2")

@@ -50,6 +50,7 @@ func (n *recNotifier) count() int { n.mu.Lock(); defer n.mu.Unlock(); return len
 // proves our verification and permission logic, not that a real Slack workspace or mail gateway
 // sends exactly this.
 func TestIntegrationAssistantChannels(t *testing.T) {
+	t.Setenv("AI_TOOL_MODE", "generic") // these scripts drive the generic api_request tool; the typed mode has its own tests
 	s, _ := testServer(t)
 	seed(t, s, "itest-ch")
 	seed(t, s, "itest-ch2")

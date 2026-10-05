@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -121,5 +122,74 @@ func TestPageContextIsSanitised(t *testing.T) {
 		if pageContext(bad) != "" {
 			t.Errorf("%q must not reach the prompt", bad)
 		}
+	}
+}
+
+// scriptedTools replies with one tool call, then text; it records the tool names it was offered.
+func scriptedTools(t *testing.T, call, args string, offered *[]string) *httptest.Server {
+	n := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b strings.Builder
+		buf := make([]byte, 8192)
+		for {
+			k, err := r.Body.Read(buf)
+			b.Write(buf[:k])
+			if err != nil {
+				break
+			}
+		}
+		if n == 0 {
+			var req struct {
+				Tools []struct {
+					Function struct{ Name string } `json:"function"`
+				} `json:"tools"`
+			}
+			json.Unmarshal([]byte(b.String()), &req)
+			for _, x := range req.Tools {
+				*offered = append(*offered, x.Function.Name)
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		n++
+		if n == 1 {
+			a, _ := json.Marshal(args)
+			fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":%q,"arguments":%s}}]}}]}`+"\n\ndata: [DONE]\n\n", call, a)
+			return
+		}
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"}}]}`+"\n\ndata: [DONE]\n\n")
+	}))
+}
+
+func TestLocalRuntimeSeesOnlyTypedTools(t *testing.T) {
+	t.Setenv("AI_TOOL_MODE", "")
+	var offered []string
+	srv := scriptedTools(t, "api_request", `{"method":"GET","path":"/v1/users"}`, &offered)
+	defer srv.Close()
+	res := (&server{}).runAgent(context.Background(), llm.Config{BaseURL: srv.URL, Model: "m", NoThinking: true}, "t", "u", "admin",
+		[]llm.Message{{Role: "user", Content: "hi"}}, runCtx{emit: func(string, any) {}})
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	for _, n := range offered {
+		if n == "api_request" {
+			t.Fatal("the generic tool must not be offered to a local runtime")
+		}
+	}
+	if len(offered) < 10 {
+		t.Fatalf("typed tools missing: %v", offered)
+	}
+	if len(res.trace) != 1 || res.trace[0].Status != "refused" {
+		t.Fatalf("a model that names api_request anyway must be refused: %+v", res.trace)
+	}
+}
+
+func TestTypedToolRejectsBadArgumentsWithoutTouchingTheAPI(t *testing.T) {
+	var offered []string
+	srv := scriptedTools(t, "get_device_health", `{"device_id":"../users"}`, &offered)
+	defer srv.Close()
+	res := (&server{}).runAgent(context.Background(), llm.Config{BaseURL: srv.URL, Model: "m", NoThinking: true}, "t", "u", "admin",
+		[]llm.Message{{Role: "user", Content: "hi"}}, runCtx{emit: func(string, any) {}})
+	if res.err != nil || len(res.trace) != 1 || res.trace[0].Status != "refused" || !strings.Contains(res.trace[0].Detail, "valid id") {
+		t.Fatalf("%+v %v", res.trace, res.err)
 	}
 }
