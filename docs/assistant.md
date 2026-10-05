@@ -9,7 +9,8 @@ Any OpenAI-compatible chat endpoint with tool calling: a hosted API, or a local 
 Two tools: `set_plan` (a visible list of steps) and `api_request`, which calls the platform's own `/v1` API through the normal handler chain, so every role check, tenant filter and validation applies as for that user.
 - **Reads** (GET) run immediately.
 - **Changes** become a pending action showing the exact method, path and body. Nothing runs until the same user confirms it in an interactive session within 30 minutes. A viewer's confirm fails the role check. Confirmed changes are audited `assistant.confirm` with `ai_initiated: true`.
-- **Never available to it**, even with a confirm: approving control commands (it runs like an API key session, which cannot approve), users/roles, API keys, secrets, SSO, feature switches, switching control targets to automatic, device tokens, enrollment, and its own settings. The policy is default-deny (`internal/assistant/policy.go`).
+- **Typed write tools** (small local model) : create_site, create_asset, create_customer, create_group, acknowledge_alert, comment_on_alert. A hosted model using api_request can propose every change in the policy list (`internal/assistant/policy.go`), including POST /v1/sites and /v1/customers (owner decision Oct 5). Each is proposed, confirmed with one click, run as the signed-in user, role-checked and audited.
+- **Never available to it**, even with a confirm: approving control commands (it runs like an API key session, which cannot approve), users/roles/invitations (a person does this in Users), API keys, secrets, SSO, feature switches, switching control targets to automatic, device tokens, enrollment, and its own settings. The policy is default-deny (`internal/assistant/policy.go`).
 - Tool output is treated as data, never instructions.
 
 Limits per run: 12 model calls, 25 tool calls, 12 KB per tool result, 3 minutes. 30 runs per hour per user. The rule-based question box (`/v1/ask`) stays as the fallback when no model is connected.
@@ -26,3 +27,6 @@ Admins switch each channel on in Settings and store a secret (encrypted). People
 - **Never from chat.** Approving control commands, and every item on the excluded list above.
 - **Not built:** Slack buttons or confirm links, conversation memory between chat messages (each message stands alone), inbound mail receiving itself (a gateway must deliver it).
 - **Honest status.** Tested with hand-built signed payloads and a recording notifier (`assistant_channels_test.go`). No real Slack workspace, SMTP or mail gateway has been used; real payload formats may differ in details.
+
+## Grounding and answer style (Oct 5)
+The prompt now carries: a rule to never invent menus, pages, endpoints or settings and to say "I am not sure" or "not possible"; a UI map of the real screens (docs/ui-guide.md, searchable with search_docs); the workspace name, role and site names each turn; and short-answer rules (answer first, about 8 lines, no capability dumps, plan and steps collapsed in the panel). Temperature is 0.1. Tested: prompt content checks, policy and tool tests, docs retrieval for the site, user, customer, asset questions. **Not tested with a real model** (OpenRouter nemotron or Qwen): whether a given model obeys the rules is unmeasured.
