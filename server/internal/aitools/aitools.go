@@ -118,6 +118,19 @@ var all = []*Tool{
 	{Name: "comment_on_alert", Description: "Add a comment to one alert. Proposed until the user confirms.", Risk: LowRiskWrite, Method: "POST", Path: "/v1/alerts/{alert_id}/comments",
 		Params: []Param{idp("alert_id", "alert id"), {Name: "body", Kind: "string", Required: true, Max: 1000, In: "body", Desc: "comment text"}},
 		Impact: "Add a comment to alert {alert_id}: \"{body}\". Comments cannot be edited."},
+	{Name: "create_site", Description: "Create a site (a physical location devices belong to). Proposed until the user confirms. A site has only a name and an optional address; there is no colour or other setting.", Risk: HighRiskWrite, Method: "POST", Path: "/v1/sites",
+		Params: []Param{{Name: "name", Kind: "string", Required: true, Max: 80, In: "body", Desc: "site name"}, {Name: "address", Kind: "string", Max: 200, In: "body", Desc: "optional address"}},
+		Impact: "Create the site \"{name}\". Admins only; it cannot be renamed or deleted from the UI yet."},
+	{Name: "create_asset", Description: "Create an asset (plant, line, machine or room) in the asset tree. Proposed until the user confirms.", Risk: HighRiskWrite, Method: "POST", Path: "/v1/assets",
+		Params: []Param{{Name: "name", Kind: "string", Required: true, Max: 80, In: "body"}, {Name: "kind", Kind: "enum", Enum: []string{"plant", "line", "machine", "room", "asset"}, Required: true, In: "body"},
+			{Name: "parent_id", Kind: "string", Max: 128, In: "body", Desc: "optional parent asset id from list_assets"}},
+		Impact: "Create the {kind} \"{name}\" in the asset tree."},
+	{Name: "create_customer", Description: "Create a customer (an external organisation whose users see only their own devices). Proposed until the user confirms. Scoping a user to a customer is done in the Customers page.", Risk: HighRiskWrite, Method: "POST", Path: "/v1/customers",
+		Params: []Param{{Name: "name", Kind: "string", Required: true, Max: 80, In: "body"}, {Name: "parent_id", Kind: "string", Max: 128, In: "body", Desc: "optional parent customer id"}},
+		Impact: "Create the customer \"{name}\"."},
+	{Name: "create_group", Description: "Create a device group. Proposed until the user confirms. Devices are added to it afterwards.", Risk: HighRiskWrite, Method: "POST", Path: "/v1/groups",
+		Params: []Param{{Name: "name", Kind: "string", Required: true, Max: 80, In: "body"}, {Name: "description", Kind: "string", Max: 300, In: "body"}},
+		Impact: "Create the device group \"{name}\"."},
 }
 
 var byName = func() map[string]*Tool {

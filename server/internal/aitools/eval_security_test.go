@@ -46,7 +46,7 @@ func TestEvalSecurityHumanOnlyEndpointsNeverWritable(t *testing.T) {
 			for i, d := range disguise {
 				v, _ := assistant.Classify(m, d(p))
 				n++
-				if v == assistant.Confirm && !(strings.EqualFold(m, "POST") && p == "/v1/commands" && i == 0) {
+				if v == assistant.Confirm && !(strings.EqualFold(m, "POST") && (p == "/v1/commands" || p == "/v1/customers") && i == 0) {
 					t.Errorf("%s %q classified %v", m, d(p), v)
 				}
 			}
@@ -108,6 +108,12 @@ func TestEvalSecurityNoToolReachesApprovalOrIdentity(t *testing.T) {
 			if strings.Contains(tool.Path, bad) {
 				t.Errorf("tool %s targets %s", name, tool.Path)
 			}
+		}
+		// Owner decision Oct 5: the assistant may propose creating a site, asset, customer and group
+		// (confirmed by the user, role-checked). Nothing else is high risk or destructive.
+		switch name {
+		case "create_site", "create_asset", "create_customer", "create_group":
+			continue
 		}
 		if tool.Risk == HighRiskWrite || tool.Risk == Destructive {
 			t.Errorf("tool %s has risk %s; no such tool may be exposed in this release", name, tool.Risk)
