@@ -88,7 +88,7 @@ export default function Settings() {
           catch (err) { setBMsg(String(err)); }
         }}>
           <label htmlFor="b-name">Product name</label>
-          <input id="b-name" value={bName} maxLength={40} onChange={e => setBName(e.target.value)} placeholder="Hexmon IoT" />
+          <input id="b-name" value={bName} maxLength={40} onChange={e => setBName(e.target.value)} placeholder="HexThings" />
           <label htmlFor="b-accent">Accent colour (#rrggbb)</label>
           <input id="b-accent" value={bAccent} onChange={e => setBAccent(e.target.value)} placeholder="#0071e3" pattern="#[0-9a-fA-F]{6}|" />
           <div style={{ marginTop: 14 }}><button type="submit">Save branding</button></div>
