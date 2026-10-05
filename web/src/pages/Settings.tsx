@@ -9,12 +9,14 @@ import FeatureToggles from '../components/FeatureToggles';
 import Authenticator from '../components/Authenticator';
 import AttributeDefs from '../components/AttributeDefs';
 import AISettings from '../components/AISettings';
+import AIProfiles from '../components/AIProfiles';
 import AIActivity from '../components/AIActivity';
 import AssistantChannels from '../components/AssistantChannels';
 
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
 
 export default function Settings() {
+  const [aiRev, setAiRev] = useState(0);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [type, setType] = useState('email');
   const [target, setTarget] = useState('');
@@ -109,7 +111,8 @@ export default function Settings() {
       <FeatureToggles />
       <Authenticator />
       <AttributeDefs />
-      <AISettings />
+      <AIProfiles onChange={() => setAiRev(v => v + 1)} />
+      <AISettings key={aiRev} />
       <AIActivity />
       <AssistantChannels />
       <EdgeRules />
