@@ -118,3 +118,14 @@ The agent serves a read-only page at `http://127.0.0.1:8088` (broker connection,
 The agent looks for devices by itself (serial, local network, BACnet), read-only, and lists proposals on the local
 page, with `edge-agent -discoveries`, and on the dashboard Scan page. `edge-agent -detect-now` runs a pass now.
 `HEXMON_DATA_DIR` overrides the data directory. See `docs/edge-autodetect.md`.
+
+## Connecting a gateway from the UI
+
+Add device (Commission) creates a one-time claim code for a site and serial and now shows the exact install command for Ubuntu/Linux and for Windows. Run it on the gateway; the page advances by itself when the gateway claims, then you assign a profile, test the port and watch live values. Getting the package onto the gateway is still manual (build with `scripts/build-edge.sh` or take the release from the edge release workflow); the platform does not host edge packages yet.
+
+## What the edge collects and sends (checked Oct 5)
+
+- Sent today: telemetry from the configured drivers (Modbus TCP/RTU, OPC UA, SNMP, BACnet, DNP3, CoAP, IEC 61850, IEC 104, LwM2M, CAN), gateway diagnostics on request, command acknowledgements, scan results and fleet-config acknowledgements, over MQTT with mutual TLS.
+- Buffering: a local SQLite outbox keeps readings through WAN loss, broker restarts and reboots; rows are removed only after the broker acknowledges. New (Oct 5): the outbox is bounded to 1,000,000 readings and drops the oldest beyond that, so a very long outage cannot fill the disk. Unit-tested.
+- Not sent: the agent's own log files stay on the gateway (no log or event forwarding to the platform), and there is no alert of the dropped count in the UI yet.
+- Tested here: `go vet` on linux and windows, all edge unit tests (Linux), static builds for linux and windows on amd64 and arm64, `-version`, `-list-ports`, `-health` and `-check-config` run on Linux, installer scripts syntax-checked (PowerShell 7 parser, bash -n). Never run on Windows: the .exe files, the service install and the Windows installers. Never run against a real gateway, serial device or broker in this environment.
