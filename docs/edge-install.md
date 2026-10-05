@@ -7,6 +7,8 @@ the download with `sha256sum -c SHA256SUMS`.
 
 ## Linux (Ubuntu, Debian, Raspberry Pi OS, any systemd distro)
 
+**Guided (recommended):** `sudo ./install.sh` asks for the server address, claim code and serial, checks the server answers and the clock is in sync, then installs the service. Non-interactive: `sudo ./install.sh --server https://api.example --code CODE --serial SERIAL --yes`. It needs no internet, only your own server. Plain ASCII output when not a terminal or `NO_COLOR` is set. Tested with a fake binary in a temp prefix (systemd step skipped); the real service path and the server reachability check were not run against a live server. There is no guided Windows wrapper yet: use `install-windows.ps1` below.
+
 ```bash
 tar xzf hexmon-edge-<ver>-linux-<amd64|arm64>.tar.gz && cd hexmon-edge-*
 sudo ./install-linux.sh -claim-api https://api.example -claim-code CODE -claim-serial SERIAL

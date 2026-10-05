@@ -115,7 +115,7 @@ implemented yet.
 The agent is read-only toward PLCs and SCADA. Writes (actuation) go through the
 command path with approval and four-eyes gating described in `security.md`.
 
-## Feeding SCADA, historians and BI (northbound: reading from Hexmon)
+## Feeding SCADA, historians and BI (northbound: reading from HexThings)
 
 - `GET /v1/export/telemetry.csv?device_id=...&point_id=...&hours=24` streams raw
   samples (bounded: 720 h, 200k rows, audited, spreadsheet-formula-safe).

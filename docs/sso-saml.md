@@ -14,16 +14,16 @@ risk in the most sensitive code path. We chose not to, until a reviewed library 
 
 ## How to do it with a bridge
 
-Run a self-hosted broker that accepts SAML from the customer's IdP and presents OIDC to Hexmon, for example
+Run a self-hosted broker that accepts SAML from the customer's IdP and presents OIDC to HexThings, for example
 Keycloak, Dex or Authentik, all of which run on-prem. Then:
 
 1. In the broker, add the customer's IdP as a SAML identity provider (import its metadata file).
-2. Create an OIDC client in the broker for Hexmon with the redirect URI shown in Settings, SSO.
-3. In Hexmon, configure that client as the tenant's OIDC provider (issuer, client id, secret).
-4. Map the broker's email claim to the Hexmon user. First-login role is the lowest role until an admin changes
+2. Create an OIDC client in the broker for HexThings with the redirect URI shown in Settings, SSO.
+3. In HexThings, configure that client as the tenant's OIDC provider (issuer, client id, secret).
+4. Map the broker's email claim to the HexThings user. First-login role is the lowest role until an admin changes
    it, as with any OIDC sign-in.
 
-Sign-in then goes Hexmon, broker, SAML IdP, and back. MFA policy of the IdP applies. Hexmon's own local
+Sign-in then goes HexThings, broker, SAML IdP, and back. MFA policy of the IdP applies. HexThings's own local
 sign-in MFA is separate (see security.md).
 
 ## Honest status

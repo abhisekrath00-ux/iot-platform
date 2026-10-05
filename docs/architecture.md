@@ -1,6 +1,6 @@
 # Architecture
 
-Full rationale and sources live in the blueprint (Hexmon IoT platform blueprint,
+Full rationale and sources live in the blueprint (HexThings blueprint,
 27 Sep 2026). This file is the working reference for the code in this repo, and
 the discussion doc for why the system is shaped the way it is.
 

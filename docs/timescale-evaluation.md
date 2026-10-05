@@ -46,7 +46,7 @@ little over what we already have.
   software offers time-series database functions to third parties, except as
   part of a Value Added Product.
 
-## What this means for Hexmon
+## What this means for HexThings
 
 1. Our users are developers and testers. If any of them can run SQL against the
    database (psql, a SQL console, an MCP or API path that accepts raw SQL), the

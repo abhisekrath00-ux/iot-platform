@@ -1,6 +1,6 @@
 # Deployment guide (cloud & on-prem)
 
-The same container images deploy to Hexmon cloud and to customer premises.
+The same container images deploy to HexThings cloud and to customer premises.
 On-prem must run fully without the vendor cloud.
 
 ## Topology
@@ -35,7 +35,7 @@ On-prem must run fully without the vendor cloud.
 7. **Backups & restore drill** before pilot go-live. A backup that was never
    restored is not a backup.
 
-## Cloud (Hexmon-operated)
+## Cloud (HexThings-operated)
 
 Compose on a hardened VM is acceptable for pilot. Restrict inbound ports to
 443 and 8883; Postgres and 1883 must never be internet-exposed.
@@ -50,7 +50,7 @@ update/support channels are optional and off by default.
 
 ```ini
 [Unit]
-Description=Hexmon edge agent
+Description=HexThings edge agent
 After=network-online.target
 Wants=network-online.target
 
