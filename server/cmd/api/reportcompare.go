@@ -12,7 +12,7 @@ import (
 // compare report, the buckets of the window just before the current one.
 func (s *server) withReportContext(ctx context.Context, tenant string, def report.Definition) (report.Definition, error) {
 	def, err := s.withGroupLabels(ctx, tenant, def)
-	def.Logo = s.tenantLogoImage(ctx, tenant)
+	def.Logo = s.reportLogoImage(ctx, tenant)
 	if err != nil || !def.Compare {
 		return def, err
 	}

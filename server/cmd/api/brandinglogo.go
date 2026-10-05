@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -72,6 +73,22 @@ func (s *server) tenantLogoImage(ctx context.Context, tenant string) image.Image
 		return nil
 	}
 	img, _, err := image.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil
+	}
+	return img
+}
+
+//go:embed reportlogo-default.png
+var defaultReportLogoPNG []byte
+
+// reportLogoImage is the logo printed on reports: the tenant's own logo when it uploaded one, otherwise the
+// built-in HexThings mark. Tenant white-label branding always wins.
+func (s *server) reportLogoImage(ctx context.Context, tenant string) image.Image {
+	if img := s.tenantLogoImage(ctx, tenant); img != nil {
+		return img
+	}
+	img, _, err := image.Decode(bytes.NewReader(defaultReportLogoPNG))
 	if err != nil {
 		return nil
 	}

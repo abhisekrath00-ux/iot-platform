@@ -63,3 +63,10 @@ func TestIntegrationBrandingLogo(t *testing.T) {
 		t.Fatal("delete")
 	}
 }
+
+func TestDefaultReportLogo(t *testing.T) {
+	img, _, err := image.Decode(bytes.NewReader(defaultReportLogoPNG))
+	if err != nil || img.Bounds().Dx() < 100 {
+		t.Fatalf("embedded default report logo must decode: %v", err)
+	}
+}
