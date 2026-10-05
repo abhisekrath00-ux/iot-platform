@@ -15,4 +15,5 @@ else
   else echo "need git, or curl and tar"; exit 1; fi
 fi
 cd "$DIR"
-if [ -t 0 ]; then exec bash scripts/install.sh "$@"; else exec bash scripts/install.sh --yes "$@" </dev/null; fi
+if [ -t 0 ]; then exec bash scripts/install.sh "$@"; else AI=--ai-download; [ -n "${HEXTHINGS_NO_AI:-}" ] && AI=--no-ai
+  exec bash scripts/install.sh --yes $AI "$@" </dev/null; fi

@@ -9,7 +9,7 @@
 # where to sign in. It never overwrites an existing .env or touches the internet when run from an
 # air-gapped bundle (images.tar.gz next to it). Everything it does is logged to install.log.
 #
-# Options: --yes  --admin-email E  --workspace ID  --web-port N  --ai-model FILE.gguf  --no-ai
+# Options: --yes  --admin-email E  --workspace ID  --web-port N  --ai-model FILE.gguf  --ai-download  --no-ai
 #          --skip-preflight-warnings
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -17,7 +17,11 @@ cd "$(dirname "$0")"
 LOG=install.log
 : > "$LOG"
 
-YES=0; ADMIN_EMAIL=""; WORKSPACE=""; WEB_PORT=""; AI_MODEL=""; NO_AI=0
+# The default model: Qwen3-1.7B, Q4_K_M quantisation (unsloth GGUF build of Qwen's own model), pinned by sha256.
+AI_MODEL_NAME="Qwen3-1.7B Q4_K_M"; AI_MODEL_SIZE="1.1 GB"
+AI_MODEL_URL="${HEXTHINGS_MODEL_URL:-https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf}"
+AI_MODEL_SHA="${HEXTHINGS_MODEL_SHA256:-b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897}"
+YES=0; ADMIN_EMAIL=""; WORKSPACE=""; WEB_PORT=""; AI_MODEL=""; AI_DL=0; NO_AI=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes|-y) YES=1 ;;
@@ -25,6 +29,7 @@ while [ $# -gt 0 ]; do
     --workspace) WORKSPACE="${2:?}"; shift ;;
     --web-port) WEB_PORT="${2:?}"; shift ;;
     --ai-model) AI_MODEL="${2:?}"; shift ;;
+    --ai-download) AI_DL=1 ;;
     --no-ai) NO_AI=1 ;;
     --help|-h) sed -n 2,14p "$0"; exit 0 ;;
     *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
@@ -164,8 +169,21 @@ printf '%s' "$ADMIN_EMAIL" | grep -Eq '^[^@ ]+@[^@ ]+\.[^@ ]+$' || fail "'$ADMIN
 COMPOSE_ARGS=()
 if [ "$NO_AI" = 0 ]; then
   if [ -z "$AI_MODEL" ] && [ -f model.gguf ]; then AI_MODEL=model.gguf; fi
-  if [ -z "$AI_MODEL" ] && [ "$YES" = 0 ] && [ -t 0 ]; then
-    AI_MODEL=$(ask "Optional local AI assistant: path to a .gguf model file (blank = skip)" "")
+  if [ -z "$AI_MODEL" ] && [ -f models/model.gguf ]; then AI_MODEL=models/model.gguf; fi
+  if [ -z "$AI_MODEL" ] && [ "$AI_DL" = 0 ] && [ "$YES" = 0 ] && [ -t 0 ]; then
+    a=$(ask "Download the small local AI model for the assistant (1.1 GB, needs internet once)? y = download, n = skip, or a path to your own .gguf" "y")
+    case "$a" in y|Y|yes) AI_DL=1 ;; n|N|no|"") ;; *) AI_MODEL="$a" ;; esac
+  fi
+  if [ -z "$AI_MODEL" ] && [ "$AI_DL" = 1 ]; then
+    mkdir -p models
+    if [ "${HEXTHINGS_SKIP_DOWNLOAD:-0}" = 1 ]; then fail "model download requested but HEXTHINGS_SKIP_DOWNLOAD=1"; fi
+    say "  downloading $AI_MODEL_NAME ($AI_MODEL_SIZE, resumable) from $AI_MODEL_URL"
+    command -v curl >/dev/null 2>&1 || fail "curl is needed to download the model; or pass --ai-model FILE.gguf"
+    curl -fL --retry 3 --retry-delay 3 -C - -o models/model.gguf.part "$AI_MODEL_URL" 2>>"$LOG" || fail "model download failed (see $LOG). Re-run to resume, or use --no-ai"
+    got=$(sha256sum models/model.gguf.part 2>/dev/null | cut -d' ' -f1 || shasum -a 256 models/model.gguf.part | cut -d' ' -f1)
+    [ "$got" = "$AI_MODEL_SHA" ] || { rm -f models/model.gguf.part; fail "model checksum mismatch (got ${got:0:12}..., expected ${AI_MODEL_SHA:0:12}...): the download is damaged; run again"; }
+    mv models/model.gguf.part models/model.gguf; AI_MODEL=models/model.gguf
+    ok "model downloaded and checksum verified"
   fi
   if [ -n "$AI_MODEL" ]; then
     [ -f "$AI_MODEL" ] || fail "model file not found: $AI_MODEL"
@@ -216,6 +234,14 @@ else
     ok "workspace '$WORKSPACE' and administrator created"
   else
     fail "could not create the workspace (see $LOG)"
+  fi
+fi
+
+if [ "${#COMPOSE_ARGS[@]}" -gt 0 ]; then
+  if docker compose exec -T api /bin/tenantctl ai-connect --tenant "$WORKSPACE" >> "$LOG" 2>&1; then
+    ok "AI assistant connected to the local model (Settings > AI shows it; the first answer is slow while the model loads)"
+  else
+    warn "could not connect the AI assistant automatically; set it in Settings > AI (base URL http://ai-runtime:8090/v1, model qwen3-1.7b)"
   fi
 fi
 

@@ -20,4 +20,7 @@ Copy-Item -Path (Join-Path $src "*") -Destination $dir -Recurse -Force
 $nested = Join-Path $dir "hexthings"
 if (Test-Path (Join-Path $nested "docker-compose.yml")) { try { Remove-Item -Recurse -Force $nested -ErrorAction Stop } catch { Write-Host "  note: could not remove the old nested copy $nested (in use?); it is harmless, delete it later." } }
 Set-Location $dir
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Yes
+# Update: record the version of the files we just downloaded
+try { $env:HEXTHINGS_VERSION = (Invoke-RestMethod -UseBasicParsing -TimeoutSec 8 "https://api.github.com/repos/$repo/commits/main").sha } catch { }
+$extra = @(); if ($env:HEXTHINGS_NO_AI) { $extra += "-NoAi" } else { $extra += "-AiDownload" }
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Yes @extra

@@ -23,7 +23,13 @@ if [ "$1" = compose ]; then
 fi
 exit 0
 D
-printf '#!/usr/bin/env bash\nexit 0\n' > "$T/bin/curl"; chmod +x "$T/bin/docker" "$T/bin/curl"
+cat > "$T/bin/curl" <<'C'
+#!/usr/bin/env bash
+# fake curl: when asked to write a file (-o F), writes a fake model; otherwise succeeds silently
+while [ $# -gt 0 ]; do [ "$1" = -o ] && { printf 'fake-model' > "$2"; break; }; shift; done
+exit 0
+C
+chmod +x "$T/bin/curl"; printf '' ; chmod +x "$T/bin/docker" "$T/bin/curl"
 export PATH="$T/bin:$PATH" FAKE_LOG="$T/log" FAKE_STDIN="$T/stdin"; : > "$FAKE_LOG"
 fails=0; check() { if ! eval "$2"; then echo "FAIL: $1"; fails=$((fails+1)); else echo "ok:   $1"; fi; }
 run() { (cd "$T/w" && bash scripts/install.sh --web-port 18431 "$@" > "$T/out" 2>&1); }
@@ -55,4 +61,15 @@ check "bad email is refused" '[ $rc -ne 0 ]'
 echo fake > "$T/w/m.gguf"; : > "$FAKE_LOG"
 run --yes --workspace ok-name --admin-email a@b.example --ai-model "$T/w/m.gguf" && rc=0 || rc=$?
 check "AI model enables the ai profile and is copied" '[ $rc -eq 0 ] && grep -q "compose --profile ai up" "$FAKE_LOG" && [ -f "$T/w/models/model.gguf" ]'
+rm -rf "$T/w/models" "$T/w/m.gguf"; : > "$FAKE_LOG"
+SHA=$(printf 'fake-model' | sha256sum | cut -d' ' -f1)
+HEXTHINGS_MODEL_SHA256=0000 run --yes --workspace ok-name --admin-email a@b.example --ai-download && rc=0 || rc=$?
+check "a damaged model download is refused" '[ $rc -ne 0 ] && grep -q "checksum mismatch" "$T/out" && [ ! -f "$T/w/models/model.gguf" ]'
+: > "$FAKE_LOG"
+HEXTHINGS_MODEL_SHA256=$SHA run --yes --workspace ok-name --admin-email a@b.example --ai-download && rc=0 || rc=$?
+check "--ai-download fetches, verifies, enables the ai profile" '[ $rc -eq 0 ] && [ -f "$T/w/models/model.gguf" ] && grep -q "compose --profile ai up" "$FAKE_LOG"'
+check "the assistant is connected automatically" 'grep -q "tenantctl ai-connect --tenant ok-name" "$FAKE_LOG"'
+rm -rf "$T/w/models"; : > "$FAKE_LOG"
+run --yes --workspace ok-name --admin-email a@b.example && rc=0 || rc=$?
+check "without --ai-download nothing is downloaded" '[ $rc -eq 0 ] && [ ! -f "$T/w/models/model.gguf" ] && ! grep -q "ai-connect" "$FAKE_LOG"'
 [ $fails -eq 0 ] && echo "all installer checks passed" || { echo "$fails failed"; exit 1; }

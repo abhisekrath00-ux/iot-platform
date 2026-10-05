@@ -1,7 +1,10 @@
 # Guided installer for the HexThings on Windows (Docker Desktop with WSL2).
 # Double-click install.bat, or: powershell -ExecutionPolicy Bypass -File install.ps1 [-Yes]
 # Same steps as install.sh. NOT TESTED: no Windows machine was available when this was written.
-param([switch]$Yes, [string]$AdminEmail = "", [string]$Workspace = "", [int]$WebPort = 0, [string]$AiModel = "", [switch]$NoAi)
+param([switch]$Yes, [string]$AdminEmail = "", [string]$Workspace = "", [int]$WebPort = 0, [string]$AiModel = "", [switch]$AiDownload, [switch]$NoAi)
+# The default model: Qwen3-1.7B, Q4_K_M quantisation (unsloth GGUF build of Qwen's own model), pinned by sha256.
+$ModelUrl = if ($env:HEXTHINGS_MODEL_URL) { $env:HEXTHINGS_MODEL_URL } else { "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf" }
+$ModelSha = if ($env:HEXTHINGS_MODEL_SHA256) { $env:HEXTHINGS_MODEL_SHA256 } else { "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897" }
 $ErrorActionPreference = "Continue"   # Windows PowerShell 5.1 turns native stderr (docker progress) into errors under Stop; every docker call checks $LASTEXITCODE
 Set-Location -Path $PSScriptRoot
 if (-not (Test-Path docker-compose.yml)) { Set-Location -Path (Split-Path $PSScriptRoot -Parent) }
@@ -91,7 +94,23 @@ if ($AdminEmail -notmatch '^[^@ ]+@[^@ ]+\.[^@ ]+$') { Fail "'$AdminEmail' is no
 $aiProfile = @()
 if (-not $NoAi) {
   if (-not $AiModel -and (Test-Path model.gguf)) { $AiModel = "model.gguf" }
-  if (-not $AiModel -and -not $Yes) { $AiModel = Ask "Optional local AI assistant: path to a .gguf model file (blank = skip)" "" }
+  if (-not $AiModel -and (Test-Path "models\model.gguf")) { $AiModel = "models\model.gguf" }
+  if (-not $AiModel -and -not $AiDownload -and -not $Yes) {
+    $a = Ask "Download the small local AI model for the assistant (1.1 GB, needs internet once)? y = download, n = skip, or a path to your own .gguf" "y"
+    if ($a -match '^(y|yes)$') { $AiDownload = $true } elseif ($a -notmatch '^(n|no|)$') { $AiModel = $a }
+  }
+  if (-not $AiModel -and $AiDownload) {
+    New-Item -ItemType Directory -Force -Path models | Out-Null
+    Say "  downloading Qwen3-1.7B Q4_K_M (1.1 GB, resumable) ..."
+    $part = "models\model.gguf.part"
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) { & curl.exe -fL --retry 3 --retry-delay 3 -C - -# -o $part $ModelUrl; if ($LASTEXITCODE -ne 0) { Fail "model download failed. Run the installer again to resume, or use -NoAi" } }
+    else { $ProgressPreference = "SilentlyContinue"; try { Invoke-WebRequest -UseBasicParsing $ModelUrl -OutFile $part } catch { Fail "model download failed: $($_.Exception.Message). Run again, or use -NoAi" } }
+    $got = (Get-FileHash $part -Algorithm SHA256).Hash.ToLower()
+    if ($got -ne $ModelSha.ToLower()) { Remove-Item $part -Force; Fail "model checksum mismatch (got $($got.Substring(0,12))..., expected $($ModelSha.Substring(0,12))...): the download is damaged; run again" }
+    Move-Item $part "models\model.gguf" -Force; $AiModel = "models\model.gguf"
+    Ok "model downloaded and checksum verified"
+  }
   if ($AiModel) {
     if (-not (Test-Path $AiModel)) { Fail "model file not found: $AiModel" }
     if ($memMb -lt 6144) { Warn "the local AI needs more memory than this machine reports ($memMb MB); it may be very slow" }
@@ -135,8 +154,21 @@ else {
   Set-Content -Path install-credentials.txt -Value "HexThings first sign-in`r`nURL:       http://localhost:$WebPort`r`nWorkspace: $Workspace`r`nEmail:     $AdminEmail`r`nPassword:  $Pass`r`n`r`nChange the password after signing in, then delete this file."
   Ok "workspace '$Workspace' and administrator created"
 }
+if ($aiProfile.Count -gt 0) {
+  & docker compose exec -T api /bin/tenantctl ai-connect --tenant $Workspace 2>&1 | Add-Content -Path $Log
+  if ($LASTEXITCODE -eq 0) { Ok "AI assistant connected to the local model (the first answer is slow while the model loads)" }
+  else { Warn "could not connect the assistant automatically; set it in Settings > AI (base URL http://ai-runtime:8090/v1, model qwen3-1.7b)" }
+}
+# `hexthings` management command: version stamp and a PATH entry for this user
+try { Set-Content -Path ".hexthings-version" -Value ($(if ($env:HEXTHINGS_VERSION) { $env:HEXTHINGS_VERSION } else { "installed " + (Get-Date -Format s) })) } catch { }
+try {
+  $bin = Join-Path (Get-Location) "scripts"
+  $up = [Environment]::GetEnvironmentVariable("Path", "User")
+  if (-not $up -or ($up -split ";") -notcontains $bin) { [Environment]::SetEnvironmentVariable("Path", ($up.TrimEnd(";") + ";" + $bin).TrimStart(";"), "User"); Ok "added the hexthings command to your PATH (open a new terminal, then try: hexthings status)" }
+  else { Ok "hexthings command is on your PATH" }
+} catch { Warn "could not add hexthings to PATH; run scripts\hexthings.ps1 instead" }
 Say ""; Say "Installed."; Say ""
 Say "  Open:      http://localhost:$WebPort"; Say "  Workspace: $Workspace"; Say "  Email:     $AdminEmail"
 if ($Pass) { Say "  Password:  $Pass"; Say "             (also saved in install-credentials.txt; change it and delete the file)" }
-Say ""; Say "  Stop: docker compose stop     Start: docker compose start     Logs: docker compose logs -f api"
+Say ""; Say "  Manage: hexthings status | update | backup | restore | logs | version   (open a new terminal first)"
 if ($script:Warnings -gt 0) { Say "  Note: $($script:Warnings) warning(s) above. The log is in $Log." }
