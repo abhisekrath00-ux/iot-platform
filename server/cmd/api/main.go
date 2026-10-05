@@ -360,6 +360,7 @@ func main() {
 	api.HandleFunc("POST /v1/fleet/campaigns/{id}/rollback", s.rollbackCampaign)
 	api.HandleFunc("POST /v1/fleet/ack", s.ackAssignment)
 	s.cached(api, "GET /v1/sites", s.listSites)
+	api.HandleFunc("POST /v1/sites", s.createSite)
 	api.HandleFunc("POST /v1/broker/acl/regenerate", s.regenerateBrokerACLHandler)
 	api.HandleFunc("POST /v1/commissioning/sessions", s.createCommissionSession)
 	api.HandleFunc("GET /v1/commissioning/sessions/{id}", s.getCommissionSession)

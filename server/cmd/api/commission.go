@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -369,4 +370,56 @@ func (s *server) listSites(w http.ResponseWriter, r *http.Request) {
 		out = append(out, map[string]any{"id": id, "name": name})
 	}
 	writeJSON(w, 200, out)
+}
+
+var siteSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// POST /v1/sites (admin, not API keys): {"name":"North plant","address":"optional"}. A site is where gateways
+// and devices live; the commissioning wizard and Add device need at least one. The id is derived from the
+// tenant and the name, with a short random suffix when that id is taken.
+func (s *server) createSite(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin") {
+		return
+	}
+	if auth.ViaKey(r) {
+		http.Error(w, "not available to API keys or the assistant", 403)
+		return
+	}
+	var in struct {
+		Name    string `json:"name"`
+		Address string `json:"address"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" || len(in.Name) > 80 || strings.ContainsAny(in.Name, "<>\x00") || len(in.Address) > 200 || strings.ContainsAny(in.Address, "<>\x00") {
+		http.Error(w, "site name required (up to 80 characters, no markup)", 400)
+		return
+	}
+	t := auth.Tenant(r)
+	slug := strings.Trim(siteSlugRe.ReplaceAllString(strings.ToLower(in.Name), "-"), "-")
+	if len(slug) > 40 {
+		slug = strings.Trim(slug[:40], "-")
+	}
+	if slug == "" {
+		slug = "site"
+	}
+	id := t + "-" + slug
+	for attempt := 0; attempt < 5; attempt++ {
+		tag, err := s.st.Pool.Exec(r.Context(),
+			`INSERT INTO sites(id,tenant_id,name,address) VALUES($1,$2,$3,NULLIF($4,'')) ON CONFLICT (id) DO NOTHING`, id, t, in.Name, in.Address)
+		if err != nil {
+			http.Error(w, "could not create the site", 500)
+			return
+		}
+		if tag.RowsAffected() == 1 {
+			s.audit(r, "site.create", id, nil)
+			writeJSON(w, 201, map[string]any{"id": id, "name": in.Name})
+			return
+		}
+		id = t + "-" + slug + "-" + uuid.NewString()[:4]
+	}
+	http.Error(w, "could not create the site", 500)
 }
