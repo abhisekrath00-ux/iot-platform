@@ -41,8 +41,8 @@ func TestVerifyWindowAndReplay(t *testing.T) {
 }
 
 func TestURI(t *testing.T) {
-	u := URI("Hexmon IoT", "a@b.c", []byte("12345678901234567890"))
-	if !strings.HasPrefix(u, "otpauth://totp/Hexmon%20IoT:a@b.c?") || !strings.Contains(u, "secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ") {
+	u := URI("HexThings", "a@b.c", []byte("12345678901234567890"))
+	if !strings.HasPrefix(u, "otpauth://totp/HexThings:a@b.c?") || !strings.Contains(u, "secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ") {
 		t.Fatal(u)
 	}
 }
