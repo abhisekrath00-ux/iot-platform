@@ -38,6 +38,7 @@ services:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
       JWT_SIGNING_SECRET: ${JWT_SIGNING_SECRET}
       SECRETS_KEY: ${SECRETS_KEY:-}
+      LOCAL_LOGIN: ${LOCAL_LOGIN:-}   # 1 = password sign-in (the installer sets it for the first administrator); leave empty when SSO is used
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}   # CIDR of the web container network; makes per-client rate limits see real client addresses (docs/security.md)
       ELASTICSEARCH_URL: http://elasticsearch:9200
       RAW_RETENTION_DAYS: ${RAW_RETENTION_DAYS:-0}   # 0 = keep raw telemetry forever; hourly rollups are always kept

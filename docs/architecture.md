@@ -120,7 +120,7 @@ One container stack, three shapes:
 2. **On-prem** — same compose stack behind the customer's TLS termination; backup
    via scripts/backup.sh.
 3. **Air-gapped** — scripts/airgap-bundle.sh packages images + compose + config on
-   a connected machine; scripts/airgap-install.sh installs offline at the site
+   a connected machine; install.sh (scripts/install.sh) installs offline at the site
    (docs/airgap.md). No phone-home anywhere in the stack.
 
 ## Scale and performance

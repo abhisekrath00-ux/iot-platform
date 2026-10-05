@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, download } from '../lib/api';
 import { Markdown } from '../lib/markdown';
 import { readSSE } from '../lib/sse';
 
 interface Pending { id: string; method: string; path: string; body?: string; summary: string; }
+interface FileOffer { label: string; path: string; filename: string; }
 interface Step { tool: string; detail: string; status: string; }
 interface Turn {
   role: 'user' | 'assistant'; content: string;
-  steps?: Step[]; plan?: string[]; pending?: Pending[]; live?: boolean; error?: boolean; stopped?: boolean;
+  steps?: Step[]; plan?: string[]; pending?: Pending[]; files?: FileOffer[]; live?: boolean; error?: boolean; stopped?: boolean;
 }
 interface Status { configured: boolean; state: string; model?: string; runtime_model?: string; runtime_quantization?: string; }
+
+// Only report downloads built by the server are offered; anything else is ignored.
+export function safeDownload(path: string): boolean { return /^\/v1\/reports\/[A-Za-z0-9._-]{1,128}\/download\?format=(csv|html|pdf|xlsx)$/.test(path); }
 
 const DOT: Record<string, string> = { ready: '#16a34a', loading: '#d97706', unknown: '#6b7280', down: '#dc2626', unreachable: '#dc2626', error: '#dc2626', not_configured: '#6b7280' };
 const WORDS: Record<string, string> = {
@@ -26,6 +30,7 @@ export default function ChatPanel() {
   const [open, setOpen] = useState(false);
   const [turns, setTurns] = useState<Turn[]>(() => { try { return JSON.parse(sessionStorage.getItem('iot.chat') ?? '[]'); } catch { return []; } });
   const [text, setText] = useState('');
+  const [dlErr, setDlErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [acts, setActs] = useState<Record<string, string>>({});
@@ -68,7 +73,7 @@ export default function ChatPanel() {
           else if (ev === 'discard') patch(t => ({ ...t, content: '' }));
           else if (ev === 'step') patch(t => ({ ...t, steps: [...(t.steps ?? []), d as Step] }));
           else if (ev === 'plan') patch(t => ({ ...t, plan: d as string[] }));
-          else if (ev === 'final') { const f = d as { reply: string; pending: Pending[]; plan: string[]; trace: Step[] }; patch(t => ({ ...t, live: false, content: f.reply, pending: f.pending ?? [], plan: f.plan ?? t.plan, steps: f.trace ?? t.steps })); }
+          else if (ev === 'final') { const f = d as { reply: string; pending: Pending[]; files?: FileOffer[]; plan: string[]; trace: Step[] }; patch(t => ({ ...t, live: false, content: f.reply, pending: f.pending ?? [], files: f.files ?? [], plan: f.plan ?? t.plan, steps: f.trace ?? t.steps })); }
           else if (ev === 'error') patch(t => ({ ...t, live: false, error: true, content: (d as { error: string }).error }));
         });
         patch(t => (t.live ? { ...t, live: false, error: true, content: t.content || 'The connection ended before an answer arrived.' } : t));
@@ -116,6 +121,11 @@ export default function ChatPanel() {
                     )}
                     {t.live && !t.content && <span className="muted">Thinking...</span>}
                     {t.error ? <div>{t.content}</div> : <Markdown text={t.content} />}
+                    {t.files?.filter(f => safeDownload(f.path)).map(f => (
+                      <div key={f.path} style={{ margin: '8px 0' }}>
+                        <button className="ghost" onClick={() => download(f.path, f.filename).catch(e => setDlErr(String(e)))}>{f.label}</button>
+                      </div>
+                    ))}
                     {t.pending?.map(p => (
                       <div key={p.id} className="card" style={{ margin: '8px 0', padding: '8px 10px' }}>
                         <b>Waiting for you:</b> {p.summary}
@@ -130,6 +140,7 @@ export default function ChatPanel() {
             ))}
             <div ref={end} />
           </div>
+          {dlErr && <div role="alert" style={{ padding: '4px 10px', color: '#dc2626', fontSize: 12 }}>{dlErr}</div>}
           <form onSubmit={send} style={{ display: 'flex', gap: 8, padding: 10, borderTop: '1px solid rgba(127,127,127,.3)' }}>
             <input aria-label="Message the assistant" placeholder="What should I look at?" value={text} onChange={e => setText(e.target.value)} disabled={busy} />
             {busy ? <button type="button" className="ghost" onClick={() => abort.current?.abort()}>Stop</button> : <button type="submit" disabled={!text.trim()}>Send</button>}

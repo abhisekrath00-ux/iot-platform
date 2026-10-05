@@ -62,6 +62,11 @@ func cases() []Case {
 	add("list_maintenance_windows", "", "Are there maintenance windows planned?", "Show maintenance windows")
 	add("downstream_impact", "pump-1", "What depends on pump-1?", "If pump-1 fails, what is affected downstream?")
 	add("list_commands", "", "Show recent control commands", "Which commands are waiting for approval?")
+	add("list_reports", "", "What reports do we have?", "List the saved reports", "Which reports are scheduled?")
+	// the id is unknown, so listing first is as right as offering the download
+	for _, q := range []string{"Give me the daily temperature report as CSV", "I need the weekly report as a csv file"} {
+		cs = append(cs, Case{Q: q, Want: []string{"list_reports", "offer_report_download"}})
+	}
 	add("list_rules", "", "List alert rules", "What rules are configured?")
 	add("recent_audit", "", "What happened recently in the audit log?", "Show the latest audit entries")
 	return cs

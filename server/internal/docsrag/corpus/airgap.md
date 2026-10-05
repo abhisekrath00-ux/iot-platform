@@ -32,10 +32,12 @@ bundled Postgres.
 ## Install (on the air-gapped host)
 
 ```sh
-./install.sh   # verifies SHA256SUMS, loads images, creates .env on first run
-# edit .env with the site's secrets and internal endpoints, then:
-./install.sh   # brings the stack up and shows service health
+./install.sh        # Linux/macOS/WSL. Windows: double-click install.bat
 ```
+
+One run: checks the host, verifies SHA256SUMS, loads the images, writes `.env` with generated secrets,
+starts the stack, waits for health, creates the first workspace and administrator, and prints where to
+sign in. See [install.md](install.md) for the options and what is and is not tested.
 
 The manual equivalent, if a site prefers its own runbook:
 

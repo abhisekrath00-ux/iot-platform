@@ -62,7 +62,7 @@ no code change needed.
 | Feature | What you get | Status |
 |---|---|---|
 | Containerized deploy | One `docker compose up` brings up Postgres, Mosquitto, API, ingest, Elasticsearch, MCP, web | Verified in CI compose smoke |
-| Air-gapped install | `scripts/airgap-bundle.sh` + `airgap-install.sh`, no internet needed at the site | Scripted and documented; full on-site rehearsal is Pilot |
+| Air-gapped install | `scripts/airgap-bundle.sh` + `install.sh`, no internet needed at the site | Scripted and documented; full on-site rehearsal is Pilot |
 | HA | Report scheduler leader election (Postgres advisory lock, tested incl. failover); ingest scale-out via MQTT shared subscriptions (opt-in) | Leader election Verified; multi-replica ingest not load-tested |
 | Scale | Stateless API (horizontal scale), `cmd/loadtest` harness, runtime load stats, SLO doc | Harness verified; first live load test on pilot stack pending |
 | Backup/restore | `scripts/backup.sh` / `restore.sh` + runbook | Scripted and documented |
@@ -94,7 +94,7 @@ machine and install offline per `docs/airgap.md`.
 ## Documentation
 
 - [Architecture](docs/architecture.md) — system design and component discussion
-- [Local setup](docs/setup.md) · [Deployment (cloud & on-prem)](docs/deployment.md) · [Air-gapped install](docs/airgap.md)
+- [Install (one command)](docs/install.md) · [Local setup](docs/setup.md) · [Deployment (cloud & on-prem)](docs/deployment.md) · [Air-gapped install](docs/airgap.md)
 - [Testing](docs/testing.md) — what CI runs and how to run it locally
 - [Security model](docs/security.md) — mTLS, RBAC, approval gating, hazard analysis
 - [Connectors (STM32, Modbus, OPC UA, SCADA)](docs/connectors.md) · [Direct MQTT devices (design)](docs/mqtt-direct.md) · [Competitive gap analysis](docs/competitive-gap.md) · [Edge install (Ubuntu/Windows)](docs/edge-install.md)

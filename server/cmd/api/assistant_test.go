@@ -77,6 +77,8 @@ func TestIntegrationAssistant(t *testing.T) {
 		pool.Exec(ctx, `DELETE FROM alerts WHERE tenant_id='itest-as'`)
 	})
 	api := http.NewServeMux()
+	api.HandleFunc("GET /v1/reports", s.listReports)
+	api.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
 	api.HandleFunc("GET /v1/alerts", s.listAlerts)
 	api.HandleFunc("POST /v1/alerts/{id}/ack", s.ackAlert)
 	api.HandleFunc("POST /v1/commands/{id}/approve", s.approveCommand)
@@ -269,6 +271,29 @@ func TestIntegrationAssistant(t *testing.T) {
 		t.Fatalf("the assistant must inherit the user's role: viewer acknowledged an alert (%s)", st)
 	}
 
+	// report download: the model asks for a file, the user gets a button, the model never sees content
+	pool.Exec(ctx, `DELETE FROM reports WHERE id='itest-as-rep'`)
+	pool.Exec(ctx, `INSERT INTO reports(id,tenant_id,name,definition,created_by) VALUES('itest-as-rep','itest-as','Daily temps','{"metrics":[{"device_id":"itest-as-dev","point_id":"temp"}],"window_hours":24,"group_by":"hour"}'::jsonb,'test-user')`)
+	fm.mu.Lock()
+	fm.requests = nil
+	fm.script = []map[string]any{
+		toolMsg("r1", "list_reports", `{}`),
+		toolMsg("r2", "offer_report_download", `{"report_id":"itest-as-rep","format":"csv"}`),
+		toolMsg("r3", "offer_report_download", `{"report_id":"../users","format":"csv"}`),
+		toolMsg("r4", "offer_report_download", `{"report_id":"itest-as-rep","format":"exe"}`),
+		toolMsg("r5", "offer_report_download", `{"report_id":"does-not-exist","format":"csv"}`),
+		{"role": "assistant", "content": "The CSV is ready."},
+	}
+	fm.mu.Unlock()
+	_, o = chat("itest-as", "viewer", "give me the daily temps report as csv")
+	files, _ := o["files"].([]any)
+	if len(files) != 1 || files[0].(map[string]any)["path"] != "/v1/reports/itest-as-rep/download?format=csv" {
+		t.Fatalf("download offer: %v", o)
+	}
+	tr, _ = json.Marshal(o["trace"])
+	if strings.Count(string(tr), `"refused"`) != 2 || !strings.Contains(string(tr), "offered as a download button") || !strings.Contains(string(tr), "not available (404)") {
+		t.Fatalf("report trace: %s", tr)
+	}
 	// the admin activity view is built from the audit trail: refused calls are visible, other
 	// tenants and non-admins see nothing
 	if w := call(api, "itest-as", "operator", "GET", "/v1/ai/activity", ""); w.Code != 403 {

@@ -43,7 +43,9 @@ else
   echo "FATAL: .env.example missing - bundle would have no env template" >&2
   exit 1
 fi
-cp scripts/airgap-install.sh "$OUT/install.sh"
+cp scripts/install.sh "$OUT/install.sh"
+cp scripts/install.ps1 scripts/install.bat "$OUT/"
+cp .env.example "$OUT/.env.example"
 chmod +x "$OUT/install.sh"
 cp docs/airgap.md "$OUT/README-airgap.md"
 (cd "$OUT" && sha256sum * > SHA256SUMS)

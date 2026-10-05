@@ -56,6 +56,15 @@ func TestRegistryAgreesWithPolicy(t *testing.T) {
 			path = strings.ReplaceAll(path, "{"+p.Name+"}", "x1")
 		}
 		v, why := assistant.Classify(tool.Method, path)
+		if n == "offer_report_download" {
+			// File downloads stay denied for the generic api_request tool, so the model can never read
+			// file content. This tool is handled by the server (offerReportDownload), which checks
+			// the report and hands the user a download button, and never returns the body.
+			if v != assistant.Denied {
+				t.Errorf("%s: the policy must keep denying report downloads to the model (got %v)", n, v)
+			}
+			continue
+		}
 		switch tool.Risk {
 		case Read:
 			if v != assistant.Read {
