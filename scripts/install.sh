@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guided installer for the Hexmon IoT platform (Linux, macOS, WSL).
+# Guided installer for HexThings (Linux, macOS, WSL).
 #
 #   ./install.sh                 asks a few questions, then does everything
 #   ./install.sh --yes           no questions: defaults, generated secrets
@@ -32,22 +32,66 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-if [ -t 1 ]; then B=$'\033[1m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; N=$'\033[0m'; else B=; G=; Y=; R=; N=; fi
-say()  { printf '%s\n' "$*"; printf '%s\n' "$*" >> "$LOG"; }
-ok()   { say "  ${G}ok${N}    $*"; }
-warn() { say "  ${Y}warn${N}  $*"; WARNINGS=$((WARNINGS+1)); }
-fail() { say "  ${R}FAIL${N}  $*"; say ""; say "Nothing was started. Fix the line above and run the installer again; it is safe to re-run."; exit 1; }
+# ---- look and feel ----------------------------------------------------------------------------
+# Colour only on a real terminal (and not when NO_COLOR is set); Unicode only when the locale says
+# UTF-8. Everything else gets plain ASCII with the same words, so logs and CI stay readable.
+COLOR=0; UNI=0
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then COLOR=1; fi
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) UNI=1 ;; esac
+[ "${HEXTHINGS_ASCII:-}" = 1 ] && UNI=0
+if [ "$COLOR" = 1 ]; then
+  B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'
+  C1=$'\033[38;5;45m'; C2=$'\033[38;5;39m'; C3=$'\033[38;5;33m'; C4=$'\033[38;5;63m'; C5=$'\033[38;5;99m'
+else B=; D=; N=; G=; Y=; R=; C1=; C2=; C3=; C4=; C5=; fi
+if [ "$UNI" = 1 ]; then I_OK="✔"; I_WARN="▲"; I_FAIL="✖"; BAR_ON="█"; BAR_OFF="░"; SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+else I_OK="ok"; I_WARN="warn"; I_FAIL="FAIL"; BAR_ON="#"; BAR_OFF="-"; SPIN=('|' '/' '-' '\'); fi
+plain() { printf '%s\n' "$(printf '%s' "$*" | sed $'s/\033\\[[0-9;]*m//g')" >> "$LOG"; }
+say()  { printf '%s\n' "$*"; plain "$*"; }
+ok()   { say "  ${G}${I_OK}${N}  $*"; }
+warn() { say "  ${Y}${I_WARN}${N}  $*"; WARNINGS=$((WARNINGS+1)); }
+fail() { say "  ${R}${I_FAIL}${N}  $*"; say ""; say "Nothing was started. Fix the line above and run the installer again; it is safe to re-run."; exit 1; }
 WARNINGS=0
+TOTAL_STEPS=4; STEP=0
+bar() { local n=$1 t=$2 w=20 i out=""; for ((i=0;i<w;i++)); do if [ $((i*t)) -lt $((n*w)) ]; then out+="$BAR_ON"; else out+="$BAR_OFF"; fi; done; printf '%s' "$out"; }
+step() { # step "Title"
+  STEP=$((STEP+1)); say ""
+  if [ "$UNI" = 1 ]; then say "${C2}${B}┃${N} ${B}$STEP/$TOTAL_STEPS  $1${N}   ${C3}$(bar "$STEP" "$TOTAL_STEPS")${N}"
+  else say "== $STEP/$TOTAL_STEPS  $1  [$(bar "$STEP" "$TOTAL_STEPS")] =="; fi
+}
+# spin "message" command...: runs the command with output in the log, animates while it works.
+spin() {
+  local msg=$1; shift
+  if [ "$COLOR" = 0 ]; then say "  ... $msg"; "$@" >> "$LOG" 2>&1; return $?; fi
+  "$@" >> "$LOG" 2>&1 & local pid=$! i=0 t0=$SECONDS
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '\r  %s%s%s  %s %s(%ds)%s\033[K' "$C1" "${SPIN[$((i%${#SPIN[@]}))]}" "$N" "$msg" "$D" $((SECONDS-t0)) "$N"; i=$((i+1)); sleep 0.12
+  done
+  local rc=0; wait "$pid" || rc=$?
+  printf '\r\033[K'; return $rc
+}
+banner() {
+  if [ "$UNI" = 1 ]; then
+    printf '%s\n' "" \
+"${C1}   ██╗  ██╗████████╗${N}" \
+"${C2}   ██║  ██║╚══██╔══╝${N}      ${B}${C1}Hex${C4}Things${N}" \
+"${C3}   ███████║   ██║${N}         ${D}industrial IoT platform${N}" \
+"${C4}   ██╔══██║   ██║${N}" \
+"${C5}   ██║  ██║   ██║${N}         ${D}guided installer${N}" \
+"${C5}   ╚═╝  ╚═╝   ╚═╝${N}" ""
+  else
+    printf '%s\n' "" "  |_|  _|_    HexThings" "  | |   |     industrial IoT platform" "              guided installer" ""
+  fi
+  plain "HexThings guided installer"
+}
 ask() { # ask "question" default -> echoes answer
   if [ "$YES" = 1 ] || [ ! -t 0 ]; then echo "$2"; return; fi
-  local a; read -r -p "$1 [$2]: " a || true; echo "${a:-$2}"
+  local a; read -r -p "  ${C2}?${N} $1 ${D}[$2]${N}: " a || true; echo "${a:-$2}"
 }
 rand_alnum() { LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$1" || true; }
 rand_b64()   { head -c 32 /dev/urandom | base64 | tr -d '\n'; }
 
-say "${B}Hexmon IoT platform installer${N}"
-say ""
-say "1. Checking this machine"
+banner
+step "Checking this machine"
 
 # ---- preflight --------------------------------------------------------------------------------
 command -v docker >/dev/null 2>&1 || fail "Docker is not installed. Install Docker Engine (or Docker Desktop) and run this again."
@@ -89,8 +133,7 @@ else
 fi
 
 # ---- questions --------------------------------------------------------------------------------
-say ""
-say "2. Setup"
+step "Setup"
 NEW_ENV=0
 if [ -f .env ]; then
   ok ".env exists and is kept as it is (secrets are not regenerated)"
@@ -139,34 +182,29 @@ if [ "$NO_AI" = 0 ]; then
 fi
 
 # ---- install ----------------------------------------------------------------------------------
-say ""
-say "3. Installing (the first run takes several minutes)"
+step "Installing (the first run takes several minutes)"
+load_images() { gunzip -c images.tar.gz | docker load; }
 if [ "$BUNDLE" = 1 ]; then
   if [ -f SHA256SUMS ]; then
     (sha256sum -c SHA256SUMS >> "$LOG" 2>&1 || shasum -a 256 -c SHA256SUMS >> "$LOG" 2>&1) || fail "checksum mismatch: the bundle is damaged or was changed. Copy it again."
     ok "bundle checksums verified"
   fi
-  gunzip -c images.tar.gz | docker load >> "$LOG" 2>&1 || fail "could not load images (see $LOG)"
+  spin "loading images (offline)" load_images || fail "could not load images (see $LOG)"
   ok "images loaded"
-  docker compose ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} up -d --no-build >> "$LOG" 2>&1 || fail "docker compose up failed (see $LOG)"
+  spin "starting services" docker compose ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} up -d --no-build || fail "docker compose up failed (see $LOG)"
 else
-  docker compose ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} up -d --build >> "$LOG" 2>&1 || fail "docker compose up failed (see $LOG)"
+  spin "building and starting services" docker compose ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} up -d --build || fail "docker compose up failed (see $LOG)"
 fi
 ok "services started"
 
 http_ok() { if command -v curl >/dev/null 2>&1; then curl -fsS -m 3 "$1" >/dev/null 2>&1; else wget -q -T 3 -O /dev/null "$1" 2>/dev/null; fi; }
-say "     waiting for the platform to answer ..."
-up=0
-for _ in $(seq 1 90); do
-  if http_ok "http://localhost:${WEB_PORT}/healthz"; then up=1; break; fi
-  sleep 2
-done
+wait_health() { local _; for _ in $(seq 1 90); do http_ok "http://localhost:${WEB_PORT}/healthz" && return 0; sleep 2; done; return 1; }
+up=0; spin "waiting for the platform to answer" wait_health && up=1
 [ "$up" = 1 ] || fail "the platform did not become healthy within 3 minutes. Run: docker compose logs api  (details in $LOG)"
 ok "platform is healthy"
 
 # ---- first workspace and administrator --------------------------------------------------------
-say ""
-say "4. First workspace"
+step "First workspace"
 CRED=install-credentials.txt
 PASS=""
 if docker compose exec -T api /bin/tenantctl list 2>>"$LOG" | grep -q "^${WORKSPACE} "; then
@@ -174,7 +212,7 @@ if docker compose exec -T api /bin/tenantctl list 2>>"$LOG" | grep -q "^${WORKSP
 else
   PASS=$(rand_alnum 20)
   if printf '%s\n' "$PASS" | docker compose exec -T api /bin/tenantctl create --id "$WORKSPACE" --name "$WORKSPACE" --admin-email "$ADMIN_EMAIL" --password-stdin >> "$LOG" 2>&1; then
-    ( umask 077; printf 'Hexmon IoT platform first sign-in\nURL:       http://localhost:%s\nWorkspace: %s\nEmail:     %s\nPassword:  %s\n\nChange the password after signing in, then delete this file.\n' "$WEB_PORT" "$WORKSPACE" "$ADMIN_EMAIL" "$PASS" > "$CRED" )
+    ( umask 077; printf 'HexThings first sign-in\nURL:       http://localhost:%s\nWorkspace: %s\nEmail:     %s\nPassword:  %s\n\nChange the password after signing in, then delete this file.\n' "$WEB_PORT" "$WORKSPACE" "$ADMIN_EMAIL" "$PASS" > "$CRED" )
     ok "workspace '$WORKSPACE' and administrator created"
   else
     fail "could not create the workspace (see $LOG)"
@@ -183,15 +221,26 @@ fi
 
 # ---- done -------------------------------------------------------------------------------------
 say ""
-say "${G}${B}Installed.${N}"
-say ""
-say "  Open:      http://localhost:${WEB_PORT}"
-say "  Workspace: ${WORKSPACE}"
-say "  Email:     ${ADMIN_EMAIL}"
-if [ -n "$PASS" ]; then
-  say "  Password:  ${PASS}"
-  say "             (also saved in ${CRED}, readable only by you; change it and delete the file)"
+if [ "$UNI" = 1 ]; then
+  W=62; line=$(printf '─%.0s' $(seq 1 $W))
+  row() { local t="$1" vis; vis=$(printf '%s' "$t" | sed $'s/\033\\[[0-9;]*m//g'); printf '%s\n' "${C3}│${N} $t$(printf ' %.0s' $(seq 1 $((W-1-${#vis}))))${C3}│${N}"; }
+  say "${C3}╭${line}╮${N}"
+  row "${G}${B}${I_OK}  HexThings is installed${N}"
+  row ""
+  row "${B}Open${N}       http://localhost:${WEB_PORT}"
+  row "${B}Workspace${N}  ${WORKSPACE}"
+  row "${B}Email${N}      ${ADMIN_EMAIL}"
+  [ -z "$PASS" ] || row "${B}Password${N}   ${PASS}"
+  say "${C3}╰${line}╯${N}"
+else
+  say "Installed. HexThings is ready."
+  say ""
+  say "  Open:      http://localhost:${WEB_PORT}"
+  say "  Workspace: ${WORKSPACE}"
+  say "  Email:     ${ADMIN_EMAIL}"
+  [ -z "$PASS" ] || say "  Password:  ${PASS}"
 fi
+[ -z "$PASS" ] || say "  ${D}(also saved in ${CRED}, readable only by you; change it and delete the file)${N}"
 say ""
 say "  Stop:      docker compose stop        Start: docker compose start"
 say "  Back up:   ./scripts/backup.sh        Logs:  docker compose logs -f api"

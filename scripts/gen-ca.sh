@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	cert, key, err := pki.GenerateCA("Hexmon Device CA", 10)
+	cert, key, err := pki.GenerateCA("HexThings Device CA", 10)
 	if err != nil {
 		log.Fatal(err)
 	}

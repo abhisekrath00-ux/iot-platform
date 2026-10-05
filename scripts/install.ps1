@@ -1,4 +1,4 @@
-# Guided installer for the Hexmon IoT platform on Windows (Docker Desktop with WSL2).
+# Guided installer for the HexThings on Windows (Docker Desktop with WSL2).
 # Double-click install.bat, or: powershell -ExecutionPolicy Bypass -File install.ps1 [-Yes]
 # Same steps as install.sh. NOT TESTED: no Windows machine was available when this was written.
 param([switch]$Yes, [string]$AdminEmail = "", [string]$Workspace = "", [int]$WebPort = 0, [string]$AiModel = "", [switch]$NoAi)
@@ -16,7 +16,15 @@ function RandAlnum($n) { $c = [char[]]([char]'a'..[char]'z' + [char]'A'..[char]'
 function RandB64 { $b = New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]::Fill($b); [Convert]::ToBase64String($b) }
 function Dc { & docker compose @args 2>&1 | Add-Content -Path $Log; if ($LASTEXITCODE -ne 0) { throw "docker compose $args failed" } }
 
-Say "Hexmon IoT platform installer"; Say ""; Say "1. Checking this machine"
+function Banner {
+  $c = @("Cyan","Cyan","Blue","Blue","DarkBlue","Magenta")
+  $art = @("      __________","    /   ______   \\","   /   |  __  |   \\    HexThings","   \\   | |__| |   /    industrial IoT platform","    \\  |______|  /     guided installer","      \\________/")
+  Write-Host ""
+  for ($i = 0; $i -lt $art.Count; $i++) { Write-Host $art[$i] -ForegroundColor $c[$i] }
+  Write-Host ""
+  Add-Content -Path $Log -Value "HexThings guided installer"
+}
+Banner; Say "1. Checking this machine"
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Fail "Docker is not installed. Install Docker Desktop (WSL2 backend) and run this again." }
 docker info *> $null; if ($LASTEXITCODE -ne 0) { Fail "Docker is installed but not running. Start Docker Desktop and wait until it says running." }
 Ok "Docker is running"
@@ -104,7 +112,7 @@ else {
   $out = $Pass | docker compose exec -T api /bin/tenantctl create --id $Workspace --name $Workspace --admin-email $AdminEmail --password-stdin 2>&1
   Add-Content -Path $Log -Value $out
   if ($LASTEXITCODE -ne 0) { Fail "could not create the workspace (see $Log)" }
-  Set-Content -Path install-credentials.txt -Value "Hexmon IoT platform first sign-in`r`nURL:       http://localhost:$WebPort`r`nWorkspace: $Workspace`r`nEmail:     $AdminEmail`r`nPassword:  $Pass`r`n`r`nChange the password after signing in, then delete this file."
+  Set-Content -Path install-credentials.txt -Value "HexThings first sign-in`r`nURL:       http://localhost:$WebPort`r`nWorkspace: $Workspace`r`nEmail:     $AdminEmail`r`nPassword:  $Pass`r`n`r`nChange the password after signing in, then delete this file."
   Ok "workspace '$Workspace' and administrator created"
 }
 Say ""; Say "Installed."; Say ""
