@@ -94,14 +94,14 @@ services:
       MODEL_QUANT: ${AI_MODEL_QUANT:-Q4_K_M}
       MODEL_SHA256: ${AI_MODEL_SHA256:-}
       AI_THREADS: ${AI_THREADS:-2}
-      AI_CONTEXT: ${AI_CONTEXT:-3072}
+      AI_CONTEXT: ${AI_CONTEXT:-6144}
       AI_RUNTIME_KEY: ${AI_RUNTIME_KEY:-}
     volumes: ["${AI_MODEL_DIR:-./models}:/models:ro"]
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: ${AI_MEM_LIMIT:-2g}
+    mem_limit: ${AI_MEM_LIMIT:-3g}
     restart: unless-stopped
 
   redis:
