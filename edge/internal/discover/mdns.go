@@ -1,4 +1,4 @@
-// Package discover finds a Hexmon server and industrial devices on the local
+// Package discover finds a HexThings server and industrial devices on the local
 // network. Discovery only SUGGESTS addresses to an installer: it never enrolls
 // a gateway or sends a claim code by itself, because anything on the LAN can
 // answer a multicast query.
