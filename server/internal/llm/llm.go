@@ -49,6 +49,8 @@ type Config struct {
 	// NoThinking asks a local Qwen3-style runtime to skip its reasoning preamble. Sent only when set,
 	// because hosted OpenAI-style endpoints reject fields they do not know.
 	NoThinking bool
+	// Small marks a small model: the API uses the compact prompt, a short tool menu and fixed answers.
+	Small bool
 }
 
 const maxResponse = 1 << 20
