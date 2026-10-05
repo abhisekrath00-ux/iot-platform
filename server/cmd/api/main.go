@@ -246,6 +246,11 @@ func main() {
 	api.HandleFunc("GET /v1/ai/settings", s.getAISettings)
 	api.HandleFunc("PUT /v1/ai/settings", s.putAISettings)
 	api.HandleFunc("POST /v1/ai/test", s.testAI)
+	api.HandleFunc("GET /v1/system/health", s.systemHealth)
+	api.HandleFunc("GET /v1/system/metrics", s.systemMetrics)
+	api.HandleFunc("GET /v1/system/logs", s.systemLogs)
+	api.HandleFunc("GET /v1/system/prom", s.systemProm)
+	api.HandleFunc("GET /v1/system/support", s.systemSupport)
 	api.HandleFunc("GET /v1/ai/profiles", s.listAIProfiles)
 	api.HandleFunc("POST /v1/ai/profiles", s.saveAIProfile)
 	api.HandleFunc("PUT /v1/ai/profiles/{id}", s.saveAIProfile)
@@ -473,7 +478,9 @@ func main() {
 		log.Printf("index sink enabled: %s index %s", sc.URL, sc.Index)
 		go leader.Run(ctx, st.Pool, leaderIndexSink, "index-sink", 30*time.Second, indexsink.New(sc, st.Pool).Run)
 	}
-	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: auth.SecurityHeaders(auth.BodyLimit(mux)), ReadHeaderTimeout: 10 * time.Second}
+	installObsLogging()
+	go s.obsRun(ctx)
+	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: obsMiddleware(auth.SecurityHeaders(auth.BodyLimit(mux))), ReadHeaderTimeout: 10 * time.Second}
 	if os.Getenv("MDNS_ADVERTISE") == "true" {
 		port, _ := strconv.Atoi(envOr("API_PORT", "8000"))
 		scheme := "https"
