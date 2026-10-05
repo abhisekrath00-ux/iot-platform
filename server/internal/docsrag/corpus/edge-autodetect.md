@@ -94,4 +94,4 @@ again. `-ignore KEY -ignore-undo` reverses it. The local page is read-only, so t
 ## Not built
 
 SNMP is not part of the loop (it needs a community string from the environment; `-scan-snmp` still works by hand).
-mDNS in this repo finds the Hexmon server, not devices, so it is not a device pass.
+mDNS in this repo finds the HexThings server, not devices, so it is not a device pass.
