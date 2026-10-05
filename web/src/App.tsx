@@ -1,3 +1,5 @@
+import SystemHealth from './pages/SystemHealth';
+import DevTools from './pages/DevTools';
 import { NavLink, Route, Routes } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { api } from './lib/api';
@@ -32,6 +34,8 @@ import Explorer from './pages/Explorer';
 import MapPage from './pages/MapPage';
 
 const icons: Record<string, JSX.Element> = {
+  'System health': <svg viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg>,
+  'Dev tools': <svg viewBox="0 0 24 24"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/></svg>,
   'Map': <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.5-6-10a6 6 0 0112 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2"/></svg>,
   'Explorer': <svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 5-8 4 5"/><path d="M3 21h18"/></svg>,
   'Fleet': <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>,
@@ -53,7 +57,7 @@ const icons: Record<string, JSX.Element> = {
   'Settings': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 00-2.2-1.3L14 3h-4l-.4 2.5a7 7 0 00-2.2 1.3l-2.3-1-2 3.4 2 1.5a7 7 0 000 2.6l-2 1.5 2 3.4 2.3-1a7 7 0 002.2 1.3L10 21h4l.4-2.5a7 7 0 002.2-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3z"/></svg>,
 };
 
-const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/customers", "Customers"], ["/users", "Users"], ["/kpis", "KPIs"], ["/map", "Map"], ["/explorer", "Explorer"], ["/onboarding", "Add device"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/assistant", "Assistant"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/settings", "Settings"]];
+const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/customers", "Customers"], ["/users", "Users"], ["/kpis", "KPIs"], ["/map", "Map"], ["/explorer", "Explorer"], ["/onboarding", "Add device"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/assistant", "Assistant"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/system", "System health"], ["/dev-tools", "Dev tools"], ["/settings", "Settings"]];
 
 export default function App() {
   const [theme, toggle] = useTheme();
@@ -82,7 +86,7 @@ export default function App() {
     if (me.customer_id) return ['/devices', '/alerts', '/map', '/dashboards', '/reports'].includes(to);
     const hide: Record<string, string> = { '/reports': 'reports', '/dashboards': 'dashboards', '/flows': 'flows', '/commands': 'control', '/audit': 'audit', '/assistant': 'assistant' };
     if (hide[to] && me.denied?.includes(`read:${hide[to]}`)) return false;
-    if (me.role !== 'admin') return !['/users', '/customers'].includes(to);
+    if (me.role !== 'admin') return !['/users', '/customers', '/system', '/dev-tools'].includes(to);
     return true;
   });
   const [online, setOnline] = useState(navigator.onLine);
@@ -136,6 +140,8 @@ export default function App() {
           <Route path="/map" element={<MapPage />} />
           <Route path="/explorer" element={<Explorer />} />
           <Route path="/audit" element={<Audit />} />
+          <Route path="/system" element={<SystemHealth />} />
+          <Route path="/dev-tools" element={<DevTools />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
