@@ -30,6 +30,12 @@ func cases() []Case {
 		add("acknowledge_alert", a, fmt.Sprintf("Acknowledge alert %s", a), fmt.Sprintf("Ack %s for me", a))
 		add("comment_on_alert", a, fmt.Sprintf("Add a comment to alert %s saying valve checked", a))
 	}
+	for _, n := range []string{"North Plant", "Line B"} {
+		add("create_site", n, fmt.Sprintf("Create a site called %s", n), fmt.Sprintf("Add a new site named %s", n))
+		add("create_group", n, fmt.Sprintf("Create a device group called %s", n))
+		add("create_customer", n, fmt.Sprintf("Create a customer called %s", n))
+		add("create_asset", n, fmt.Sprintf("Create a machine asset called %s", n))
+	}
 	for _, q := range []string{"How many alerts are open?", "List open alerts", "Which alerts are active right now?", "Show unresolved alerts", "Any acknowledged alerts?"} {
 		add("list_alerts", "", q)
 	}
