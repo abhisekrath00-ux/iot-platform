@@ -3,6 +3,7 @@
 # Downloads the source to .\hexthings (updating the files in place if the folder already exists; your
 # .env, secrets and install.log are kept), then runs the guided installer with defaults.
 $ErrorActionPreference = "Stop"
+Set-Location $env:USERPROFILE   # never sit inside the folder we may replace or remove
 $repo = if ($env:HEXTHINGS_REPO) { $env:HEXTHINGS_REPO } else { "abhisekrath00-ux/iot-platform" }
 $dir = if ($env:HEXTHINGS_DIR) { $env:HEXTHINGS_DIR } else { Join-Path $env:USERPROFILE "hexthings" }   # fixed location, never relative to where you run this
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Host "Docker is not installed. Install Docker Desktop (WSL2 backend), start it, then run this again."; return }
@@ -17,6 +18,6 @@ New-Item -ItemType Directory -Force -Path $dir | Out-Null
 Copy-Item -Path (Join-Path $src "*") -Destination $dir -Recurse -Force
 # an earlier version could nest a copy as hexthings\hexthings: remove that stale copy
 $nested = Join-Path $dir "hexthings"
-if (Test-Path (Join-Path $nested "docker-compose.yml")) { Remove-Item -Recurse -Force $nested }
+if (Test-Path (Join-Path $nested "docker-compose.yml")) { try { Remove-Item -Recurse -Force $nested -ErrorAction Stop } catch { Write-Host "  note: could not remove the old nested copy $nested (in use?); it is harmless, delete it later." } }
 Set-Location $dir
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Yes
