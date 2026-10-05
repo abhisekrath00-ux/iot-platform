@@ -2,7 +2,7 @@
 # Double-click install.bat, or: powershell -ExecutionPolicy Bypass -File install.ps1 [-Yes]
 # Same steps as install.sh. NOT TESTED: no Windows machine was available when this was written.
 param([switch]$Yes, [string]$AdminEmail = "", [string]$Workspace = "", [int]$WebPort = 0, [string]$AiModel = "", [switch]$NoAi)
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"   # Windows PowerShell 5.1 turns native stderr (docker progress) into errors under Stop; every docker call checks $LASTEXITCODE
 Set-Location -Path $PSScriptRoot
 if (-not (Test-Path docker-compose.yml)) { Set-Location -Path (Split-Path $PSScriptRoot -Parent) }
 $Log = "install.log"; Set-Content -Path $Log -Value ""
@@ -68,7 +68,7 @@ if (-not $Workspace) { $Workspace = Ask "Name for your first workspace (lowercas
 if (-not $AdminEmail) { $AdminEmail = Ask "Administrator email" "admin@example.com" }
 if ($Workspace -notmatch '^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$') { Fail "workspace '$Workspace' must be 3-40 characters: a-z, 0-9, dashes" }
 if ($AdminEmail -notmatch '^[^@ ]+@[^@ ]+\.[^@ ]+$') { Fail "'$AdminEmail' is not an email address" }
-$profile = @()
+$aiProfile = @()
 if (-not $NoAi) {
   if (-not $AiModel -and (Test-Path model.gguf)) { $AiModel = "model.gguf" }
   if (-not $AiModel -and -not $Yes) { $AiModel = Ask "Optional local AI assistant: path to a .gguf model file (blank = skip)" "" }
@@ -78,7 +78,7 @@ if (-not $NoAi) {
     New-Item -ItemType Directory -Force -Path models | Out-Null
     if ((Resolve-Path $AiModel).Path -ne (Join-Path (Get-Location) "models\model.gguf")) { Copy-Item $AiModel models\model.gguf -Force }
     $env:AI_MODEL_SHA256 = (Get-FileHash models\model.gguf -Algorithm SHA256).Hash.ToLower()
-    $profile = @("--profile", "ai")
+    $aiProfile = @("--profile", "ai")
     Ok "local AI model ready; AI stays optional and off until enabled in Settings"
   } else { Ok "no local AI model (the platform works the same without it)" }
 }
@@ -87,14 +87,14 @@ Say ""; Say "3. Installing (the first run takes several minutes)"
 try {
   if ($Bundle) {
     if (Test-Path SHA256SUMS) {
-      foreach ($l in Get-Content SHA256SUMS) { $h, $f = $l -split '\s+\*?', 2; if ((Test-Path $f) -and ((Get-FileHash $f -Algorithm SHA256).Hash.ToLower() -ne $h)) { Fail "checksum mismatch in $f: the bundle is damaged. Copy it again." } }
+      foreach ($l in Get-Content SHA256SUMS) { $h, $f = $l -split '\s+\*?', 2; if ((Test-Path $f) -and ((Get-FileHash $f -Algorithm SHA256).Hash.ToLower() -ne $h)) { Fail "checksum mismatch in ${f}: the bundle is damaged. Copy it again." } }
       Ok "bundle checksums verified"
     }
     docker load -i images.tar.gz 2>&1 | Add-Content -Path $Log   # docker load reads gzip directly
     if ($LASTEXITCODE -ne 0) { Fail "could not load images (see $Log)" }
     Ok "images loaded"
-    Dc @profile up -d --no-build
-  } else { Dc @profile up -d --build }
+    Dc @aiProfile up -d --no-build
+  } else { Dc @aiProfile up -d --build }
 } catch { Fail "$_ (see $Log)" }
 Ok "services started"
 Say "     waiting for the platform to answer ..."
