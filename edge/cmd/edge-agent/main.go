@@ -70,7 +70,7 @@ func main() {
 	testOut := flag.String("test-output", "", "sound this alarm output for a few seconds on the running agent, then exit")
 	forDur := flag.Duration("for", 10*time.Minute, "duration for -silence (max 24h)")
 	identityDir := flag.String("identity-dir", paths.Data(), "directory holding identity.json")
-	discoverFlag := flag.Bool("discover", false, "look for Hexmon servers advertising on the local network (mDNS), print their addresses, then exit; nothing is enrolled")
+	discoverFlag := flag.Bool("discover", false, "look for HexThings servers advertising on the local network (mDNS), print their addresses, then exit; nothing is enrolled")
 	scanLAN := flag.String("scan-lan", "", "probe a private IPv4 range (e.g. 192.168.1.0/24, max /22) for open industrial ports (Modbus TCP, OPC UA, IEC 104, DNP3, MQTT), print results, then exit")
 	whoIs := flag.String("scan-bacnet", "", "broadcast a BACnet Who-Is to this subnet broadcast address (e.g. 192.168.1.255, or 255.255.255.255) and list devices that answer, then exit")
 	scanSNMP := flag.String("scan-snmp", "", "probe a private IPv4 range for SNMPv2c devices (reads sysName/sysDescr only); the community comes from $SNMP_SCAN_COMMUNITY, then exit")
