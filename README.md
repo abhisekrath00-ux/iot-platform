@@ -1,4 +1,4 @@
-# Hexmon IoT Platform
+# HexThings
 
 An enterprise IoT platform for energy meters, door sensors and other field devices.
 Sensors connect to an edge gateway (Vicharak Axon SBC, any Linux arm64/x86 box, or a Windows PC) over UART/USB serial, Modbus RTU/TCP or OPC UA;
