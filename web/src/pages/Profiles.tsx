@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, EXTRA_DRIVERS } from '../lib/api';
+import { EDGE_TEMPLATES } from '../lib/edgeSetup';
+import { Issue, MapPoint, parseAny, templatePoints, toCsv, validateMap } from '../lib/registerMap';
 
 interface PointDef { id: string; register?: number; key?: string; node_id?: string; oid?: string; ioa?: number; func?: number; type?: string; word_order?: string; scale?: number; unit?: string; min?: number; max?: number; }
 interface ProfileRow { id: string; name: string; driver_profile: string; points: PointDef[]; created_at: string; }
@@ -13,6 +15,12 @@ export default function Profiles() {
   const [points, setPoints] = useState<PointDef[]>([{ ...emptyPoint }]);
   const [msg, setMsg] = useState('');
   const isModbus = driver.startsWith('modbus');
+  const [paste, setPaste] = useState('');
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const liveIssues = isModbus && points.some(p => p.id) ? validateMap(points.filter(p => p.id) as MapPoint[]) : [];
+  const shown = issues.length ? issues : liveIssues;
+  function loadMap(pts: MapPoint[], iss: Issue[]) { if (pts.length) setPoints(pts); setIssues(iss); }
+  function save(name: string, text: string) { const u = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const a = document.createElement('a'); a.href = u; a.download = name; a.click(); URL.revokeObjectURL(u); }
   const extra = EXTRA_DRIVERS[driver];
   const cols = extra ? (extra.reg ? 'minmax(0,1fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : 'minmax(0,1fr) minmax(0,1.6fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px') : isModbus ? 'minmax(0,1.2fr) minmax(0,.7fr) minmax(0,.6fr) minmax(0,.7fr) minmax(0,.8fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : driver === 'opcua' ? 'minmax(0,1fr) minmax(0,2fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : 'minmax(0,1fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px';
 
@@ -61,6 +69,25 @@ export default function Profiles() {
             {Object.entries(EXTRA_DRIVERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             <option value="door-contact">Door contact (legacy)</option>
           </select>
+          {isModbus && (
+            <div className="card" style={{ margin: '8px 0' }}>
+              <b>Start from a template or import a register map</b>
+              <p className="muted">Loads the points into the form below so you can review and edit them. Nothing is saved until you press Create profile. Format: CSV with a header (id, register, func, type, word_order, scale, unit, min, max) or JSON.</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <select style={{ width: 'auto' }} aria-label="Template" defaultValue="" onChange={e => { const t = EDGE_TEMPLATES.find(x => x.id === e.target.value); if (t) { loadMap(templatePoints(t.id), []); if (!name) setName(t.name); } e.target.value = ''; }}>
+                  <option value="">Load a built-in template…</option>
+                  {EDGE_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                <input type="file" accept=".csv,.json,.txt" aria-label="Import file" style={{ width: 'auto' }} onChange={async e => { const f = e.target.files?.[0]; if (f) { const r = parseAny(await f.text()); loadMap(r.points, r.issues); } e.target.value = ''; }} />
+                <button type="button" className="ghost" onClick={() => save('register-map.csv', toCsv(points.filter(p => p.id) as MapPoint[]))}>Export CSV</button>
+                <button type="button" className="ghost" onClick={() => save('register-map.json', JSON.stringify(points.filter(p => p.id), null, 2))}>Export JSON</button>
+              </div>
+              <textarea aria-label="Paste a register map" rows={3} style={{ width: '100%', marginTop: 8 }} placeholder="Or paste CSV / JSON here" value={paste} onChange={e => setPaste(e.target.value)} />
+              <button type="button" className="ghost" disabled={!paste.trim()} onClick={() => { const r = parseAny(paste); loadMap(r.points, r.issues); }}>Import pasted text</button>
+              {shown.length > 0 && <ul role="alert" style={{ color: '#dc2626', margin: '8px 0 0', paddingLeft: 18 }}>{shown.slice(0, 12).map((i, k) => <li key={k}>{i.row ? `Row ${i.row}: ` : ''}{i.text}</li>)}{shown.length > 12 && <li>…and {shown.length - 12} more</li>}</ul>}
+              {!shown.length && points.some(p => p.id) && <p className="muted" style={{ color: '#16a34a' }}>Register map checks passed (ids unique, no overlaps, types and ranges valid).</p>}
+            </div>
+          )}
           <label>Points</label>
           <div className="muted" style={{ display: 'grid', gridTemplateColumns: cols, gap: 4, fontSize: 11, marginBottom: 2 }}>
             <span>id</span>
@@ -102,7 +129,7 @@ export default function Profiles() {
             </div>
           ))}
           <button type="button" className="ghost" onClick={() => setPoints(ps => [...ps, { ...emptyPoint }])}>+ point</button>
-          <div style={{ marginTop: 14 }}><button type="submit">Create profile</button></div>
+          <div style={{ marginTop: 14 }}><button type="submit" disabled={liveIssues.length > 0} title={liveIssues.length ? 'Fix the register map problems first' : undefined}>Create profile</button></div>
         </form>
         {msg && <p className="muted">{msg}</p>}
       </div>
