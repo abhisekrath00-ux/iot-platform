@@ -24,6 +24,7 @@ export default function EdgeSetup() {
   const tpl = EDGE_TEMPLATES.find((t) => t.id === dev.templateId)!;
   const [addr, setAddr] = useState<{ resolved: string[]; warnings: string[] } | null>(null);
   const api_url = minted?.server_url ?? addr?.resolved?.[0] ?? 'https://YOUR-SERVER-ADDRESS';
+  const allAddr = minted ? [minted.server_url, ...(minted.fallback_urls ?? [])] : (addr?.resolved?.length ? addr.resolved : [api_url]);
   const warns = [...(minted?.warnings ?? addr?.warnings ?? [])];
 
   useEffect(() => { api<Site[]>('/v1/sites').then((s) => { setSites(s); if (s[0]) setSite(s[0].id); }).catch((e) => setMsg(String(e.message ?? e))); }, []);
@@ -41,8 +42,8 @@ export default function EdgeSetup() {
     setBusy(false);
   }
   const num = (k: keyof DeviceInput) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDev({ ...dev, [k]: Number(e.target.value) });
-  const lin = `sudo ./install.sh --server ${api_url} --code ${minted?.claim_code ?? 'CODE'} --serial ${serial || 'SERIAL'} --yes`;
-  const win = `.\\install.ps1 -ClaimApi ${api_url} -ClaimCode ${minted?.claim_code ?? 'CODE'} -ClaimSerial ${serial || 'SERIAL'}`;
+  const lin = `sudo ./install.sh --server ${allAddr.join(',')} --code ${minted?.claim_code ?? 'CODE'} --serial ${serial || 'SERIAL'} --yes`;
+  const win = `.\\install.ps1 -Server ${allAddr.join(',')} -Code ${minted?.claim_code ?? 'CODE'} -Serial ${serial || 'SERIAL'}`;
   const step = (n: number, t: string, done: boolean) => <span style={{ marginRight: 16, fontWeight: 600, opacity: done ? 1 : 0.6 }}>{done ? '✔' : n}. {t}</span>;
 
   return (
@@ -88,7 +89,7 @@ export default function EdgeSetup() {
       <div className="card" style={{ marginTop: 12 }}>
         <h3>3. Install on the edge box, then plug in the sensor</h3>
         {warns.map((w) => <p key={w} role="alert" style={{ color: '#dc2626' }}>{w} Set it under Settings, Server addresses.</p>)}
-        {minted?.fallback_urls?.length ? <p className="muted">Fallback addresses on record: {minted.fallback_urls.join(', ')}. The edge installer takes one address today; fallbacks are not yet used by the agent.</p> : null}
+        {minted?.fallback_urls?.length ? <p className="muted">Fallback addresses are included in the commands above (comma separated). The installer and the claim step try them in order if the first cannot be reached.</p> : null}
         <p>Download the edge package for the box from your release page (<code>hexmon-edge-&lt;ver&gt;-&lt;os&gt;-&lt;arch&gt;</code>) and verify <code>SHA256SUMS</code>. The agent needs only your server, no internet.</p>
         <p><b>Linux:</b></p><pre style={{ overflowX: 'auto' }}>{lin}</pre>
         <p><b>Windows (elevated PowerShell):</b></p><pre style={{ overflowX: 'auto' }}>{win}</pre>
