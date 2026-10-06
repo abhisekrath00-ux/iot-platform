@@ -2,7 +2,7 @@
 # Guided installer for the HexThings edge agent (Linux, x86_64 and arm64).
 #
 #   sudo ./install.sh                          asks for the server address and claim code
-#   sudo ./install.sh --server URL --code CODE --serial SERIAL [--yes]
+#   sudo ./install.sh --server URL[,FALLBACK_URL...] --code CODE --serial SERIAL [--yes]
 #
 # It checks the machine, tests that the server answers, then runs install-linux.sh (service,
 # unprivileged user, hardened unit). Works air-gapped: the binary is next to this script and
@@ -49,12 +49,22 @@ if [ -z "$SERVER" ] && [ "$YES" = 0 ]; then read -r -p "  Server address (https:
 if [ -z "$CODE" ] && [ "$YES" = 0 ]; then read -r -p "  Claim code (from Devices > Add gateway): " CODE; fi
 if [ -n "$SERVER" ] && [ -z "$SERIAL" ] && [ "$YES" = 0 ]; then read -r -p "  Gateway serial (printed on the claim): " SERIAL; fi
 if [ -n "$SERVER" ]; then
-  case "$SERVER" in http://*|https://*) ;; *) bad "server address must start with http:// or https://"; exit 1 ;; esac
-  if [ "$SKIPNET" = 1 ]; then warn "server reachability check skipped"
-  elif command -v curl >/dev/null 2>&1 && curl -fsS -m 8 -o /dev/null -k "${SERVER%/}/healthz" 2>/dev/null; then ok "server answers at $SERVER"
-  else bad "cannot reach $SERVER (check the address, network and firewall)"; exit 1; fi
-  if [ "$SKIPNET" != 1 ]; then
-    d="$(curl -sI -m 8 -k "${SERVER%/}/healthz" 2>/dev/null | sed -n 's/^[Dd]ate: *//p' | head -1 | tr -d '\r')"
+  # SERVER may list several addresses separated by commas (primary first, then fallbacks).
+  REACH=""
+  IFS=',' read -r -a addrs <<< "$SERVER"
+  for a in "${addrs[@]}"; do
+    a="${a// /}"
+    case "$a" in http://*|https://*) ;; *) bad "server address must start with http:// or https:// ($a)"; exit 1 ;; esac
+    case "$a" in http://localhost*|http://127.*|https://localhost*|https://127.*) warn "$a is a loopback address; it only works if the server runs on this machine" ;; esac
+  done
+  if [ "$SKIPNET" = 1 ]; then warn "server reachability check skipped"; REACH=""
+  else
+    for a in "${addrs[@]}"; do
+      a="${a// /}"
+      if command -v curl >/dev/null 2>&1 && curl -fsS -m 8 -o /dev/null -k "${a%/}/healthz" 2>/dev/null; then ok "server answers at $a"; REACH="$a"; break; else warn "no answer from $a"; fi
+    done
+    if [ -z "$REACH" ]; then bad "cannot reach any server address ($SERVER); check the address, network and firewall"; exit 1; fi
+    d="$(curl -sI -m 8 -k "${REACH%/}/healthz" 2>/dev/null | sed -n 's/^[Dd]ate: *//p' | head -1 | tr -d '\r')"
     if [ -n "$d" ]; then
       diff=$(( $(date +%s) - $(date -d "$d" +%s 2>/dev/null || date +%s) )); diff=${diff#-}
       if [ "$diff" -gt 300 ]; then warn "clock differs from the server by ${diff}s; fix the time or certificates and tokens may fail"; else ok "clock is in sync with the server"; fi

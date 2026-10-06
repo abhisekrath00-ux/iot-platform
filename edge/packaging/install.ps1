@@ -29,15 +29,22 @@ if (-not $Server -and -not $Yes) { $Server = Read-Host "  Server address (https:
 if ($Server -and -not $Code -and -not $Yes) { $Code = Read-Host "  Claim code (Devices > Add gateway)" }
 if ($Server -and -not $Serial -and -not $Yes) { $Serial = Read-Host "  Gateway serial" }
 if ($Server) {
-  if ($Server -notmatch '^https?://') { Bad "server address must start with http:// or https://"; exit 1 }
+  # -Server may list several addresses separated by commas (primary first, then fallbacks).
+  $addrs = @($Server -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  foreach ($x in $addrs) {
+    if ($x -notmatch '^https?://') { Bad "server address must start with http:// or https:// ($x)"; exit 1 }
+    if ($x -match '^https?://(localhost|127\.)') { Warn "$x is a loopback address; it only works if the server runs on this machine" }
+  }
   if ($SkipNetCheck) { Warn "server reachability check skipped" }
   else {
-    try {
-      $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 8 ($Server.TrimEnd('/') + "/healthz")
-      Ok "server answers at $Server"
-      if ($r.Headers["Date"]) { $d = [DateTimeOffset]::Parse($r.Headers["Date"]); $diff = [math]::Abs(([DateTimeOffset]::UtcNow - $d).TotalSeconds)
-        if ($diff -gt 300) { Warn "clock differs from the server by $([int]$diff)s; fix the time or certificates and tokens may fail" } else { Ok "clock is in sync with the server" } }
-    } catch { Bad "cannot reach $Server ($($_.Exception.Message))"; exit 1 }
+    $reach = $null; $r = $null
+    foreach ($x in $addrs) {
+      try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 8 ($x.TrimEnd('/') + "/healthz"); $reach = $x; Ok "server answers at $x"; break }
+      catch { Warn "no answer from $x ($($_.Exception.Message))" }
+    }
+    if (-not $reach) { Bad "cannot reach any server address ($Server); check the address, network and firewall"; exit 1 }
+    if ($r.Headers["Date"]) { $d = [DateTimeOffset]::Parse($r.Headers["Date"]); $diff = [math]::Abs(([DateTimeOffset]::UtcNow - $d).TotalSeconds)
+      if ($diff -gt 300) { Warn "clock differs from the server by $([int]$diff)s; fix the time or certificates and tokens may fail" } else { Ok "clock is in sync with the server" } }
   }
 } else { Warn "no server given: installing only; place the config yourself" }
 
