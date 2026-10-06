@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -182,17 +183,18 @@ func main() {
 		if err != nil {
 			log.Fatalf("enroll: %v", err)
 		}
-		*claimAPI, *claimCode, *claimSerial = e.API, e.Code, e.Serial
+		*claimAPI, *claimCode, *claimSerial = strings.Join(e.URLs(), ","), e.Code, e.Serial
 	}
 	if *claimCode != "" {
 		// Enrollment mode: redeem the claim code, persist identity, exit.
 		if *claimAPI == "" || *claimSerial == "" {
 			log.Fatal("-claim-api and -claim-serial are required with -claim-code")
 		}
-		id, err := claim.Redeem(context.Background(), *claimAPI, *claimCode, *claimSerial)
+		id, used, err := claim.RedeemAny(context.Background(), strings.Split(*claimAPI, ","), *claimCode, *claimSerial)
 		if err != nil {
 			log.Fatalf("claim: %v", err)
 		}
+		log.Printf("claim answered by %s", used)
 		if err := claim.SaveIdentity(*identityDir, id); err != nil {
 			log.Fatalf("claim: %v", err)
 		}
