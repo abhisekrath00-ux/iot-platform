@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { DeviceInput, EDGE_TEMPLATES, deviceYaml, validateDevice } from '../lib/edgeSetup';
 
 interface Site { id: string; name: string; }
-interface Minted { gateway_id: string; claim_code: string; expires_at: string; enroll_string: string; }
+interface Minted { server_url: string; fallback_urls?: string[]; warnings?: string[]; gateway_id: string; claim_code: string; expires_at: string; enroll_string: string; }
 interface Gw { id: string; serial: string; status: string; kind: string; }
 
 function save(name: string, text: string) {
@@ -22,9 +22,12 @@ export default function EdgeSetup() {
   const [busy, setBusy] = useState(false);
   const errs = validateDevice(dev);
   const tpl = EDGE_TEMPLATES.find((t) => t.id === dev.templateId)!;
-  const api_url = window.location.origin;
+  const [addr, setAddr] = useState<{ resolved: string[]; warnings: string[] } | null>(null);
+  const api_url = minted?.server_url ?? addr?.resolved?.[0] ?? 'https://YOUR-SERVER-ADDRESS';
+  const warns = [...(minted?.warnings ?? addr?.warnings ?? [])];
 
   useEffect(() => { api<Site[]>('/v1/sites').then((s) => { setSites(s); if (s[0]) setSite(s[0].id); }).catch((e) => setMsg(String(e.message ?? e))); }, []);
+  useEffect(() => { if (site) api<{ resolved: string[]; warnings: string[] }>(`/v1/system/endpoints?site=${encodeURIComponent(site)}`).then(setAddr).catch(() => setAddr(null)); }, [site]);
   useEffect(() => {
     if (!minted) return;
     const t = setInterval(() => api<Gw[]>('/v1/gateways').then((l) => setGw(l.find((g) => g.id === minted.gateway_id) ?? null)).catch(() => {}), 5000);
@@ -84,6 +87,8 @@ export default function EdgeSetup() {
 
       <div className="card" style={{ marginTop: 12 }}>
         <h3>3. Install on the edge box, then plug in the sensor</h3>
+        {warns.map((w) => <p key={w} role="alert" style={{ color: '#dc2626' }}>{w} Set it under Settings, Server addresses.</p>)}
+        {minted?.fallback_urls?.length ? <p className="muted">Fallback addresses on record: {minted.fallback_urls.join(', ')}. The edge installer takes one address today; fallbacks are not yet used by the agent.</p> : null}
         <p>Download the edge package for the box from your release page (<code>hexmon-edge-&lt;ver&gt;-&lt;os&gt;-&lt;arch&gt;</code>) and verify <code>SHA256SUMS</code>. The agent needs only your server, no internet.</p>
         <p><b>Linux:</b></p><pre style={{ overflowX: 'auto' }}>{lin}</pre>
         <p><b>Windows (elevated PowerShell):</b></p><pre style={{ overflowX: 'auto' }}>{win}</pre>

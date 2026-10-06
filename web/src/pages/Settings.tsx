@@ -9,6 +9,7 @@ import FeatureToggles from '../components/FeatureToggles';
 import Authenticator from '../components/Authenticator';
 import AttributeDefs from '../components/AttributeDefs';
 import AISettings from '../components/AISettings';
+import ServerAddresses from '../components/ServerAddresses';
 import AIProfiles from '../components/AIProfiles';
 import AIActivity from '../components/AIActivity';
 import AssistantChannels from '../components/AssistantChannels';
@@ -111,6 +112,7 @@ export default function Settings() {
       <FeatureToggles />
       <Authenticator />
       <AttributeDefs />
+      <ServerAddresses />
       <AIProfiles onChange={() => setAiRev(v => v + 1)} />
       <AISettings key={aiRev} />
       <AIActivity />
