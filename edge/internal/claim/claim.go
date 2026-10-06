@@ -12,10 +12,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -28,6 +30,38 @@ type Identity struct {
 	// Generated locally during Redeem; never sent anywhere. Not serialized
 	// into identity.json - SaveIdentity writes it to identity.key instead.
 	ClientKeyPEM []byte `json:"-"`
+}
+
+// ErrRejected means a server answered and refused the claim. Another address would
+// reach the same control plane, so RedeemAny stops instead of trying the rest.
+var ErrRejected = errors.New("claim rejected")
+
+// RedeemAny tries each address in order. It moves on only when an address could not
+// be reached (network error or a 5xx answer); a definite refusal stops the loop. It
+// returns the identity and the address that worked.
+func RedeemAny(ctx context.Context, urls []string, code, serial string) (*Identity, string, error) {
+	var errs []string
+	for _, u := range urls {
+		u = strings.TrimRight(strings.TrimSpace(u), "/")
+		if u == "" {
+			continue
+		}
+		id, err := Redeem(ctx, u, code, serial)
+		if err == nil {
+			return id, u, nil
+		}
+		if errors.Is(err, ErrRejected) {
+			return nil, u, err
+		}
+		errs = append(errs, u+": "+err.Error())
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	if len(errs) == 0 {
+		return nil, "", fmt.Errorf("no server address given")
+	}
+	return nil, "", fmt.Errorf("no server address answered: %s", strings.Join(errs, "; "))
 }
 
 // Redeem exchanges claim code + serial for a gateway identity.
@@ -63,8 +97,11 @@ func Redeem(ctx context.Context, apiURL, code, serial string) (*Identity, error)
 		return nil, fmt.Errorf("claim request: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 500 {
+		return nil, fmt.Errorf("server error (status %d)", resp.StatusCode)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("claim rejected (status %d): check the code, serial, and expiry", resp.StatusCode)
+		return nil, fmt.Errorf("%w (status %d): check the code, serial, and expiry", ErrRejected, resp.StatusCode)
 	}
 	var out struct {
 		GatewayID     string `json:"gateway_id"`

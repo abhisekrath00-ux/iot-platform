@@ -18,6 +18,8 @@ type Enroll struct {
 	API    string `json:"api"`
 	Code   string `json:"code"`
 	Serial string `json:"serial"`
+	// Fallbacks are tried in order when API cannot be reached (other networks, NAT, HA).
+	Fallbacks []string `json:"fb,omitempty"`
 }
 
 func EncodeEnroll(e Enroll) string {
@@ -39,5 +41,14 @@ func ParseEnroll(s string) (Enroll, error) {
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || e.Code == "" || e.Serial == "" {
 		return Enroll{}, fmt.Errorf("enroll string is missing the server URL, code or serial")
 	}
+	for _, f := range e.Fallbacks {
+		fu, err := url.Parse(f)
+		if err != nil || (fu.Scheme != "https" && fu.Scheme != "http") || fu.Host == "" || fu.User != nil {
+			return Enroll{}, fmt.Errorf("enroll string has a bad fallback address")
+		}
+	}
 	return e, nil
 }
+
+// URLs returns the primary address followed by the fallbacks.
+func (e Enroll) URLs() []string { return append([]string{e.API}, e.Fallbacks...) }
