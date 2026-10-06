@@ -1,3 +1,4 @@
+import FleetUpdates from './pages/FleetUpdates';
 import EdgeSetup from './pages/EdgeSetup';
 import SystemHealth from './pages/SystemHealth';
 import DevTools from './pages/DevTools';
@@ -35,6 +36,7 @@ import Explorer from './pages/Explorer';
 import MapPage from './pages/MapPage';
 
 const icons: Record<string, JSX.Element> = {
+  'Fleet updates': <svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 20h14"/></svg>,
   'Edge setup': <svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="9" rx="2"/><path d="M8 12h.01M12 12h.01M7 5l2 3M17 5l-2 3"/></svg>,
   'System health': <svg viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg>,
   'Dev tools': <svg viewBox="0 0 24 24"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/></svg>,
@@ -59,7 +61,7 @@ const icons: Record<string, JSX.Element> = {
   'Settings': <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.3l2-1.5-2-3.4-2.3 1a7 7 0 00-2.2-1.3L14 3h-4l-.4 2.5a7 7 0 00-2.2 1.3l-2.3-1-2 3.4 2 1.5a7 7 0 000 2.6l-2 1.5 2 3.4 2.3-1a7 7 0 002.2 1.3L10 21h4l.4-2.5a7 7 0 002.2-1.3l2.3 1 2-3.4-2-1.5c.1-.4.1-.9.1-1.3z"/></svg>,
 };
 
-const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/customers", "Customers"], ["/users", "Users"], ["/kpis", "KPIs"], ["/map", "Map"], ["/explorer", "Explorer"], ["/onboarding", "Add device"], ["/edge-setup", "Edge setup"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/assistant", "Assistant"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/system", "System health"], ["/dev-tools", "Dev tools"], ["/settings", "Settings"]];
+const items: [string, string][] = [["/", "Fleet"], ["/devices", "Devices"], ["/assets", "Assets"], ["/customers", "Customers"], ["/users", "Users"], ["/kpis", "KPIs"], ["/map", "Map"], ["/explorer", "Explorer"], ["/onboarding", "Add device"], ["/edge-setup", "Edge setup"], ["/fleet-updates", "Fleet updates"], ["/scan", "Scan"], ["/dashboards", "Dashboards"], ["/assistant", "Assistant"], ["/flows", "Flows"], ["/alerts", "Alerts"], ["/commands", "Control"], ["/reports", "Reports"], ["/profiles", "Profiles"], ["/audit", "Audit"], ["/system", "System health"], ["/dev-tools", "Dev tools"], ["/settings", "Settings"]];
 
 export default function App() {
   const [theme, toggle] = useTheme();
@@ -127,6 +129,7 @@ export default function App() {
           <Route path="/devices/:id" element={<DeviceDetail />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/edge-setup" element={<EdgeSetup />} />
+          <Route path="/fleet-updates" element={<FleetUpdates />} />
           <Route path="/scan" element={<Scan />} />
           <Route path="/dashboards" element={<Dashboards />} />
           <Route path="/flows" element={<Flows />} />
