@@ -246,6 +246,10 @@ func main() {
 	api.HandleFunc("GET /v1/ai/settings", s.getAISettings)
 	api.HandleFunc("PUT /v1/ai/settings", s.putAISettings)
 	api.HandleFunc("POST /v1/ai/test", s.testAI)
+	api.HandleFunc("GET /v1/system/endpoints", s.listEndpoints)
+	api.HandleFunc("POST /v1/system/endpoints", s.addEndpoint)
+	api.HandleFunc("POST /v1/system/endpoints/check", s.checkEndpoint)
+	api.HandleFunc("DELETE /v1/system/endpoints/{id}", s.deleteEndpoint)
 	api.HandleFunc("GET /v1/system/health", s.systemHealth)
 	api.HandleFunc("GET /v1/system/metrics", s.systemMetrics)
 	api.HandleFunc("GET /v1/system/logs", s.systemLogs)
@@ -1114,9 +1118,25 @@ func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "enrollment.mint", gwID, map[string]any{"serial": in.Serial, "site_id": in.SiteID, "kind": in.Kind})
+	urls, src := s.endpointsFor(r.Context(), tenant, in.SiteID)
+	warnings := []string{}
+	primary := "http://localhost:8000"
+	if len(urls) == 0 {
+		warnings = append(warnings, "No server address is configured (Settings > Server addresses), so this install string points at localhost, which no edge box can reach.")
+	} else {
+		primary = urls[0]
+		if isLoopbackURL(primary) {
+			warnings = append(warnings, "The server address is localhost or loopback; edge boxes on other machines cannot reach it.")
+		}
+	}
+	var fallbacks []string
+	if len(urls) > 1 {
+		fallbacks = urls[1:]
+	}
 	writeJSON(w, 201, map[string]any{
 		"gateway_id": gwID, "kind": in.Kind, "claim_code": code, "expires_at": expires,
-		"enroll_string": enrollString(envOr("API_PUBLIC_URL", "http://localhost:8000"), code, in.Serial),
+		"server_url": primary, "fallback_urls": fallbacks, "address_source": src, "warnings": warnings,
+		"enroll_string": enrollString(primary, code, in.Serial),
 		"note":          "show this code to the installer once; it is not stored",
 	})
 }

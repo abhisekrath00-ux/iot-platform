@@ -83,7 +83,10 @@ func (s *server) createCommissionSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.audit(r, "commission.start", sessionID, map[string]any{"serial": in.Serial, "site_id": in.SiteID})
-	apiBase := envOr("API_PUBLIC_URL", "http://localhost:8000")
+	apiBase := "http://localhost:8000"
+	if urls, _ := s.endpointsFor(r.Context(), tenant, in.SiteID); len(urls) > 0 {
+		apiBase = urls[0]
+	}
 	writeJSON(w, 201, map[string]any{
 		"session_id": sessionID, "gateway_id": gwID,
 		"claim_code": code, "expires_at": expires,
