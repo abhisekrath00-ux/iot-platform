@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -136,6 +137,11 @@ func TestIntegrationEnrollmentUsesConfiguredAddress(t *testing.T) {
 	}
 	if ws, _ := m["warnings"].([]any); len(ws) != 0 {
 		t.Fatalf("unexpected warnings: %v", ws)
+	}
+	es, _ := m["enroll_string"].(string)
+	raw, _ := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(es, "hexmon-enroll:1:"))
+	if !strings.Contains(string(raw), `"fb":["http://10.1.1.5:8000"]`) {
+		t.Fatalf("enroll string must carry the fallbacks: %s", raw)
 	}
 }
 

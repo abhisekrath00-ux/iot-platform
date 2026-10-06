@@ -1136,7 +1136,7 @@ func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]any{
 		"gateway_id": gwID, "kind": in.Kind, "claim_code": code, "expires_at": expires,
 		"server_url": primary, "fallback_urls": fallbacks, "address_source": src, "warnings": warnings,
-		"enroll_string": enrollString(primary, code, in.Serial),
+		"enroll_string": enrollString(primary, code, in.Serial, fallbacks...),
 		"note":          "show this code to the installer once; it is not stored",
 	})
 }
