@@ -78,3 +78,8 @@ on-gateway apply) is scoped below.
 - The artifact is bound to the signature through its digest, so a signed manifest plus the existing digest check means a swapped artifact is refused.
 - Tests: signature vector shared by server and edge (the two copies of the canonical form cannot drift), tamper cases for each field, wrong key, unsigned, wrong tenant, end-to-end `HandleManifest`.
 - Not built and not testable without devices: firmware flashing for MCU or PLC end devices (the LwM2M firmware-update object, vendor bootloaders), signed-artifact key rotation, key revocation lists, a hardware root of trust. This protects edge agent config and release delivery only. Never run against a real broker or a real fleet.
+
+## Dashboard (Fleet updates page)
+Admin and operator users get a Fleet updates page: edge boxes with site and status (select by site), releases (add version with optional artifact SHA-256), a staged rollout form (stages like 10,50,100, halt threshold), and a rollouts table with progress and the actions the current state allows (start, advance, pause, abort, rollback). The page checks stages the same way as the server and only shows buttons that make sense; the server still enforces every rule. Unit-tested helpers (3 tests); screenshot-checked against a real API.
+
+Not built in the UI: remote actions on a box (restart, collect logs), per-box agent version and last-seen, a rollback target picker (it uses the first other release), groups beyond site selection. No rollout has run on a real edge box.
