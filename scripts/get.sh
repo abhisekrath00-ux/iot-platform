@@ -15,5 +15,11 @@ else
   else echo "need git, or curl and tar"; exit 1; fi
 fi
 cd "$DIR"
-if [ -t 0 ]; then exec bash scripts/install.sh "$@"; else AI=--ai-download; [ -n "${HEXTHINGS_NO_AI:-}" ] && AI=--no-ai
-  exec bash scripts/install.sh --yes $AI "$@" </dev/null; fi
+if [ -n "${HEXTHINGS_NO_AI:-}" ]; then set -- --no-ai "$@"; fi
+if [ -n "${HEXTHINGS_AI_MODEL_SIZE:-}" ]; then set -- --ai-model-size "$HEXTHINGS_AI_MODEL_SIZE" "$@"; fi
+if [ -t 0 ]; then exec bash scripts/install.sh "$@"
+elif ( : < /dev/tty ) 2>/dev/null; then exec bash scripts/install.sh "$@" < /dev/tty
+else
+  # Non-interactive setup never downloads AI without an explicit flag.
+  exec bash scripts/install.sh --yes "$@" </dev/null
+fi
