@@ -27,3 +27,19 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Designer: drag-drop surface, wizard, toolbox | Not built | Current UI is a form, not a design surface. |
 
 Next units, in order: chart types and gauges in PDF/XLSX, nested groups, parameters, conditional formatting, page setup, designer surface.
+
+## Production grade and scale (user request, 2026-10-07)
+
+Rule for every report unit: bounded work per report, no unbounded memory, and a stated scale label. Labels: Load-tested (measured here, with numbers), Bounded by design (limit enforced and unit-tested, no load run), Untested.
+
+| Area | Label | Detail |
+|---|---|---|
+| HTML chart rendering | Bounded by design, microbenchmarked | Series thinned to 400 points; 10,000-bucket benchmark in chart_test.go: about 1.5 ms and 1.2 MB per chart on this 2-core machine, microbenchmark only, not a load test. |
+| Report window and bucket count | Bounded by design | Window up to 90 days, fixed group-by buckets; aggregation runs in Postgres. |
+| Concurrent report runs | Untested | No limit on simultaneous renders yet; a shared render queue and per-tenant concurrency cap are planned. |
+| PDF/XLSX size limits | Untested | Row and size caps still to add. |
+| Horizontal scaling (several API replicas) | Untested | Report state is in Postgres; the scheduler's single-runner guarantee under multiple replicas is not verified. |
+| Autoscaling | Not built | Needs deployment manifests and a measured load test on real hardware; not available on this machine. |
+| High ingest throughput | See docs/scaling.md and docs/timescale-evaluation.md | Existing measured numbers there; nothing new in this unit. |
+
+Planned scale units: per-tenant render concurrency cap with queue and timeout, output size caps, scheduler leader lock verified with two processes, then a load test of report runs against a large seeded telemetry table with measured p95.
