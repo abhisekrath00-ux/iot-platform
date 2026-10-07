@@ -43,9 +43,9 @@ eval scored 6 right, so expect a small model to make mistakes.
 
 ## Installer download
 
-`install.sh --ai-download` and `install.ps1 -AiDownload` (the one-command install does this by default;
+`install.sh --ai-download` and `install.ps1 -AiDownload` (explicit download flags; one-command setup now asks first and unattended setup skips AI;
 `HEXTHINGS_NO_AI=1` skips it) fetch the model once from Hugging Face, resume if interrupted, check the
-sha256 (a mismatch deletes the file), then start the `ai` profile and run
+sha256 and byte size (a mismatch removes the partial download, not the old installed model), then start the `ai` profile and run
 `tenantctl ai-connect` so the assistant is connected without manual settings. For air-gapped hosts copy
 `models/model.gguf` in beforehand, or use the airgap bundle.
 
@@ -112,3 +112,5 @@ The assistant answers two requests without calling the model, because a 1.7B mod
 ## Small versus full models
 
 The small-model workarounds (compact prompt, a per-turn menu of about 9 tools, fixed answers for "AI activity" and "create a device", no generic `api_request` tool) apply only when the active provider is in small mode. Each provider profile has a capability: `auto` (default: a local or private-network runtime is small, a hosted API is full), `small` or `full`. Use `full` for a large model on your own network (for example a big Ollama model). A full model gets the complete prompt, every tool and `api_request` write proposals, and nothing overrides its answers. Tested with fake models in unit tests; not run against a real hosted model.
+
+See [model chooser](model-chooser.md) for the five verified artifacts, resource estimates, menu and later replacement. Larger artifacts remain untested here.
