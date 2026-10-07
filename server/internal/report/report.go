@@ -109,7 +109,7 @@ func Validate(d Definition) error {
 		return fmt.Errorf("theme must be light or dark")
 	}
 	if !validChart(d.Chart) {
-		return fmt.Errorf("chart must be empty, line, area or bar")
+		return fmt.Errorf("chart must be empty, line, area, bar, scatter, gauge or pie")
 	}
 	if d.Layout != "" && d.Layout != "matrix" {
 		return ErrBadLayout
