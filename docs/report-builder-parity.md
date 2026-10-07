@@ -16,7 +16,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Chart: stacked, combo, secondary axis | Not built | |
 | Gauge, indicator | Partial | Half-circle gauge of the latest bucket average across the series min..max (no custom ranges or colour bands). HTML only. |
 | Map | Not built | Needs air-gapped tiles decision. |
-| Report parameters (cascading, multivalue) | Partial | Window, group-by, layout, agg, device via URL parameters. No cascading or multivalue. |
+| Report parameters (cascading, multivalue) | Partial | Window, group-by, layout, agg, device via URL parameters. `device` is multivalue (`device=a,b,c`, up to 10, repeats each point per device; still bound by the 50-metric cap). Unit and DB tested. Not cascading, no multivalue for other parameters, no parameter UI or default/prompt definitions. |
 | Expressions | Partial | KPI expression language for computed columns (arithmetic and point refs only). No functions or conditional formatting. |
 | Conditional formatting | Partial | `highlight` {above, below} thresholds colour avg cells in per-metric HTML tables (red/amber). Not in matrix layout, PDF or XLSX; no expressions; no UI control yet. Unit-tested. |
 | Sorting, interactive sort | Not built | |
