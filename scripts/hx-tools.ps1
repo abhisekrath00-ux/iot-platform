@@ -213,8 +213,8 @@ function Do-Menu {
       "Stop" { Do-Stop; Hx-Pause }
       "Restart" { Do-Restart; Hx-Pause }
       "Local AI" {
-        $j = Hx-Menu "Local AI" @("Status", "Start the model", "Stop the model", "Back") @("is the model running", "load it (about 1.5 GB of memory)", "free the memory", "")
-        if ($j -ge 0 -and $j -le 2) { $script:Arg = @("status", "start", "stop")[$j]; Clear-Host; Do-Ai; Hx-Pause }
+        $j = Hx-Menu "Local AI" @("Status", "Start the model", "Stop the model", "Choose model size", "Back") @("is the model running", "load the selected model", "free the memory", "resources, five sizes, or skip", "")
+        if ($j -ge 0 -and $j -le 3) { $script:Arg = @("status", "start", "stop", "choose")[$j]; Clear-Host; Do-Ai; Hx-Pause }
       }
       "Update" { Do-Update ""; Hx-Pause }
       "Backup and restore" {
