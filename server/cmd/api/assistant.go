@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/aitools"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/assistant"
@@ -536,6 +537,14 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 			} else {
 				result = s.runAssistantTool(ctx, tenant, user, role, rc, tc, &res.trace, &res.plan, &res.pending)
 			}
+			// Ambiguous writes terminate this run: another model turn must not re-propose or replay them.
+			var toolOutcome struct {
+				Status string `json:"status"`
+			}
+			if json.Unmarshal([]byte(result), &toolOutcome) == nil && toolOutcome.Status == "outcome_unknown" {
+				res.err = errActionOutcomeUnknown
+				return res
+			}
 			msgs = append(msgs, llm.Message{Role: "tool", ToolCallID: tc.ID, Content: result})
 			if rc.emit != nil {
 				for _, st := range res.trace[before:] {
@@ -634,15 +643,14 @@ func (s *server) runAssistantTool(ctx context.Context, tenant, user, role string
 			}
 			id, code := uuid.NewString(), newCode()
 			if rc.autorun && assistant.LowRisk(a.Method, a.Path) {
-				if _, err := s.st.Pool.Exec(ctx, `INSERT INTO assistant_actions(id,tenant_id,user_id,method,path,body,summary,code,via,status,decided_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'executed',now())`, id, tenant, user, a.Method, a.Path, body, sum, code, rc.via); err != nil {
+				if _, err := s.st.Pool.Exec(ctx, `INSERT INTO assistant_actions(id,tenant_id,user_id,method,path,body,summary,code,via,status,decided_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'executing',now())`, id, tenant, user, a.Method, a.Path, body, sum, code, rc.via); err != nil {
 					return `{"error":"could not record the change"}`
 				}
-				c, out := s.loopback(ctx, tenant, user, role, a.Method, a.Path, "", []byte(body))
-				st := "executed"
-				if c >= 300 {
-					st = "failed"
+				st, c, out, outcomeErr := s.runClaimedAction(ctx, tenant, user, role, id, a.Method, a.Path, body)
+				if outcomeErr != nil {
+					*trace = append(*trace, traceStep{"api_request", label + ": outcome unknown; check the target before any new change", "error"})
+					return mustJSON(map[string]any{"status": "outcome_unknown", "action_id": id, "error": errActionOutcomeUnknown.Error()})
 				}
-				s.st.Pool.Exec(ctx, `UPDATE assistant_actions SET status=$2, result_code=$3, result_body=$4 WHERE id=$1`, id, st, c, truncStr(string(out), 4096))
 				s.auditAs(ctx, tenant, user, "assistant.autorun", id, map[string]any{"method": a.Method, "path": a.Path, "result_code": c, "via": rc.via})
 				*trace = append(*trace, traceStep{"api_request", fmt.Sprintf("%s: %s -> %d (ran without confirm: low-risk, enabled by an admin for this chat link)", label, sum, c), map[bool]string{true: "ok", false: "error"}[c < 300]})
 				return mustJSON(map[string]any{"status": st, "http_status": c, "body": truncStr(string(out), 2000)})
@@ -673,7 +681,7 @@ func (s *server) listAssistantActions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.st.Pool.Exec(r.Context(), `UPDATE assistant_actions SET status='expired', decided_at=now() WHERE status='pending' AND created_at < now() - interval '30 minutes'`)
-	rows, err := s.st.Pool.Query(r.Context(), `SELECT id, method, path, body, summary, status, created_at FROM assistant_actions
+	rows, err := s.st.Pool.Query(r.Context(), `SELECT id, method, path, body, summary, CASE WHEN status='executing' AND decided_at < now() - interval '10 minutes' THEN 'outcome_unknown' ELSE status END, created_at FROM assistant_actions
 		WHERE tenant_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 50`, auth.Tenant(r), auth.User(r))
 	if err != nil {
 		http.Error(w, "db", 500)
@@ -708,7 +716,16 @@ func (s *server) confirmAssistantAction(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "this change is no longer allowed for the assistant", 403)
 		return
 	}
-	s.audit(r, "assistant.confirm", id, map[string]any{"result_code": code, "via": "web"})
+	if err != nil {
+		if errors.Is(err, errActionOutcomeUnknown) {
+			s.audit(r, "assistant.outcome_unknown", id, map[string]any{"result_code": code, "via": "web"})
+			writeJSON(w, 503, map[string]any{"id": id, "status": "outcome_unknown", "error": errActionOutcomeUnknown.Error()})
+		} else {
+			http.Error(w, "action state unavailable; refresh before retrying", 503)
+		}
+		return
+	}
+	s.audit(r, "assistant.confirm", id, map[string]any{"result_code": code, "status": st, "via": "web"})
 	writeJSON(w, 200, map[string]any{"id": id, "status": st, "result_code": code, "result": truncStr(string(out), 4096)})
 }
 
@@ -722,24 +739,24 @@ var (
 // re-checks the policy and runs it as the user (role as of now) through the normal handlers.
 func (s *server) executeAction(ctx context.Context, tenant, user, role, idOrCode, via string) (id, status string, code int, out []byte, err error) {
 	var method, path, body string
-	err = s.st.Pool.QueryRow(ctx, `UPDATE assistant_actions SET status='executed', decided_at=now()
+	err = s.st.Pool.QueryRow(ctx, `UPDATE assistant_actions SET status='executing', decided_at=now()
 		WHERE status='pending' AND id=(SELECT id FROM assistant_actions WHERE tenant_id=$2 AND user_id=$3 AND status='pending'
 		  AND created_at > now() - interval '30 minutes' AND (id=$1 OR code=upper($1)) ORDER BY created_at DESC LIMIT 1)
 		RETURNING id, method, path, body`, idOrCode, tenant, user).Scan(&id, &method, &path, &body)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", 0, nil, errActionGone
 	}
+	if err != nil {
+		return "", "", 0, nil, errActionUnavailable
+	}
 	if v, _ := assistant.Classify(method, path); v != assistant.Confirm {
-		s.st.Pool.Exec(ctx, `UPDATE assistant_actions SET status='rejected' WHERE id=$1`, id)
+		if e := s.finishAction(id, "rejected", 0, nil); e != nil {
+			return id, "outcome_unknown", 0, nil, e
+		}
 		return id, "rejected", 0, nil, errActionNotAllowed
 	}
-	code, out = s.loopback(ctx, tenant, user, role, method, path, "", []byte(body))
-	status = "executed"
-	if code >= 300 {
-		status = "failed"
-	}
-	s.st.Pool.Exec(ctx, `UPDATE assistant_actions SET status=$2, result_code=$3, result_body=$4 WHERE id=$1`, id, status, code, truncStr(string(out), 4096))
-	return id, status, code, out, nil
+	status, code, out, err = s.runClaimedAction(ctx, tenant, user, role, id, method, path, body)
+	return id, status, code, out, err
 }
 
 func newCode() string {
