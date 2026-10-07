@@ -100,3 +100,17 @@ Across everything: about 444 Go test functions (server 322, edge 122) and 55 web
 - Register maps: Profiles page can load built-in templates, import CSV/JSON (upload or paste), export CSV/JSON, with row-numbered checks that block saving until fixed (docs/register-maps.md). 6 unit tests; import never auto-saves. Not built: auto-detect suggestions UI, assistant datasheet-to-map, bigger device library, import for non-Modbus protocols.
 - Fleet updates page: boxes by site, releases, staged rollouts with progress, start/advance/pause/abort/rollback (docs/fleet.md). Backend engine was already unit-tested; UI helpers tested (3), screenshot-checked. Not built: remote actions on a box, per-box version and last-seen, rollback picker, custom groups.
 - Resources page: 9 offline in-app guides with search (docs/in-app-guides.md). 4 unit tests (unique ids, valid links, search, honesty wording). Not built: images in guides, per-page help links, translations.
+
+## 2026-10-07: model-size chooser
+
+Built: shared pinned Apache-2.0 catalog (Qwen3 1.7B/4B/8B, gpt-oss 20B/120B), host
+RAM/CPU/disk, sizes, estimated fit warnings, measured-small-only recommendation,
+skip, shell/Windows install flags, Windows hexthings menu/command, later replacement
+with size+SHA checks and per-model resume. No unattended default AI download; offline
+list and airgap network block. Runtime config recorded after verification.
+120B is visible but manual-only, not automatically installable. See [model chooser](model-chooser.md).
+Tested: 16 shell chooser checks, 14 PowerShell chooser checks (PS7/Linux mocks),
+22 installer shell checks, 15 upgrade shell checks; .ps1 parser clean, docsrag test.
+Not run: real Windows, real Docker/compose, whole-stack resource benchmark, inference
+with any newly listed model, remote CI. RAM estimates are not guarantees. The 1.7B
+model measurement predates this unit; larger models remain untested here.
