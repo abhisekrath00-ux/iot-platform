@@ -84,3 +84,28 @@ func writeReportBusy(w http.ResponseWriter) {
 	w.Header().Set("Retry-After", "5")
 	http.Error(w, errReportBusy.Error(), http.StatusServiceUnavailable)
 }
+
+// errReportTooLarge is returned when a report would read more bucket rows than REPORT_MAX_ROWS
+// (default 200000 across all metrics). It stops one request from building a huge HTML/PDF in memory.
+var errReportTooLarge = errors.New("report too large: narrow the window, use a coarser group_by, or select fewer metrics")
+
+func reportRowCap() int {
+	if v, err := strconv.Atoi(os.Getenv("REPORT_MAX_ROWS")); err == nil && v > 0 {
+		return v
+	}
+	return 200000
+}
+
+func checkRowCap(total int) error {
+	if total > reportRowCap() {
+		return errReportTooLarge
+	}
+	return nil
+}
+
+func reportErrStatus(err error) int {
+	if errors.Is(err, errReportTooLarge) {
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusInternalServerError
+}
