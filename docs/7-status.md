@@ -1,0 +1,102 @@
+# Feature status: what was asked, what exists
+
+Audit of 2026-10-04, written from the code and docs in this repo, not from memory. One label per row.
+
+- **Built**: implemented, with automated tests that run against a real Postgres or in-process fakes.
+- **Partial**: a real but narrower version; the limit is stated.
+- **Simulator-only**: code exists and passes tests against a simulator or fake that I wrote from the spec. Never run against a real device, broker, model, Slack workspace or mail gateway.
+- **Not built**: does not exist.
+
+Across everything: about 444 Go test functions (server 322, edge 122) and 55 web tests pass locally (full gate plus an empty-database run before each push). **Remote CI has not run since the GitHub Actions minutes ran out, so nothing here is remote-verified.** No outside security review has been done. UI pages were checked in headless Chrome by hand on a subset, not by an automated browser suite.
+
+## Product basics (the original brief)
+| Asked for | Status | Notes |
+|---|---|---|
+| Edge agent on an SBC reading UART/USB serial sensors, forwarding to a server | Built / simulator-only for hardware | Serial JSON, Modbus RTU/TCP drivers, store-and-forward queue. No real RS-485 or board in the loop. |
+| Edge builds for arm64 and x86, Ubuntu and Windows | Built (build and packaging), not run on Windows | `scripts/build-edge.sh` makes linux and windows, amd64 and arm64, with install scripts. Windows installer never run on a real machine. |
+| Cloud and on-prem server | Built | Docker compose, deploy docs, offline bundle. |
+| Air-gapped enterprise deployment | Built | Self-hosted assets, offline bundle, stdlib-only auth. A dry run on a clean VM is still pending. |
+| Dashboard to add devices, many sensor types | Built | Onboarding wizard, profiles, bulk CSV, auto-discovery scan (fakes only), 8 widget types, wall mode. |
+| Drag-and-drop flows and triggers, multiple flows | Built | Node-graph editor, versions, simulator, import/export, fragments and live subflows. No nested subflows or parameters. |
+| MCP server for AI models | Built | 14 tools, read plus drafts, never actuates. Tested with scripted clients, not with a real model. |
+| Mobile application | Partial | Responsive web, home-screen manifest, and an offline app shell (service worker, built 2026-10-04): the UI opens with no connection and shows an offline banner. It caches only the static shell; API, auth and health calls are never cached, so no data is available offline. Verified in headless Chrome (install, cache, offline reload). No native app, no push notifications, no offline data or queued writes. |
+| Secure by design | Built, unreviewed | mTLS gateways, ACLs, hashed keys, encrypted secrets, audit log, rate limits, default-deny scoping. No external review. |
+| Connect STM32 and other devices | Built (serial/direct MQTT), simulator-only for hardware | Firmware examples in connectors.md. |
+
+## Parity targets (ThingsBoard, Siemens Insights Hub, Node-RED, Report Builder)
+| Area | Status | Notes |
+|---|---|---|
+| Multi-tenancy, RBAC, SSO (OIDC), audit log | Built | SAML: use an OIDC bridge (docs/sso-saml.md), native SAML deliberately not built. |
+| Customer / sub-customer hierarchy | Built | Read-only scope for devices, alerts, telemetry; default-deny; leak tests. Dashboards and reports can be shared per customer (built 2026-10-04, leak-tested). No scoped flows, assets or branding. |
+| Multi-user workspaces: user admin, local sign-in, invitations, session revocation | Built | See saas-design.md. Custom roles (base role minus denied groups, built 2026-10-04). Quotas and usage metering built 2026-10-04 (operator-set limits, trigger-enforced; no billing or payment processor). MFA (TOTP) at local sign-in built 2026-10-04 (opt-in per user, no tenant-wide enforcement, no recovery codes). Opt-in self sign-up built 2026-10-04 (off by default, unverified email, capped). Optional email invites and password reset built 2026-10-04 (need an SMTP relay; tested with a fake mailer only). |
+| Dashboards, widgets, data walls, digital twin | Partial | 8 widgets (not 300), twin card is 2.5D SVG, no 3D. |
+| Rules, alarms (ack, assign, escalation, on-call, maintenance windows) | Built | SMS (operator HTTP gateway) and Teams channels are optional, fake-tested only. |
+| Asset hierarchy, relations, attributes | Built / partial | No relation-driven dashboards. |
+| KPIs and derived points | Partial | Formulas, history and widgets; no KPI alerting. |
+| Node-RED style flows | Built / partial | Own engine and editor; Node-RED file import is a subset; real Node-RED not embedded; admin-defined custom node types (saved function presets, no SDK or typed parameters). |
+| Function node (sandboxed JS) | Built, unreviewed | Off by default, admin only. |
+| Report Builder parity: layouts, params, CSV/HTML/PDF/XLSX, schedules, themes, logos, insights | Built / partial | No drill-through or subreports, charts not rendered into delivered files, no Word/PowerPoint. |
+| Geofences and map | Partial | Hand-entered positions, circular zones, self-hosted tiles. No enter/exit alerts, polygons or GPS tracks. |
+| OTA / fleet updates | Partial, unit-tested only | Staged rollout of edge agent releases with signed manifests. No MCU or PLC firmware flashing, no key rotation. |
+| White-label | Partial | Name, accent, logo. No custom domain or email templates. |
+| Notifications | Partial | SMTP, Slack, webhook, Kafka, AMQP. Microsoft Teams (incoming-webhook card) and SMS (operator's HTTP gateway, `SMS_GATEWAY_URL`) built 2026-10-04, both optional and unused unless configured; tested against local receivers only, never against Microsoft or a real SMS provider. SMS is the generic JSON contract, not a Twilio/Vonage client. |
+
+## Protocols and SCADA connectivity
+| Protocol | Status |
+|---|---|
+| Modbus RTU/TCP, OPC UA (incl. secure modes), SNMP v2c/v3, BACnet/IP, DNP3, IEC 60870-5-104, CoAP, LwM2M object reads, CAN (SocketCAN receive), LoRaWAN ingest, direct MQTT, serial JSON | Simulator-only (serial and Modbus also unit tested; no real devices) |
+| IEC 61850 MMS | Simulator-only, labelled partial and unverified |
+| Writes on any protocol | Not built. Modbus writes are approval-only and the edge drivers are read-only; control goes through approvals, four-eyes and the edge gate with a simulated actuator. |
+| LwM2M server, CAN FD, J1939, DBC import | Not built |
+
+## AI
+| Asked for | Status | Notes |
+|---|---|---|
+| Advanced AI features | Partial | Forecast (Holt-Winters and ridge, backtest gate), anomaly detection, level shifts, correlation and root-cause hints, report insights. Statistical, labelled, never actuate. No pretrained or deep models. |
+| AI that can do everything in the software | Partial | The agent calls the whole `/v1` API as the signed-in user; reads run, changes wait for confirmation. It can never approve control, manage users, keys, secrets or switch targets to automatic, by design. Tested against a scripted fake model only. No real model tried. |
+| Local AI model and chat panel | Partial | Bundled `ai-runtime` (llama.cpp + Qwen3-1.7B Q4) with a streaming chat side panel, health/metrics and status API. Real model run and measured on the 2 GB dev machine only; the container image is unbuilt (no Docker here). Typed tools, RAG, workflows, remediation, reports and the eval suite are not built yet. See docs/ai-runtime.md and docs/ai-agent-design.md. |
+| Safe upgrade and rollback (`scripts/upgrade.sh`) | Simulator-only | Backup-first upgrades, fast-forward only, automatic rollback on apply or health failure, explicit `--rollback`, bundle checksum verification. 15 shell checks with fake docker/curl and a real git remote pass (`scripts/test-upgrade.sh`); never run on a real Docker host. Signed bundles not built. |
+| Guided installer (Linux/macOS/WSL `install.sh`, Windows `install.ps1`/`install.bat`) | Partial | Preflight, generated secrets, optional AI model, health wait, first workspace and administrator, works from the air-gapped bundle. `install.sh` logic tested against fake docker/curl (`scripts/test-install.sh`, 19 checks incl. a clock-skew warning); the real compose stack, bundle and Windows script were never run (no Docker or Windows here). See docs/install.md. |
+| Control from Slack and email | Simulator-only | Signed, fresh, one-time messages, verified identity linking, YES-code confirmation. No real Slack workspace or mail gateway used. |
+| Detailed analysis and better reports | Partial | Insights and period comparison in reports. |
+
+## Data
+| Asked for | Status | Notes |
+|---|---|---|
+| Production time-series store | Partial | Partitioned Postgres with hourly and daily rollups and retention. TimescaleDB and others evaluated, not adopted; no throughput figure measured on target hardware. No compression. |
+| Search | Partial | Postgres-based `GET /v1/search`. Optional telemetry index sink to OpenSearch/Elasticsearch (off by default, docs/search-sink.md): simulator-tested only, not run against a real cluster, nothing queries it back. |
+
+## Quality and process
+| Item | Status |
+|---|---|
+| Automated tests | Built, local only |
+| CI pipeline defined (go, web, security scan, compose smoke) | Built; not running (Actions quota) |
+| Docs (design, security, deployment, hazard analysis, honest gap list, pilot-readiness checklist) | Built |
+| Notification channel admin: send test (real delivery path), enable\/disable, delete refused while escalation steps, on-call schedules, reports or flows use it (built 2026-10-04, tested) | Built |
+| Startup config audit (`api -check-config`, `STRICT_CONFIG=1`) | Built, tested |
+| Security hardening review by an outside party | Not done |
+| Load and soak on target hardware, real-device pilots | Not done |
+
+## HexThings rebrand and installers (Oct 5)
+
+- Built: HexThings name and logo (SVG/PNG, favicon, PWA icons), colour terminal installer with plain fallback (tested with a fake docker; real install never run), guided Linux edge installer `edge/packaging/install.sh` (tested with a fake binary only).
+- Reports now print the HexThings mark when a tenant has no logo of its own (tenant logo wins; unit-tested decode, DB tests pass). Guided Windows edge installer `install.ps1`/`install.bat` written, never run.
+- Technical identifiers (HexmonEdge service, /etc/hexmon, headers, image name) keep the old name for compatibility.
+- One-command bootstrap `scripts/get.sh` / `scripts/get.ps1` (public repo only; never run end to end, get.ps1 never run).
+
+- DB-backed Go tests re-run on a throwaway local Postgres 14 (Oct 5): all server packages pass. Remote CI still not run.
+- Sites: `POST /v1/sites` (admin) and an inline "Create site" in Add device and Commission a sensor; new workspaces made by tenantctl/the installer get a "Main site". Before this there was no way to create a site in the UI or API. DB-tested; UI not screenshot-tested.
+- Local AI install + management CLI (Oct 5): installer downloads Qwen3-1.7B Q4_K_M (sha256 pinned, resumable, opt-out) and auto-connects the assistant (`tenantctl ai-connect`); `hexthings` PowerShell command (status/start/stop/logs/version/update/patch/backup/restore). Model is stock, not trained on the software. Measured here: real llama.cpp build + real model, 1.49 GB peak RSS, ~7 tok/s on 2 CPUs, no GPU. Whole-stack 4-5 GB is an estimate; Docker image build, real download via installer, Windows 5.1 never run. Compose AI limit now 2 GB.
+- Assistant fixes (Oct 5): grounding/no-invention rules, UI map, workspace context, short-answer style; chat panel renders headings and tab/pipe tables, plan and steps collapsed; assistant can propose create site/asset/customer/group (confirmation, role-checked, audited); users stay UI-only. Server and web tests pass locally; no real model run; not screenshot-verified; remote CI not run.
+
+- Local assistant context overflow fixed: compact prompt, per-turn tool subset, default context 6144, overflow retry (real model tested via llama-server only).
+- Settings > AI providers: saved provider profiles (name, base URL, model, encrypted write-only key per profile), one active, switch from a dropdown, test per profile, edit/delete, built-in local model profile. Admin-only, audited (`ai.profile.*`), off by default. Tested: API integration test with a fake model (key never returned, stored encrypted, switch without re-entering the key); UI type-checked only, not screenshot-tested yet.
+- Provider profiles have a capability (auto/small/full): small-model workarounds apply only in small mode; full models get the whole prompt, all tools and no fixed answers (fake-model tests only).
+- Terminal: big gradient HexThings wordmark and footer in install.sh/install.ps1/hexthings; interactive hexthings menu, diagnostics, support bundle, maintenance, dev tools and live dashboard (Windows). Tested on Linux against a fake docker only; not on PS 5.1 or real Docker.
+- Observability backend: 60 s metrics sampler, redacted warn/error log store, admin-only /v1/system/{health,metrics,logs,prom,support} (see docs/observability.md). Tested with Go integration tests; web System Health and Dev tools pages not built yet; no per-container or MQTT metrics.
+- Web: System health page (live SVG charts: API requests/errors/latency, ingest, DB size/connections, alerts, process memory, "what is measured" panel with not-available items) and Dev tools page (log table, level/service/time filters, search, redacted support bundle download). Admin-only. Screenshot-checked in headless Chrome against a real API and Postgres; vitest not added for these pages yet.
+- Web: Edge setup wizard (site, serial, MX300/MFM383A template, RS-485 or Modbus TCP settings, claim code via the existing enrollment API, downloadable device YAML, install commands for Linux/Windows, check-in status). Settings generation unit-tested (4 tests); install commands use the configured server address (see docs/server-addresses.md). Whole path never run on a real edge box or meter. NOT built yet: CSV/JSON map import, auto-detect UI, assistant datasheet-to-template, fleet UI with staged rollouts, resources tab, install rollback/preflight upgrades.
+- Server addresses: per-workspace and per-site edge server addresses with priority and fallbacks, suggestions from host interfaces, loopback warnings, server-side reachability test (Settings > Server addresses); claim codes and install commands use them. Go tests pass (URL rules, resolution order, admin-only, claim response, check). Install and claim try fallback addresses in order (Go and shell tests; Windows installer parse-checked only). Not built: runtime server switching after enrollment, mDNS in the installer, edge-side reachability proof.
+- Register maps: Profiles page can load built-in templates, import CSV/JSON (upload or paste), export CSV/JSON, with row-numbered checks that block saving until fixed (docs/register-maps.md). 6 unit tests; import never auto-saves. Not built: auto-detect suggestions UI, assistant datasheet-to-map, bigger device library, import for non-Modbus protocols.
+- Fleet updates page: boxes by site, releases, staged rollouts with progress, start/advance/pause/abort/rollback (docs/fleet.md). Backend engine was already unit-tested; UI helpers tested (3), screenshot-checked. Not built: remote actions on a box, per-box version and last-seen, rollback picker, custom groups.
+- Resources page: 9 offline in-app guides with search (docs/in-app-guides.md). 4 unit tests (unique ids, valid links, search, honesty wording). Not built: images in guides, per-page help links, translations.
