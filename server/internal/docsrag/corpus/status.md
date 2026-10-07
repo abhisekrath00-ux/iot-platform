@@ -126,3 +126,13 @@ Tested: full server Go suite without DB, plus API and MCP suites against a fresh
 Postgres database (DB tests ran), scripted provider integration of guard/batch/cancel, policy/registry/LLM/MCP tests. Not run:
 real model, real Docker, Windows, distributed/crash recovery, remote CI. Memory/vector
 search, durable run recovery and broader edge/report/UI reliability work remain open.
+
+## 2026-10-07: entity search failure boundaries
+
+Built: no-redirect ES client, checked status/request/marshal, 1 MiB reply cap,
+query/index validation, tenant integrity for every returned hit, shape/count check.
+Global search errors hide backend detail; customer middleware denial pinned and
+handler guard added. No customer leak was demonstrated: middleware already denied it.
+Tested: fake-ES failure table and API denial/error tests, local server with Postgres;
+real ES/OpenSearch not run. Memory/vector retrieval not built or chosen. See
+[search reliability and memory direction](search-reliability.md).
