@@ -154,7 +154,7 @@ export default function Reports() {
           </div>
           <label>Page theme (PDF and HTML)</label>
           <label>Chart in HTML report</label>
-          <select aria-label="Report chart" value={chart} onChange={e => setChart(e.target.value)}><option value="">None</option><option value="line">Line</option><option value="area">Area</option><option value="bar">Bar</option></select>
+          <select aria-label="Report chart" value={chart} onChange={e => setChart(e.target.value)}><option value="">None</option><option value="line">Line</option><option value="area">Area</option><option value="bar">Bar</option><option value="scatter">Scatter</option><option value="gauge">Gauge (latest)</option><option value="pie">Pie (share of total)</option></select>
           <select aria-label="Report theme" value={theme} onChange={e => setTheme(e.target.value)}><option value="light">Light</option><option value="dark">Dark</option></select>
           <label>Layout</label>
           <select value={layout} onChange={e => setLayout(e.target.value)}>
