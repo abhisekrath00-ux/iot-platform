@@ -72,3 +72,11 @@ Running `hexthings` with no arguments opens an interactive menu (arrow keys, Ent
 - Plain fallback: with `NO_COLOR`, redirected output or no interactive console the banner is plain text and `hexthings` prints the help instead of the menu. A console that is not UTF-8 draws `#` blocks and `<3` instead of the heart. Set `HEXTHINGS_ASCII=1` to force that, `HEXTHINGS_NO_ANIM=1` to skip the reveal.
 
 Tested: parsed with PowerShell 7 and run on Linux against a fake `docker` (menu navigation, diagnostics, support bundle redaction, dashboard rendering, plain and ASCII fallbacks). NOT run on Windows PowerShell 5.1 or against a real Docker. The Linux/macOS installer (`install.sh`) has the same wordmark; there is no `hexthings` menu for Linux/macOS yet.
+
+### Choose a local AI size
+
+The guided installer and Windows `hexthings` > Local AI menu now offer five pinned
+open-license artifacts plus skip, with host resources, download size, conservative
+fit estimates and tested/untested labels. See [model chooser](model-chooser.md).
+`--ai-model-size ID` / `-AiModelSize ID` chooses explicitly; unattended setup no
+longer downloads AI by default. Offline GGUF flags still work. 120B is manual-only.
