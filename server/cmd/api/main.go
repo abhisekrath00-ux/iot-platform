@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -1487,6 +1488,10 @@ func (s *server) runReport(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	if err := s.executeReport(r.Context(), id, auth.Tenant(r)); err != nil {
+		if errors.Is(err, errReportBusy) {
+			writeReportBusy(w)
+			return
+		}
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -1494,6 +1499,11 @@ func (s *server) runReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) executeReport(ctx context.Context, id, tenant string) error {
+	release, gerr := reports.acquire(ctx, tenant)
+	if gerr != nil {
+		return gerr
+	}
+	defer release()
 	var name string
 	var defBytes []byte
 	var channelID *string
@@ -1652,6 +1662,12 @@ func (s *server) previewReport(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Preview"
 	}
+	release, gerr := reports.acquire(r.Context(), auth.Tenant(r))
+	if gerr != nil {
+		writeReportBusy(w)
+		return
+	}
+	defer release()
 	series, total, err := s.buildSeries(r.Context(), auth.Tenant(r), in.Definition)
 	if err == nil {
 		in.Definition, err = s.withReportContext(r.Context(), auth.Tenant(r), in.Definition)
@@ -1694,6 +1710,12 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, perr.Error(), 400)
 		return
 	}
+	release, gerr := reports.acquire(r.Context(), auth.Tenant(r))
+	if gerr != nil {
+		writeReportBusy(w)
+		return
+	}
+	defer release()
 	series, _, err := s.buildSeries(r.Context(), auth.Tenant(r), def)
 	if err == nil {
 		def, err = s.withReportContext(r.Context(), auth.Tenant(r), def)
