@@ -45,4 +45,6 @@ Rule for every report unit: bounded work per report, no unbounded memory, and a 
 | Autoscaling | Not built | Needs deployment manifests and a measured load test on real hardware; not available on this machine. |
 | High ingest throughput | See docs/scaling.md and docs/timescale-evaluation.md | Existing measured numbers there; nothing new in this unit. |
 
-Planned scale units: scheduler leader lock verified with two processes, then a load test of report runs against a large seeded telemetry table with measured p95.
+Scheduler leader lock: verified with two real OS processes on one Postgres (exactly one runs the job; SIGKILL of the leader hands over in about 50 ms, 3 of 3 runs, test `TestTwoProcessesAndKillFailover`). Not tested: a network partition or frozen leader (no TCP close; the 5 s watchdog covers connection loss, not a hung job), or processes on separate hosts.
+
+Planned scale units: a load test of report runs against a large seeded telemetry table with measured p95.
