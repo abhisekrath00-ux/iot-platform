@@ -82,7 +82,7 @@ func TestChartInReportAndValidation(t *testing.T) {
 	if strings.Contains(Render("T", d, series, time.Now()), "<svg") {
 		t.Fatal("chart appeared without opt-in")
 	}
-	d.Chart = "pie"
+	d.Chart = "donut"
 	if Validate(d) == nil {
 		t.Fatal("pie must be rejected")
 	}
@@ -103,5 +103,41 @@ func BenchmarkChartSVG10kBuckets(b *testing.B) {
 	rows := cb(10000, func(i int) float64 { return float64(i % 97) })
 	for i := 0; i < b.N; i++ {
 		chartSVG("line", rows, false)
+	}
+}
+
+func TestChartGaugePieScatter(t *testing.T) {
+	rows := cb(12, func(i int) float64 { return float64(i + 1) })
+	for i := range rows {
+		rows[i].Sum = rows[i].Avg * 3
+	}
+	for _, k := range []string{"scatter", "gauge", "pie"} {
+		s := chartSVG(k, rows, k == "pie")
+		if !strings.HasPrefix(s, "<svg") || strings.Contains(s, "NaN") || strings.Contains(s, "Inf") {
+			t.Fatalf("%s: %.200s", k, s)
+		}
+	}
+	if strings.Count(chartSVG("scatter", rows, false), "<circle") != 12 {
+		t.Fatal("scatter points")
+	}
+	if !strings.Contains(chartSVG("pie", rows, false), "other") { // 12 buckets fold to 7 + other
+		t.Fatal("pie fold")
+	}
+	if !strings.Contains(chartSVG("gauge", rows, false), "12") { // latest value shown
+		t.Fatal("gauge latest")
+	}
+	one := []Bucket{{Start: rows[0].Start, Avg: 5, Sum: 5, Count: 1}}
+	if !strings.HasPrefix(chartSVG("gauge", one, false), "<svg") { // flat series must not divide by zero
+		t.Fatal("flat gauge")
+	}
+	if !strings.Contains(chartSVG("pie", one, false), "not enough") || !strings.Contains(chartSVG("gauge", nil, false), "not enough") {
+		t.Fatal("empty")
+	}
+	nan := []Bucket{{Avg: math.NaN(), Sum: math.NaN()}, {Avg: math.Inf(1), Sum: math.Inf(1)}}
+	if strings.Contains(chartSVG("gauge", nan, false)+chartSVG("pie", nan, false), "NaN") {
+		t.Fatal("nan leaked")
+	}
+	if !validChart("pie") || validChart("donut") {
+		t.Fatal("validChart")
 	}
 }
