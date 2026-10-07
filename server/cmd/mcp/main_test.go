@@ -88,3 +88,24 @@ func TestClampInt(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPEnvelopeBoundaries(t *testing.T) {
+	for _, body := range []string{
+		`{"jsonrpc":"1.0","id":1,"method":"tools/list"}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":null}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_sites","arguments":null}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_sites","arguments":[],"extra":true}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_sites","arguments":{},"extra":true}}`,
+	} {
+		if r := call(t, body); r.Error == nil {
+			t.Fatalf("accepted %s", body)
+		}
+	}
+	s := &server{}
+	req := httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"tools/list","padding":"`+strings.Repeat("x", 65<<10)+`"}`))
+	rec := httptest.NewRecorder()
+	s.handle(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("oversized body: %d", rec.Code)
+	}
+}
