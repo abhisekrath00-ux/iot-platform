@@ -16,17 +16,17 @@ Linux / macOS: `curl -fsSL https://raw.githubusercontent.com/abhisekrath00-ux/io
 
 Windows (PowerShell): `irm https://raw.githubusercontent.com/abhisekrath00-ux/iot-platform/main/scripts/get.ps1 | iex`
 
-Both download the source into `hexthings/` and run the guided installer with defaults. They need the repo to be public (a private repo needs `git clone` with a token, then `bash scripts/install.sh`). Tested: `get.sh` syntax and the installer it calls (with a fake Docker). Never run end to end, and `get.ps1` never run at all (no Docker or Windows machine here).
+Both download the source into `hexthings/` and run the guided installer. AI is offered before download; unattended shell setup skips it unless explicitly selected. They need the repo to be public (a private repo needs `git clone` with a token, then `bash scripts/install.sh`). Tested: `get.sh` syntax and the installer it calls (with a fake Docker). Never run end to end, and `get.ps1` never run at all (no Docker or Windows machine here).
 
 ## What it does
 
 1. **Checks the machine:** Docker running, Compose v2, about 4 GB RAM, 10 GB disk, ports (web 8080, 8000, 1883, 5432). A busy web port stops the install with the fix; other busy ports are warnings. Nothing is started if a check fails.
-2. **Setup:** writes `.env` with generated secrets (database password, token signing secret, 32-byte secrets key; file mode 600). An existing `.env` is never changed. Asks for a workspace name and administrator email.
-3. **Local AI (one-command install: on by default, `HEXTHINGS_NO_AI=1` / `-NoAi` to skip):** the installer can download the small Qwen3-1.7B model (1.1 GB, checksum verified, CPU only, runs in about 1.5 GB RAM) and auto-connect the assistant. It is a stock model, not trained on HexThings. Details in docs/ai-runtime.md. Manual option: if you give a `.gguf` file (`--ai-model FILE`, or `model.gguf` next to the installer), it is copied to `models/`, checksummed, and the `ai` profile starts. No model means no AI; the platform works the same.
+2. **Setup:** writes `.env` with generated secrets (database password, token signing secret, 32-byte secrets key; file mode 600). Existing secrets are kept. Explicit model selection updates only AI runtime settings. Asks for a workspace name and administrator email.
+3. **Local AI (optional, explicit model choice or skip):** the installer offers five model sizes (120B manual-only) or skip, and can download the small Qwen3-1.7B model (1.1 GB, checksum verified, CPU only, runs in about 1.5 GB RAM) and auto-connect the assistant. It is a stock model, not trained on HexThings. Details in docs/ai-runtime.md. Manual option: if you give a `.gguf` file (`--ai-model FILE`, or `model.gguf` next to the installer), it is copied to `models/`, checksummed, and the `ai` profile starts. No model means no AI; the platform works the same.
 4. **Installs:** from a bundle it verifies checksums and loads `images.tar.gz` (no internet). From a source checkout it builds.
 5. **Waits** up to 3 minutes for the health check, **creates the workspace and first administrator** with a generated password (sent to the creating tool on stdin, saved once to `install-credentials.txt`, mode 600), and prints the address and sign-in.
 
-Re-running is safe: same `.env`, same administrator, images updated in place. Everything is logged to `install.log`.
+Re-running keeps existing secrets and administrator; images update in place. Explicit model choice can update AI runtime settings. Everything is logged to `install.log`.
 
 ## Upgrading and rolling back
 
