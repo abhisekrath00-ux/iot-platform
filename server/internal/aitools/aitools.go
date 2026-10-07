@@ -309,8 +309,8 @@ func check(p Param, v any) (string, error) {
 
 // SpecsFor returns a short list of tool definitions for one user message: a small base set plus
 // the groups whose keywords appear in the text, at most max tools, with descriptions cut to the
-// first sentence. It exists so a small local model's prompt fits its context window. Every tool is
-// still callable by name (Resolve does not depend on this list).
+// first sentence. It exists so a small local model's prompt fits its context window. The agent execution boundary refuses tools not advertised this turn; Resolve still
+// validates registry arguments independently.
 func SpecsFor(text string, max int) []llm.Tool {
 	groups := []struct {
 		words []string
