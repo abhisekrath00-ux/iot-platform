@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import AssistantMemory from '../components/AssistantMemory';
 import { api } from '../lib/api';
 
 interface Msg { role: 'user' | 'assistant'; content: string; }
@@ -42,6 +43,7 @@ export default function Assistant() {
   return (
     <>
       <h1>Assistant</h1>
+      <AssistantMemory />
       <p className="muted">Ask it to do things: "acknowledge the pump alert", "summarise this week's alerts on Line A", "draft a report of boiler temperature". It acts as you, shows its plan and steps, and waits for your confirmation before changing anything. It cannot approve control commands.</p>
       {err && <p role="alert">{err}</p>}
       <div className="card" style={{ maxWidth: 900, minHeight: 240 }}>
