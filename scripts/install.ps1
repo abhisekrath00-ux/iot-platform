@@ -1,10 +1,7 @@
 # Guided installer for the HexThings on Windows (Docker Desktop with WSL2).
 # Double-click install.bat, or: powershell -ExecutionPolicy Bypass -File install.ps1 [-Yes]
 # Same steps as install.sh. NOT TESTED: no Windows machine was available when this was written.
-param([switch]$Yes, [string]$AdminEmail = "", [string]$Workspace = "", [int]$WebPort = 0, [string]$AiModel = "", [switch]$AiDownload, [switch]$NoAi)
-# The default model: Qwen3-1.7B, Q4_K_M quantisation (unsloth GGUF build of Qwen's own model), pinned by sha256.
-$ModelUrl = if ($env:HEXTHINGS_MODEL_URL) { $env:HEXTHINGS_MODEL_URL } else { "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf" }
-$ModelSha = if ($env:HEXTHINGS_MODEL_SHA256) { $env:HEXTHINGS_MODEL_SHA256 } else { "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897" }
+param([switch]$Yes, [string]$AdminEmail = "", [string]$Workspace = "", [int]$WebPort = 0, [string]$AiModel = "", [switch]$AiDownload, [switch]$NoAi, [string]$AiModelSize = "", [switch]$AiForce)
 $ErrorActionPreference = "Continue"   # Windows PowerShell 5.1 turns native stderr (docker progress) into errors under Stop; every docker call checks $LASTEXITCODE
 Set-Location -Path $PSScriptRoot
 if (-not (Test-Path docker-compose.yml)) { Set-Location -Path (Split-Path $PSScriptRoot -Parent) }
@@ -42,6 +39,10 @@ function Banner {
   }
   Add-Content -Path $Log -Value "HexThings guided installer"
 }
+$chooser = Join-Path $PSScriptRoot "model-choose.ps1"
+if ($AiModelSize -eq "skip") { $NoAi=$true }
+if ($AiModelSize -and $AiModel) { Fail "Choose -AiModel OR -AiModelSize, not both" }
+if ($AiModelSize) { $AiDownload=$true }
 Banner; Say "1. Checking this machine"
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Fail "Docker is not installed. Install Docker Desktop (WSL2 backend) and run this again." }
 docker info *> $null; if ($LASTEXITCODE -ne 0) { Fail "Docker is installed but not running. Start Docker Desktop and wait until it says running." }
@@ -103,27 +104,22 @@ if (-not $NoAi) {
   if (-not $AiModel -and (Test-Path model.gguf)) { $AiModel = "model.gguf" }
   if (-not $AiModel -and (Test-Path "models\model.gguf")) { $AiModel = "models\model.gguf" }
   if (-not $AiModel -and -not $AiDownload -and -not $Yes) {
-    $a = Ask "Download the small local AI model for the assistant (1.1 GB, needs internet once)? y = download, n = skip, or a path to your own .gguf" "y"
-    if ($a -match '^(y|yes)$') { $AiDownload = $true } elseif ($a -notmatch '^(n|no|)$') { $AiModel = $a }
+    & $chooser -List
+    $a = Ask "Local AI: model ID, skip, or path to your .gguf" "skip"
+    if ($a -match '\.gguf$') { $AiModel=$a } elseif ($a -notmatch '^(skip|n|no|)$') { $AiModelSize=$a; $AiDownload=$true }
   }
-  if (-not $AiModel -and $AiDownload) {
-    New-Item -ItemType Directory -Force -Path models | Out-Null
-    Say "  downloading Qwen3-1.7B Q4_K_M (1.1 GB, resumable) ..."
-    $part = "models\model.gguf.part"
-    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
-    if ($curl) { & curl.exe -fL --retry 3 --retry-delay 3 -C - -# -o $part $ModelUrl; if ($LASTEXITCODE -ne 0) { Fail "model download failed. Run the installer again to resume, or use -NoAi" } }
-    else { $ProgressPreference = "SilentlyContinue"; try { Invoke-WebRequest -UseBasicParsing $ModelUrl -OutFile $part } catch { Fail "model download failed: $($_.Exception.Message). Run again, or use -NoAi" } }
-    $got = (Get-FileHash $part -Algorithm SHA256).Hash.ToLower()
-    if ($got -ne $ModelSha.ToLower()) { Remove-Item $part -Force; Fail "model checksum mismatch (got $($got.Substring(0,12))..., expected $($ModelSha.Substring(0,12))...): the download is damaged; run again" }
-    Move-Item $part "models\model.gguf" -Force; $AiModel = "models\model.gguf"
-    Ok "model downloaded and checksum verified"
+  if ($AiDownload) {
+    if (-not $AiModelSize) { $AiModelSize='qwen3-1.7b' }
+    try { & $chooser -List -Size $AiModelSize -Force:$AiForce } catch { Fail "Model selection/download failed: $_" }
+    $AiModel='models\model.gguf'
   }
   if ($AiModel) {
     if (-not (Test-Path $AiModel)) { Fail "model file not found: $AiModel" }
-    if ($memMb -lt 6144) { Warn "the local AI needs more memory than this machine reports ($memMb MB); it may be very slow" }
+    if ($memMb -lt 5120) { Warn "$memMb MB host RAM: model plus platform may be tight; check Docker/WSL limits" }
     New-Item -ItemType Directory -Force -Path models | Out-Null
     if ((Resolve-Path $AiModel).Path -ne (Join-Path (Get-Location) "models\model.gguf")) { Copy-Item $AiModel models\model.gguf -Force }
     $env:AI_MODEL_SHA256 = (Get-FileHash models\model.gguf -Algorithm SHA256).Hash.ToLower()
+    if (-not $AiModelSize -and (Test-Path "models/model.id")) { $AiModelSize=(Get-Content "models/model.id" -TotalCount 1).Trim() }
     $aiProfile = @("--profile", "ai")
     Ok "local AI model ready; AI stays optional and off until enabled in Settings"
   } else { Ok "no local AI model (the platform works the same without it)" }
@@ -162,7 +158,7 @@ else {
   Ok "workspace '$Workspace' and administrator created"
 }
 if ($aiProfile.Count -gt 0) {
-  & docker compose exec -T api /bin/tenantctl ai-connect --tenant $Workspace 2>&1 | Add-Content -Path $Log
+  & docker compose exec -T api /bin/tenantctl ai-connect --tenant $Workspace --model $(if ($AiModelSize) { $AiModelSize } else { "qwen3-1.7b" }) 2>&1 | Add-Content -Path $Log
   if ($LASTEXITCODE -eq 0) { Ok "AI assistant connected to the local model (the first answer is slow while the model loads)" }
   else { Warn "could not connect the assistant automatically; set it in Settings > AI (base URL http://ai-runtime:8090/v1, model qwen3-1.7b)" }
 }
