@@ -98,3 +98,10 @@ func TestChartInReportAndValidation(t *testing.T) {
 		t.Fatal("dark series colour")
 	}
 }
+
+func BenchmarkChartSVG10kBuckets(b *testing.B) {
+	rows := cb(10000, func(i int) float64 { return float64(i % 97) })
+	for i := 0; i < b.N; i++ {
+		chartSVG("line", rows, false)
+	}
+}
