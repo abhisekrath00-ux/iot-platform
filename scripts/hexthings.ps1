@@ -4,7 +4,7 @@
 # Run from anywhere once the installer has put `hexthings` on your PATH, or: .\scripts\hexthings.ps1 status
 # Every docker call checks its exit code. NOT TESTED on Windows: parsed and partly run under PowerShell 7 on Linux.
 param([Parameter(Position = 0)][string]$Command = "", [Parameter(Position = 1)][string]$Arg = "",
-      [switch]$Yes, [switch]$NoBackup, [switch]$Follow, [string]$Workspace = "", [string]$Dir = "backups")
+      [string]$ModelSize = "", [switch]$Force, [switch]$Yes, [switch]$NoBackup, [switch]$Follow, [string]$Workspace = "", [string]$Dir = "backups")
 $ErrorActionPreference = "Continue"; $ProgressPreference = "SilentlyContinue"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not (Test-Path (Join-Path $Root "docker-compose.yml"))) { Write-Host "Cannot find the HexThings folder (docker-compose.yml) above $PSScriptRoot"; exit 1 }
@@ -142,6 +142,16 @@ function Do-Update([string]$fromZip) {
   if (WaitHealthy 180) { Ok "HexThings answers at http://localhost:$WebPort, now at $newVer" } else { Bad "it did not become healthy in 3 minutes. Run: hexthings logs   (restore the backup with: hexthings restore <file>)"; exit 1 }
 }
 function Do-Ai {
+  if ($Arg -eq "choose" -or $Arg -eq "models") {
+    $chooser=Join-Path $PSScriptRoot "model-choose.ps1"
+    & $chooser -List
+    if ($Arg -eq "models") { return }
+    $pick=$ModelSize
+    if (-not $pick) { $pick=Read-Host "Model ID, or skip (keeps current model)" }
+    if (-not $pick -or $pick -eq "skip") { return }
+    try { & $chooser -Size $pick -Force:$Force; Ok "Model installed; use hexthings ai stop then ai start to reload it" } catch { Bad "Model unchanged or download failed: $_" }
+    return
+  }
   NeedDocker; $script:stepTotal = 1; Banner "local AI"; Step "Local AI assistant"
   if ($Arg -eq "stop") {
     if ((Dc stop ai-runtime) -ne 0) { Bad "could not stop the AI runtime"; exit 1 }
@@ -151,7 +161,8 @@ function Do-Ai {
   } elseif ($Arg -eq "start") {
     if (-not (Test-Path "models\model.gguf")) { Bad "no models\model.gguf, nothing to start"; exit 1 }
     $env:AI_MODEL_SHA256 = (Get-FileHash "models\model.gguf" -Algorithm SHA256).Hash.ToLower()
-    if ((Dc up -d ai-runtime) -ne 0) { Bad "could not start the AI runtime"; exit 1 }
+    if (Test-Path "models/model.id") { $env:AI_MODEL_NAME=(Get-Content "models/model.id" -TotalCount 1).Trim() }
+    if ((Dc up -d --force-recreate ai-runtime) -ne 0) { Bad "could not start the AI runtime"; exit 1 }
     Start-Sleep -Seconds 3
     $upNow = @(docker compose --profile ai ps --status running --format "{{.Service}}" 2>$null) -contains "ai-runtime"
     if ($upNow) { Ok "AI model started (verified running). The first answer is slow while it loads, about 10-60 seconds" } else { Bad "ai-runtime did not stay running. See: hexthings logs ai-runtime"; exit 1 }
@@ -160,8 +171,9 @@ function Do-Ai {
     if (-not $Workspace -and (Test-Path install-credentials.txt)) { $m = Select-String -Path install-credentials.txt -Pattern "^Workspace:\s*(\S+)" | Select-Object -First 1; if ($m) { $Workspace = $m.Matches[0].Groups[1].Value } }
     if (-not $Workspace) { Bad "tell me the workspace: hexthings ai connect -Workspace my-plant"; exit 1 }
     $env:AI_MODEL_SHA256 = (Get-FileHash "models\model.gguf" -Algorithm SHA256).Hash.ToLower()
-    if ((Dc up -d ai-runtime) -ne 0) { Bad "could not start the AI runtime"; exit 1 }
-    & docker compose exec -T api /bin/tenantctl ai-connect --tenant $Workspace 2>&1 | Out-Null
+    if (Test-Path "models/model.id") { $env:AI_MODEL_NAME=(Get-Content "models/model.id" -TotalCount 1).Trim() }
+    if ((Dc up -d --force-recreate ai-runtime) -ne 0) { Bad "could not start the AI runtime"; exit 1 }
+    & docker compose exec -T api /bin/tenantctl ai-connect --tenant $Workspace --model $(if (Test-Path "models/model.id") { (Get-Content "models/model.id" -TotalCount 1).Trim() } else { "qwen3-1.7b" }) 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { Ok "assistant for '$Workspace' connected to the local model" } else { Bad "could not connect the assistant" }
   } elseif ($Arg -and $Arg -ne "status") {
     Bad "unknown ai command '$Arg'. Use: hexthings ai stop | start | status | connect"; exit 1
@@ -184,7 +196,7 @@ function Do-Help {
   Write-Host "  hexthings patch FILE.zip       same, from a file (air-gapped machines)"
   Write-Host "  hexthings backup [-Dir D]      database backup with checksum, keeps the last 14"
   Write-Host "  hexthings restore FILE [-Yes]  restore a backup (replaces current data)"
-  Write-Host "  hexthings ai [status|connect]  local AI model status / connect the assistant"
+  Write-Host "  hexthings ai models | choose [-ModelSize ID] [-Force]  choose/change model; skip available"
   Write-Host "  hexthings open                 open the web app in your browser"
   Write-Host ""
   Write-Host "  hexthings                      interactive menu (arrows or numbers)"
