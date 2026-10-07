@@ -1746,6 +1746,16 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.pdf"`)
 		w.Write(report.RenderPDF(name, def, series, time.Now()))
 		return
+	case "xml":
+		b, err := report.RenderXML(name, def, series, time.Now())
+		if err != nil {
+			http.Error(w, "xml build failed", 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.xml"`)
+		w.Write(b)
+		return
 	case "xlsx":
 		b, err := report.RenderXLSX(def, series)
 		if err != nil {
