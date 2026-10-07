@@ -147,3 +147,12 @@ purge on next owner access; backup erasure/background cleanup not built.
 Tested: real Postgres owner/tenant/role/scope/disable/delete/expiry/quota and policy
 checks; eight docs source-recall queries + unknown/no-evidence and invalid limits.
 Not real-model/injection eval or broad semantic benchmark. See [memory](assistant-memory.md).
+
+## 2026-10-07: private memory controls
+
+Built: Assistant page opt-in, explicit note/retention form, disable retrieval, JSON
+export, delete review/cancel and visible backend errors. Consent warning names hosted
+provider disclosure; expiry-on-access and backup limits remain visible. No chat capture.
+Tested: full web suite and production build; React interaction tests and fixture API
+render inspection at desktop/mobile widths. Real logged-in browser/API flow and real
+model behavior not run. Backend DB tests from the preceding memory unit remain valid.
