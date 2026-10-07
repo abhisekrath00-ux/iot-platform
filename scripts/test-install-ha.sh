@@ -53,4 +53,11 @@ $S render --nodes $N --vip 10.0.0.10 --out $T/o3 --sync-strict >/dev/null; grep 
 expect_fail "non-empty output dir refused" $S render --nodes $N --vip 10.0.0.10 --out $T/o
 P=$($S plan --nodes $N --vip 10.0.0.10); echo "$P" | grep -q "any ONE node" && ok "plan prints survivability" || bad "plan"
 D=$($S drill --vip 10.0.0.10); echo "$D" | grep -q "marker" && ok "drill prints steps" || bad "drill"
+# entry point: single hands over to install.sh untouched, multi to install-ha.sh
+bash -n scripts/setup.sh && ok "setup.sh syntax" || bad "setup.sh syntax"
+H=$(bash scripts/setup.sh single --help 2>&1); echo "$H" | grep -qi "install" && ok "setup.sh single reaches install.sh" || bad "setup single"
+M=$(bash scripts/setup.sh multi plan --nodes $N --vip 10.0.0.10); echo "$M" | grep -q "any ONE node" && ok "setup.sh multi reaches install-ha.sh" || bad "setup multi"
+bash scripts/setup.sh bogus >/dev/null 2>&1 && bad "setup.sh bogus mode accepted" || ok "setup.sh rejects unknown mode"
+bash scripts/setup.sh </dev/null >/dev/null 2>&1 && bad "setup.sh without tty/mode should fail" || ok "setup.sh needs a mode when not interactive"
+printf '1\n' | bash scripts/setup.sh >/dev/null 2>&1; true
 [ "$fails" = 0 ] && echo "ALL PASSED" || { echo "$fails FAILED"; exit 1; }
