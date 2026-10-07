@@ -19,6 +19,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -531,7 +532,13 @@ func (s *server) chatDecide(ctx context.Context, tenant, uid, role, kind, code s
 	}
 	id, st, hc, out, err := s.executeAction(ctx, tenant, uid, role, code, kind)
 	if err != nil {
-		reply("Nothing open with that code, it expired, or it is no longer allowed.")
+		if errors.Is(err, errActionOutcomeUnknown) {
+			reply("The outcome is unknown. Check the target before any new change; I will not retry it.")
+		} else if errors.Is(err, errActionUnavailable) {
+			reply("Action state is unavailable. Refresh and check before retrying.")
+		} else {
+			reply("Nothing open with that code, it expired, or it is no longer allowed.")
+		}
 		return
 	}
 	s.auditAs(ctx, tenant, uid, "assistant.confirm", id, map[string]any{"result_code": hc, "via": kind})
