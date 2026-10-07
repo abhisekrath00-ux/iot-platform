@@ -1604,6 +1604,9 @@ func (s *server) buildSeries(ctx context.Context, tenant string, def report.Defi
 			series[m] = bs
 		}
 		total += len(bs)
+		if err := checkRowCap(total); err != nil {
+			return nil, 0, err
+		}
 	}
 	return series, total, nil
 }
@@ -1673,7 +1676,7 @@ func (s *server) previewReport(w http.ResponseWriter, r *http.Request) {
 		in.Definition, err = s.withReportContext(r.Context(), auth.Tenant(r), in.Definition)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), reportErrStatus(err))
 		return
 	}
 	writeJSON(w, 200, map[string]any{"html": report.Render(name, in.Definition, series, time.Now()), "rows": total})
@@ -1721,7 +1724,7 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 		def, err = s.withReportContext(r.Context(), auth.Tenant(r), def)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), reportErrStatus(err))
 		return
 	}
 	safe := strings.Map(func(c rune) rune {
