@@ -188,7 +188,7 @@ func TestTypedToolRejectsBadArgumentsWithoutTouchingTheAPI(t *testing.T) {
 	srv := scriptedTools(t, "get_device_health", `{"device_id":"../users"}`, &offered)
 	defer srv.Close()
 	res := (&server{}).runAgent(context.Background(), llm.Config{BaseURL: srv.URL, Model: "m", NoThinking: true, Small: true}, "t", "u", "admin",
-		[]llm.Message{{Role: "user", Content: "hi"}}, runCtx{emit: func(string, any) {}})
+		[]llm.Message{{Role: "user", Content: "device health"}}, runCtx{emit: func(string, any) {}})
 	if res.err != nil || len(res.trace) != 1 || res.trace[0].Status != "refused" || !strings.Contains(res.trace[0].Detail, "valid id") {
 		t.Fatalf("%+v %v", res.trace, res.err)
 	}
