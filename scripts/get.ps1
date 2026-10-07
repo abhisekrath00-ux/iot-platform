@@ -22,5 +22,7 @@ if (Test-Path (Join-Path $nested "docker-compose.yml")) { try { Remove-Item -Rec
 Set-Location $dir
 # Update: record the version of the files we just downloaded
 try { $env:HEXTHINGS_VERSION = (Invoke-RestMethod -UseBasicParsing -TimeoutSec 8 "https://api.github.com/repos/$repo/commits/main").sha } catch { }
-$extra = @(); if ($env:HEXTHINGS_NO_AI) { $extra += "-NoAi" } else { $extra += "-AiDownload" }
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Yes @extra
+$extra = @(); if ($env:HEXTHINGS_NO_AI) { $extra += "-NoAi" }
+if ($env:HEXTHINGS_AI_MODEL_SIZE) { $extra += @("-AiModelSize", $env:HEXTHINGS_AI_MODEL_SIZE) }
+# Guided install asks before any AI download.
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 @extra
