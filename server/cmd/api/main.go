@@ -2174,14 +2174,18 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 
 // --- search (Elasticsearch; tenant-scoped) ---
 func (s *server) searchAll(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
-	if q == "" {
-		http.Error(w, "q required", 400)
+	if scopeOf(r) != "" {
+		http.Error(w, "not available to customer-scoped users", 403)
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" || len(q) > 512 {
+		http.Error(w, "q required, max 512 bytes", 400)
 		return
 	}
 	hits, err := s.es.Query(r.Context(), []string{"devices", "alerts"}, auth.Tenant(r), q)
 	if err != nil {
-		http.Error(w, "search backend unavailable: "+err.Error(), 503)
+		http.Error(w, "search backend unavailable; use device or alert lists", 503)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
