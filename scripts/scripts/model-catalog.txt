@@ -1,0 +1,11 @@
+# HexThings local-AI model catalog. One verified open-licence model per line, pipe-separated:
+# id|label|quant|bytes|sha256|url|min_ram_mb|rec_ram_mb|licence|tested|note
+# RAM thresholds are conservative whole-stack estimates, not measured guarantees.
+# Sizes and sha256 are the Hugging Face LFS values (checked 2026-10-07). Licences checked on the
+# publishers' model cards the same day. "tested" means actually run by us on the target class
+# (about 4-5 GB RAM, CPU only); everything else is untested here, however well known upstream.
+qwen3-1.7b|Qwen3 1.7B (dense, Alibaba Qwen)|Q4_K_M|1107409472|b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897|https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf|4096|5120|Apache-2.0|tested|Measured here: 1.49 GB peak RSS, about 7 tok/s on 2 CPU cores. The default.
+qwen3-4b|Qwen3 4B (dense, Alibaba Qwen)|Q4_K_M|2497281312|f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a|https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf|6144|8192|Apache-2.0|untested-here|Untested here; allow room for the platform as well as the model.
+qwen3-8b|Qwen3 8B (dense, Alibaba Qwen)|Q4_K_M|5027784512|120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4|https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf|9216|12288|Apache-2.0|untested-here|Needs more than the 4-5 GB target machine has.
+gpt-oss-20b|gpt-oss 20B (MoE 3.6B active, OpenAI)|Q4_K_M|11624759488|c27536640e410032865dc68781d80a08b98f8db5e93575919af8ccc0568aeb4f|https://huggingface.co/unsloth/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-Q4_K_M.gguf|16384|20480|Apache-2.0|untested-here|For a workstation or small server, not the 4-5 GB target.
+gpt-oss-120b|gpt-oss 120B (MoE 5.1B active, OpenAI)|Q4_K_M|62768723552|manual|https://huggingface.co/unsloth/gpt-oss-120b-GGUF/tree/main/Q4_K_M|71680|81920|Apache-2.0|untested-here|Two-part 62.8 GB download, allow about 70-80 GB total RAM. Not installable by the chooser; manual only.
