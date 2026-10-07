@@ -136,3 +136,14 @@ handler guard added. No customer leak was demonstrated: middleware already denie
 Tested: fake-ES failure table and API denial/error tests, local server with Postgres;
 real ES/OpenSearch not run. Memory/vector retrieval not built or chosen. See
 [search reliability and memory direction](search-reliability.md).
+
+## 2026-10-07: explicit private memory, API-first
+
+Built: opt-in per-user/tenant explicit notes in existing Postgres, interactive-only
+management/export/delete, 50-note cap and 1-90 day TTL, read-only offline BM25 tool,
+current identity/role/scope checks, untrusted provenance warnings, content-free audit.
+No automatic chat capture or new vector service. API only, no UI yet. Expired rows
+purge on next owner access; backup erasure/background cleanup not built.
+Tested: real Postgres owner/tenant/role/scope/disable/delete/expiry/quota and policy
+checks; eight docs source-recall queries + unknown/no-evidence and invalid limits.
+Not real-model/injection eval or broad semantic benchmark. See [memory](assistant-memory.md).
