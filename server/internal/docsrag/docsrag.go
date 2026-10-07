@@ -151,7 +151,7 @@ func (ix *Index) Size() int { return len(ix.passages) }
 // Search returns the best passages for a question (BM25, k1=1.4, b=0.75).
 func (ix *Index) Search(q string, k int) []Hit {
 	qt := tokens(q)
-	if len(qt) == 0 || len(ix.passages) == 0 {
+	if k <= 0 || len(qt) == 0 || len(ix.passages) == 0 {
 		return nil
 	}
 	n := float64(len(ix.passages))
