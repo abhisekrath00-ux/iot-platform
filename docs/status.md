@@ -35,6 +35,7 @@ Across everything: about 444 Go test functions (server 322, edge 122) and 55 web
 | KPIs and derived points | Partial | Formulas, history and widgets; no KPI alerting. |
 | Node-RED style flows | Built / partial | Own engine and editor; Node-RED file import is a subset; real Node-RED not embedded; admin-defined custom node types (saved function presets, no SDK or typed parameters). |
 | Function node (sandboxed JS) | Built, unreviewed | Off by default, admin only. |
+| Multi-node HA installer (3 nodes: etcd, Patroni sync replication, HAProxy, keepalived VIP) | Partial, never run | Generator tested (`scripts/test-install-ha.sh`); the rendered stack has not been started on any machine and no failover drill has been run. MQTT brokers are not clustered. See docs/ha-multi-node.md. |
 | Report Builder parity: layouts, params, CSV/HTML/PDF/XLSX, schedules, themes, logos, insights, HTML line/area/bar charts | Built / partial | See docs/report-builder-parity.md. No drill-through or subreports, no charts in XLSX, no Word/PowerPoint, no designer surface. |
 | Geofences and map | Partial | Hand-entered positions, circular zones, self-hosted tiles. No enter/exit alerts, polygons or GPS tracks. |
 | OTA / fleet updates | Partial, unit-tested only | Staged rollout of edge agent releases with signed manifests. No MCU or PLC firmware flashing, no key rotation. |
