@@ -228,6 +228,10 @@ func TestIntegrationReportPreviewAndDownload(t *testing.T) {
 	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "%PDF-1.4") || w.Header().Get("Content-Type") != "application/pdf" {
 		t.Fatalf("pdf download %d %q", w.Code, w.Header().Get("Content-Type"))
 	}
+	w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=xml", "")
+	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "<?xml") || !strings.Contains(w.Body.String(), `device_id="itest-d-dev"`) || !strings.HasPrefix(w.Header().Get("Content-Type"), "application/xml") {
+		t.Fatalf("xml download %d %q", w.Code, w.Body.String())
+	}
 	w = call(h, "itest-d", "viewer", "GET", "/v1/reports/"+rep.ID+"/download?format=xlsx", "")
 	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "PK") {
 		t.Fatalf("xlsx download %d", w.Code)
