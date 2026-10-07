@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/w/scripts"
-cp "$ROOT/scripts/install.sh" "$T/w/scripts/"; cp "$ROOT/.env.example" "$ROOT/docker-compose.yml" "$T/w/"
+cp "$ROOT/scripts/install.sh" "$ROOT/scripts/model-choose.sh" "$ROOT/scripts/model-catalog.txt" "$T/w/scripts/"; cp "$ROOT/.env.example" "$ROOT/docker-compose.yml" "$T/w/"
 cat > "$T/bin/docker" <<'D'
 #!/usr/bin/env bash
 echo "docker $*" >> "$FAKE_LOG"
@@ -30,6 +30,7 @@ while [ $# -gt 0 ]; do [ "$1" = -o ] && { printf 'fake-model' > "$2"; break; }; 
 exit 0
 C
 chmod +x "$T/bin/curl"; printf '' ; chmod +x "$T/bin/docker" "$T/bin/curl"
+export HEXTHINGS_FAKE_MEM_MB=8192 HEXTHINGS_FAKE_DISK_MB=100000 HEXTHINGS_MODEL_BYTES=10
 export PATH="$T/bin:$PATH" FAKE_LOG="$T/log" FAKE_STDIN="$T/stdin"; : > "$FAKE_LOG"
 fails=0; check() { if ! eval "$2"; then echo "FAIL: $1"; fails=$((fails+1)); else echo "ok:   $1"; fi; }
 run() { (cd "$T/w" && bash scripts/install.sh --web-port 18431 "$@" > "$T/out" 2>&1); }
@@ -71,8 +72,15 @@ check "a damaged model download is refused" '[ $rc -ne 0 ] && grep -q "checksum 
 : > "$FAKE_LOG"
 HEXTHINGS_MODEL_SHA256=$SHA run --yes --workspace ok-name --admin-email a@b.example --ai-download && rc=0 || rc=$?
 check "--ai-download fetches, verifies, enables the ai profile" '[ $rc -eq 0 ] && [ -f "$T/w/models/model.gguf" ] && grep -q "compose --profile ai up" "$FAKE_LOG"'
+check "selection id is saved" '[ "$(cat "$T/w/models/model.id")" = qwen3-1.7b ]'
 check "the assistant is connected automatically" 'grep -q "tenantctl ai-connect --tenant ok-name" "$FAKE_LOG"'
 rm -rf "$T/w/models"; : > "$FAKE_LOG"
 run --yes --workspace ok-name --admin-email a@b.example && rc=0 || rc=$?
 check "without --ai-download nothing is downloaded" '[ $rc -eq 0 ] && [ ! -f "$T/w/models/model.gguf" ] && ! grep -q "ai-connect" "$FAKE_LOG"'
+rm -rf "$T/w/models"; : > "$FAKE_LOG"
+HEXTHINGS_MODEL_SHA256=$SHA run --yes --ai-model-size qwen3-4b --workspace ok-name --admin-email a@b.example && rc=0 || rc=$?
+check "size flag selects 4B with selected model connect" '[ $rc -eq 0 ] && grep -qx qwen3-4b "$T/w/models/model.id" && grep -q "ai-connect --tenant ok-name --model qwen3-4b" "$FAKE_LOG"'
+: > "$FAKE_LOG"
+run --yes --ai-model-size skip --workspace ok-name --admin-email a@b.example && rc=0 || rc=$?
+check "skip size bypasses existing local AI" '[ $rc -eq 0 ] && ! grep -q "compose --profile ai up" "$FAKE_LOG"'
 [ $fails -eq 0 ] && echo "all installer checks passed" || { echo "$fails failed"; exit 1; }
