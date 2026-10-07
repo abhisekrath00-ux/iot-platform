@@ -519,10 +519,23 @@ func Matrix(d Definition, series map[Metric][]Bucket) (header []string, rows [][
 // the stored definition stays unchanged and the result is validated again.
 func ApplyParams(d Definition, get func(string) string) (Definition, error) {
 	if v := get("device"); v != "" {
-		// Run the same report for another device: only when every metric is on one device
-		// (so the swap is unambiguous) and there are no computed columns, which name devices.
-		if !validID(v) {
-			return d, ErrBadID
+		// Run the same report for other devices. "device=a" swaps the device; "device=a,b,c"
+		// (multivalue, at most 10) repeats every point for each listed device. Only when every
+		// metric is on one device (so the swap is unambiguous) and there are no computed columns,
+		// which name devices.
+		var devs []string
+		seen := map[string]bool{}
+		for _, id := range strings.Split(v, ",") {
+			if !validID(id) {
+				return d, ErrBadID
+			}
+			if !seen[id] {
+				seen[id] = true
+				devs = append(devs, id)
+			}
+		}
+		if len(devs) > 10 {
+			return d, errors.New("the device parameter takes at most 10 devices")
 		}
 		if len(d.Computed) > 0 {
 			return d, errors.New("the device parameter cannot be used with computed columns")
@@ -532,9 +545,11 @@ func ApplyParams(d Definition, get func(string) string) (Definition, error) {
 				return d, errors.New("the device parameter needs a report whose metrics are all on one device")
 			}
 		}
-		ms := make([]Metric, len(d.Metrics))
-		for i, m := range d.Metrics {
-			ms[i] = Metric{DeviceID: v, PointID: m.PointID}
+		var ms []Metric
+		for _, dev := range devs {
+			for _, m := range d.Metrics {
+				ms = append(ms, Metric{DeviceID: dev, PointID: m.PointID})
+			}
 		}
 		d.Metrics = ms
 	}
