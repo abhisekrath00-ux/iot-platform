@@ -89,7 +89,8 @@ func chartSVG(kind string, rows []Bucket, dark bool) string {
 			if h < 0 {
 				top, h = base, -h
 			}
-			fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>`, x(i)-bw/2, top, bw, math.Max(h, 0.5), series)
+			cx := l + pw*(float64(i)+0.5)/float64(len(pts))
+			fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>`, cx-bw/2, top, bw, math.Max(h, 0.5), series)
 		}
 	default:
 		var line strings.Builder
