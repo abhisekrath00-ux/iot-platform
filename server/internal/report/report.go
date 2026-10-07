@@ -240,6 +240,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		generated.UTC().Format(time.RFC3339), d.WindowHours, html.EscapeString(d.GroupBy))
 	if d.Layout == "matrix" {
 		hdr, rows, total := Matrix(d, series)
+		writeChartsHTML(&b, d, series)
 		b.WriteString(`<table><tr><th>` + html.EscapeString(d.GroupBy) + `</th>`)
 		for _, h := range hdr {
 			b.WriteString(`<th>` + html.EscapeString(h) + `</th>`)
@@ -257,7 +258,6 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 			b.WriteString(`<td>` + html.EscapeString(c) + `</td>`)
 		}
 		b.WriteString(`</tr></table>`)
-		writeChartsHTML(&b, d, series)
 		writeInsightsHTML(&b, d, series)
 		writeRollupHTML(&b, d, series)
 		writeFooter(&b, d)
@@ -280,6 +280,9 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 			b.WriteString(`<p class="meta">no data in window</p>`)
 			continue
 		}
+		if d.Chart != "" {
+			b.WriteString(chartSVG(d.Chart, rows, d.Theme == "dark"))
+		}
 		b.WriteString(`<table><tr><th>` + html.EscapeString(d.GroupBy) + `</th><th>avg</th><th>min</th><th>max</th><th>sum</th><th>samples</th></tr>`)
 		for _, r := range rows {
 			fmt.Fprintf(&b, `<tr><td>%s</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`,
@@ -288,9 +291,6 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		ta, tmin, tmax, tsum, tn := Summary(rows)
 		fmt.Fprintf(&b, `<tr style="font-weight:600;background:#fafafa"><td>overall</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`, ta, tmin, tmax, tsum, tn)
 		b.WriteString(`</table>`)
-		if d.Chart != "" {
-			b.WriteString(chartSVG(d.Chart, rows, d.Theme == "dark"))
-		}
 	}
 	writeInsightsHTML(&b, d, series)
 	writeRollupHTML(&b, d, series)
