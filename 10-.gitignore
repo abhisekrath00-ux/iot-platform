@@ -1,0 +1,27 @@
+.env
+*.local
+node_modules/
+dist/
+build/
+__pycache__/
+*.db
+*.db-journal
+.vscode/
+.idea/
+coverage.out
+# locally built binaries (never commit)
+server/api
+server/ingest
+server/mcp
+server/loadtest
+edge/edge
+
+# installer/upgrade runtime artifacts (never commit)
+install.log
+upgrade.log
+install-credentials.txt
+.upgrade-state
+backups/
+models/
+images.tar.gz
+/SHA256SUMS
