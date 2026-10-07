@@ -18,7 +18,8 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Map | Not built | Needs air-gapped tiles decision. |
 | Report parameters (cascading, multivalue) | Partial | Window, group-by, layout, agg, device via URL parameters. No cascading or multivalue. |
 | Expressions | Partial | KPI expression language for computed columns (arithmetic and point refs only). No functions or conditional formatting. |
-| Conditional formatting, sorting, interactive sort | Not built | |
+| Conditional formatting | Partial | `highlight` {above, below} thresholds colour avg cells in per-metric HTML tables (red/amber). Not in matrix layout, PDF or XLSX; no expressions; no UI control yet. Unit-tested. |
+| Sorting, interactive sort | Not built | |
 | Page layout, headers/footers, themes, logo | Partial | Header/footer text, light/dark, tenant logo. No page size/margin/orientation or page-number tokens. |
 | Subreports, drill-through, bookmarks | Not built | |
 | Export: PDF, XLSX, CSV, HTML | Built | |
