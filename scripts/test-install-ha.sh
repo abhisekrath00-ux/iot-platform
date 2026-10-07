@@ -60,4 +60,7 @@ M=$(bash scripts/setup.sh multi plan --nodes $N --vip 10.0.0.10); echo "$M" | gr
 bash scripts/setup.sh bogus >/dev/null 2>&1 && bad "setup.sh bogus mode accepted" || ok "setup.sh rejects unknown mode"
 bash scripts/setup.sh </dev/null >/dev/null 2>&1 && bad "setup.sh without tty/mode should fail" || ok "setup.sh needs a mode when not interactive"
 printf '1\n' | bash scripts/setup.sh >/dev/null 2>&1; true
+# drift guard: the terminal look in hx-ui.sh must stay identical to install.sh's wordmark/glyph/footer
+ext() { awk '/^glyph\(\)/{p=1} /^banner\(\)/{p=0} p' "$1"; }
+[ "$(ext scripts/install.sh)" = "$(ext scripts/hx-ui.sh)" ] && ok "hx-ui.sh wordmark identical to install.sh" || bad "hx-ui.sh drifted from install.sh"
 [ "$fails" = 0 ] && echo "ALL PASSED" || { echo "$fails FAILED"; exit 1; }
