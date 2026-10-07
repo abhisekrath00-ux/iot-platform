@@ -45,6 +45,9 @@ type Definition struct {
 	// against the window just before it (window up to 45 days). See insights.go.
 	Insights bool `json:"insights,omitempty"`
 	Compare  bool `json:"compare,omitempty"`
+	// Chart draws each metric's averages as "line", "area" or "bar" inline SVG in the HTML report
+	// (one chart per metric, or per metric column in the matrix layout). Empty means no chart.
+	Chart string `json:"chart,omitempty"`
 	// Theme is "" or "light" (white pages, default) or "dark" (dark pages with light text in HTML and PDF).
 	Theme string `json:"theme,omitempty"`
 	// Logo is the tenant's logo, filled by the server at render time and never stored in the definition.
@@ -104,6 +107,9 @@ func Validate(d Definition) error {
 	}
 	if d.Theme != "" && d.Theme != "light" && d.Theme != "dark" {
 		return fmt.Errorf("theme must be light or dark")
+	}
+	if !validChart(d.Chart) {
+		return fmt.Errorf("chart must be empty, line, area or bar")
 	}
 	if d.Layout != "" && d.Layout != "matrix" {
 		return ErrBadLayout
@@ -251,6 +257,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 			b.WriteString(`<td>` + html.EscapeString(c) + `</td>`)
 		}
 		b.WriteString(`</tr></table>`)
+		writeChartsHTML(&b, d, series)
 		writeInsightsHTML(&b, d, series)
 		writeRollupHTML(&b, d, series)
 		writeFooter(&b, d)
@@ -281,6 +288,9 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		ta, tmin, tmax, tsum, tn := Summary(rows)
 		fmt.Fprintf(&b, `<tr style="font-weight:600;background:#fafafa"><td>overall</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`, ta, tmin, tmax, tsum, tn)
 		b.WriteString(`</table>`)
+		if d.Chart != "" {
+			b.WriteString(chartSVG(d.Chart, rows, d.Theme == "dark"))
+		}
 	}
 	writeInsightsHTML(&b, d, series)
 	writeRollupHTML(&b, d, series)
@@ -516,4 +526,25 @@ func ApplyParams(d Definition, get func(string) string) (Definition, error) {
 		d.Agg = v
 	}
 	return d, Validate(d)
+}
+
+// writeChartsHTML adds one chart per metric under the matrix table.
+func writeChartsHTML(b *strings.Builder, d Definition, series map[Metric][]Bucket) {
+	if d.Chart == "" {
+		return
+	}
+	keys := make([]Metric, 0, len(series))
+	for m := range series {
+		keys = append(keys, m)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].DeviceID != keys[j].DeviceID {
+			return keys[i].DeviceID < keys[j].DeviceID
+		}
+		return keys[i].PointID < keys[j].PointID
+	})
+	for _, m := range keys {
+		b.WriteString(`<h2>` + html.EscapeString(m.DeviceID) + ` / ` + html.EscapeString(m.PointID) + `</h2>`)
+		b.WriteString(chartSVG(d.Chart, series[m], d.Theme == "dark"))
+	}
 }
