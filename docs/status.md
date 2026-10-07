@@ -114,3 +114,15 @@ Tested: 16 shell chooser checks, 14 PowerShell chooser checks (PS7/Linux mocks),
 Not run: real Windows, real Docker/compose, whole-stack resource benchmark, inference
 with any newly listed model, remote CI. RAM estimates are not guarantees. The 1.7B
 model measurement predates this unit; larger models remain untested here.
+
+## 2026-10-07: agent/MCP execution boundary hardening
+
+Built: enforce per-turn offered tools, JSON-object/16 KiB argument gate, canonical
+repeat signatures, reject oversized batches before execution, cancellation checks,
+large catalog local models get full mode unless explicitly overridden. MCP 64 KiB
+request cap, strict envelope/protocol and 30-second context. Existing confirmation,
+RBAC and four-eyes remain. See [failure matrix](agent-failure-matrix.md).
+Tested: full server Go suite without DB, plus API and MCP suites against a fresh real
+Postgres database (DB tests ran), scripted provider integration of guard/batch/cancel, policy/registry/LLM/MCP tests. Not run:
+real model, real Docker, Windows, distributed/crash recovery, remote CI. Memory/vector
+search, durable run recovery and broader edge/report/UI reliability work remain open.
