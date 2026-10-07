@@ -34,6 +34,7 @@ October 7, 2026. This is a bounded hardening unit, not an enterprise-readiness c
 | Proposed write / physical action | Existing confirmation, role and four-eyes gates unchanged | Policy security eval; no new auto-approval |
 | Memory/search unavailable | Not addressed by this unit | Next research/build unit; no vector DB selected |
 | Crash between model response and pending-write creation | Not claimed covered | Durable run ID/idempotency/recovery design pending |
+| Crash or lost result after action claim | Executing/unknown, never automatically replayed | [Action outcomes](assistant-action-outcomes.md); DB fault/claim tests, no process-kill test |
 | Multi-instance run rate limits | Existing in-process limit only | Shared coordination pending |
 | Provider quota/rate limit | Existing configured fallback only | Multi-key design pending; never bypass provider rules |
 
