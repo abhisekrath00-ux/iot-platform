@@ -48,6 +48,9 @@ type Definition struct {
 	// Chart draws each metric's averages as "line", "area" or "bar" inline SVG in the HTML report
 	// (one chart per metric, or per metric column in the matrix layout). Empty means no chart.
 	Chart string `json:"chart,omitempty"`
+	// Highlight colours avg cells in the per-metric tables: red above Above, amber below Below.
+	// Thresholds only (no expressions); matrix layout cells are not coloured yet.
+	Highlight *Highlight `json:"highlight,omitempty"`
 	// Theme is "" or "light" (white pages, default) or "dark" (dark pages with light text in HTML and PDF).
 	Theme string `json:"theme,omitempty"`
 	// Logo is the tenant's logo, filled by the server at render time and never stored in the definition.
@@ -57,6 +60,25 @@ type Definition struct {
 	// GroupLabels maps device_id to its asset or site name. Filled by the server
 	// at render time from the database, never stored or read from a request.
 	GroupLabels map[string]string `json:"-"`
+}
+
+type Highlight struct {
+	Above *float64 `json:"above,omitempty"`
+	Below *float64 `json:"below,omitempty"`
+}
+
+// cellStyle returns an inline style for a value, or "". Non-finite values are never coloured.
+func (h *Highlight) cellStyle(v float64) string {
+	if h == nil || math.IsNaN(v) || math.IsInf(v, 0) {
+		return ""
+	}
+	if h.Above != nil && v > *h.Above {
+		return ` style="background:#fecaca;color:#7f1d1d"`
+	}
+	if h.Below != nil && v < *h.Below {
+		return ` style="background:#fde68a;color:#78350f"`
+	}
+	return ""
 }
 
 type Computed struct {
@@ -107,6 +129,16 @@ func Validate(d Definition) error {
 	}
 	if d.Theme != "" && d.Theme != "light" && d.Theme != "dark" {
 		return fmt.Errorf("theme must be light or dark")
+	}
+	if h := d.Highlight; h != nil {
+		for _, p := range []*float64{h.Above, h.Below} {
+			if p != nil && (math.IsNaN(*p) || math.IsInf(*p, 0)) {
+				return fmt.Errorf("highlight thresholds must be finite numbers")
+			}
+		}
+		if h.Above != nil && h.Below != nil && *h.Below > *h.Above {
+			return fmt.Errorf("highlight below must not exceed above")
+		}
 	}
 	if !validChart(d.Chart) {
 		return fmt.Errorf("chart must be empty, line, area, bar, scatter, gauge or pie")
@@ -285,8 +317,8 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		}
 		b.WriteString(`<table><tr><th>` + html.EscapeString(d.GroupBy) + `</th><th>avg</th><th>min</th><th>max</th><th>sum</th><th>samples</th></tr>`)
 		for _, r := range rows {
-			fmt.Fprintf(&b, `<tr><td>%s</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`,
-				r.Start.UTC().Format("2006-01-02 15:04"), r.Avg, r.Min, r.Max, r.Sum, r.Count)
+			fmt.Fprintf(&b, `<tr><td>%s</td><td%s>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`,
+				r.Start.UTC().Format("2006-01-02 15:04"), d.Highlight.cellStyle(r.Avg), r.Avg, r.Min, r.Max, r.Sum, r.Count)
 		}
 		ta, tmin, tmax, tsum, tn := Summary(rows)
 		fmt.Fprintf(&b, `<tr style="font-weight:600;background:#fafafa"><td>overall</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`, ta, tmin, tmax, tsum, tn)
