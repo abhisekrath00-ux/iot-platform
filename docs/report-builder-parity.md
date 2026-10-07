@@ -36,10 +36,10 @@ Rule for every report unit: bounded work per report, no unbounded memory, and a 
 |---|---|---|
 | HTML chart rendering | Bounded by design, microbenchmarked | Series thinned to 400 points; 10,000-bucket benchmark in chart_test.go: about 1.5 ms and 1.2 MB per chart on this 2-core machine, microbenchmark only, not a load test. |
 | Report window and bucket count | Bounded by design | Window up to 90 days, fixed group-by buckets; aggregation runs in Postgres. |
-| Concurrent report runs | Untested | No limit on simultaneous renders yet; a shared render queue and per-tenant concurrency cap are planned. |
+| Concurrent report runs | Bounded by design, unit and DB tested | Per-process gate for preview, download and scheduled/manual run: `REPORT_MAX_CONCURRENT` (default 4), `REPORT_MAX_PER_TENANT` (default 2), `REPORT_QUEUE_WAIT_SECONDS` (default 10). Over the limit: HTTP 503 with Retry-After; a scheduled run that cannot get a slot logs and is retried on the next minute tick. Tested: cap never exceeded under 60 goroutines (race detector), per-tenant fairness, double-release safety, cancel, 503 then 200 on a real DB. Limits are per replica (N replicas = N times). Not load-tested with real report builds. |
 | PDF/XLSX size limits | Untested | Row and size caps still to add. |
 | Horizontal scaling (several API replicas) | Untested | Report state is in Postgres; the scheduler's single-runner guarantee under multiple replicas is not verified. |
 | Autoscaling | Not built | Needs deployment manifests and a measured load test on real hardware; not available on this machine. |
 | High ingest throughput | See docs/scaling.md and docs/timescale-evaluation.md | Existing measured numbers there; nothing new in this unit. |
 
-Planned scale units: per-tenant render concurrency cap with queue and timeout, output size caps, scheduler leader lock verified with two processes, then a load test of report runs against a large seeded telemetry table with measured p95.
+Planned scale units: output size caps, scheduler leader lock verified with two processes, then a load test of report runs against a large seeded telemetry table with measured p95.
