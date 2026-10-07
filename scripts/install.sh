@@ -9,7 +9,7 @@
 # where to sign in. It never overwrites an existing .env or touches the internet when run from an
 # air-gapped bundle (images.tar.gz next to it). Everything it does is logged to install.log.
 #
-# Options: --yes  --admin-email E  --workspace ID  --web-port N  --ai-model FILE.gguf  --ai-download  --no-ai
+# Options: --yes  --admin-email E  --workspace ID  --web-port N  --ai-model FILE.gguf  --ai-download  --ai-model-size ID  --ai-force  --no-ai
 #          --skip-preflight-warnings
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -17,11 +17,8 @@ cd "$(dirname "$0")"
 LOG=install.log
 : > "$LOG"
 
-# The default model: Qwen3-1.7B, Q4_K_M quantisation (unsloth GGUF build of Qwen's own model), pinned by sha256.
-AI_MODEL_NAME="Qwen3-1.7B Q4_K_M"; AI_MODEL_SIZE="1.1 GB"
-AI_MODEL_URL="${HEXTHINGS_MODEL_URL:-https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf}"
-AI_MODEL_SHA="${HEXTHINGS_MODEL_SHA256:-b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897}"
-YES=0; ADMIN_EMAIL=""; WORKSPACE=""; WEB_PORT=""; AI_MODEL=""; AI_DL=0; NO_AI=0
+YES=0; ADMIN_EMAIL=""; WORKSPACE=""; WEB_PORT=""; AI_MODEL=""; AI_DL=0; NO_AI=0; AI_SIZE=""; AI_FORCE=0
+CHOOSER=scripts/model-choose.sh; [ -f "$CHOOSER" ] || CHOOSER=./model-choose.sh
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes|-y) YES=1 ;;
@@ -30,6 +27,8 @@ while [ $# -gt 0 ]; do
     --web-port) WEB_PORT="${2:?}"; shift ;;
     --ai-model) AI_MODEL="${2:?}"; shift ;;
     --ai-download) AI_DL=1 ;;
+    --ai-model-size) AI_SIZE="${2:?}"; AI_DL=1; shift ;;
+    --ai-force) AI_FORCE=1 ;;
     --no-ai) NO_AI=1 ;;
     --help|-h) sed -n 2,14p "$0"; exit 0 ;;
     *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
@@ -125,6 +124,9 @@ ask() { # ask "question" default -> echoes answer
 rand_alnum() { LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$1" || true; }
 rand_b64()   { head -c 32 /dev/urandom | base64 | tr -d '\n'; }
 
+[ "$NO_AI" = 0 ] || { AI_DL=0; AI_SIZE=""; }
+[ "$AI_SIZE" != skip ] || { NO_AI=1; AI_DL=0; }
+[ "$AI_DL" = 0 ] || [ -z "$AI_MODEL" ] || { echo "Choose --ai-model OR --ai-model-size, not both" >&2; exit 2; }
 banner
 step "Checking this machine"
 
@@ -204,27 +206,29 @@ if [ "$NO_AI" = 0 ]; then
   if [ -z "$AI_MODEL" ] && [ -f model.gguf ]; then AI_MODEL=model.gguf; fi
   if [ -z "$AI_MODEL" ] && [ -f models/model.gguf ]; then AI_MODEL=models/model.gguf; fi
   if [ -z "$AI_MODEL" ] && [ "$AI_DL" = 0 ] && [ "$YES" = 0 ] && [ -t 0 ]; then
-    a=$(ask "Download the small local AI model for the assistant (1.1 GB, needs internet once)? y = download, n = skip, or a path to your own .gguf" "y")
-    case "$a" in y|Y|yes) AI_DL=1 ;; n|N|no|"") ;; *) AI_MODEL="$a" ;; esac
+    bash "$CHOOSER" --list | tee -a "$LOG"
+    a=$(ask "Local AI: model ID, skip, or path to your own .gguf (download needs internet once)" "skip")
+    case "$a" in skip|n|N|no|"") ;; *.gguf) AI_MODEL="$a" ;; *) AI_SIZE="$a"; AI_DL=1 ;; esac
   fi
-  if [ -z "$AI_MODEL" ] && [ "$AI_DL" = 1 ]; then
-    mkdir -p models
-    if [ "${HEXTHINGS_SKIP_DOWNLOAD:-0}" = 1 ]; then fail "model download requested but HEXTHINGS_SKIP_DOWNLOAD=1"; fi
-    say "  downloading $AI_MODEL_NAME ($AI_MODEL_SIZE, resumable) from $AI_MODEL_URL"
-    command -v curl >/dev/null 2>&1 || fail "curl is needed to download the model; or pass --ai-model FILE.gguf"
-    curl -fL --retry 3 --retry-delay 3 -C - -o models/model.gguf.part "$AI_MODEL_URL" 2>>"$LOG" || fail "model download failed (see $LOG). Re-run to resume, or use --no-ai"
-    got=$(sha256sum models/model.gguf.part 2>/dev/null | cut -d' ' -f1 || shasum -a 256 models/model.gguf.part | cut -d' ' -f1)
-    [ "$got" = "$AI_MODEL_SHA" ] || { rm -f models/model.gguf.part; fail "model checksum mismatch (got ${got:0:12}..., expected ${AI_MODEL_SHA:0:12}...): the download is damaged; run again"; }
-    mv models/model.gguf.part models/model.gguf; AI_MODEL=models/model.gguf
-    ok "model downloaded and checksum verified"
+  if [ "$AI_DL" = 1 ]; then
+    AI_SIZE=${AI_SIZE:-qwen3-1.7b}
+    bash "$CHOOSER" --list | tee -a "$LOG"
+    extra=(); [ "$AI_FORCE" = 0 ] || extra=(--force)
+    bash "$CHOOSER" --size "$AI_SIZE" ${extra[@]+"${extra[@]}"} | tee -a "$LOG" || fail "model selection/download failed; existing model kept"
+    AI_MODEL=models/model.gguf
   fi
   if [ -n "$AI_MODEL" ]; then
     [ -f "$AI_MODEL" ] || fail "model file not found: $AI_MODEL"
-    [ "$mem_mb" -ge 6144 ] || warn "the local AI needs more memory than this machine reports (${mem_mb} MB); it may be very slow"
+    [ "$mem_mb" -ge 5120 ] || warn "${mem_mb} MB host RAM: model plus platform may be tight; check Docker memory limits too"
     mkdir -p models
     [ "$(cd "$(dirname "$AI_MODEL")" && pwd)/$(basename "$AI_MODEL")" = "$(pwd)/models/model.gguf" ] || cp "$AI_MODEL" models/model.gguf
     AI_SHA=$(sha256sum models/model.gguf 2>/dev/null | cut -d' ' -f1 || shasum -a 256 models/model.gguf | cut -d' ' -f1)
     export AI_MODEL_SHA256="$AI_SHA"
+    if [ -n "$AI_MODEL" ] && [ "$AI_DL" = 0 ]; then
+      (umask 077; sed "/^AI_MODEL_SHA256=/d" .env > .env.model.tmp; printf '\nAI_MODEL_SHA256=%s\n' "$AI_SHA" >> .env.model.tmp; mv .env.model.tmp .env)
+    fi
+    if [ -z "$AI_SIZE" ] && [ -f models/model.id ]; then AI_SIZE=$(head -1 models/model.id); fi
+    [ -z "$AI_SIZE" ] || printf '%s\n' "$AI_SIZE" > models/model.id
     COMPOSE_ARGS=(--profile ai)
     ok "local AI model ready (sha256 ${AI_SHA:0:12}...); AI stays optional and off until enabled in Settings"
   else
@@ -271,7 +275,7 @@ else
 fi
 
 if [ "${#COMPOSE_ARGS[@]}" -gt 0 ]; then
-  if docker compose exec -T api /bin/tenantctl ai-connect --tenant "$WORKSPACE" >> "$LOG" 2>&1; then
+  if docker compose exec -T api /bin/tenantctl ai-connect --tenant "$WORKSPACE" --model "${AI_SIZE:-qwen3-1.7b}" >> "$LOG" 2>&1; then
     ok "AI assistant connected to the local model (Settings > AI shows it; the first answer is slow while the model loads)"
   else
     warn "could not connect the AI assistant automatically; set it in Settings > AI (base URL http://ai-runtime:8090/v1, model qwen3-1.7b)"
