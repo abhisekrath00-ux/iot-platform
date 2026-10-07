@@ -14,7 +14,10 @@ assistant requests and customer-scoped sessions are refused. Disabled by default
 - `POST /v1/assistant/memory` with `{"title":"Pump label","content":"Pump label is Orchid","retention_days":30}`.
 - `DELETE /v1/assistant/memory/{id}`: delete one of your notes.
 
-No UI yet. Use the authenticated API, not an API key. Do not put passwords, tokens,
+The Assistant page now has private-memory controls: deliberate provider/privacy
+acknowledgement before enabling, explicit save with retention, disable retrieval,
+authenticated JSON export and per-note delete with a separate review step.
+No chat is harvested. Use an interactive session, not an API key. Do not put passwords, tokens,
 other credentials or sensitive third-party data in notes. Notes are explicit text
 saved by you, not a model inference or a copy of chat. Storage uses the existing
 Postgres database, whose disk encryption/backup access remains the operator's job.
@@ -62,7 +65,11 @@ five; unknown term returns no evidence. These are lexical retrieval checks, not 
 accuracy, real-model security tests, representative relevance metrics or a vector-vs-BM25
 benchmark. Corpus freshness test compares embedded docs byte-for-byte.
 
-Still pending: UI, server-managed conversation history, edit/bulk delete, background
+UI tested: React/jsdom consent gate, delete review/cancel, visible backend error and
+UTF-8 byte/retention bounds; full web suite and production build. Rendered UI screenshots
+use fixture API responses, not a real logged-in deployment.
+
+Still pending: server-managed conversation history, edit/bulk delete, background
 expiry and identity-deletion cleanup, encryption-specific design, real-model injection
 and no-answer eval, broader source-quality/semantic retrieval evaluation, durable agent
 run recovery. No real Windows/Docker/hardware or remote CI claim. Vector store choice
