@@ -7,7 +7,7 @@ S="bash scripts/install-ha.sh"; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; fails=0
 ok() { echo "ok   $1"; }; bad() { echo "FAIL $1"; fails=$((fails+1)); }
 expect_fail() { local m="$1"; shift; if "$@" >/dev/null 2>&1; then bad "$m (should have failed)"; else ok "$m"; fi; }
 N=a=10.0.0.11,b=10.0.0.12,c=10.0.0.13
-bash -n $S && ok "bash syntax" || bad "bash syntax"
+bash -n scripts/install-ha.sh && ok "bash syntax" || bad "bash syntax"
 expect_fail "two nodes refused"      $S render --nodes a=10.0.0.11,b=10.0.0.12 --vip 10.0.0.10 --out $T/x1
 expect_fail "four nodes refused"     $S render --nodes a=10.0.0.11,b=10.0.0.12,c=10.0.0.13,d=10.0.0.14 --vip 10.0.0.10 --out $T/x2
 expect_fail "duplicate name refused" $S render --nodes a=10.0.0.11,a=10.0.0.12,c=10.0.0.13 --vip 10.0.0.10 --out $T/x3
