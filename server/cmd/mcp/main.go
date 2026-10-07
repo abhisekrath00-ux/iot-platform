@@ -9,10 +9,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
@@ -96,11 +98,20 @@ func main() {
 
 func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 	var req rpcReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		http.Error(w, "bad json-rpc", 400)
 		return
 	}
 	resp := rpcResp{JSONRPC: "2.0", ID: req.ID}
+	if req.JSONRPC != "2.0" {
+		resp.Error = map[string]any{"code": -32600, "message": "jsonrpc must be 2.0"}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
 	switch req.Method {
 	case "initialize":
 		resp.Result = map[string]any{
@@ -115,7 +126,20 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 			Name      string         `json:"name"`
 			Arguments map[string]any `json:"arguments"`
 		}
-		json.Unmarshal(req.Params, &p)
+		dec := json.NewDecoder(strings.NewReader(string(req.Params)))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&p); err != nil || p.Name == "" || p.Arguments == nil {
+			resp.Error = map[string]any{"code": -32602, "message": "params must contain a tool name and arguments object"}
+			break
+		}
+		if err := dec.Decode(new(any)); err != io.EOF {
+			resp.Error = map[string]any{"code": -32602, "message": "trailing params data"}
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			resp.Error = map[string]any{"code": -32000, "message": "request cancelled"}
+			break
+		}
 		out, err := s.callTool(r, p.Name, p.Arguments)
 		if err != nil {
 			resp.Error = map[string]any{"code": -32000, "message": err.Error()}
