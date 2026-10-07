@@ -12,8 +12,9 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Row groups and subtotals | Partial | Rollup by asset or site with subtotals and grand total. No arbitrary nested groups. |
 | List data region | Not built | |
 | Chart: line, area, bar | Built (HTML) | Inline SVG, opt-in `chart` field, unit-tested edge cases. PDF has a line chart; XLSX/CSV have none. |
-| Chart: pie, scatter, stacked, combo, secondary axis | Not built | |
-| Gauge, indicator | Not built | |
+| Chart: pie, scatter | Partial | Scatter of bucket averages; pie of each bucket's share of the window sum (folds to 7 + other, so it is weak for long windows). Unit-tested and rendered in headless Chrome, HTML only. |
+| Chart: stacked, combo, secondary axis | Not built | |
+| Gauge, indicator | Partial | Half-circle gauge of the latest bucket average across the series min..max (no custom ranges or colour bands). HTML only. |
 | Map | Not built | Needs air-gapped tiles decision. |
 | Report parameters (cascading, multivalue) | Partial | Window, group-by, layout, agg, device via URL parameters. No cascading or multivalue. |
 | Expressions | Partial | KPI expression language for computed columns (arithmetic and point refs only). No functions or conditional formatting. |
