@@ -40,6 +40,7 @@ Across everything: about 444 Go test functions (server 322, edge 122) and 55 web
 | Report row cap (REPORT_MAX_ROWS, HTTP 413) | Built, unit and DB tested | Not load-tested; byte size and PDF/XLSX memory not measured. |
 | Report XML export (`format=xml`) | Built, unit and DB tested | Flat series only; UI button not built or screenshotted (no web deps here). |
 | Per-product parity matrix (docs/parity-matrix.md) | Doc only | Condensed from competitive-gap.md and report-builder-parity.md; no new claims. No product at parity. |
+| Scheduler leader election, two real processes + SIGKILL failover | Built, tested locally | Same host, one Postgres; no partition/frozen-process or multi-host test. |
 | Terminal app `scripts/setup.sh` (animated menu, status, health, logs, backup/restore/upgrade, cluster view, single/multi install) | Built, stub-tested | 30 pseudo-terminal checks against stubbed docker/curl; no real Docker, cluster or Windows run. See docs/terminal-app.md. |
 | Multi-node HA installer (3 nodes: etcd, Patroni sync replication, HAProxy, keepalived VIP) | Partial, never run | Generator tested (`scripts/test-install-ha.sh`); the rendered stack has not been started on any machine and no failover drill has been run. MQTT brokers are not clustered. See docs/ha-multi-node.md. |
 | Report Builder parity: layouts, params, CSV/HTML/PDF/XLSX, schedules, themes, logos, insights, HTML line/area/bar charts | Built / partial | See docs/report-builder-parity.md. No drill-through or subreports, no charts in XLSX, no Word/PowerPoint, no designer surface. |
