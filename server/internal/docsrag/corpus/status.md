@@ -35,6 +35,7 @@ Across everything: about 444 Go test functions (server 322, edge 122) and 55 web
 | KPIs and derived points | Partial | Formulas, history and widgets; no KPI alerting. |
 | Node-RED style flows | Built / partial | Own engine and editor; Node-RED file import is a subset; real Node-RED not embedded; admin-defined custom node types (saved function presets, no SDK or typed parameters). |
 | Function node (sandboxed JS) | Built, unreviewed | Off by default, admin only. |
+| Report charts: scatter, gauge, pie (HTML) | Built, unit-tested | Rendered and inspected in headless Chrome; not in XLSX/PDF exports; no custom gauge ranges/bands. |
 | Terminal app `scripts/setup.sh` (animated menu, status, health, logs, backup/restore/upgrade, cluster view, single/multi install) | Built, stub-tested | 30 pseudo-terminal checks against stubbed docker/curl; no real Docker, cluster or Windows run. See docs/terminal-app.md. |
 | Multi-node HA installer (3 nodes: etcd, Patroni sync replication, HAProxy, keepalived VIP) | Partial, never run | Generator tested (`scripts/test-install-ha.sh`); the rendered stack has not been started on any machine and no failover drill has been run. MQTT brokers are not clustered. See docs/ha-multi-node.md. |
 | Report Builder parity: layouts, params, CSV/HTML/PDF/XLSX, schedules, themes, logos, insights, HTML line/area/bar charts | Built / partial | See docs/report-builder-parity.md. No drill-through or subreports, no charts in XLSX, no Word/PowerPoint, no designer surface. |
