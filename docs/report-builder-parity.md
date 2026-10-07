@@ -23,7 +23,8 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Page layout, headers/footers, themes, logo | Partial | Header/footer text, light/dark, tenant logo. No page size/margin/orientation or page-number tokens. |
 | Subreports, drill-through, bookmarks | Not built | |
 | Export: PDF, XLSX, CSV, HTML | Built | |
-| Export: Word, PowerPoint, XML | Not built | |
+| Export: XML | Partial | `format=xml`: one series per metric with a bucket element per row (well-formed, escaped, non-finite as empty). Flat series only: no matrix or rollup. Unit and DB tested; button added to Reports.tsx but the web build was not run here. |
+| Export: Word, PowerPoint | Not built | |
 | Scheduled delivery | Built | Cron plus notification channel. |
 | Versioning and restore | Built | |
 | Designer: drag-drop surface, wizard, toolbox | Not built | Current UI is a form, not a design surface. |
