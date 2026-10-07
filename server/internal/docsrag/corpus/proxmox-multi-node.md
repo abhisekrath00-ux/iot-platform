@@ -24,6 +24,8 @@ A single VM running the compose file is the right start for a pilot or a small s
 | Everything on Proxmox, LXC/VM choice, HA failover, autoscaling | Not tested. Recommendation only |
 | Postgres HA, broker clustering | Not shipped; deployment-level work |
 
+Installer: `bash scripts/install-ha.sh` renders a 3-node HA layout (see docs/ha-multi-node.md); it is tested as a generator only.
+
 ## Recommended layout for 3 to 4 Proxmox nodes
 
 Use VMs (not LXC) for anything stateful or running Docker, so kernel and storage behaviour is predictable. Run Docker or Podman inside each VM.
