@@ -156,3 +156,12 @@ provider disclosure; expiry-on-access and backup limits remain visible. No chat 
 Tested: full web suite and production build; React interaction tests and fixture API
 render inspection at desktop/mobile widths. Real logged-in browser/API flow and real
 model behavior not run. Backend DB tests from the preceding memory unit remain valid.
+
+## 2026-10-07: assistant action outcome truth
+
+Built: pending claims use executing, success requires stored handler result; conservative
+unknown for 5xx/cancellation-during-effect/lost result. Unknown autorun stops model loop.
+Stale claims displayed unknown after ten minutes, no replay; legacy missing-result rows
+converted. Real Postgres concurrent-claim/failure tests, targeted race tests and full
+server suite passed on fresh local DB. Not durable resumable runs or response replay;
+no real process-kill/partition/distributed/model test. See [action outcomes](assistant-action-outcomes.md).
