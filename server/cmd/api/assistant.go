@@ -57,7 +57,14 @@ func isSmallModel(c aiConfig) bool {
 	case "full":
 		return false
 	}
-	return isLocalRuntime(c.BaseURL)
+	if !isLocalRuntime(c.BaseURL) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Model)) {
+	case "qwen3-4b", "qwen3-8b", "gpt-oss-20b", "gpt-oss-120b":
+		return false
+	}
+	return true
 }
 
 func capOrAuto(c string) string {
@@ -442,18 +449,23 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 	if fb, ok := llm.FallbackFromEnv(cfg); ok {
 		prov = llm.WithFallback{Primary: prov, Secondary: llm.OpenAICompat{Cfg: fb}}
 	}
-	offered := map[string]bool{}
-	for _, t := range toolsFor(cfg) { // every tool stays callable; only the menu shown to the model is short
-		offered[t.Name] = true
-	}
 	seen := map[string]int{} // loop detection: the same call with the same arguments
 	for ; res.calls < maxAgentCalls; res.calls++ {
+		if err := ctx.Err(); err != nil {
+			res.err = err
+			return res
+		}
+		turnTools := toolsForTurn(cfg, msgs)
+		offered := map[string]bool{}
+		for _, tool := range turnTools {
+			offered[tool.Name] = true
+		}
 		var m llm.Message
 		var err error
 		if rc.emit != nil {
-			m, err = prov.ChatStream(ctx, msgs, toolsForTurn(cfg, msgs), func(d string) { rc.emit("delta", d) })
+			m, err = prov.ChatStream(ctx, msgs, turnTools, func(d string) { rc.emit("delta", d) })
 		} else {
-			m, err = prov.Chat(ctx, msgs, toolsForTurn(cfg, msgs))
+			m, err = prov.Chat(ctx, msgs, turnTools)
 		}
 		if err != nil && strings.Contains(err.Error(), "exceeds the available context size") && len(msgs) > 2 {
 			// The conversation no longer fits the model's context: keep the system prompt and the
@@ -468,9 +480,9 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 			if last > 1 {
 				msgs = append([]llm.Message{msgs[0]}, msgs[last:]...)
 				if rc.emit != nil {
-					m, err = prov.ChatStream(ctx, msgs, toolsForTurn(cfg, msgs), func(d string) { rc.emit("delta", d) })
+					m, err = prov.ChatStream(ctx, msgs, turnTools, func(d string) { rc.emit("delta", d) })
 				} else {
-					m, err = prov.Chat(ctx, msgs, toolsForTurn(cfg, msgs))
+					m, err = prov.Chat(ctx, msgs, turnTools)
 				}
 			}
 		}
@@ -500,13 +512,21 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 		if rc.emit != nil && len(m.ToolCalls) > 0 && m.Content != "" {
 			rc.emit("discard", nil) // text streamed before a tool call is narration, not the answer
 		}
+		if len(m.ToolCalls) > maxAgentTools-res.tools {
+			res.trace = append(res.trace, traceStep{"agent", "model returned more calls than remaining tool budget; none of this batch executed", "refused"})
+			res.err = errors.New("model tool-call batch exceeds the remaining run budget")
+			return res
+		}
 		for _, tc := range m.ToolCalls {
 			res.tools++
 			before := len(res.trace)
 			var result string
-			sig := tc.Func.Name + "|" + tc.Func.Arguments
+			sig := canonicalCallSignature(tc)
 			seen[sig]++
-			if seen[sig] > 2 {
+			if err := validateAgentCall(ctx, tc, offered); err != nil {
+				result = mustJSON(map[string]any{"error": err.Error()})
+				res.trace = append(res.trace, traceStep{truncStr(tc.Func.Name, 100), err.Error(), "refused"})
+			} else if seen[sig] > 2 {
 				result = `{"error":"you already made this exact call twice; do not repeat it. Answer with what you have, or say you could not get it"}`
 				res.trace = append(res.trace, traceStep{tc.Func.Name, "repeated call refused", "refused"})
 			} else if res.tools > maxAgentTools {
