@@ -28,9 +28,9 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Export: PowerPoint | Partial | `format=pptx` (PowerPoint button): title slide, per-metric table slides of at most 12 rows (overall row on the last), matrix and summary-grouping slides, highlight shading, 16:9. Standard-library zip, text only, no macros/media/external links; capped at 60 slides with a final "Report truncated" slide. No charts, logo, insights, master/theme branding or speaker notes. Unit-tested (all parts well-formed, escaping, wiring, paging, cap); real file converted by LibreOffice and inspected. Not opened in real PowerPoint. |
 | Scheduled delivery | Built | Cron plus notification channel. |
 | Versioning and restore | Built | |
-| Designer: drag-drop surface, wizard, toolbox | Not built | Current UI is a form, not a design surface. |
+| Designer: drag-drop surface, wizard, toolbox | Partial | Drag points from a palette onto the report and drag rows to reorder metrics (browser-tested with synthetic drag events, not a real mouse drag). No free-form canvas, sections or wizard yet. |
 
-Next units, in order: designer surface, subreports/drill-through, PDF chart types and gauges.
+Next units, in order: designer sections and layout canvas, subreports/drill-through, PDF chart types and gauges.
 
 ## Production grade and scale (user request, 2026-10-07)
 
