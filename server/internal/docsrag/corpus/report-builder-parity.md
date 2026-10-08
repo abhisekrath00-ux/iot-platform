@@ -49,3 +49,4 @@ Rule for every report unit: bounded work per report, no unbounded memory, and a 
 Scheduler leader lock: verified with two real OS processes on one Postgres (exactly one runs the job; SIGKILL of the leader hands over in about 50 ms, 3 of 3 runs, test `TestTwoProcessesAndKillFailover`). Not tested: a network partition or frozen leader (no TCP close; the 5 s watchdog covers connection loss, not a hung job), or processes on separate hosts.
 
 Planned scale units: a load test of report runs against a large seeded telemetry table with measured p95.
+| Emissions (Scope 1 and 2) | Partial | Optional section: quantity x operator-entered factor with printed factor source, Scope 1 / 2 / total, optional intensity (API). No built-in factors, no Scope 3, not a certified BRSR format. See emissions-report.md. Unit-tested and checked with a real API report in six formats. |
