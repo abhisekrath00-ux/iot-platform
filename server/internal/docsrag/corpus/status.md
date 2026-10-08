@@ -211,3 +211,7 @@ Built: `site`, `asset` and `device` report parameters that narrow each other (40
 ## 2026-10-08: Word export
 
 Built: `format=docx` report download and a Word button on the Reports page. Tested: unit tests (all parts well-formed, escaping, page size/orientation, matrix, rollup, empty), tsc, vitest, full server suite; real API downloads converted with LibreOffice to PDF and inspected (landscape, highlight shading, nested summary). Not tested: real Microsoft Word, scheduled email delivery as .docx, charts/logo/insights (not in the file).
+
+## 2026-10-08: PowerPoint export
+
+Built: `format=pptx` report download and a PowerPoint button on the Reports page. Tested: unit tests (well-formed parts, escaping, slide wiring, 12-row paging, 60-slide cap with note, empty), tsc, vitest, full server suite; real API download converted with LibreOffice and inspected (title, paged table slides, highlight shading, overall row). Not tested: real Microsoft PowerPoint, Keynote/Google Slides, charts/logo (not in the deck).
