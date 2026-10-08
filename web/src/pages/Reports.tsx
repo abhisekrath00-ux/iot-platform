@@ -3,7 +3,8 @@ import { api, download } from '../lib/api';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 
 interface Metric { device_id: string; point_id: string; }
-interface ReportDef { detail?: number; metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; chart?: string; page?: string; highlight?: { above?: number; below?: number; when?: string; when_color?: string }; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; }
+interface EmSrc { name: string; scope: number; metric: Metric; mode?: string; unit: string; factor: number; factor_source: string; }
+interface ReportDef { detail?: number; metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; chart?: string; page?: string; highlight?: { above?: number; below?: number; when?: string; when_color?: string }; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; emissions?: EmSrc[]; }
 interface ReportRow { id: string; name: string; customer_id?: string | null; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; version?: number; }
 interface VersionRow { version: number; name: string; definition: ReportDef; schedule_cron: string | null; replaced_by: string; replaced_at: string; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
@@ -34,6 +35,7 @@ export default function Reports() {
   const [detail, setDetail] = useState('');
   const [insights, setInsights] = useState(false);
   const [compare, setCompare] = useState(false);
+  const [emis, setEmis] = useState<{ name: string; scope: string; metric: string; mode: string; unit: string; factor: string; src: string }[]>([]);
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
   const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
   const [pw, setPw] = useState<Record<string, { w?: string; g?: string; d?: string; s?: string; a?: string }>>({});
@@ -66,7 +68,7 @@ export default function Reports() {
 
   const num = (v: string) => (v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
   const highlight = () => { const above = num(hiAbove), below = num(hiBelow), when = hiWhen.trim() || undefined; return above === undefined && below === undefined && !when ? undefined : { above, below, when, when_color: when && hiWhenColor === 'amber' ? 'amber' : undefined }; };
-  const buildDef = () => ({ detail: num(detail) && highlight() ? num(detail) : undefined, metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, chart: chart || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined, page: page || undefined, highlight: highlight() });
+  const buildDef = () => ({ detail: num(detail) && highlight() ? num(detail) : undefined, metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, chart: chart || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, emissions: emis.filter(e => e.name && e.metric).length ? emis.filter(e => e.name && e.metric).map(e => ({ name: e.name, scope: Number(e.scope), metric: { device_id: e.metric.split('|')[0], point_id: e.metric.split('|')[1] }, mode: e.mode === 'delta' ? 'delta' : undefined, unit: e.unit, factor: Number(e.factor), factor_source: e.src })) : undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined, page: page || undefined, highlight: highlight() });
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -103,6 +105,7 @@ export default function Reports() {
     setEditingId(r.id); setName(r.name); setMetrics(d.metrics.length ? d.metrics : [{ device_id: '', point_id: '' }]);
     setWindowHours(d.window_hours); setGroupBy(d.group_by); setLayout(d.layout ?? ''); setAgg(d.agg ?? 'avg'); setRollup(d.rollup ?? '');
     setDetail(d.detail ? String(d.detail) : ''); setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setTheme(d.theme ?? 'light'); setChart(d.chart ?? ''); setPage(d.page ?? ''); setHiAbove(d.highlight?.above != null ? String(d.highlight.above) : ''); setHiBelow(d.highlight?.below != null ? String(d.highlight.below) : ''); setHiWhen(d.highlight?.when ?? ''); setHiWhenColor(d.highlight?.when_color ?? 'red'); setInsights(!!d.insights); setCompare(!!d.compare); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
+    setEmis((d.emissions ?? []).map(e => ({ name: e.name, scope: String(e.scope), metric: `${e.metric.device_id}|${e.metric.point_id}`, mode: e.mode ?? 'sum', unit: e.unit, factor: String(e.factor), src: e.factor_source })));
     setMsg(''); window.scrollTo({ top: 0 });
   }
   function cancelEdit() { setEditingId(''); setName(''); setCron(''); setMsg(''); }
@@ -227,6 +230,27 @@ export default function Reports() {
               </div>))}
             {computed.length < 5 && <button type="button" className="ghost" onClick={() => setComputed([...computed, { name: '', expr: '' }])}>Add computed column</button>}
           </div>}
+          <div>
+            <label>Emissions, Scope 1 and 2 (optional). Pick a point above, then enter YOUR emission factor and where it comes from. The platform supplies no factors, and this is a calculation aid, not a certified BRSR report.</label>
+            {emis.map((e, i) => {
+              const set = (p: Partial<typeof e>) => setEmis(emis.map((x, j) => j === i ? { ...x, ...p } : x));
+              return (
+                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                  <input placeholder="Source, e.g. Grid electricity" aria-label={`Emission source name ${i + 1}`} value={e.name} onChange={ev => set({ name: ev.target.value })} style={{ flex: '1 1 180px' }} />
+                  <select aria-label={`Emission scope ${i + 1}`} value={e.scope} onChange={ev => set({ scope: ev.target.value })}><option value="2">Scope 2 (electricity)</option><option value="1">Scope 1 (fuel, process)</option></select>
+                  <select aria-label={`Emission point ${i + 1}`} value={e.metric} onChange={ev => set({ metric: ev.target.value })}>
+                    <option value="">Point...</option>
+                    {metrics.filter(m => m.device_id && m.point_id).map(m => <option key={`${m.device_id}|${m.point_id}`} value={`${m.device_id}|${m.point_id}`}>{m.device_id} / {m.point_id}</option>)}
+                  </select>
+                  <select aria-label={`Emission reading type ${i + 1}`} value={e.mode} onChange={ev => set({ mode: ev.target.value })}><option value="sum">Readings are amounts (add up)</option><option value="delta">Readings are a running counter (last minus first)</option></select>
+                  <input placeholder="Unit (kWh, L...)" aria-label={`Emission unit ${i + 1}`} value={e.unit} onChange={ev => set({ unit: ev.target.value })} style={{ width: 110 }} />
+                  <input type="number" step="any" min={0} placeholder="kg CO2e per unit" aria-label={`Emission factor ${i + 1}`} value={e.factor} onChange={ev => set({ factor: ev.target.value })} style={{ width: 190 }} />
+                  <input placeholder="Factor source, e.g. publication and year" maxLength={120} aria-label={`Emission factor source ${i + 1}`} value={e.src} onChange={ev => set({ src: ev.target.value })} style={{ flex: '1 1 240px' }} />
+                  <button type="button" className="ghost" onClick={() => setEmis(emis.filter((_, j) => j !== i))}>Remove</button>
+                </div>);
+            })}
+            {emis.length < 20 && <button type="button" className="ghost" onClick={() => setEmis([...emis, { name: '', scope: '2', metric: '', mode: 'sum', unit: 'kWh', factor: '', src: '' }])}>Add emission source</button>}
+          </div>
           <label>Schedule (5-field cron, empty = on demand)</label>
           <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
             {[['', 'On demand'], ['0 8 * * *', 'Daily 8:00'], ['0 8 * * 1', 'Mondays 8:00'], ['0 8 1 * *', 'Monthly 1st 8:00']].map(([c, l]) => (
