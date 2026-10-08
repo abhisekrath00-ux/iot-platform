@@ -225,3 +225,7 @@ Updated docs/try-and-upgrade.md with the Windows PowerShell menu entry (untested
 ## 2026-10-08: One-command prerequisite check and install
 
 `scripts/prereq.sh` and `scripts/prereq.ps1`, called by `get.sh` / `get.ps1` before the installer. Skips what is present, asks once, installs only what is missing (Docker Engine on Linux; WSL2 and Docker Desktop on Windows), handles admin elevation and restart-needed. Tested: `scripts/test-prereq.sh` (11 checks, fake docker/sudo/curl) and `scripts/test-prereq.ps1` (9 decision-logic checks, PowerShell 7 on Linux). Not tested: real Windows, real distributions, macOS, the real Docker install script.
+
+## 2026-10-08: First-run credentials
+
+Default admin login with forced change (server-enforced), hashed storage, no credentials file. See docs/first-run-credentials.md. Real Windows installer and a real Docker image of this build are untested.
