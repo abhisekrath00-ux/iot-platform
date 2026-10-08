@@ -125,14 +125,7 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 			rows := series[m]
 			var cs [][]cell
 			for _, k := range rows {
-				fill := ""
-				if h := d.Highlight; h != nil {
-					if h.Above != nil && k.Avg > *h.Above {
-						fill = "FECACA"
-					} else if h.Below != nil && k.Avg < *h.Below {
-						fill = "FDE68A"
-					}
-				}
+				fill := d.Highlight.fill(k)
 				cs = append(cs, []cell{{text: k.Start.UTC().Format("2006-01-02 15:04")}, {text: fmt.Sprintf("%.3f", k.Avg), fill: fill},
 					{text: fmt.Sprintf("%.3f", k.Min)}, {text: fmt.Sprintf("%.3f", k.Max)}, {text: fmt.Sprintf("%.3f", k.Sum)}, {text: fmt.Sprint(k.Count)}})
 			}
