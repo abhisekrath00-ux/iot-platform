@@ -229,3 +229,7 @@ Updated docs/try-and-upgrade.md with the Windows PowerShell menu entry (untested
 ## 2026-10-08: First-run credentials
 
 Default admin login with forced change (server-enforced), hashed storage, no credentials file. See docs/first-run-credentials.md. Real Windows installer and a real Docker image of this build are untested.
+
+## 2026-10-08: Conditional formatting from expressions
+
+Highlight `when` expression over a bucket (HTML, Word, PowerPoint). Tested: unit tests (rules, precedence, validation), real API: saved, HTML download shaded, bad reference rejected; UI field screenshot. Not tested: matrix/PDF/XLSX (not supported), opening Word/PowerPoint output in Office.
