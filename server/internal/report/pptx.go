@@ -168,6 +168,16 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 			}
 		}
 	}
+	for _, sc := range d.Sections {
+		if !ok {
+			break
+		}
+		var ns [][]cell
+		for _, p := range sectionParas(sc.Body) {
+			ns = append(ns, plain([]string{p}))
+		}
+		ok = paged(strings.TrimSpace(sc.Title), []string{"note"}, ns, false)
+	}
 	if ok && len(d.Emissions) > 0 {
 		er := BuildEmissions(d, series)
 		var cs [][]cell
