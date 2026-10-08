@@ -306,6 +306,14 @@ func SendOne(ctx context.Context, n Notifier, typ, target, severity, msg, event 
 		} else {
 			err = errUnsupported
 		}
+	case "whatsapp":
+		if b, ok := n.(interface {
+			WhatsApp(context.Context, string, string) error
+		}); ok {
+			err = b.WhatsApp(cctx, target, "[HexThings "+severity+"] "+msg)
+		} else {
+			err = errUnsupported
+		}
 	case "amqp":
 		if b, ok := n.(interface {
 			AMQP(context.Context, string, string, map[string]any) error
