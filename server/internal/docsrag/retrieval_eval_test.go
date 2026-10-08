@@ -16,6 +16,8 @@ func TestRetrievalReliabilitySourceRecall(t *testing.T) {
 		{"Modbus register map CSV import", "register-maps.md"},
 		{"air gapped bundle internet", "airgap.md"},
 		{"SAML identity provider single sign on", "sso-saml.md"},
+		{"highlight rule formula row avg max if and or not", "report-expressions.md"},
+		{"clamp sqrt round expression function list", "report-expressions.md"},
 		{"firmware staged rollout rollback", "fleet.md"},
 	}
 	for _, c := range cases {
