@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/cfgpush"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/claim"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/cmdexec"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
@@ -206,6 +207,9 @@ func main() {
 		return
 	}
 
+	if pre := cfgpush.New(config.ManagedPath(), nil, "", "", true).Preflight(time.Now()); pre != nil {
+		log.Printf("managed devices: %s (%s)", pre.State, pre.Detail)
+	}
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		log.Fatalf("config: %v", err)
@@ -259,6 +263,30 @@ func main() {
 	// siren still sounds if the server or network is gone (also at boot).
 	rulesEng := startLocalRules(ctx, cfg, *cfgPath, *identityDir, func() bool { c := mcp.Load(); return c != nil && c.Connected() })
 	_ = rulesEng
+
+	// Probation watchdog for server-pushed device templates: if the agent never reaches the broker within
+	// the probation window after a push, the previous list is restored and the agent restarts.
+	if cfg.ManagedDevices {
+		wd := cfgpush.New(config.ManagedPath(), nil, cfg.TenantID, cfg.Serial, true)
+		go func() {
+			t := time.NewTicker(20 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case now := <-t.C:
+					c := mcp.Load()
+					if res, restart := wd.Settle(c != nil && c.Connected(), now); res != nil {
+						log.Printf("managed devices: %s %s", res.State, res.Detail)
+						if restart {
+							stop()
+						}
+					}
+				}
+			}
+		}()
+	}
 
 	telemetryTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/telemetry"
 	diagTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/diag"
@@ -366,6 +394,36 @@ func main() {
 			}
 		}); err != nil {
 			log.Printf("ops subscribe: %v", err)
+		}
+
+		// Server-pushed device templates (device list only), signed, with probation and rollback. See cfgpush.
+		pushKey := fleetctl.TrustedKey
+		pushCtl := cfgpush.New(config.ManagedPath(), pushKey, cfg.TenantID, cfg.Serial, cfg.ManagedDevices)
+		pushTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/config"
+		pubPush := func(res cfgpush.Result) {
+			b, _ := json.Marshal(res)
+			if err := mc.Publish(pushTopic+"/result", b); err != nil {
+				log.Printf("config push %s: result publish: %v", res.PushID, err)
+			}
+		}
+		if cfg.ManagedDevices {
+			if res, _ := pushCtl.Settle(true, time.Now()); res != nil {
+				pubPush(*res)
+			}
+		}
+		if err := mc.Subscribe(pushTopic, func(_ mqtt.Client, m mqtt.Message) {
+			res := pushCtl.Apply(m.Payload(), time.Now())
+			log.Printf("config push %s v%d: %s %s", res.PushID, res.Version, res.State, res.Detail)
+			pubPush(res)
+			if res.State == "applied" {
+				go func() {
+					time.Sleep(2 * time.Second)
+					log.Printf("config push: restarting to use the new device list")
+					stop()
+				}()
+			}
+		}); err != nil {
+			log.Printf("config push subscribe: %v", err)
 		}
 
 		// Commissioning probes: read-only port tests, answered on diag/result.
