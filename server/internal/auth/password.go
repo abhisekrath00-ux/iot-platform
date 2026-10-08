@@ -21,6 +21,13 @@ const (
 	MaxPasswordLen   = 128
 )
 
+// The documented first-run login seeded by the installer on a fresh install. It is public knowledge, so the server
+// forces it to be replaced before anything else works, and neither value may be chosen again.
+const (
+	DefaultAdminEmail    = "admin@hexthings.com"
+	DefaultAdminPassword = "Hex@2026"
+)
+
 var ErrWeakPassword = errors.New("password must be 12 to 128 characters and not your email address")
 
 // CheckPasswordPolicy enforces length and the obvious bad choice. It does not try to guess entropy.
