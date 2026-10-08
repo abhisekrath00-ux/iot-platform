@@ -324,11 +324,15 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 		put("", false)
 	}
 	if rr := BuildRollup(d, series); d.Rollup != "" {
-		put("Summary by "+d.Rollup, true)
+		put("Summary by "+RollupTitle(d), true)
 		if len(rr) == 0 {
 			put("no data in window", false)
 		} else {
-			rh := fmt.Sprintf("%-20s %-12s %4s %8s %10s %10s %10s %12s", d.Rollup, "point", "dev", "samples", "avg", "min", "max", "sum")
+			gw := 20 // group column width; nested rollups need room for "Outer / Inner"
+			if strings.Contains(d.Rollup, ">") {
+				gw = 25
+			}
+			rh := fmt.Sprintf("%-*s %-12s %4s %8s %10s %10s %10s %12s", gw, RollupTitle(d), "point", "dev", "samples", "avg", "min", "max", "sum")
 			put(rh, true)
 			for _, r := range rr {
 				if len(cur) >= perPage {
@@ -336,14 +340,14 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 					put(rh, true)
 				}
 				g := r.Group
-				if len(g) > 20 {
-					g = g[:20]
+				if len(g) > gw {
+					g = g[:gw]
 				}
 				p := r.Point
 				if len(p) > 12 {
 					p = p[:12]
 				}
-				put(fmt.Sprintf("%-20s %-12s %4d %8d %10.3f %10.3f %10.3f %12.3f", g, p, r.Devices, r.Samples, r.Avg, r.Min, r.Max, r.Sum), r.Group == TotalLabel)
+				put(fmt.Sprintf("%-*s %-12s %4d %8d %10.3f %10.3f %10.3f %12.3f", gw, g, p, r.Devices, r.Samples, r.Avg, r.Min, r.Max, r.Sum), r.Group == TotalLabel)
 			}
 			put("Each row totals one point across the devices of one group; points are never added to each other.", false)
 		}
