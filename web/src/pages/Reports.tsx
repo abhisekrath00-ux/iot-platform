@@ -150,7 +150,7 @@ export default function Reports() {
           </select>
           <label>Summary by</label>
           <select value={rollup} onChange={e => setRollup(e.target.value)} aria-label="Summary grouping">
-            <option value="">No summary</option><option value="asset">Asset (subtotal per asset and point, plus totals)</option><option value="site">Site (subtotal per site and point, plus totals)</option>
+            <option value="">No summary</option><option value="asset">Asset (subtotal per asset and point, plus totals)</option><option value="site">Site (subtotal per site and point, plus totals)</option><option value="site>asset">Site, then asset inside each site (nested subtotals)</option><option value="asset>site">Asset, then site inside each asset (nested subtotals)</option>
           </select>
           <label><input type="checkbox" checked={insights} onChange={e => { setInsights(e.target.checked); if (!e.target.checked) setCompare(false); }} style={{ width: 'auto' }} /> Add an insights section (trend, peak, unusual buckets)</label>
           <label><input type="checkbox" checked={compare} disabled={!insights || windowHours > 24 * 45} onChange={e => setCompare(e.target.checked)} style={{ width: 'auto' }} /> Compare with the previous window (windows up to 45 days)</label>
