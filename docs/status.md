@@ -221,3 +221,7 @@ Built: `format=pptx` report download and a PowerPoint button on the Reports page
 Added docs/try-and-upgrade.md (Windows PowerShell steps to check the latest build and update an old install). PowerShell scripts remain untested on real Windows.
 
 Updated docs/try-and-upgrade.md with the Windows PowerShell menu entry (untested on real Windows).
+
+## 2026-10-08: One-command prerequisite check and install
+
+`scripts/prereq.sh` and `scripts/prereq.ps1`, called by `get.sh` / `get.ps1` before the installer. Skips what is present, asks once, installs only what is missing (Docker Engine on Linux; WSL2 and Docker Desktop on Windows), handles admin elevation and restart-needed. Tested: `scripts/test-prereq.sh` (11 checks, fake docker/sudo/curl) and `scripts/test-prereq.ps1` (9 decision-logic checks, PowerShell 7 on Linux). Not tested: real Windows, real distributions, macOS, the real Docker install script.
