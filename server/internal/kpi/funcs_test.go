@@ -37,3 +37,32 @@ func TestFunctions(t *testing.T) {
 		}
 	}
 }
+
+func TestIf(t *testing.T) {
+	vals := map[string]float64{"d.a": 5, "d.z": 0}
+	ok := map[string]float64{
+		"if({d.a} > 3, 1, 2)": 1, "if({d.a} < 3, 1, 2)": 2, "if({d.a} >= 5, 10, 20)": 10, "if({d.a} <= 4, 10, 20)": 20,
+		"if({d.a} == 5, 1, 0)": 1, "if({d.a} != 5, 1, 0)": 0, "if({d.z} == 0, 0, 1 / {d.z})": 0,
+		"if(1 + 1 > 1, max(1,2), 0) * 3": 6, "if({d.a} > 1, if({d.a} > 4, 7, 8), 9)": 7,
+	}
+	for src, want := range ok {
+		e, err := Parse(src)
+		if err != nil {
+			t.Fatalf("%s: %v", src, err)
+		}
+		got, err := e.Eval(vals)
+		if err != nil || got != want {
+			t.Fatalf("%s = %v, %v; want %v", src, got, err, want)
+		}
+	}
+	for _, bad := range []string{"if(1, 2, 3)", "if(1 > 2, 3)", "if(1 > 2, 3, 4, 5)", "if 1 > 2, 3, 4", "if(1 > 2 > 3, 1, 2)", "if(1 = 2, 3, 4)", "if(1 > 2, 3, 4"} {
+		if _, err := Parse(bad); err == nil {
+			t.Fatalf("accepted %q", bad)
+		}
+	}
+	if e, _ := Parse("if({d.a} > 1, 1 / 0, 2)"); e != nil {
+		if _, err := e.Eval(vals); err == nil {
+			t.Fatal("taken branch must still report division by zero")
+		}
+	}
+}
