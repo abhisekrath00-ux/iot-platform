@@ -286,4 +286,4 @@ Line, area, bar and scatter charts now appear in .docx and .pptx (PowerPoint get
 
 ## 2026-10-08: device templates pushed to edge boxes (user, 11:16 PM: "edge templates")
 
-Server-managed, signed, versioned push of the device list with edge-side checks, 3-minute probation and automatic rollback. API only so far (no UI yet). See docs/device-templates.md. Edge binary 13.3 MB stripped, idle 12 MB RSS. Tested with fakes and unit tests; NOT tested on a real broker, real box or real devices. Migration 0073.
+Server-managed, signed, versioned push of the device list with edge-side checks, 3-minute probation and automatic rollback. API plus a Device templates card on Fleet updates (screenshot with seeded rows). See docs/device-templates.md. Edge binary 13.3 MB stripped, idle 12 MB RSS. Tested with fakes and unit tests; NOT tested on a real broker, real box or real devices. Migration 0073.
