@@ -207,3 +207,7 @@ group names (truncated to 25 chars in PDF).
 ## 2026-10-08: cascading report parameters
 
 Built: `site`, `asset` and `device` report parameters that narrow each other (400 on a choice outside the level above), `GET /v1/reports/options` feeding three linked pickers on the Reports page. Tested: unit table (11 cases), real-Postgres run (3 levels, 5 rejected forms incl. injection-shaped input, cross-tenant options and downloads), tsc; real API + headless Chrome checked that picking a site narrows the asset and device lists. Not tested: mobile width, Firefox/Safari, more than 5000 devices (options list is capped), customer-scoped users get 403 by design.
+
+## 2026-10-08: Word export
+
+Built: `format=docx` report download and a Word button on the Reports page. Tested: unit tests (all parts well-formed, escaping, page size/orientation, matrix, rollup, empty), tsc, vitest, full server suite; real API downloads converted with LibreOffice to PDF and inspected (landscape, highlight shading, nested summary). Not tested: real Microsoft Word, scheduled email delivery as .docx, charts/logo/insights (not in the file).
