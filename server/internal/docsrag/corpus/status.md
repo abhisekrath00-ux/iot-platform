@@ -237,3 +237,7 @@ Highlight `when` expression over a bucket (HTML, Word, PowerPoint). Tested: unit
 ## 2026-10-08: Assistant formula and report tools
 
 New docs/report-expressions.md (grammar, functions, if/and/or/not, `{row.*}`, examples), indexed for the assistant. New read tool `check_formula` (GET /v1/reports/check-formula, stores nothing) and confirmed write tool `create_report` (POST /v1/reports/simple, one metric plus optional highlight rule, admin/operator only, rule validated server side on save). Tested: policy/tool-list guards, API test (valid rules pass, bad syntax/unknown function/unknown row field refused, row fields refused in KPIs, viewer refused), retrieval eval cases. Untested: a real language model choosing these tools and writing correct formulas; no model eval has been run. Update of an existing report by the assistant is not built (done in the Reports page).
+
+## 2026-10-08: Report designer first slice
+
+Reports page has a palette of device points and a drop zone: drag a point onto the report (or click it), drag the :: handle to reorder metrics. Duplicates are ignored. Tested in a real browser (headless Chrome, dispatched drag events: two drops added two metrics, a repeated drop was ignored, reorder swapped them), screenshot inspected. Untested: a real mouse or touch drag on a physical device. Still not built: free-form canvas, sections, wizard, and a toolbox of report items.
