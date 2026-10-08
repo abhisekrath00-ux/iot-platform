@@ -295,3 +295,7 @@ Checked 19 pages at phone (390 px) and tablet (820 px) width in headless Chrome:
 ## 2026-10-09: production-readiness update
 
 docs/pilot-readiness.md now has a dated tested / not-tested summary and verdict (supervised pilot: yes; unattended production: no). Stale "CI has not run" line replaced.
+
+## 2026-10-09: report text sections (first designer-sections slice; user 10:16 PM "work on those")
+
+Up to 10 titled plain-text notes per report, printed after the data (before emissions) in HTML, CSV, Excel, PDF, Word and PowerPoint, with a form on the Reports page. Plain text, escaped everywhere, CSV formula-safe. Not the XML export. Not a canvas, not block ordering, not subreports. Tested: validation, all six formats incl. matrix layout, real PDF and PowerPoint output read back, form screenshot. NOT tested: Microsoft Office.
