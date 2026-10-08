@@ -43,6 +43,10 @@ export default function Reports() {
   const [channelId, setChannelId] = useState('');
   const [msg, setMsg] = useState('');
   const [points, setPoints] = useState<PointRow[]>([]);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dropOver, setDropOver] = useState(false);
+  const addMetric = (device_id: string, point_id: string) => setMetrics(ms => (ms.length === 1 && !ms[0].device_id ? [{ device_id, point_id }] : ms.some(m => m.device_id === device_id && m.point_id === point_id) ? ms : [...ms, { device_id, point_id }]));
+  const reorder = (from: number, to: number) => setMetrics(ms => { if (from === to || from < 0 || to < 0 || from >= ms.length || to >= ms.length) return ms; const n = [...ms]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; });
   const [previewHTML, setPreviewHTML] = useState('');
   const [previewRows, setPreviewRows] = useState(0);
 
@@ -130,9 +134,30 @@ export default function Reports() {
         <form onSubmit={submit}>
           <label>Name</label>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Weekly energy summary" required />
-          <label>Metrics</label>
+          <label>Design surface</label>
+          <div data-testid="palette" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+            {points.map(p => (
+              <span key={`${p.device_id}|${p.point_id}`} draggable className="ghost" title="Drag onto the report, or click to add"
+                onDragStart={e => { e.dataTransfer.setData('text/hx-point', `${p.device_id}|${p.point_id}`); e.dataTransfer.effectAllowed = 'copy'; }}
+                onClick={() => addMetric(p.device_id, p.point_id)}
+                style={{ cursor: 'grab', border: '1px solid var(--border, #444)', borderRadius: 6, padding: '2px 8px', fontSize: 12 }}>
+                {p.device_name} / {p.point_id}
+              </span>
+            ))}
+          </div>
+          <div data-testid="dropzone"
+            onDragOver={e => { if (e.dataTransfer.types.includes('text/hx-point')) { e.preventDefault(); setDropOver(true); } }}
+            onDragLeave={() => setDropOver(false)}
+            onDrop={e => { setDropOver(false); const v = e.dataTransfer.getData('text/hx-point'); if (v) { e.preventDefault(); const [d, pt] = v.split('|'); addMetric(d, pt); } }}
+            style={{ border: `2px dashed ${dropOver ? '#4c8dff' : 'var(--border, #444)'}`, borderRadius: 8, padding: 8, marginBottom: 8 }}>
+          <label>Metrics (drag a point here; drag a row's handle to reorder)</label>
           {metrics.map((m, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+            <div key={i} draggable={dragFrom === i}
+              onDragOver={e => { if (dragFrom !== null) e.preventDefault(); }}
+              onDrop={e => { if (dragFrom !== null) { e.preventDefault(); e.stopPropagation(); reorder(dragFrom, i); setDragFrom(null); } }}
+              style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+              <span role="button" aria-label={`Drag metric ${i + 1}`} title="Drag to reorder" style={{ cursor: 'grab', userSelect: 'none', alignSelf: 'center' }}
+                onMouseDown={() => setDragFrom(i)} onMouseUp={() => setDragFrom(null)}>::</span>
               <select value={m.device_id && m.point_id ? `${m.device_id}|${m.point_id}` : ''} required
                 onChange={e => { const [d, p] = e.target.value.split('|'); setMetrics(ms => ms.map((x, j) => (j === i ? { device_id: d, point_id: p } : x))); }}>
                 <option value="">Choose a device point...</option>
@@ -143,6 +168,7 @@ export default function Reports() {
           ))}
           {points.length === 0 && <p className="muted">No device points yet. Onboard a device first.</p>}
           <button type="button" className="ghost" onClick={() => setMetrics(ms => [...ms, { device_id: '', point_id: '' }])}>+ metric</button>
+          </div>
           <label>Window</label>
           <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
             {[[24, 'Last 24h'], [168, '7 days'], [720, '30 days'], [2160, '90 days']].map(([h, l]) => (
