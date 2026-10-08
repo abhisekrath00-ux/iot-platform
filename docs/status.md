@@ -177,3 +177,12 @@ Stale claims displayed unknown after ten minutes, no replay; legacy missing-resu
 converted. Real Postgres concurrent-claim/failure tests, targeted race tests and full
 server suite passed on fresh local DB. Not durable resumable runs or response replay;
 no real process-kill/partition/distributed/model test. See [action outcomes](assistant-action-outcomes.md).
+
+## 2026-10-08: report UI controls
+
+Built: Reports page controls for PDF page size, highlight above/below, and chart type (now
+including scatter, gauge, pie); definitions load back into the form when editing. Tested:
+`tsc -b`; vitest 85/85; real API plus Vite dev server, headless Chrome filled the form, created a report,
+stored definition checked (page a4-landscape, chart gauge, highlight 80/50), downloaded PDF
+(842x595 pt), HTML (highlight colours, one SVG) and XLSX. Screenshots inspected. Not run:
+real-browser file-download dialog, mobile width, Safari/Firefox.
