@@ -245,3 +245,7 @@ Reports page has a palette of device points and a drop zone: drag a point onto t
 ## 2026-10-08: Report drill-through
 
 `detail` (1 to 20) on a report with a highlight rule: each highlighted bucket (first 10 per metric) gets a collapsible list of its highest raw readings in the HTML report. UI field "Drill-through readings". Tested: unit tests (validation, only highlighted buckets get a list, off by default), API tests on real Postgres (preview shows readings, off by default, 99 refused, another tenant's device leaks nothing), real API run on seeded data with screenshot inspected. Limits: HTML only; readings come from raw telemetry, so buckets already purged to rollups show no list; bucket times follow the database session timezone as before. Not built: subreports, links between reports, bookmarks.
+
+## 2026-10-08: PDF chart types and gauges
+
+The PDF now follows the report's `chart` setting: bar, area, scatter, gauge and pie join the line chart (vector drawing, no images or fonts added). The default and explicit "line" output is byte-identical to before. Tested: unit test (each type is a valid PDF and differs from the others; empty, single, NaN and infinite buckets do not panic), existing PDF tests unchanged; all five rendered with pdftoppm and the image inspected. Untested: other PDF viewers (Acrobat, browsers). Limits: first 4 metrics, one chart per metric, no axis labels beyond min, max and first/last time, pie folds to 7 slices plus "other".
