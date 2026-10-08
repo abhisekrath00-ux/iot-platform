@@ -275,3 +275,7 @@ CI note (2026-10-08 evening): the remote-maintenance publish was done file by fi
 ## 2026-10-08: multiple AI providers with ordered backups (user, 9:02 PM: "Its about multiple ai providers")
 
 Saved providers already existed; now up to 3 can be set as ordered backups that the assistant fails over to on outage, bad key, 429 or 5xx, with a 60 s skip for a failing one. Provider presets for OpenAI, Anthropic (compatibility layer), Gemini and OpenRouter fill the base URL. See docs/assistant.md. Migration 0072. Tested with fakes only; no real provider accounts were used.
+
+## 2026-10-08: emissions section (BRSR-style Scope 1 and 2) in reports (user-approved 8:07 PM, from the tor.ai gap check)
+
+Optional report section: metered quantity x operator-entered factor = tCO2e, per source, with Scope 1, Scope 2 and total, optional intensity. No factors are built in (the operator enters each factor and its source, both printed). Not a certified BRSR filing; says so in every format. See docs/emissions-report.md. Tested: maths with made-up factors, validation, all six formats, a real API report with seeded readings, PDF and form screenshots. NOT tested: real meters, real factors, regulator template, Microsoft Office rendering.
