@@ -5,7 +5,9 @@
 //	expr   = term { ("+" | "-") term }
 //	term   = factor { ("*" | "/") factor }
 //	factor = number | "{" device "." point "}" | "(" expr ")" | "-" factor | call
-//	cond   = "if" "(" expr cmp expr "," expr "," expr ")"   cmp: > < >= <= == !=  (a call, only inside if)
+//	cond   = "if" "(" test "," expr "," expr ")"
+//	test   = and-test { "or" and-test };  and-test = not-test { "and" not-test };  not-test = "not" not-test | "(" test ")" | expr cmp expr
+//	cmp: > < >= <= == !=  (conditions only exist inside if; and/or short-circuit)
 //	call   = name "(" expr { "," expr } ")"   name: abs round sqrt min max clamp (fixed list)
 package kpi
 
@@ -122,34 +124,76 @@ func (c call) eval(v map[string]float64) (float64, error) {
 	return funcs[c.name].fn(args)
 }
 
-type cond struct {
-	op            string
-	l, r, yes, no node
+// test is a boolean condition: a comparison, or and/or/not over conditions.
+type test interface {
+	holds(map[string]float64) (bool, error)
 }
 
-func (c cond) eval(v map[string]float64) (float64, error) {
+type cmpTest struct {
+	op   string
+	l, r node
+}
+
+func (c cmpTest) holds(v map[string]float64) (bool, error) {
 	l, err := c.l.eval(v)
 	if err != nil {
-		return 0, err
+		return false, err
 	}
 	r, err := c.r.eval(v)
 	if err != nil {
-		return 0, err
+		return false, err
 	}
-	var t bool
 	switch c.op {
 	case ">":
-		t = l > r
+		return l > r, nil
 	case "<":
-		t = l < r
+		return l < r, nil
 	case ">=":
-		t = l >= r
+		return l >= r, nil
 	case "<=":
-		t = l <= r
+		return l <= r, nil
 	case "==":
-		t = l == r
-	default:
-		t = l != r
+		return l == r, nil
+	}
+	return l != r, nil
+}
+
+// logicTest is "and", "or" or "not" (only l set). and/or short-circuit, so
+// `{x} != 0 and 1 / {x} > 2` never divides by zero.
+type logicTest struct {
+	op   string
+	l, r test
+}
+
+func (t logicTest) holds(v map[string]float64) (bool, error) {
+	a, err := t.l.holds(v)
+	if err != nil {
+		return false, err
+	}
+	switch t.op {
+	case "not":
+		return !a, nil
+	case "and":
+		if !a {
+			return false, nil
+		}
+	case "or":
+		if a {
+			return true, nil
+		}
+	}
+	return t.r.holds(v)
+}
+
+type cond struct {
+	t       test
+	yes, no node
+}
+
+func (c cond) eval(v map[string]float64) (float64, error) {
+	t, err := c.t.holds(v)
+	if err != nil {
+		return 0, err
 	}
 	if t { // only the chosen branch is evaluated, so the other may divide by zero safely
 		return c.yes.eval(v)
@@ -329,7 +373,21 @@ func (p *parser) factor() (node, error) {
 	}
 }
 
-func (p *parser) ifCall() (node, error) {
+// word consumes a keyword at the cursor when it is followed by a non-identifier character.
+func (p *parser) word(w string) bool {
+	p.ws()
+	if !strings.HasPrefix(p.s[p.i:], w) {
+		return false
+	}
+	j := p.i + len(w)
+	if j < len(p.s) && (p.s[j] >= 'a' && p.s[j] <= 'z' || p.s[j] >= '0' && p.s[j] <= '9' || p.s[j] == '_') {
+		return false
+	}
+	p.i = j
+	return true
+}
+
+func (p *parser) cmp() (test, error) {
 	l, err := p.expr()
 	if err != nil {
 		return nil, err
@@ -350,6 +408,78 @@ func (p *parser) ifCall() (node, error) {
 	if err != nil {
 		return nil, err
 	}
+	return cmpTest{op, l, r}, nil
+}
+
+func (p *parser) notTest() (test, error) {
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > maxDeep {
+		return nil, errors.New("expression nested too deeply")
+	}
+	if p.word("not") {
+		x, err := p.notTest()
+		if err != nil {
+			return nil, err
+		}
+		return logicTest{op: "not", l: x}, nil
+	}
+	p.ws()
+	start := p.i
+	t, err := p.cmp()
+	if err == nil {
+		return t, nil
+	}
+	// "(" may open a grouped condition rather than an arithmetic group.
+	if start < len(p.s) && p.s[start] == '(' {
+		p.i = start + 1
+		g, gerr := p.orTest()
+		if gerr == nil {
+			p.ws()
+			if p.i < len(p.s) && p.s[p.i] == ')' {
+				p.i++
+				return g, nil
+			}
+		}
+	}
+	return nil, err
+}
+
+func (p *parser) andTest() (test, error) {
+	l, err := p.notTest()
+	if err != nil {
+		return nil, err
+	}
+	for p.word("and") {
+		r, err := p.notTest()
+		if err != nil {
+			return nil, err
+		}
+		l = logicTest{"and", l, r}
+	}
+	return l, nil
+}
+
+func (p *parser) orTest() (test, error) {
+	l, err := p.andTest()
+	if err != nil {
+		return nil, err
+	}
+	for p.word("or") {
+		r, err := p.andTest()
+		if err != nil {
+			return nil, err
+		}
+		l = logicTest{"or", l, r}
+	}
+	return l, nil
+}
+
+func (p *parser) ifCall() (node, error) {
+	t, err := p.orTest()
+	if err != nil {
+		return nil, err
+	}
 	var parts [2]node
 	for i := range parts {
 		p.ws()
@@ -366,7 +496,7 @@ func (p *parser) ifCall() (node, error) {
 		return nil, errors.New("missing ) after if arguments")
 	}
 	p.i++
-	return cond{op, l, r, parts[0], parts[1]}, nil
+	return cond{t, parts[0], parts[1]}, nil
 }
 
 // validIdent allows the characters device and point ids use in practice.
