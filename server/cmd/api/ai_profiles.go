@@ -72,7 +72,7 @@ func (s *server) listAIProfiles(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{"profiles": out, "enabled": cur.Enabled, "secrets_available": s.secrets != nil && len(s.secrets.Key) > 0})
+	writeJSON(w, 200, map[string]any{"profiles": out, "enabled": cur.Enabled, "backups": s.aiBackupIDs(r.Context(), tenant), "secrets_available": s.secrets != nil && len(s.secrets.Key) > 0})
 }
 
 type aiProfileIn struct {
@@ -180,6 +180,7 @@ func (s *server) deleteAIProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.st.Pool.Exec(r.Context(), `DELETE FROM ai_profiles WHERE tenant_id=$1 AND id=$2`, tenant, id)
+	s.st.Pool.Exec(r.Context(), `DELETE FROM ai_backups WHERE tenant_id=$1 AND profile_id=$2`, tenant, id)
 	if p.KeySecret != "" && s.secrets != nil && len(s.secrets.Key) > 0 {
 		s.st.Pool.Exec(r.Context(), `DELETE FROM secrets WHERE tenant_id=$1 AND name=$2`, tenant, p.KeySecret)
 	}
