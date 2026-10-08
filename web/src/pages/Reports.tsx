@@ -261,6 +261,7 @@ export default function Reports() {
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=html`, `${r.name}.html`).catch(e => setMsg(String(e)))}>HTML</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=pdf`, `${r.name}.pdf`).catch(e => setMsg(String(e)))}>PDF</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=xlsx`, `${r.name}.xlsx`).catch(e => setMsg(String(e)))}>Excel</button>
+            <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=docx`, `${r.name}.docx`).catch(e => setMsg(String(e)))}>Word</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=xml`, `${r.name}.xml`).catch(e => setMsg(String(e)))}>XML</button>
             {me?.role === 'admin' && !scoped && <ShareWithCustomer path={`/v1/reports/${r.id}/customer`} value={r.customer_id} onDone={load} onError={setMsg} />}
           </div>
