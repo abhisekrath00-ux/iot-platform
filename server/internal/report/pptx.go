@@ -17,7 +17,7 @@ const (
 // RenderPPTX writes the report as a PowerPoint deck using only the standard library (no dependency,
 // works air-gapped). Slide 1 is the title; each metric gets table slides of at most 12 rows (with an
 // overall row on the last one); the summary grouping gets its own slides. Text only: no macros, media or
-// external links. Charts, the logo and the insights section are not in the deck, and a report that
+// external links. The logo and the insights section are not in the deck, and a report that
 // would need more than 60 slides is cut off with a final note slide.
 func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generated time.Time) ([]byte, error) {
 	esc := func(s string) string {
@@ -92,6 +92,25 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 	}
 	add(textBox(2, "Title", title, 457200, 2200000, slideW-914400, 900000, 4000, true) +
 		textBox(3, "Subtitle", fmt.Sprintf("Generated %s - window %dh, grouped by %s", generated.UTC().Format("2006-01-02T15:04:05Z"), d.WindowHours, d.GroupBy), 457200, 3200000, slideW-914400, 500000, 1600, false))
+	var pics [][]byte
+	slidePic := map[int]int{} // slide index -> picture number (1-based)
+	chartSlide := func(name string, rows []Bucket) bool {
+		if len(pics) >= maxXLSXCharts {
+			return true
+		}
+		img, caption := ChartPNG(d.Chart, rows)
+		if img == nil {
+			return true
+		}
+		pics = append(pics, img)
+		w := slideW - 914400
+		pic := fmt.Sprintf(`<p:pic><p:nvPicPr><p:cNvPr id="5" name="Chart" descr="%s"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId2"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="457200" y="1100000"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`, esc(name+" chart"), w, w*pngH/pngW)
+		if !add(textBox(2, "Title", name, 457200, 300000, slideW-914400, 700000, 2800, true) + pic + textBox(3, "Caption", caption, 457200, 5300000, slideW-914400, 700000, 1400, false)) {
+			return false
+		}
+		slidePic[len(slides)-1] = len(pics)
+		return true
+	}
 	paged := func(head string, hdr []string, rows [][]cell, boldLast bool) bool {
 		if len(rows) == 0 {
 			return add(textBox(2, "Title", head, 457200, 300000, slideW-914400, 700000, 2800, true) + textBox(3, "Note", "no data in window", 457200, 1300000, slideW-914400, 400000, 1600, false))
@@ -119,7 +138,15 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 		for _, r := range append(rows, total) {
 			cs = append(cs, plain(r))
 		}
-		ok = paged("Matrix", append([]string{d.GroupBy}, hdr...), cs, true)
+		for i, m := range d.Metrics {
+			if i >= 4 || !ok {
+				break
+			}
+			ok = chartSlide(m.DeviceID+" / "+m.PointID, series[m])
+		}
+		if ok {
+			ok = paged("Matrix", append([]string{d.GroupBy}, hdr...), cs, true)
+		}
 	} else {
 		for _, m := range d.Metrics {
 			rows := series[m]
@@ -132,6 +159,9 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 			if len(rows) > 0 {
 				a, mn, mx, sm, cnt := Summary(rows)
 				cs = append(cs, plain([]string{"overall", fmt.Sprintf("%.3f", a), fmt.Sprintf("%.3f", mn), fmt.Sprintf("%.3f", mx), fmt.Sprintf("%.3f", sm), fmt.Sprint(cnt)}))
+			}
+			if ok = chartSlide(m.DeviceID+" / "+m.PointID, rows); !ok {
+				break
 			}
 			if ok = paged(m.DeviceID+" / "+m.PointID, []string{"bucket (UTC)", "avg", "min", "max", "sum", "samples"}, cs, true); !ok {
 				break
@@ -179,7 +209,7 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 	rl := func(id, typ, target string) string {
 		return fmt.Sprintf(`<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/%s" Target="%s"/>`, id, typ, target)
 	}
-	ct := hdr + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`
+	ct := hdr + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`
 	var sldIds, presRels strings.Builder
 	presRels.WriteString(rl("rId1", "slideMaster", "slideMasters/slideMaster1.xml") + rl("rId2", "theme", "theme/theme1.xml"))
 	for i := range slides {
@@ -203,7 +233,10 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 	for i, sh := range slides {
 		files = append(files,
 			struct{ n, b string }{fmt.Sprintf("ppt/slides/slide%d.xml", i+1), hdr + `<p:sld ` + nsA + `><p:cSld><p:spTree>` + grp + sh + `</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`},
-			struct{ n, b string }{fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", i+1), rel(rl("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"))})
+			struct{ n, b string }{fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", i+1), rel(rl("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml") + slideImageRel(slidePic[i]))})
+	}
+	for i, p := range pics {
+		files = append(files, struct{ n, b string }{fmt.Sprintf("ppt/media/chart%d.png", i+1), string(p)})
 	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
@@ -223,3 +256,10 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 }
 
 const pptxTheme = `<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="HexThings"><a:themeElements><a:clrScheme name="HexThings"><a:dk1><a:srgbClr val="111111"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F2937"/></a:dk2><a:lt2><a:srgbClr val="F3F4F6"/></a:lt2><a:accent1><a:srgbClr val="2563EB"/></a:accent1><a:accent2><a:srgbClr val="DC2626"/></a:accent2><a:accent3><a:srgbClr val="16A34A"/></a:accent3><a:accent4><a:srgbClr val="D97706"/></a:accent4><a:accent5><a:srgbClr val="7C3AED"/></a:accent5><a:accent6><a:srgbClr val="0891B2"/></a:accent6><a:hlink><a:srgbClr val="2563EB"/></a:hlink><a:folHlink><a:srgbClr val="7C3AED"/></a:folHlink></a:clrScheme><a:fontScheme name="HexThings"><a:majorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme><a:fmtScheme name="HexThings"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`
+
+func slideImageRel(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf(`<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/chart%d.png"/>`, n)
+}
