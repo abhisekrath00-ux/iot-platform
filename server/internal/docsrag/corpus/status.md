@@ -257,3 +257,7 @@ Every assistant run is recorded (migration 0069, `assistant_runs`); `X-Run-Id` g
 ## 2026-10-08: retrieval eval on natural questions
 
 New eval of 28 plain-language questions against the embedded docs (the old eval used keyword lists). Baseline before changes: source in top 1 for 10/28, top 3 for 19, top 5 for 20. Changes: document-name words are searchable, a small query-side synonym list (GPU, recovery time/point, service level objective, offline, password, sign in). Now: top 1 = 11/28, top 3 = 21/28, top 5 = 22/28 (79%). A test fails if top-5 recall drops under 75%. Still missed: GPU question, MQTT publish authorization, device stops reporting, scale ingestion, find an asset, run the tests (the docs use other words). This is lexical search only: no embeddings or vector retrieval, no model, answer quality not measured. The question set was written by the builder, so the number is a regression guard, not a user-facing accuracy claim.
+
+## 2026-10-08: report load check
+
+New `scripts/report-load.sh` and docs/report-load-test.md. A 4-metric, 7-day report over 2.4 million synthetic readings ran in about 1 to 2 s on a 2-CPU shared sandbox (p50 1.1 to 2.1 s across three runs; 8.7 s once when the table held many dead rows). With 20 simultaneous requests from one tenant, 2 ran and 18 were refused with 503 by the per-tenant limit. Tested: that, on one machine. NOT tested: several tenants at once, the global cap under real load, PDF/XLSX/Word/PowerPoint downloads, memory use, real (non-synthetic) data, production-class hardware. No capacity claim is made.
