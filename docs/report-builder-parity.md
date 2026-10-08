@@ -11,7 +11,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Matrix / crosstab | Partial | Bucket rows by metric columns, agg choice, computed columns. No dynamic column groups. |
 | Row groups and subtotals | Partial | Rollup by asset or site with subtotals and grand total. No arbitrary nested groups. |
 | List data region | Not built | |
-| Chart: line, area, bar | Built (HTML) | Inline SVG, opt-in `chart` field, unit-tested edge cases. PDF has a line chart; XLSX/CSV have none. |
+| Chart: line, area, bar | Built (HTML) | Inline SVG, opt-in `chart` field, unit-tested edge cases. PDF has a line chart (always, first 4 metrics). XLSX: native Excel charts (line, area, bar, scatter; flat layout; max 8; one per metric with 2+ buckets; gauge/pie get none). CSV none. |
 | Chart: pie, scatter | Partial | Scatter of bucket averages; pie of each bucket's share of the window sum (folds to 7 + other, so it is weak for long windows). Unit-tested and rendered in headless Chrome, HTML only. |
 | Chart: stacked, combo, secondary axis | Not built | |
 | Gauge, indicator | Partial | Half-circle gauge of the latest bucket average across the series min..max (no custom ranges or colour bands). HTML only. |
@@ -29,7 +29,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Versioning and restore | Built | |
 | Designer: drag-drop surface, wizard, toolbox | Not built | Current UI is a form, not a design surface. |
 
-Next units, in order: chart types and gauges in PDF/XLSX, nested groups, parameters, conditional formatting, page setup, designer surface.
+Next units, in order: PDF chart types and gauges, nested groups, parameters, conditional formatting, page setup, designer surface.
 
 ## Production grade and scale (user request, 2026-10-07)
 
