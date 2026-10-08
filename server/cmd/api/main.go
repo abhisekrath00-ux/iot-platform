@@ -45,17 +45,18 @@ import (
 )
 
 type server struct {
-	st       *store.Store
-	secret   []byte
-	es       *search.Client
-	oidc     *auth.OIDCProvider
-	states   oidcstate.Store // memory single-replica, Redis when REDIS_URL set
-	cache    *respcache.Cache
-	secrets  *secrets.Store // nil or empty key = disabled (503)
-	ts       tsstore.Store  // nil = Postgres; see internal/tsstore
-	notifier replier        // nil = notify.FromEnv(); tests inject a fake
-	bg       sync.WaitGroup // inbound chat work in flight
-	inner    http.Handler   // the /v1 handler chain behind authentication; the assistant calls it as the user
+	opsPublishHook func(topic string, payload []byte) error // tests only; nil means the real broker
+	st             *store.Store
+	secret         []byte
+	es             *search.Client
+	oidc           *auth.OIDCProvider
+	states         oidcstate.Store // memory single-replica, Redis when REDIS_URL set
+	cache          *respcache.Cache
+	secrets        *secrets.Store // nil or empty key = disabled (503)
+	ts             tsstore.Store  // nil = Postgres; see internal/tsstore
+	notifier       replier        // nil = notify.FromEnv(); tests inject a fake
+	bg             sync.WaitGroup // inbound chat work in flight
+	inner          http.Handler   // the /v1 handler chain behind authentication; the assistant calls it as the user
 }
 
 func main() {
@@ -331,6 +332,9 @@ func main() {
 	api.HandleFunc("GET /v1/gateways/{id}/edge-config", s.gatewayEdgeConfig)
 	api.HandleFunc("GET /v1/gateways", s.listGateways)
 	api.HandleFunc("POST /v1/gateways/{id}/scans", s.requestScan)
+	api.HandleFunc("POST /v1/gateways/{id}/ops", s.requestGatewayOp)
+	api.HandleFunc("GET /v1/gateways/{id}/ops", s.listGatewayOps)
+	api.HandleFunc("POST /v1/gateway-ops/{id}/approve", s.approveGatewayOp)
 	api.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
 	api.HandleFunc("POST /v1/gateways/{id}/scans/{sid}/add", s.addScannedDevice)
 	api.HandleFunc("GET /v1/gateways/{id}/edge-rules", s.getEdgeRules)
