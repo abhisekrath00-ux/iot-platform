@@ -27,3 +27,53 @@ func TestHighlight(t *testing.T) {
 		t.Fatal("inverted thresholds accepted")
 	}
 }
+
+func TestHighlightWhenExpression(t *testing.T) {
+	h := &Highlight{When: "if({row.avg} > 50 and {row.max} < 100, 1, 0)"}
+	cases := []struct {
+		b    Bucket
+		want string
+	}{
+		{Bucket{Avg: 60, Max: 80, Min: 1, Sum: 1, Count: 3}, "red"},
+		{Bucket{Avg: 60, Max: 120}, ""},
+		{Bucket{Avg: 40, Max: 80}, ""},
+	}
+	for i, c := range cases {
+		if got := h.kind(c.b); got != c.want {
+			t.Fatalf("case %d: %q want %q", i, got, c.want)
+		}
+	}
+	h2 := &Highlight{When: "if({row.count} < 5 or not({row.min} > 0), 1, 0)", WhenColor: "amber"}
+	if h2.kind(Bucket{Avg: 1, Min: 1, Count: 2}) != "amber" || h2.kind(Bucket{Avg: 1, Min: 1, Count: 9}) != "" {
+		t.Fatal("amber / count rule wrong")
+	}
+	// the expression wins, then thresholds still apply as a fallback
+	hi := 10.0
+	h3 := &Highlight{When: "if({row.avg} > 100, 1, 0)", WhenColor: "amber", Above: &hi}
+	if h3.kind(Bucket{Avg: 200}) != "amber" || h3.kind(Bucket{Avg: 20}) != "red" || h3.kind(Bucket{Avg: 5}) != "" {
+		t.Fatal("precedence wrong")
+	}
+	// validation
+	base := Definition{Metrics: []Metric{{DeviceID: "d", PointID: "p"}}, WindowHours: 24, GroupBy: "hour"}
+	for _, bad := range []string{"if({d.p} > 1, 1, 0)", "if({row.nope} > 1, 1, 0)", "1 +", "if({row.avg} > 1, 1, 0"} {
+		base.Highlight = &Highlight{When: bad}
+		if Validate(base) == nil {
+			t.Fatalf("accepted %q", bad)
+		}
+	}
+	base.Highlight = &Highlight{When: "if({row.avg} > 1, 1, 0)", WhenColor: "blue"}
+	if Validate(base) == nil {
+		t.Fatal("accepted bad colour")
+	}
+	base.Highlight = &Highlight{When: "if({row.avg} > 1, 1, 0)", WhenColor: "amber"}
+	if err := Validate(base); err != nil {
+		t.Fatal(err)
+	}
+	// html and docx output use it
+	d := base
+	d.Highlight = &Highlight{When: "if({row.avg} > 5, 1, 0)"}
+	rows := []Bucket{{Avg: 9, Min: 9, Max: 9, Sum: 9, Count: 1}, {Avg: 1, Min: 1, Max: 1, Sum: 1, Count: 1}}
+	if got := d.Highlight.bucketStyle(rows[0]); got == "" || d.Highlight.bucketStyle(rows[1]) != "" || d.Highlight.fill(rows[0]) != "FECACA" {
+		t.Fatalf("styles: %q", got)
+	}
+}
