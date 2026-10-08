@@ -197,7 +197,7 @@ else
 fi
 
 if [ -z "$WORKSPACE" ]; then WORKSPACE=$(ask "Name for your first workspace (lowercase letters, digits, dashes)" "my-plant"); fi
-if [ -z "$ADMIN_EMAIL" ]; then ADMIN_EMAIL=$(ask "Administrator email" "admin@example.com"); fi
+if [ -z "$ADMIN_EMAIL" ]; then ADMIN_EMAIL=$(ask "Administrator email (you must change it at first sign-in if it stays the default)" "admin@hexthings.com"); fi
 printf '%s' "$WORKSPACE" | grep -Eq '^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$' || fail "workspace '$WORKSPACE' must be 3-40 characters: a-z, 0-9, dashes"
 printf '%s' "$ADMIN_EMAIL" | grep -Eq '^[^@ ]+@[^@ ]+\.[^@ ]+$' || fail "'$ADMIN_EMAIL' is not an email address"
 
@@ -260,14 +260,15 @@ ok "platform is healthy"
 
 # ---- first workspace and administrator --------------------------------------------------------
 step "First workspace"
-CRED=install-credentials.txt
+if [ -f install-credentials.txt ]; then warn "install-credentials.txt from an older install holds a password in plain text. Change that password in the app, then delete the file."; fi
 PASS=""
 if docker compose exec -T api /bin/tenantctl list 2>>"$LOG" | grep -q "^${WORKSPACE} "; then
   ok "workspace '$WORKSPACE' already exists; the administrator was not changed"
 else
-  PASS=$(rand_alnum 20)
-  if printf '%s\n' "$PASS" | docker compose exec -T api /bin/tenantctl create --id "$WORKSPACE" --name "$WORKSPACE" --admin-email "$ADMIN_EMAIL" --password-stdin >> "$LOG" 2>&1; then
-    ( umask 077; printf 'HexThings first sign-in\nURL:       http://localhost:%s\nWorkspace: %s\nEmail:     %s\nPassword:  %s\n\nChange the password after signing in, then delete this file.\n' "$WEB_PORT" "$WORKSPACE" "$ADMIN_EMAIL" "$PASS" > "$CRED" )
+  # Fresh install only: the documented first-run login (hashed by tenantctl, flagged so the first sign-in must
+  # replace it). No password is generated, written to a file or logged. An existing workspace is never touched.
+  if docker compose exec -T api /bin/tenantctl create --id "$WORKSPACE" --name "$WORKSPACE" --admin-email "$ADMIN_EMAIL" --default-credentials >> "$LOG" 2>&1; then
+    PASS="Hex@2026"
     ok "workspace '$WORKSPACE' and administrator created"
   else
     fail "could not create the workspace (see $LOG)"
@@ -301,9 +302,9 @@ else
   say "  Open:      http://localhost:${WEB_PORT}"
   say "  Workspace: ${WORKSPACE}"
   say "  Email:     ${ADMIN_EMAIL}"
-  [ -z "$PASS" ] || say "  Password:  ${PASS}"
+  [ -z "$PASS" ] || printf "%s\n" "  Password:  ${PASS}"
 fi
-[ -z "$PASS" ] || say "  ${D}(also saved in ${CRED}, readable only by you; change it and delete the file)${N}"
+[ -z "$PASS" ] || say "  ${D}(first-run password: you are asked to change the email and password right after signing in; it is not saved anywhere)${N}"
 say ""
 say "  Stop:      docker compose stop        Start: docker compose start"
 say "  Back up:   ./scripts/backup.sh        Logs:  docker compose logs -f api"
