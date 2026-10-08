@@ -20,7 +20,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Expressions | Partial | KPI expression language for computed columns (arithmetic and point refs only). No functions or conditional formatting. |
 | Conditional formatting | Partial | `highlight` {above, below} thresholds colour avg cells in per-metric HTML tables (red/amber). Not in matrix layout, PDF or XLSX; no expressions; no UI control yet. Unit-tested. |
 | Sorting, interactive sort | Not built | |
-| Page layout, headers/footers, themes, logo | Partial | Header/footer text, light/dark, tenant logo. No page size/margin/orientation or page-number tokens. |
+| Page layout, headers/footers, themes, logo | Partial | Header/footer text, light/dark, tenant logo, PDF page size and orientation (`page`: a4 default, a4-landscape, letter, letter-landscape; also a `page` URL parameter). Default PDF output verified byte-identical to before. No custom size or margins, no page-number tokens, no per-section breaks; HTML and XLSX ignore `page`. No UI control. Unit-tested, landscape rendered and inspected. |
 | Subreports, drill-through, bookmarks | Not built | |
 | Export: PDF, XLSX, CSV, HTML | Built | |
 | Export: XML | Partial | `format=xml`: one series per metric with a bucket element per row (well-formed, escaped, non-finite as empty). Flat series only: no matrix or rollup. Unit and DB tested; button added to Reports.tsx but the web build was not run here. |
