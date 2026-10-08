@@ -19,6 +19,15 @@ import (
 	"time"
 )
 
+// Sample is one raw reading shown in a drill-through list.
+type Sample struct {
+	At    time.Time
+	Value float64
+}
+
+// MaxDetailBuckets caps the drill-through sections per metric.
+const MaxDetailBuckets = 10
+
 type Metric struct {
 	DeviceID string `json:"device_id"`
 	PointID  string `json:"point_id"`
@@ -51,6 +60,12 @@ type Definition struct {
 	// Highlight colours avg cells in the per-metric tables: red above Above, amber below Below.
 	// Thresholds only (no expressions); matrix layout cells are not coloured yet.
 	Highlight *Highlight `json:"highlight,omitempty"`
+	// Detail turns on drill-through: under each metric table, every highlighted bucket (at most 10 per metric) gets a
+	// collapsible list of its Detail highest raw readings (1 to 20). It needs a highlight rule or thresholds.
+	Detail int `json:"detail,omitempty"`
+	// Samples holds those raw readings per metric and bucket start (UTC unix seconds). Filled by the server at render
+	// time, never stored or read from a request.
+	Samples map[Metric]map[int64][]Sample `json:"-"`
 	// Page sets the PDF page: "" or "a4" (portrait, default), "a4-landscape", "letter",
 	// "letter-landscape". HTML and XLSX are unaffected.
 	Page string `json:"page,omitempty"`
@@ -126,6 +141,9 @@ func (h *Highlight) kind(b Bucket) string {
 	}
 	return ""
 }
+
+// Flagged reports whether a bucket is highlighted.
+func (h *Highlight) Flagged(b Bucket) bool { return h.kind(b) != "" }
 
 // fill is the docx/pptx shading for a bucket.
 func (h *Highlight) fill(b Bucket) string {
@@ -223,6 +241,14 @@ func Validate(d Definition) error {
 	case "", "avg", "min", "max", "sum":
 	default:
 		return ErrBadLayout
+	}
+	if d.Detail != 0 {
+		if d.Detail < 1 || d.Detail > 20 {
+			return fmt.Errorf("detail must be between 1 and 20 readings")
+		}
+		if d.Highlight == nil || (d.Highlight.When == "" && d.Highlight.Above == nil && d.Highlight.Below == nil) {
+			return fmt.Errorf("detail needs a highlight rule or threshold to decide which buckets to drill into")
+		}
 	}
 	if d.Compare && (!d.Insights || d.WindowHours > 24*45) {
 		return fmt.Errorf("compare needs insights on and a window of at most 45 days")
@@ -396,11 +422,36 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		ta, tmin, tmax, tsum, tn := Summary(rows)
 		fmt.Fprintf(&b, `<tr style="font-weight:600;background:#fafafa"><td>overall</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`, ta, tmin, tmax, tsum, tn)
 		b.WriteString(`</table>`)
+		writeDetailHTML(&b, d, m, rows)
 	}
 	writeInsightsHTML(&b, d, series)
 	writeRollupHTML(&b, d, series)
 	writeFooter(&b, d)
 	return b.String()
+}
+
+// writeDetailHTML lists the raw readings behind each highlighted bucket, collapsed by default.
+func writeDetailHTML(b *strings.Builder, d Definition, m Metric, rows []Bucket) {
+	if d.Detail == 0 {
+		return
+	}
+	shown := 0
+	for _, r := range rows {
+		smp := d.Samples[m][r.Start.Unix()]
+		if d.Highlight.kind(r) == "" || len(smp) == 0 {
+			continue
+		}
+		if shown == MaxDetailBuckets {
+			b.WriteString(`<p class="meta">more highlighted buckets not shown (first ` + fmt.Sprint(MaxDetailBuckets) + ` per metric)</p>`)
+			return
+		}
+		shown++
+		fmt.Fprintf(b, `<details><summary>%s: top %d readings</summary><table><tr><th>time (UTC)</th><th>value</th></tr>`, r.Start.UTC().Format("2006-01-02 15:04"), len(smp))
+		for _, x := range smp {
+			fmt.Fprintf(b, `<tr><td>%s</td><td>%.3f</td></tr>`, x.At.UTC().Format("2006-01-02 15:04:05"), x.Value)
+		}
+		b.WriteString(`</table></details>`)
+	}
 }
 
 func writeFooter(b *strings.Builder, d Definition) {
