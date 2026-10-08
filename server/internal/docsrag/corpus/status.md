@@ -241,3 +241,7 @@ New docs/report-expressions.md (grammar, functions, if/and/or/not, `{row.*}`, ex
 ## 2026-10-08: Report designer first slice
 
 Reports page has a palette of device points and a drop zone: drag a point onto the report (or click it), drag the :: handle to reorder metrics. Duplicates are ignored. Tested in a real browser (headless Chrome, dispatched drag events: two drops added two metrics, a repeated drop was ignored, reorder swapped them), screenshot inspected. Untested: a real mouse or touch drag on a physical device. Still not built: free-form canvas, sections, wizard, and a toolbox of report items.
+
+## 2026-10-08: Report drill-through
+
+`detail` (1 to 20) on a report with a highlight rule: each highlighted bucket (first 10 per metric) gets a collapsible list of its highest raw readings in the HTML report. UI field "Drill-through readings". Tested: unit tests (validation, only highlighted buckets get a list, off by default), API tests on real Postgres (preview shows readings, off by default, 99 refused, another tenant's device leaks nothing), real API run on seeded data with screenshot inspected. Limits: HTML only; readings come from raw telemetry, so buckets already purged to rollups show no list; bucket times follow the database session timezone as before. Not built: subreports, links between reports, bookmarks.
