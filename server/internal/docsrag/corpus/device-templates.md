@@ -24,4 +24,4 @@ Stripped binary 13.3 MB (linux/arm 12.8 MB, windows/amd64 13.7 MB); idle RSS 12 
 
 ## Tested / not tested
 Tested: signature, tenant, gateway, expiry, lifetime, checksum, unknown fields, bad YAML, bad fields, duplicate ids, ranges, version order, replay, opt-in, no key, probation confirm, rollback, first-push rollback, broken file at start, server push against Postgres with a fake broker (admin gate, one at a time, signature verifies, only devices travel), fixed signing vector on both sides.
-NOT tested: a real broker and broker ACL, a real box restarting under systemd or a Windows service, real Modbus devices after a push, a push to a box with devices actively polling, a UI (API only so far).
+NOT tested: a real broker and broker ACL, a real box restarting under systemd or a Windows service, real Modbus devices after a push, a push to a box with devices actively polling. UI: Fleet updates > Device templates card, seeded rows only (no real push).
