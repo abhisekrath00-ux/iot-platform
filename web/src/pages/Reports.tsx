@@ -4,7 +4,7 @@ import ShareWithCustomer from '../components/ShareWithCustomer';
 
 interface Metric { device_id: string; point_id: string; }
 interface EmSrc { name: string; scope: number; metric: Metric; mode?: string; unit: string; factor: number; factor_source: string; }
-interface ReportDef { detail?: number; metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; chart?: string; page?: string; highlight?: { above?: number; below?: number; when?: string; when_color?: string }; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; emissions?: EmSrc[]; }
+interface ReportDef { detail?: number; metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; chart?: string; page?: string; highlight?: { above?: number; below?: number; when?: string; when_color?: string }; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; emissions?: EmSrc[]; sections?: { title: string; body: string }[]; }
 interface ReportRow { id: string; name: string; customer_id?: string | null; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; version?: number; }
 interface VersionRow { version: number; name: string; definition: ReportDef; schedule_cron: string | null; replaced_by: string; replaced_at: string; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
@@ -35,6 +35,7 @@ export default function Reports() {
   const [detail, setDetail] = useState('');
   const [insights, setInsights] = useState(false);
   const [compare, setCompare] = useState(false);
+  const [secs, setSecs] = useState<{ title: string; body: string }[]>([]);
   const [emis, setEmis] = useState<{ name: string; scope: string; metric: string; mode: string; unit: string; factor: string; src: string }[]>([]);
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
   const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
@@ -68,7 +69,7 @@ export default function Reports() {
 
   const num = (v: string) => (v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
   const highlight = () => { const above = num(hiAbove), below = num(hiBelow), when = hiWhen.trim() || undefined; return above === undefined && below === undefined && !when ? undefined : { above, below, when, when_color: when && hiWhenColor === 'amber' ? 'amber' : undefined }; };
-  const buildDef = () => ({ detail: num(detail) && highlight() ? num(detail) : undefined, metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, chart: chart || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, emissions: emis.filter(e => e.name && e.metric).length ? emis.filter(e => e.name && e.metric).map(e => ({ name: e.name, scope: Number(e.scope), metric: { device_id: e.metric.split('|')[0], point_id: e.metric.split('|')[1] }, mode: e.mode === 'delta' ? 'delta' : undefined, unit: e.unit, factor: Number(e.factor), factor_source: e.src })) : undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined, page: page || undefined, highlight: highlight() });
+  const buildDef = () => ({ sections: secs.filter(x => x.title.trim() && x.body.trim()).length ? secs.filter(x => x.title.trim() && x.body.trim()) : undefined, detail: num(detail) && highlight() ? num(detail) : undefined, metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, chart: chart || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, emissions: emis.filter(e => e.name && e.metric).length ? emis.filter(e => e.name && e.metric).map(e => ({ name: e.name, scope: Number(e.scope), metric: { device_id: e.metric.split('|')[0], point_id: e.metric.split('|')[1] }, mode: e.mode === 'delta' ? 'delta' : undefined, unit: e.unit, factor: Number(e.factor), factor_source: e.src })) : undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined, page: page || undefined, highlight: highlight() });
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -105,6 +106,7 @@ export default function Reports() {
     setEditingId(r.id); setName(r.name); setMetrics(d.metrics.length ? d.metrics : [{ device_id: '', point_id: '' }]);
     setWindowHours(d.window_hours); setGroupBy(d.group_by); setLayout(d.layout ?? ''); setAgg(d.agg ?? 'avg'); setRollup(d.rollup ?? '');
     setDetail(d.detail ? String(d.detail) : ''); setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setTheme(d.theme ?? 'light'); setChart(d.chart ?? ''); setPage(d.page ?? ''); setHiAbove(d.highlight?.above != null ? String(d.highlight.above) : ''); setHiBelow(d.highlight?.below != null ? String(d.highlight.below) : ''); setHiWhen(d.highlight?.when ?? ''); setHiWhenColor(d.highlight?.when_color ?? 'red'); setInsights(!!d.insights); setCompare(!!d.compare); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
+    setSecs((d.sections ?? []).map(x => ({ title: x.title, body: x.body })));
     setEmis((d.emissions ?? []).map(e => ({ name: e.name, scope: String(e.scope), metric: `${e.metric.device_id}|${e.metric.point_id}`, mode: e.mode ?? 'sum', unit: e.unit, factor: String(e.factor), src: e.factor_source })));
     setMsg(''); window.scrollTo({ top: 0 });
   }
@@ -230,6 +232,16 @@ export default function Reports() {
               </div>))}
             {computed.length < 5 && <button type="button" className="ghost" onClick={() => setComputed([...computed, { name: '', expr: '' }])}>Add computed column</button>}
           </div>}
+          <div>
+            <label>Text sections (optional): titled notes printed after the data in every format, plain text only (method, caveats, commentary). Up to 10.</label>
+            {secs.map((x, i) => (
+              <div key={i} style={{ marginBottom: 6 }}>
+                <input placeholder="Section title" maxLength={80} aria-label={`Section title ${i + 1}`} value={x.title} onChange={ev => setSecs(secs.map((y, j) => j === i ? { ...y, title: ev.target.value } : y))} />
+                <textarea placeholder="Text" maxLength={2000} rows={3} aria-label={`Section text ${i + 1}`} value={x.body} onChange={ev => setSecs(secs.map((y, j) => j === i ? { ...y, body: ev.target.value } : y))} style={{ width: '100%' }} />
+                <button type="button" className="ghost" onClick={() => setSecs(secs.filter((_, j) => j !== i))}>Remove section</button>
+              </div>))}
+            {secs.length < 10 && <button type="button" className="ghost" onClick={() => setSecs([...secs, { title: '', body: '' }])}>Add text section</button>}
+          </div>
           <div>
             <label>Emissions, Scope 1 and 2 (optional). Pick a point above, then enter YOUR emission factor and where it comes from. The platform supplies no factors, and this is a calculation aid, not a certified BRSR report.</label>
             {emis.map((e, i) => {
