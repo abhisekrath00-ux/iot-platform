@@ -36,7 +36,7 @@ October 7, 2026. This is a bounded hardening unit, not an enterprise-readiness c
 | Crash between model response and pending-write creation | Not claimed covered | Durable run ID/idempotency/recovery design pending |
 | Crash or lost result after action claim | Executing/unknown, never automatically replayed | [Action outcomes](assistant-action-outcomes.md); DB fault/claim tests, no process-kill test |
 | Multi-instance run rate limits | Existing in-process limit only | Shared coordination pending |
-| Provider quota/rate limit | Existing configured fallback only | Multi-key design pending; never bypass provider rules |
+| Provider quota/rate limit, bad key, outage | Ordered backup providers (up to 3, saved profiles) are tried in turn; a failing one is skipped for 60 s | Chain unit tests and a DB-backed test with fake endpoints; never run against real providers. Backups are for resilience, not for getting around a provider's limits |
 
 ## Latest requested work, still open
 
