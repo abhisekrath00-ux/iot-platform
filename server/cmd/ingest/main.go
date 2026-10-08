@@ -157,6 +157,34 @@ func main() {
 		log.Fatalf("scan subscribe: %v", tok.Error())
 	}
 
+	// Remote maintenance results: t/<tenant>/g/<gateway>/ops/result. A result lands only on an open
+	// operation owned by that tenant and gateway (topic identity), once.
+	opsHandler := func(_ mqtt.Client, m mqtt.Message) {
+		parts := strings.Split(m.Topic(), "/")
+		if len(parts) != 6 || parts[4] != "ops" || parts[5] != "result" || parts[1] == "" || parts[3] == "" || len(m.Payload()) > 300*1024 {
+			log.Printf("ops drop: bad topic or size %q", m.Topic())
+			return
+		}
+		var res struct {
+			OpID string `json:"op_id"`
+			OK   bool   `json:"ok"`
+		}
+		if err := json.Unmarshal(m.Payload(), &res); err != nil || res.OpID == "" {
+			log.Printf("ops drop: bad payload")
+			return
+		}
+		tag, err := st.Pool.Exec(ctx,
+			`UPDATE gateway_ops SET result=$1::jsonb, status=CASE WHEN $2 THEN 'done' ELSE 'failed' END, updated_at=now()
+			 WHERE id=$3 AND tenant_id=$4 AND gateway_id=$5 AND status='requested'`,
+			string(m.Payload()), res.OK, res.OpID, parts[1], parts[3])
+		if err != nil || tag.RowsAffected() == 0 {
+			log.Printf("ops drop: no open operation %s for %s/%s (%v)", res.OpID, parts[1], parts[3], err)
+		}
+	}
+	if tok := c.Subscribe(subTopic("t/+/g/+/ops/result"), 1, opsHandler); tok.Wait() && tok.Error() != nil {
+		log.Fatalf("ops subscribe: %v", tok.Error())
+	}
+
 	// Fleet auto-ACK: the edge verifies the delivered artifact and answers on
 	// t/<tenant>/g/<gateway>/fleet/ack. Topic identity pins the ack to the
 	// gateway's own assignment - a gateway cannot ack for a neighbor. A
