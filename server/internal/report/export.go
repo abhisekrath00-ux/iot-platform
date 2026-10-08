@@ -196,7 +196,11 @@ func RenderPDF(title string, d Definition, series map[Metric][]Bucket, generated
 // RenderPDFLogo is RenderPDF with an optional logo (decoded PNG or JPEG) drawn top right on
 // the first page. The logo is embedded as a Flate-compressed RGB image, composited over white.
 func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, generated time.Time, logo image.Image) []byte {
-	const perPage = 52
+	pageW, pageH := PageSize(d.Page)
+	perPage := 52 + (pageH-842)/14 // 52 lines on the default A4 portrait page
+	if perPage < 20 {
+		perPage = 20
+	}
 	dark := d.Theme == "dark"
 	type line struct {
 		text  string
@@ -383,12 +387,12 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 	for i, pg := range pages {
 		var c strings.Builder
 		if dark {
-			c.WriteString("0.09 0.10 0.12 rg 0 0 595 842 re f 0.92 g\n")
+			fmt.Fprintf(&c, "0.09 0.10 0.12 rg 0 0 %d %d re f 0.92 g\n", pageW, pageH)
 		}
-		y := 800
+		y := pageH - 42
 		for _, l := range pg {
 			if l.chart != nil {
-				chartOps(&c, l.chart, l.title, y, esc, dark)
+				chartOps(&c, l.chart, l.title, y, esc, dark, float64(pageW)-110)
 			}
 			f := "F1"
 			if l.bold {
@@ -401,7 +405,7 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 		}
 		fmt.Fprintf(&c, "BT /F1 8 Tf 40 24 Td (Page %d of %d) Tj ET\n", i+1, len(pages))
 		if d.Header != "" {
-			fmt.Fprintf(&c, "BT /F1 8 Tf 40 826 Td (%s) Tj ET\n", esc(d.Header))
+			fmt.Fprintf(&c, "BT /F1 8 Tf 40 %d Td (%s) Tj ET\n", pageH-16, esc(d.Header))
 		}
 		if d.Footer != "" {
 			fmt.Fprintf(&c, "BT /F1 8 Tf 140 24 Td (%s) Tj ET\n", esc(d.Footer))
@@ -409,10 +413,10 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 		xo := ""
 		if i == 0 && logo != nil {
 			w, h := logoSize(logo)
-			fmt.Fprintf(&c, "q %.1f 0 0 %.1f %.1f 810 cm /Im1 Do Q\n", w, h, 555-w)
+			fmt.Fprintf(&c, "q %.1f 0 0 %.1f %.1f %d cm /Im1 Do Q\n", w, h, float64(pageW-40)-w, pageH-32)
 			xo = fmt.Sprintf(" /XObject << /Im1 %d 0 R >>", 5+2*len(pages))
 		}
-		obj(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>%s >> /Contents %d 0 R >>", xo, 6+i*2))
+		obj(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %d %d] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>%s >> /Contents %d 0 R >>", pageW, pageH, xo, 6+i*2))
 		obj(fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", c.Len(), c.String()))
 	}
 	if logo != nil {
@@ -438,12 +442,12 @@ const chartSlots = 11
 // avg as a solid line, min and max as thin grey lines, value range on the left,
 // first and last bucket time underneath. y is the baseline of the first reserved
 // text line; the chart fills the following chartSlots lines. No fonts or images.
-func chartOps(c *strings.Builder, rows []Bucket, title string, y int, esc func(string) string, dark bool) {
+func chartOps(c *strings.Builder, rows []Bucket, title string, y int, esc func(string) string, dark bool, w float64) {
 	frame, band, avg := "0.6 G", "0.75 G", "0 G"
 	if dark {
 		frame, band, avg = "0.45 G", "0.4 G", "0.45 0.7 1 RG"
 	}
-	const x0, w, h = 70.0, 485.0, 100.0
+	const x0, h = 70.0, 100.0
 	top := float64(y) - 4
 	bottom := top - h - 14 // room above for the title
 	plotTop := top - 12
