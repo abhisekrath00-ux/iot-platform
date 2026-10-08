@@ -469,10 +469,7 @@ func (s *server) runAgent(parent context.Context, cfg llm.Config, tenant, user, 
 		res.reply = r
 		return res
 	}
-	var prov llm.Provider = llm.OpenAICompat{Cfg: cfg}
-	if fb, ok := llm.FallbackFromEnv(cfg); ok {
-		prov = llm.WithFallback{Primary: prov, Secondary: llm.OpenAICompat{Cfg: fb}}
-	}
+	prov := s.backupProviders(ctx, tenant, cfg)
 	seen := map[string]int{} // loop detection: the same call with the same arguments
 	for ; res.calls < maxAgentCalls; res.calls++ {
 		if err := ctx.Err(); err != nil {
