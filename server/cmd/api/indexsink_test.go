@@ -22,6 +22,7 @@ type fakeBulk struct {
 	status int  // forced HTTP status when non-zero
 	reject bool // answer 200 with a failed item
 	auth   string
+	dups   int // documents delivered again after already being stored
 }
 
 func (f *fakeBulk) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +50,9 @@ func (f *fakeBulk) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if f.reject {
 			st = 400
 		} else {
+			if _, seen := f.docs[meta["index"]["_id"]]; seen {
+				f.dups++
+			}
 			f.docs[meta["index"]["_id"]] = src
 		}
 		items = append(items, map[string]any{"index": map[string]any{"status": st}})
@@ -134,9 +138,11 @@ func TestIntegrationIndexSink(t *testing.T) {
 			break
 		}
 	}
-	before := f.calls
-	if n, err := k.Step(ctx); err != nil || n != 0 || f.calls != before {
-		t.Fatalf("idle step n=%d err=%v calls %d->%d", n, err, before, f.calls)
+	// Rows from other tests (or isk-fresh itself) can still age into the window at any moment, so an idle step may
+	// legitimately send NEW rows. What it must never do is send a document it already delivered.
+	dupsBefore := f.dups
+	if _, err := k.Step(ctx); err != nil || f.dups != dupsBefore {
+		t.Fatalf("idle step err=%v re-sent %d already delivered documents", err, f.dups-dupsBefore)
 	}
 	// the fresh row has aged past the lag window. Rewind the cursor (other tests write to a shared database, so
 	// the cursor may already be past it); replaying earlier rows is harmless because ids are idempotent.
