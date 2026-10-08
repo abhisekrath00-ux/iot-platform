@@ -112,8 +112,10 @@ func TestEvalSecurityNoToolReachesApprovalOrIdentity(t *testing.T) {
 		// Added Oct 5 on the user's request relayed by the main agent (site creation; customer, asset and
 		// group creation were a judgment call awaiting the user's OK). All are confirmed and role-checked.
 		// Nothing else is high risk or destructive.
+		// create_report added Oct 8 for the user's 1:06 PM request (relayed by the main agent) that the assistant
+		// build reports and formulas itself. It is confirmed, role-checked (admin/operator) and validated server side.
 		switch name {
-		case "create_site", "create_asset", "create_customer", "create_group":
+		case "create_report", "create_site", "create_asset", "create_customer", "create_group":
 			continue
 		}
 		if tool.Risk == HighRiskWrite || tool.Risk == Destructive {
