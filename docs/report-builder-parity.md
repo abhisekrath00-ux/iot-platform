@@ -16,7 +16,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Chart: stacked, combo, secondary axis | Not built | |
 | Gauge, indicator | Partial | Half-circle gauge of the latest bucket average across the series min..max (no custom ranges or colour bands). HTML only. |
 | Map | Not built | Needs air-gapped tiles decision. |
-| Report parameters (cascading, multivalue) | Partial | Window, group-by, layout, agg, device via URL parameters. `device` is multivalue (`device=a,b,c`, up to 10, repeats each point per device; still bound by the 50-metric cap). Unit and DB tested. Not cascading, no multivalue for other parameters, no parameter UI or default/prompt definitions. |
+| Report parameters (cascading, multivalue) | Partial | Window, group-by, layout, agg, page via URL parameters. `device` is multivalue (`device=a,b,c`, up to 10). Cascading `site` -> `asset` -> `device`: an asset must lie in the chosen site and a device in both, otherwise 400 (never silently ignored); site/asset expand to their devices through the same multivalue path, so the 10-device cap applies. Reports page shows three linked pickers (asset list narrows to the chosen site, device list to both) for single-device reports. Unit, real-Postgres (incl. cross-tenant, injection-shaped input) tested; picker behaviour checked in a real browser. Only the site/asset/device chain: no user-defined parameters, no default/prompt definitions, no multivalue for other parameters, not available to customer-scoped users. |
 | Expressions | Partial | KPI expression language for computed columns and KPIs: arithmetic, point refs and six pure functions (`abs round sqrt min max clamp`, fixed list, argument counts checked, nesting depth capped) and `if(a > b, then, else)` with > < >= <= == != and `and`/`or`/`not` with parentheses (and/or short-circuit; only the chosen branch runs). No text or date functions, aggregates over fields, or expressions in formatting. Unit-tested. |
 | Conditional formatting | Partial | `highlight` {above, below} thresholds colour avg cells in per-metric HTML tables (red/amber). Not in matrix layout, PDF or XLSX; no expressions. Reports page has red-above/amber-below inputs (see UI row). Unit-tested. |
 | Sorting, interactive sort | Not built | |
@@ -29,7 +29,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Versioning and restore | Built | |
 | Designer: drag-drop surface, wizard, toolbox | Not built | Current UI is a form, not a design surface. |
 
-Next units, in order: cascading parameters, conditional formatting from expressions, Word/PowerPoint export, designer surface, PDF chart types and gauges.
+Next units, in order: conditional formatting from expressions, Word/PowerPoint export, designer surface, PDF chart types and gauges.
 
 ## Production grade and scale (user request, 2026-10-07)
 
