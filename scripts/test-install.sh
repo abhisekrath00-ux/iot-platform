@@ -45,8 +45,8 @@ check ".env has no placeholder secrets" '! grep -q "change-me" "$T/w/.env" && gr
 check ".env is private" '[ "$(stat -c %a "$T/w/.env")" = 600 ]'
 check "secrets are long and random" '[ $(sed -n "s/^JWT_SIGNING_SECRET=//p" "$T/w/.env" | wc -c) -ge 64 ] && [ $(sed -n "s/^SECRETS_KEY=//p" "$T/w/.env" | base64 -d | wc -c) -eq 32 ]'
 check "compose up ran with build (source mode)" 'grep -q "compose up -d --build" "$FAKE_LOG"'
-check "admin password reached tenantctl on stdin, not argv" '[ $(wc -c < "$T/stdin") -eq 21 ] && ! grep -q "$(head -1 "$T/stdin")" "$FAKE_LOG"'
-check "credentials file is private and holds that password" '[ "$(stat -c %a "$T/w/install-credentials.txt")" = 600 ] && grep -q "$(head -1 "$T/stdin")" "$T/w/install-credentials.txt"'
+check "admin is created with --default-credentials and no password on argv or stdin" 'grep -q "tenantctl create.*--default-credentials" "$FAKE_LOG" && ! grep -q -e "--password-stdin" -e "Hex@2026" "$FAKE_LOG"'
+check "no credentials file is written and no password is in the log or .env" '[ ! -e "$T/w/install-credentials.txt" ] && ! grep -q "Hex@2026" "$T/w/install.log" "$T/w/.env"'
 check "success screen shows URL" 'grep -q "http://localhost:18431" "$T/out" && grep -q "north-plant" "$T/out"'
 
 cp "$T/w/.env" "$T/env.before"; : > "$FAKE_LOG"
