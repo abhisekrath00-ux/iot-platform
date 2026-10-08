@@ -33,7 +33,8 @@ export default function Reports() {
   const [compare, setCompare] = useState(false);
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
   const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
-  const [pw, setPw] = useState<Record<string, { w?: string; g?: string; d?: string }>>({});
+  const [pw, setPw] = useState<Record<string, { w?: string; g?: string; d?: string; s?: string; a?: string }>>({});
+  const [opts, setOpts] = useState<{ sites: { id: string; name: string }[]; assets: { id: string; name: string; site_ids: string[] }[]; devices: { id: string; name: string; site_id: string; asset_id: string | null }[] }>({ sites: [], assets: [], devices: [] });
   const [cron, setCron] = useState('');
   const [editingId, setEditingId] = useState('');
   const [hist, setHist] = useState<{ id: string; current: number; versions: VersionRow[] } | null>(null);
@@ -48,6 +49,7 @@ export default function Reports() {
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
     api<PointRow[]>('/v1/points').then(setPoints).catch(() => {});
     api<{ id: string; name: string }[]>('/v1/devices').then(setDevices).catch(() => {});
+    api<typeof opts>('/v1/reports/options').then(setOpts).catch(() => {});
   };
   useEffect(load, []);
 
@@ -115,7 +117,9 @@ export default function Reports() {
   }
 
   const singleDevice = (d: ReportDef) => !(d.computed?.length) && d.metrics.length > 0 && d.metrics.every(m => m.device_id === d.metrics[0].device_id);
-  const qs = (id: string) => `${pw[id]?.w ? `window_hours=${encodeURIComponent(pw[id].w!)}&` : ''}${pw[id]?.g ? `group_by=${pw[id].g}&` : ''}${pw[id]?.d ? `device=${encodeURIComponent(pw[id].d!)}&` : ''}`;
+  const qs = (id: string) => `${pw[id]?.w ? `window_hours=${encodeURIComponent(pw[id].w!)}&` : ''}${pw[id]?.g ? `group_by=${pw[id].g}&` : ''}${pw[id]?.s ? `site=${encodeURIComponent(pw[id].s!)}&` : ''}${pw[id]?.a ? `asset=${encodeURIComponent(pw[id].a!)}&` : ''}${pw[id]?.d ? `device=${encodeURIComponent(pw[id].d!)}&` : ''}`;
+  const setP = (id: string, patch: { w?: string; g?: string; d?: string; s?: string; a?: string }) => setPw(p => ({ ...p, [id]: { ...p[id], ...patch } }));
+  const cascadeDevices = (id: string) => opts.devices.filter(d => (!pw[id]?.s || d.site_id === pw[id].s) && (!pw[id]?.a || d.asset_id === pw[id].a));
   return (
     <>
       <h1>Reports</h1>
@@ -233,10 +237,21 @@ export default function Reports() {
             <select style={{ width: 150 }} aria-label="Group by override" value={pw[r.id]?.g ?? ''} onChange={e => setPw({ ...pw, [r.id]: { ...pw[r.id], g: e.target.value } })}>
               <option value="">{r.definition.group_by}</option><option value="15min">15 minutes</option><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week</option>
             </select>
-            {singleDevice(r.definition) && <select style={{ width: 190 }} aria-label="Device override" value={pw[r.id]?.d ?? ''} onChange={e => setPw({ ...pw, [r.id]: { ...pw[r.id], d: e.target.value } })}>
-              <option value="">{r.definition.metrics[0].device_id}</option>
-              {devices.filter(d => d.id !== r.definition.metrics[0].device_id).map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
-            </select>}
+{singleDevice(r.definition) && <>
+              <select style={{ width: 160 }} aria-label="Site parameter" value={pw[r.id]?.s ?? ''} onChange={e => setP(r.id, { s: e.target.value, a: '', d: '' })}>
+                <option value="">All sites</option>
+                {opts.sites.map(x => <option key={x.id} value={x.id}>{x.name || x.id}</option>)}
+              </select>
+              <select style={{ width: 160 }} aria-label="Asset parameter" value={pw[r.id]?.a ?? ''} onChange={e => setP(r.id, { a: e.target.value, d: '' })}>
+                <option value="">All assets{pw[r.id]?.s ? ' in site' : ''}</option>
+                {opts.assets.filter(x => !pw[r.id]?.s || x.site_ids.includes(pw[r.id].s!)).map(x => <option key={x.id} value={x.id}>{x.name || x.id}</option>)}
+              </select>
+              <select style={{ width: 240 }} aria-label="Device override" value={pw[r.id]?.d ?? ''} onChange={e => setP(r.id, { d: e.target.value })}>
+                <option value="">{pw[r.id]?.s || pw[r.id]?.a ? `All ${cascadeDevices(r.id).length} matching devices` : r.definition.metrics[0].device_id}</option>
+                {(pw[r.id]?.s || pw[r.id]?.a ? cascadeDevices(r.id) : devices.filter(d => d.id !== r.definition.metrics[0].device_id)).map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
+              </select>
+              {(pw[r.id]?.s || pw[r.id]?.a) && !pw[r.id]?.d && cascadeDevices(r.id).length > 10 && <span className="muted" role="alert">More than 10 devices match: pick one or narrow the choice.</span>}
+            </>}
           </div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             {!scoped && <><button onClick={() => runNow(r.id)}>Run now</button>
