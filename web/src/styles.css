@@ -220,3 +220,13 @@ button.link { background: none; border: 0; box-shadow: none; padding: 0; color: 
 .md-table { border-collapse: collapse; width: 100%; margin: 6px 0; }
 .md-table th, .md-table td { border: 1px solid rgba(127,127,127,.35); padding: 3px 6px; text-align: left; vertical-align: top; }
 .md-table th { background: rgba(127,127,127,.12); }
+
+/* Narrow screens: wide tables scroll inside their card instead of widening the page; inline flex rows of
+   buttons wrap; form controls never exceed the screen. */
+@media (max-width: 700px) {
+  table { display: block; max-width: 100%; overflow-x: auto; }
+  select, input, textarea { max-width: 100%; }
+}
+@media (max-width: 900px) {
+  div[style*="display: flex"], div[style*="display:flex"] { flex-wrap: wrap; }
+}
