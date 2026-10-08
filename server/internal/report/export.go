@@ -396,7 +396,7 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 		y := pageH - 42
 		for _, l := range pg {
 			if l.chart != nil {
-				chartOps(&c, l.chart, l.title, y, esc, dark, float64(pageW)-110)
+				chartOpsKind(d.Chart, &c, l.chart, l.title, y, esc, dark, float64(pageW)-110)
 			}
 			f := "F1"
 			if l.bold {
