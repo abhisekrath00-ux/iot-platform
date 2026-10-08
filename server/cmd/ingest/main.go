@@ -185,6 +185,42 @@ func main() {
 		log.Fatalf("ops subscribe: %v", tok.Error())
 	}
 
+	// Device template push results: t/<tenant>/g/<gateway>/config/result. Lands only on that gateway's own
+	// push (topic identity), and only moves it forward: sent -> applied|rejected, applied -> confirmed|rolled_back.
+	cfgHandler := func(_ mqtt.Client, m mqtt.Message) {
+		parts := strings.Split(m.Topic(), "/")
+		if len(parts) != 6 || parts[4] != "config" || parts[5] != "result" || parts[1] == "" || parts[3] == "" || len(m.Payload()) > 64*1024 {
+			log.Printf("config result drop: bad topic or size %q", m.Topic())
+			return
+		}
+		var res struct {
+			PushID string `json:"push_id"`
+			State  string `json:"state"`
+			Detail string `json:"detail"`
+		}
+		if err := json.Unmarshal(m.Payload(), &res); err != nil || res.PushID == "" {
+			log.Printf("config result drop: bad payload")
+			return
+		}
+		from := map[string]string{"applied": "sent", "rejected": "sent", "confirmed": "applied", "rolled_back": "applied"}[res.State]
+		if from == "" {
+			log.Printf("config result drop: unknown state %q", res.State)
+			return
+		}
+		if len(res.Detail) > 500 {
+			res.Detail = res.Detail[:500]
+		}
+		tag, err := st.Pool.Exec(ctx,
+			`UPDATE gateway_config_pushes SET status=$1, detail=$2, updated_at=now() WHERE id=$3 AND tenant_id=$4 AND gateway_id=$5 AND status=$6`,
+			res.State, res.Detail, res.PushID, parts[1], parts[3], from)
+		if err != nil || tag.RowsAffected() == 0 {
+			log.Printf("config result drop: no matching push %s for %s/%s (%v)", res.PushID, parts[1], parts[3], err)
+		}
+	}
+	if tok := c.Subscribe(subTopic("t/+/g/+/config/result"), 1, cfgHandler); tok.Wait() && tok.Error() != nil {
+		log.Fatalf("config result subscribe: %v", tok.Error())
+	}
+
 	// Fleet auto-ACK: the edge verifies the delivered artifact and answers on
 	// t/<tenant>/g/<gateway>/fleet/ack. Topic identity pins the ack to the
 	// gateway's own assignment - a gateway cannot ack for a neighbor. A
