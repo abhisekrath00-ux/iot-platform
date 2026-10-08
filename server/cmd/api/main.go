@@ -98,6 +98,7 @@ func main() {
 	}
 
 	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET")), es: search.New(os.Getenv("ELASTICSEARCH_URL"))}
+	markInterruptedRuns(ctx, s)
 	if k, err := secrets.KeyFromEnv(os.Getenv("SECRETS_KEY")); err != nil {
 		log.Fatalf("%v", err)
 	} else if k != nil {
@@ -264,6 +265,7 @@ func main() {
 	api.HandleFunc("POST /v1/ai/profiles/{id}/activate", s.activateAIProfile)
 	api.HandleFunc("POST /v1/ai/profiles/{id}/test", s.testAIProfile)
 	api.HandleFunc("POST /v1/assistant/chat", s.assistantChat)
+	api.HandleFunc("GET /v1/assistant/runs/{id}", s.getAssistantRun)
 	api.HandleFunc("POST /v1/mcp", s.mcpHandler)
 	api.HandleFunc("GET /v1/ai/status", s.aiStatus)
 	api.HandleFunc("GET /v1/docs/search", s.searchDocs)
