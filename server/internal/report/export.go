@@ -102,6 +102,44 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		return `<c t="inlineStr"><is><t>` + e.String() + `</t></is></c>`
 	}
 	num := func(f float64) string { return fmt.Sprintf(`<c><v>%.10g</v></c>`, f) }
+	emissionsRows := func() {
+		if len(d.Emissions) == 0 {
+			return
+		}
+		er := BuildEmissions(d, series)
+		row += 2
+		sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str("Emissions (Scope 1 and 2)") + `</row>`)
+		row++
+		fmt.Fprintf(&sb, `<row r="%d">`, row)
+		for _, h := range EmissionsHeader() {
+			sb.WriteString(str(h))
+		}
+		sb.WriteString(`</row>`)
+		for _, c := range EmissionsCells(er) {
+			row++
+			fmt.Fprintf(&sb, `<row r="%d">`, row)
+			for j, v := range c {
+				if j == 3 || j == 5 || j == 6 {
+					var f float64
+					if _, err := fmt.Sscanf(v, "%g", &f); err == nil && v != "" {
+						sb.WriteString(num(f))
+						continue
+					}
+				}
+				sb.WriteString(str(v))
+			}
+			sb.WriteString(`</row>`)
+		}
+		extra := append([]string{}, er.Sources...)
+		if er.Intensity != "" {
+			extra = append(extra, er.Intensity)
+		}
+		extra = append(extra, EmissionsNotice)
+		for _, l := range extra {
+			row++
+			sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str(l) + `</row>`)
+		}
+	}
 	rollupRows := func() {
 		if d.Rollup == "" {
 			return
@@ -140,6 +178,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			emit(r, true)
 		}
 		emit(total, true)
+		emissionsRows()
 		rollupRows()
 		sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
 		if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
@@ -171,6 +210,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			sb.WriteString(`</row>`)
 		}
 	}
+	emissionsRows()
 	rollupRows()
 	sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
 	if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
@@ -321,6 +361,49 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 		}
 		a, mn, mx, sm, n := Summary(rows)
 		put(fmt.Sprintf("%-17s %10.3f %10.3f %10.3f %12.3f %8d", "overall", a, mn, mx, sm, n), true)
+		put("", false)
+	}
+	if len(d.Emissions) > 0 {
+		er := BuildEmissions(d, series)
+		put("Emissions (Scope 1 and 2)", true)
+		eh := fmt.Sprintf("%-5s %-22s %12s %-6s %10s %10s", "scope", "source", "quantity", "unit", "kg/unit", "tCO2e")
+		put(eh, true)
+		for i, x := range er.Rows {
+			n := x.Name
+			if len(n) > 22 {
+				n = n[:22]
+			}
+			u := x.Unit
+			if len(u) > 6 {
+				u = u[:6]
+			}
+			l := fmt.Sprintf("%-5d %-22s %12.3f %-6s %10.4g %10.4f", x.Scope, n, x.Quantity, u, x.Factor, x.Tonnes)
+			if x.Note != "" {
+				l += "  (" + x.Note + ")"
+			}
+			put(l, false)
+			_ = i
+		}
+		put(fmt.Sprintf("Scope 1 total %.4f tCO2e   Scope 2 total %.4f tCO2e   Scope 1 + 2 total %.4f tCO2e", er.Scope1, er.Scope2, er.Total), true)
+		if er.Intensity != "" {
+			put(er.Intensity, false)
+		}
+		put("Factors used:", false)
+		wrap := func(t string) {
+			for len(t) > 88 {
+				cut := strings.LastIndex(t[:88], " ")
+				if cut < 20 {
+					cut = 88
+				}
+				put(t[:cut], false)
+				t = strings.TrimLeft(t[cut:], " ")
+			}
+			put(t, false)
+		}
+		for _, l := range er.Sources {
+			wrap(l)
+		}
+		wrap(EmissionsNotice)
 		put("", false)
 	}
 	if rr := BuildRollup(d, series); d.Rollup != "" {
