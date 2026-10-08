@@ -102,6 +102,16 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		return `<c t="inlineStr"><is><t>` + e.String() + `</t></is></c>`
 	}
 	num := func(f float64) string { return fmt.Sprintf(`<c><v>%.10g</v></c>`, f) }
+	sectionRows := func() {
+		for _, sc := range d.Sections {
+			row += 2
+			sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str(strings.TrimSpace(sc.Title)) + `</row>`)
+			for _, p := range sectionParas(sc.Body) {
+				row++
+				sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str(p) + `</row>`)
+			}
+		}
+	}
 	emissionsRows := func() {
 		if len(d.Emissions) == 0 {
 			return
@@ -178,6 +188,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			emit(r, true)
 		}
 		emit(total, true)
+		sectionRows()
 		emissionsRows()
 		rollupRows()
 		sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
@@ -210,6 +221,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			sb.WriteString(`</row>`)
 		}
 	}
+	sectionRows()
 	emissionsRows()
 	rollupRows()
 	sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
@@ -361,6 +373,21 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 		}
 		a, mn, mx, sm, n := Summary(rows)
 		put(fmt.Sprintf("%-17s %10.3f %10.3f %10.3f %12.3f %8d", "overall", a, mn, mx, sm, n), true)
+		put("", false)
+	}
+	for _, sc := range d.Sections {
+		put(strings.TrimSpace(sc.Title), true)
+		for _, p := range sectionParas(sc.Body) {
+			for len(p) > 88 {
+				cut := strings.LastIndex(p[:88], " ")
+				if cut < 20 {
+					cut = 88
+				}
+				put(p[:cut], false)
+				p = strings.TrimLeft(p[cut:], " ")
+			}
+			put(p, false)
+		}
 		put("", false)
 	}
 	if len(d.Emissions) > 0 {
