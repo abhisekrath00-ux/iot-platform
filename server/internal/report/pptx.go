@@ -138,6 +138,26 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 			}
 		}
 	}
+	if ok && len(d.Emissions) > 0 {
+		er := BuildEmissions(d, series)
+		var cs [][]cell
+		for _, r := range EmissionsCells(er) {
+			cs = append(cs, plain(r))
+		}
+		ok = paged("Emissions (Scope 1 and 2)", EmissionsHeader(), cs, false)
+		if ok {
+			notes := append([]string{"Factors used:"}, er.Sources...)
+			if er.Intensity != "" {
+				notes = append([]string{er.Intensity}, notes...)
+			}
+			notes = append(notes, EmissionsNotice)
+			var ns [][]cell
+			for _, l := range notes {
+				ns = append(ns, plain([]string{l}))
+			}
+			ok = paged("Emissions: factors and notice", []string{"note"}, ns, false)
+		}
+	}
 	if ok && d.Rollup != "" {
 		var cs [][]cell
 		for _, r := range RollupCells(BuildRollup(d, series)) {
