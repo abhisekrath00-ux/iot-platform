@@ -9,6 +9,8 @@ For a Windows (PowerShell) user with Docker Desktop. Linux/macOS/WSL steps are i
 - NOT tested: any of the PowerShell scripts (`get.ps1`, `install.ps1`, `hexthings.ps1`) on real Windows, Docker Desktop on Windows, WSL2, a real Docker stack of this exact latest build, Firefox/Safari/mobile. The PowerShell scripts were parsed and partly run under PowerShell 7 on Linux only. Expect to hit a rough edge; the steps below say what to do then.
 - `setup.sh` (the animated terminal menu) is bash. It needs WSL2 (Ubuntu) or Git Bash with Docker Desktop running. It is not tested on Windows. On plain PowerShell use `hexthings.ps1` instead.
 
+> New: the one-line command now also checks Docker/WSL2 and installs only what is missing (see install.md). Not tested on real Windows.
+
 ## 1. Check the latest build on a separate copy (do this first, leaves your old app alone)
 
 1. Install Docker Desktop (WSL2 backend) and start it. About 4 GB free RAM and 10 GB disk.
