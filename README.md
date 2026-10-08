@@ -98,7 +98,7 @@ machine and install offline per `docs/airgap.md`.
 - [Testing](docs/testing.md) — what CI runs and how to run it locally
 - [Security model](docs/security.md) — mTLS, RBAC, approval gating, hazard analysis
 - [Connectors (STM32, Modbus, OPC UA, SCADA)](docs/connectors.md) · [Direct MQTT devices (design)](docs/mqtt-direct.md) · [Competitive gap analysis](docs/competitive-gap.md) · [Edge install (Ubuntu/Windows)](docs/edge-install.md)
-- [Commissioning](docs/commissioning.md) · [Fleet rollout](docs/fleet.md) · [Backup/restore](docs/backup-restore.md)
+- [Commissioning](docs/commissioning.md) · [Fleet rollout](docs/fleet.md) · [Backup/restore](docs/backup-restore.md) · [Try the latest build / update an old install](docs/try-and-upgrade.md)
 - [MCP evaluation](docs/mcp-eval.md) · [SLOs](docs/slo.md) · [Contributing](docs/contributing.md)
 
 ## Status
