@@ -51,6 +51,9 @@ type Definition struct {
 	// Highlight colours avg cells in the per-metric tables: red above Above, amber below Below.
 	// Thresholds only (no expressions); matrix layout cells are not coloured yet.
 	Highlight *Highlight `json:"highlight,omitempty"`
+	// Page sets the PDF page: "" or "a4" (portrait, default), "a4-landscape", "letter",
+	// "letter-landscape". HTML and XLSX are unaffected.
+	Page string `json:"page,omitempty"`
 	// Theme is "" or "light" (white pages, default) or "dark" (dark pages with light text in HTML and PDF).
 	Theme string `json:"theme,omitempty"`
 	// Logo is the tenant's logo, filled by the server at render time and never stored in the definition.
@@ -139,6 +142,9 @@ func Validate(d Definition) error {
 		if h.Above != nil && h.Below != nil && *h.Below > *h.Above {
 			return fmt.Errorf("highlight below must not exceed above")
 		}
+	}
+	if _, ok := pageSizes[d.Page]; !ok {
+		return fmt.Errorf("page must be empty, a4, a4-landscape, letter or letter-landscape")
 	}
 	if !validChart(d.Chart) {
 		return fmt.Errorf("chart must be empty, line, area, bar, scatter, gauge or pie")
@@ -572,6 +578,9 @@ func ApplyParams(d Definition, get func(string) string) (Definition, error) {
 	if v := get("agg"); v != "" {
 		d.Agg = v
 	}
+	if v := get("page"); v != "" {
+		d.Page = v
+	}
 	return d, Validate(d)
 }
 
@@ -594,4 +603,17 @@ func writeChartsHTML(b *strings.Builder, d Definition, series map[Metric][]Bucke
 		b.WriteString(`<h2>` + html.EscapeString(m.DeviceID) + ` / ` + html.EscapeString(m.PointID) + `</h2>`)
 		b.WriteString(chartSVG(d.Chart, series[m], d.Theme == "dark"))
 	}
+}
+
+var pageSizes = map[string][2]int{
+	"": {595, 842}, "a4": {595, 842}, "a4-landscape": {842, 595},
+	"letter": {612, 792}, "letter-landscape": {792, 612},
+}
+
+// PageSize returns the PDF page width and height in points; unknown names get A4 portrait.
+func PageSize(p string) (int, int) {
+	if v, ok := pageSizes[p]; ok {
+		return v[0], v[1]
+	}
+	return 595, 842
 }
