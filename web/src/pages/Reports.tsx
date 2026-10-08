@@ -3,7 +3,7 @@ import { api, download } from '../lib/api';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 
 interface Metric { device_id: string; point_id: string; }
-interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; chart?: string; page?: string; highlight?: { above?: number; below?: number }; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; }
+interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; chart?: string; page?: string; highlight?: { above?: number; below?: number; when?: string; when_color?: string }; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; }
 interface ReportRow { id: string; name: string; customer_id?: string | null; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; version?: number; }
 interface VersionRow { version: number; name: string; definition: ReportDef; schedule_cron: string | null; replaced_by: string; replaced_at: string; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
@@ -29,6 +29,8 @@ export default function Reports() {
   const [page, setPage] = useState('');
   const [hiAbove, setHiAbove] = useState('');
   const [hiBelow, setHiBelow] = useState('');
+  const [hiWhen, setHiWhen] = useState('');
+  const [hiWhenColor, setHiWhenColor] = useState('red');
   const [insights, setInsights] = useState(false);
   const [compare, setCompare] = useState(false);
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
@@ -58,7 +60,7 @@ export default function Reports() {
   }
 
   const num = (v: string) => (v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
-  const highlight = () => { const above = num(hiAbove), below = num(hiBelow); return above === undefined && below === undefined ? undefined : { above, below }; };
+  const highlight = () => { const above = num(hiAbove), below = num(hiBelow), when = hiWhen.trim() || undefined; return above === undefined && below === undefined && !when ? undefined : { above, below, when, when_color: when && hiWhenColor === 'amber' ? 'amber' : undefined }; };
   const buildDef = () => ({ metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, chart: chart || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined, page: page || undefined, highlight: highlight() });
 
   async function submit(e: React.FormEvent) {
@@ -95,7 +97,7 @@ export default function Reports() {
     const d = r.definition;
     setEditingId(r.id); setName(r.name); setMetrics(d.metrics.length ? d.metrics : [{ device_id: '', point_id: '' }]);
     setWindowHours(d.window_hours); setGroupBy(d.group_by); setLayout(d.layout ?? ''); setAgg(d.agg ?? 'avg'); setRollup(d.rollup ?? '');
-    setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setTheme(d.theme ?? 'light'); setChart(d.chart ?? ''); setPage(d.page ?? ''); setHiAbove(d.highlight?.above != null ? String(d.highlight.above) : ''); setHiBelow(d.highlight?.below != null ? String(d.highlight.below) : ''); setInsights(!!d.insights); setCompare(!!d.compare); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
+    setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setTheme(d.theme ?? 'light'); setChart(d.chart ?? ''); setPage(d.page ?? ''); setHiAbove(d.highlight?.above != null ? String(d.highlight.above) : ''); setHiBelow(d.highlight?.below != null ? String(d.highlight.below) : ''); setHiWhen(d.highlight?.when ?? ''); setHiWhenColor(d.highlight?.when_color ?? 'red'); setInsights(!!d.insights); setCompare(!!d.compare); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
     setMsg(''); window.scrollTo({ top: 0 });
   }
   function cancelEdit() { setEditingId(''); setName(''); setCron(''); setMsg(''); }
@@ -169,6 +171,10 @@ export default function Reports() {
           <div style={{ display: 'flex', gap: 6 }}>
             <input type="number" step="any" placeholder="Red above" aria-label="Highlight above" value={hiAbove} onChange={e => setHiAbove(e.target.value)} />
             <input type="number" step="any" placeholder="Amber below" aria-label="Highlight below" value={hiBelow} onChange={e => setHiBelow(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <input placeholder="Rule, e.g. if({row.avg} > 50 and {row.max} < 100, 1, 0)" aria-label="Highlight rule" value={hiWhen} onChange={e => setHiWhen(e.target.value)} style={{ flex: '1 1 260px' }} />
+            <select aria-label="Highlight rule colour" value={hiWhenColor} onChange={e => setHiWhenColor(e.target.value)}><option value="red">Rule colour: red</option><option value="amber">Rule colour: amber</option></select>
           </div>
           <label>Page theme (PDF and HTML)</label>
           <select aria-label="Report theme" value={theme} onChange={e => setTheme(e.target.value)}><option value="light">Light</option><option value="dark">Dark</option></select>
