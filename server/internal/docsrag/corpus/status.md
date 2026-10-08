@@ -215,3 +215,7 @@ Built: `format=docx` report download and a Word button on the Reports page. Test
 ## 2026-10-08: PowerPoint export
 
 Built: `format=pptx` report download and a PowerPoint button on the Reports page. Tested: unit tests (well-formed parts, escaping, slide wiring, 12-row paging, 60-slide cap with note, empty), tsc, vitest, full server suite; real API download converted with LibreOffice and inspected (title, paged table slides, highlight shading, overall row). Not tested: real Microsoft PowerPoint, Keynote/Google Slides, charts/logo (not in the deck).
+
+## 2026-10-08: Try-and-upgrade guide
+
+Added docs/try-and-upgrade.md (Windows PowerShell steps to check the latest build and update an old install). PowerShell scripts remain untested on real Windows.
