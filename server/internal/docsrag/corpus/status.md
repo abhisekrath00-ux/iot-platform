@@ -279,3 +279,7 @@ Saved providers already existed; now up to 3 can be set as ordered backups that 
 ## 2026-10-08: emissions section (BRSR-style Scope 1 and 2) in reports (user-approved 8:07 PM, from the tor.ai gap check)
 
 Optional report section: metered quantity x operator-entered factor = tCO2e, per source, with Scope 1, Scope 2 and total, optional intensity. No factors are built in (the operator enters each factor and its source, both printed). Not a certified BRSR filing; says so in every format. See docs/emissions-report.md. Tested: maths with made-up factors, validation, all six formats, a real API report with seeded readings, PDF and form screenshots. NOT tested: real meters, real factors, regulator template, Microsoft Office rendering.
+
+## 2026-10-08: charts in Word and PowerPoint exports
+
+Line, area, bar and scatter charts now appear in .docx and .pptx (PowerPoint gets one chart slide per metric; Word and matrix layouts the first 4 metrics). They are PNG pictures drawn with the standard library: not editable Office charts, no axis labels, with a caption giving range and first/last bucket. Gauge and pie are not drawn. Tested: PNG decodes, caption, absent when no chart, and real DOCX/PPTX converted by LibreOffice and inspected. NOT tested: Microsoft Word or PowerPoint.
