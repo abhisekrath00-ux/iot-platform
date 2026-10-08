@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+
 	"encoding/base64"
 	"encoding/json"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -138,6 +141,37 @@ func TestIntegrationAssistant(t *testing.T) {
 	if w := call(api, "itest-as", "admin", "POST", "/v1/ai/test", ""); !strings.Contains(w.Body.String(), `"ok":true`) || fm.auth != "Bearer sk-secret-123" {
 		t.Fatalf("test call: %s auth=%q", w.Body.String(), fm.auth)
 	}
+
+	// durable runs: the same X-Run-Id returns the stored answer and does not call the model again
+	api2 := func(id string) (int, map[string]any, string) {
+		b, _ := json.Marshal(map[string]any{"messages": []any{map[string]string{"role": "user", "content": "say ok"}}})
+		r := httptest.NewRequest("POST", "/v1/assistant/chat", strings.NewReader(string(b)))
+		r.Header.Set("X-Run-Id", id)
+		ctx2 := context.WithValue(r.Context(), auth.CtxTenant, "itest-as")
+		ctx2 = context.WithValue(ctx2, auth.CtxUser, "test-user")
+		ctx2 = context.WithValue(ctx2, auth.CtxRole, "admin")
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r.WithContext(ctx2))
+		var o map[string]any
+		json.Unmarshal(w.Body.Bytes(), &o)
+		return w.Code, o, w.Header().Get("X-Run-Replayed")
+	}
+	pool.Exec(ctx, `DELETE FROM assistant_runs WHERE tenant_id='itest-as'`)
+	fm.script = []map[string]any{{"role": "assistant", "content": "first answer"}}
+	n0 := len(fm.requests)
+	c1, o1, rep1 := api2("durable-run-0001")
+	n1 := len(fm.requests)
+	c2, o2, rep2 := api2("durable-run-0001")
+	if c1 != 200 || rep1 != "" || o1["reply"] != "first answer" || o1["run_id"] != "durable-run-0001" || n1 == n0 {
+		t.Fatalf("first run: %d %v replayed=%q calls %d->%d", c1, o1, rep1, n0, n1)
+	}
+	if c2 != 200 || rep2 != "true" || o2["reply"] != "first answer" || len(fm.requests) != n1 {
+		t.Fatalf("replay: %d %v replayed=%q model calls %d->%d", c2, o2, rep2, n1, len(fm.requests))
+	}
+	if c, _, _ := api2("bad id!"); c != 400 {
+		t.Fatalf("bad run id = %d", c)
+	}
+	fm.script = []map[string]any{{"role": "assistant", "content": "ok"}}
 
 	// provider profiles: admin only, key write-only and encrypted, switch without re-entering the key
 	if w := call(api, "itest-as", "operator", "GET", "/v1/ai/profiles", ""); w.Code != 403 {
