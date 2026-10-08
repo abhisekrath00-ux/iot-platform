@@ -1571,6 +1571,10 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 			if err := n.SMS(ctx, target, "Report ready: "+name); err != nil {
 				return fail(err)
 			}
+		case "whatsapp":
+			if err := n.WhatsApp(ctx, target, "Report ready: "+name); err != nil {
+				return fail(err)
+			}
 		case "kafka":
 			if err := n.Kafka(ctx, target, "report.ready", map[string]any{"report": name, "rows": total}); err != nil {
 				return fail(err)
@@ -2225,8 +2229,8 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		Target string `json:"target"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Target == "" ||
-		(in.Type != "email" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp" && in.Type != "teams" && in.Type != "sms") {
-		http.Error(w, "type (email|slack|webhook|teams|sms|kafka|amqp) and target required", 400)
+		(in.Type != "email" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp" && in.Type != "teams" && in.Type != "sms" && in.Type != "whatsapp") {
+		http.Error(w, "type (email|slack|webhook|teams|sms|whatsapp|kafka|amqp) and target required", 400)
 		return
 	}
 	if in.Type == "teams" {
@@ -2241,6 +2245,16 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := notify.ValidatePhone(in.Target); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
+	if in.Type == "whatsapp" {
+		if !notify.WhatsAppConfigured() {
+			http.Error(w, "WhatsApp is not configured on this deployment (the operator sets WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TOKEN)", 409)
+			return
+		}
+		if err := notify.ValidateWhatsAppNumber(in.Target); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
