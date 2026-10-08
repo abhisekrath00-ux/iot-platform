@@ -43,6 +43,7 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/profiles", s.createProfile)
 	mux.HandleFunc("GET /v1/points", s.listPoints)
+	mux.HandleFunc("GET /v1/reports/options", s.reportOptions)
 	mux.HandleFunc("GET /v1/gateways/{id}/edge-config", s.gatewayEdgeConfig)
 	mux.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
 	mux.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
