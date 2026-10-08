@@ -4,6 +4,7 @@ import { CampaignRow, allowedActions, parseStages, progress } from '../lib/fleet
 
 interface Gw { id: string; serial: string; status: string; kind: string; site_id: string; }
 interface Op { id: string; kind: string; status: string; requested_by: string; approved_by: string; result: { ok?: boolean; detail?: string; lines?: string[] } | null; created_at: string; }
+interface Push { id: string; version: number; status: string; detail: string; requested_by: string; created_at: string; }
 interface Site { id: string; name: string; }
 interface Rel { id: string; version: string; artifact_sha256: string; notes: string; created_at: string; }
 
@@ -27,6 +28,9 @@ export default function FleetUpdates() {
   useEffect(() => { load(); api<Site[]>('/v1/sites').then(setSites).catch(() => {}); const t = setInterval(load, 10000); return () => clearInterval(t); }, [load]);
   const loadOps = useCallback(() => { if (opGw) api<Op[]>(`/v1/gateways/${opGw}/ops`).then((x) => setOps(x ?? [])).catch(() => setOps([])); }, [opGw]);
   useEffect(() => { loadOps(); const t = setInterval(loadOps, 5000); return () => clearInterval(t); }, [loadOps]);
+  const [pushes, setPushes] = useState<Push[]>([]);
+  const loadPushes = useCallback(() => { if (opGw) api<Push[]>(`/v1/gateways/${opGw}/config-push`).then((x) => setPushes(x ?? [])).catch(() => setPushes([])); else setPushes([]); }, [opGw]);
+  useEffect(() => { loadPushes(); const t = setInterval(loadPushes, 5000); return () => clearInterval(t); }, [loadPushes]);
   const approveOp = async (id: string) => {
     let body: string | undefined;
     const t = await api<{ required_for_approval: boolean }>('/v1/me/totp').catch(() => null);
@@ -102,6 +106,17 @@ export default function FleetUpdates() {
           {!ops.length && <tr><td colSpan={5} className="muted">Nothing requested for this box yet.</td></tr>}
         </tbody></table>}
         {showLog && <pre style={{ maxHeight: 320, overflow: 'auto', background: '#111', color: '#ddd', padding: 8, fontSize: 12 }}>{(ops.find((o) => o.id === showLog)?.result?.lines ?? []).join('\n')}</pre>}
+      </div>
+
+      <div className="card" style={{ marginTop: 12 }}>
+        <b>Device templates</b>
+        <p className="muted">Send this box its device list (each device's connection settings plus the register map from its profile) as a signed, numbered update. The box checks it, keeps the old list, restarts its agent, and puts the old list back by itself if it does not reconnect within 3 minutes. Only the device list is sent, never network, certificate or login settings. The box must have <code>managed_devices: true</code> and <code>fleet_public_key</code> in its own config, and the server needs <code>FLEET_SIGNING_KEY</code>. Uses the box picked above.</p>
+        <button className="secondary" disabled={!opGw} onClick={() => { if (window.confirm('Send the current device list to this box? Its agent restarts to use it.')) run(() => post(`/v1/gateways/${opGw}/config-push`, {}), 'Device list sent. Watch the state below.').then(loadPushes); }}>Push device templates</button>
+        {opGw && <table><thead><tr><th>When</th><th>Version</th><th>State</th><th>By</th></tr></thead><tbody>
+          {pushes.map((p) => <tr key={p.id}><td>{new Date(p.created_at).toLocaleString()}</td><td>{p.version}</td>
+            <td style={{ color: p.status === 'confirmed' ? '#16a34a' : p.status === 'sent' || p.status === 'applied' ? '#2563eb' : '#dc2626' }}>{p.status.replace('_', ' ')}{p.detail ? ` - ${p.detail}` : ''}</td><td>{p.requested_by}</td></tr>)}
+          {!pushes.length && <tr><td colSpan={4} className="muted">Nothing pushed to this box yet.</td></tr>}
+        </tbody></table>}
       </div>
 
       <div className="card" style={{ marginTop: 12 }}>
