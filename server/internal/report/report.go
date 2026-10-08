@@ -47,6 +47,8 @@ type Definition struct {
 	// per group and point and a grand total per point. Empty means off.
 	Rollup string `json:"rollup,omitempty"`
 	// Emissions adds a Scope 1 and 2 section (see emissions.go): metered quantity times an operator-entered factor.
+	// Sections are titled plain-text notes printed after the data (see sections.go).
+	Sections           []Section           `json:"sections,omitempty"`
 	Emissions          []EmissionSource    `json:"emissions,omitempty"`
 	EmissionsIntensity *EmissionsIntensity `json:"emissions_intensity,omitempty"`
 	// Header and Footer are optional text (at most 80 printable characters) printed on every PDF
@@ -261,6 +263,9 @@ func Validate(d Definition) error {
 	default:
 		return ErrBadRollup
 	}
+	if err := validateSections(d); err != nil {
+		return err
+	}
 	if err := validateEmissions(d); err != nil {
 		return err
 	}
@@ -396,6 +401,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		}
 		b.WriteString(`</tr></table>`)
 		writeInsightsHTML(&b, d, series)
+		writeSectionsHTML(&b, d)
 		writeEmissionsHTML(&b, d, series)
 		writeRollupHTML(&b, d, series)
 		writeFooter(&b, d)
@@ -432,6 +438,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		writeDetailHTML(&b, d, m, rows)
 	}
 	writeInsightsHTML(&b, d, series)
+	writeSectionsHTML(&b, d)
 	writeEmissionsHTML(&b, d, series)
 	writeRollupHTML(&b, d, series)
 	writeFooter(&b, d)
@@ -521,6 +528,7 @@ func RenderCSV(d Definition, series map[Metric][]Bucket) string {
 		for _, r := range append(rows, total) {
 			b.WriteString(strings.Join(r, ",") + "\n")
 		}
+		writeSectionsCSV(&b, d)
 		writeEmissionsCSV(&b, d, series)
 		writeRollupCSV(&b, d, series)
 		return b.String()
@@ -532,6 +540,7 @@ func RenderCSV(d Definition, series map[Metric][]Bucket) string {
 				k.Start.UTC().Format(time.RFC3339), k.Avg, k.Min, k.Max, k.Count, k.Sum)
 		}
 	}
+	writeSectionsCSV(&b, d)
 	writeEmissionsCSV(&b, d, series)
 	writeRollupCSV(&b, d, series)
 	return b.String()
