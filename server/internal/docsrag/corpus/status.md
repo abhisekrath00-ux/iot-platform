@@ -186,3 +186,11 @@ including scatter, gauge, pie); definitions load back into the form when editing
 stored definition checked (page a4-landscape, chart gauge, highlight 80/50), downloaded PDF
 (842x595 pt), HTML (highlight colours, one SVG) and XLSX. Screenshots inspected. Not run:
 real-browser file-download dialog, mobile width, Safari/Firefox.
+
+## 2026-10-08: and/or/not in expressions
+
+Built: `if(cond, a, b)` conditions accept `and`, `or`, `not` and grouping parentheses (and binds
+tighter than or; and/or short-circuit so a guarded division is safe). Parser depth still capped.
+Tested: unit tests for precedence, grouping vs arithmetic parentheses, short-circuit, 8
+malformed forms including 40-deep `not`, errors on evaluated branches. Not done: text/date
+functions, expressions in conditional formatting, no UI help text.
