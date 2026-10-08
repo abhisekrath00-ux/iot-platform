@@ -24,12 +24,13 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Subreports, drill-through, bookmarks | Not built | |
 | Export: PDF, XLSX, CSV, HTML | Built | |
 | Export: XML | Partial | `format=xml`: one series per metric with a bucket element per row (well-formed, escaped, non-finite as empty). Flat series only: no matrix or rollup. Unit and DB tested; button added to Reports.tsx but the web build was not run here. |
-| Export: Word, PowerPoint | Not built | |
+| Export: Word | Partial | `format=docx` (Word button on the Reports page): title, generated line, one table per metric or the matrix table, summary grouping table, header text, footer with page number, PDF page size and orientation, highlight shading. Standard-library zip, no macros or external links. No charts, logo or insights section. Unit-tested (every part well-formed XML, escaping, landscape/portrait, matrix, empty); real file converted by LibreOffice and inspected. Not opened in real Microsoft Word. |
+| Export: PowerPoint | Not built | |
 | Scheduled delivery | Built | Cron plus notification channel. |
 | Versioning and restore | Built | |
 | Designer: drag-drop surface, wizard, toolbox | Not built | Current UI is a form, not a design surface. |
 
-Next units, in order: conditional formatting from expressions, Word/PowerPoint export, designer surface, PDF chart types and gauges.
+Next units, in order: PowerPoint export, conditional formatting from expressions, designer surface, PDF chart types and gauges.
 
 ## Production grade and scale (user request, 2026-10-07)
 
