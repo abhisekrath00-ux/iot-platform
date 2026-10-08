@@ -397,20 +397,42 @@ func (s *server) assistantChat(w http.ResponseWriter, r *http.Request) {
 	if typedMode(cfg) { // typed tools and the short prompt
 		msgs[0].Content = typedPrompt(role) + wsCtx + pageContext(in.Page)
 	}
+	reqID := r.Header.Get("X-Run-Id")
+	if reqID != "" && !runIDRE.MatchString(reqID) {
+		http.Error(w, "X-Run-Id must be 8-64 letters, digits or dashes", 400)
+		return
+	}
+	runID, replay, runState, runOK := s.beginRun(r.Context(), tenant, user, reqID)
+	if replay != nil {
+		w.Header().Set("X-Run-Id", runID)
+		w.Header().Set("X-Run-Replayed", "true")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(replay)
+		return
+	}
+	if !runOK {
+		writeJSON(w, 409, map[string]any{"error": "this run id was already used (status: " + runState + "); the model was not run again. Send a new X-Run-Id to ask again.", "run_id": runID, "status": runState})
+		return
+	}
+	w.Header().Set("X-Run-Id", runID)
 	if r.URL.Query().Get("stream") == "1" {
 		s.assistantChatStream(w, r, cfg, c.Model, tenant, user, role, msgs)
+		s.finishRun(tenant, runID, "done", "", nil)
 		return
 	}
 	res := s.runAgent(r.Context(), cfg, tenant, user, role, msgs, runCtx{via: "web"})
 	if res.err != nil {
+		s.finishRun(tenant, runID, "failed", res.err.Error(), nil)
 		s.audit(r, "assistant.run", user, map[string]any{"model": c.Model, "error": truncStr(res.err.Error(), 200), "tool_calls": res.tools, "trace": traceForAudit(res.trace)})
 		writeJSON(w, 502, map[string]any{"error": res.err.Error(), "trace": res.trace, "plan": res.plan, "pending": res.pending})
 		return
 	}
 	reply, trace, plan, pending, tools, calls := res.reply, res.trace, res.plan, res.pending, res.tools, res.calls
 	s.audit(r, "assistant.run", user, map[string]any{"model": c.Model, "model_calls": calls + 1, "tool_calls": tools, "proposed_changes": len(pending), "trace": traceForAudit(trace)})
-	writeJSON(w, 200, map[string]any{"reply": reply, "plan": plan, "trace": trace, "pending": pending, "files": res.files, "model": c.Model,
-		"note": "Changes wait for your confirmation. Answers come from the model you connected and can be wrong."})
+	out := map[string]any{"reply": reply, "plan": plan, "trace": trace, "pending": pending, "files": res.files, "model": c.Model, "run_id": runID,
+		"note": "Changes wait for your confirmation. Answers come from the model you connected and can be wrong."}
+	s.finishRun(tenant, runID, "done", "", out)
+	writeJSON(w, 200, out)
 }
 
 type agentResult struct {
