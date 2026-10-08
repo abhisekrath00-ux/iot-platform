@@ -22,6 +22,7 @@ import Commands from './pages/Commands';
 import Settings from './pages/Settings';
 import Audit from './pages/Audit';
 import Reports from './pages/Reports';
+import FirstRunCredentials from './components/FirstRunCredentials';
 import Profiles from './pages/Profiles';
 import Assets from './pages/Assets';
 import Customers from './pages/Customers';
@@ -85,7 +86,7 @@ export default function App() {
       }
     }).catch(() => {});
   }, []);
-  const [me, setMe] = useState<{ role: string; customer_id?: string; customer_name?: string; denied?: string[] } | null>(null);
+  const [me, setMe] = useState<{ role: string; customer_id?: string; customer_name?: string; denied?: string[]; must_change_credentials?: boolean; email?: string } | null>(null);
   useEffect(() => { if (localStorage.getItem('iot.token')) api<NonNullable<typeof me>>('/v1/me').then(setMe).catch(() => {}); }, []);
   const visible = items.filter(([to]) => {
     if (!me) return true;
@@ -110,7 +111,8 @@ export default function App() {
   if (signedOut) return <Login />;
   return (
     <div className="shell">
-      {tour && <Tour onClose={() => setTour(false)} />}
+      {me?.must_change_credentials && <FirstRunCredentials email={me.email} />}
+      {tour && !me?.must_change_credentials && <Tour onClose={() => setTour(false)} />}
       {!online && <div role="status" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50, textAlign: 'center', padding: '6px 12px', background: '#b45309', color: '#fff', fontSize: 13 }}>You are offline. The app opened from this device, but live data needs a connection to the server.</div>}
       <nav>
         <div className="brand">{logo ? <img src={logo} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }} /> : <img src="/logo-mark.svg" alt="" style={{ width: 28, height: 28 }} />}{brand}</div>
