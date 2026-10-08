@@ -160,6 +160,12 @@ func dispatch(pool *pgxpool.Pool, n Notifier, tenantID, flowID, flowName, device
 			}); ok {
 				derr = t.SMS(bg, target, "["+flowName+"] "+a.Message)
 			}
+		case "whatsapp":
+			if t, ok := n.(interface {
+				WhatsApp(context.Context, string, string) error
+			}); ok {
+				derr = t.WhatsApp(bg, target, "["+flowName+"] "+a.Message)
+			}
 		case "webhook":
 			if wh, ok := n.(interface {
 				Webhook(context.Context, string, string, map[string]any) error
