@@ -4,7 +4,8 @@
 //
 //	expr   = term { ("+" | "-") term }
 //	term   = factor { ("*" | "/") factor }
-//	factor = number | "{" device "." point "}" | "(" expr ")" | "-" factor
+//	factor = number | "{" device "." point "}" | "(" expr ")" | "-" factor | call
+//	call   = name "(" expr { "," expr } ")"   name: abs round sqrt min max clamp (fixed list)
 package kpi
 
 import (
@@ -77,6 +78,47 @@ func (b bin) eval(v map[string]float64) (float64, error) {
 		return 0, ErrDivZero
 	}
 	return l / r, nil
+}
+
+type call struct {
+	name string
+	args []node
+}
+
+// funcs is the whole function list: pure, total (or erroring) numeric functions. Each entry is the
+// accepted argument count and the implementation.
+var funcs = map[string]struct {
+	n  int
+	fn func(a []float64) (float64, error)
+}{
+	"abs":   {1, func(a []float64) (float64, error) { return math.Abs(a[0]), nil }},
+	"round": {1, func(a []float64) (float64, error) { return math.Round(a[0]), nil }},
+	"sqrt": {1, func(a []float64) (float64, error) {
+		if a[0] < 0 {
+			return 0, errors.New("sqrt of a negative number")
+		}
+		return math.Sqrt(a[0]), nil
+	}},
+	"min": {2, func(a []float64) (float64, error) { return math.Min(a[0], a[1]), nil }},
+	"max": {2, func(a []float64) (float64, error) { return math.Max(a[0], a[1]), nil }},
+	"clamp": {3, func(a []float64) (float64, error) {
+		if a[1] > a[2] {
+			return 0, errors.New("clamp: low is above high")
+		}
+		return math.Min(math.Max(a[0], a[1]), a[2]), nil
+	}},
+}
+
+func (c call) eval(v map[string]float64) (float64, error) {
+	args := make([]float64, len(c.args))
+	for i, a := range c.args {
+		x, err := a.eval(v)
+		if err != nil {
+			return 0, err
+		}
+		args[i] = x
+	}
+	return funcs[c.name].fn(args)
 }
 
 type parser struct {
@@ -209,6 +251,39 @@ func (p *parser) factor() (node, error) {
 		}
 		p.i = j
 		return num(f), nil
+	case c >= 'a' && c <= 'z':
+		j := p.i
+		for j < len(p.s) && p.s[j] >= 'a' && p.s[j] <= 'z' {
+			j++
+		}
+		name := p.s[p.i:j]
+		f, ok := funcs[name]
+		if !ok || j >= len(p.s) || p.s[j] != '(' {
+			return nil, fmt.Errorf("unknown function or word %q at %d", name, p.i)
+		}
+		p.i = j + 1
+		var args []node
+		for {
+			a, err := p.expr()
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, a)
+			p.ws()
+			if p.i < len(p.s) && p.s[p.i] == ',' {
+				p.i++
+				continue
+			}
+			break
+		}
+		if p.i >= len(p.s) || p.s[p.i] != ')' {
+			return nil, errors.New("missing ) after function arguments")
+		}
+		p.i++
+		if len(args) != f.n {
+			return nil, fmt.Errorf("%s takes %d argument(s), got %d", name, f.n, len(args))
+		}
+		return call{name, args}, nil
 	default:
 		return nil, fmt.Errorf("unexpected %q at %d", string(c), p.i)
 	}
