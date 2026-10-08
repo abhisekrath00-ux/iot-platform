@@ -287,3 +287,7 @@ Line, area, bar and scatter charts now appear in .docx and .pptx (PowerPoint get
 ## 2026-10-08: device templates pushed to edge boxes (user, 11:16 PM: "edge templates")
 
 Server-managed, signed, versioned push of the device list with edge-side checks, 3-minute probation and automatic rollback. API plus a Device templates card on Fleet updates (screenshot with seeded rows). See docs/device-templates.md. Edge binary 13.3 MB stripped, idle 12 MB RSS. Tested with fakes and unit tests; NOT tested on a real broker, real box or real devices. Migration 0073.
+
+## 2026-10-09: narrow-screen layout pass
+
+Checked 19 pages at phone (390 px) and tablet (820 px) width in headless Chrome: pages Fleet updates, Alerts, Reports, Profiles, Audit, Settings, Users and Edge setup ran wider than the screen. Fixed with CSS only: tables scroll inside their card, button rows wrap, form controls cap at screen width. After the fix none of the 19 pages overflows at either width (measured). NOT done: the menu takes about half a phone screen before the page content (no collapse yet); not tested on a real phone or Safari; touch behaviour of the report designer drag-and-drop is untested.
