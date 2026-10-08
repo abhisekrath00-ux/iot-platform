@@ -1615,8 +1615,30 @@ func (s *server) buildSeries(ctx context.Context, tenant string, def report.Defi
 // rollup report. Tenant-scoped; devices with no asset or site get no label and
 // land under "(unassigned)".
 func (s *server) withGroupLabels(ctx context.Context, tenant string, def report.Definition) (report.Definition, error) {
+	outer, inner := report.RollupLevels(def.Rollup)
+	if outer == "" {
+		return def, nil
+	}
+	ids := make([]string, 0, len(def.Metrics))
+	for _, m := range def.Metrics {
+		ids = append(ids, m.DeviceID)
+	}
+	var err error
+	if def.GroupLabels, err = s.deviceGroupLabels(ctx, tenant, outer, ids); err != nil {
+		return def, err
+	}
+	if inner != "" {
+		if def.InnerLabels, err = s.deviceGroupLabels(ctx, tenant, inner, ids); err != nil {
+			return def, err
+		}
+	}
+	return def, nil
+}
+
+// deviceGroupLabels maps device id to its asset or site name, tenant-scoped.
+func (s *server) deviceGroupLabels(ctx context.Context, tenant, kind string, ids []string) (map[string]string, error) {
 	var q string
-	switch def.Rollup {
+	switch kind {
 	case "asset":
 		q = `SELECT d.id, a.name FROM devices d JOIN assets a ON a.id=d.asset_id AND a.tenant_id=d.tenant_id
 		       WHERE d.tenant_id=$1 AND d.id = ANY($2)`
@@ -1625,26 +1647,22 @@ func (s *server) withGroupLabels(ctx context.Context, tenant string, def report.
 		       JOIN sites st ON st.id=g.site_id AND st.tenant_id=d.tenant_id
 		       WHERE d.tenant_id=$1 AND d.id = ANY($2)`
 	default:
-		return def, nil
-	}
-	ids := make([]string, 0, len(def.Metrics))
-	for _, m := range def.Metrics {
-		ids = append(ids, m.DeviceID)
+		return nil, nil
 	}
 	rows, err := s.st.Pool.Query(ctx, q, tenant, ids)
 	if err != nil {
-		return def, err
+		return nil, err
 	}
 	defer rows.Close()
-	def.GroupLabels = map[string]string{}
+	out := map[string]string{}
 	for rows.Next() {
 		var id, name string
 		if err := rows.Scan(&id, &name); err != nil {
-			return def, err
+			return nil, err
 		}
-		def.GroupLabels[id] = name
+		out[id] = name
 	}
-	return def, rows.Err()
+	return out, rows.Err()
 }
 
 // previewReport renders a definition without storing or delivering it.
