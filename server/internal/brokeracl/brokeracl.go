@@ -66,6 +66,8 @@ func Generate(entries []Entry) string {
 		fmt.Fprintf(&b, "topic read %s/diag\n", base)
 		fmt.Fprintf(&b, "topic write %s/scan/result\n", base)
 		fmt.Fprintf(&b, "topic read %s/scan\n", base)
+		fmt.Fprintf(&b, "topic write %s/ops/result\n", base)
+		fmt.Fprintf(&b, "topic read %s/ops\n", base)
 	}
 	return b.String()
 }
