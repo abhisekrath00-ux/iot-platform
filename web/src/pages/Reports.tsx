@@ -3,7 +3,7 @@ import { api, download } from '../lib/api';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 
 interface Metric { device_id: string; point_id: string; }
-interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; chart?: string; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; }
+interface ReportDef { metrics: Metric[]; window_hours: number; group_by: string; layout?: string; agg?: string; rollup?: string; header?: string; footer?: string; theme?: string; chart?: string; page?: string; highlight?: { above?: number; below?: number }; insights?: boolean; compare?: boolean; computed?: { name: string; expr: string }[]; }
 interface ReportRow { id: string; name: string; customer_id?: string | null; definition: ReportDef; schedule_cron: string | null; channel_id: string | null; last_run_at: string | null; version?: number; }
 interface VersionRow { version: number; name: string; definition: ReportDef; schedule_cron: string | null; replaced_by: string; replaced_at: string; }
 interface PointRow { device_id: string; device_name: string; point_id: string; unit: string; }
@@ -26,6 +26,9 @@ export default function Reports() {
   const [footer, setFooter] = useState('');
   const [theme, setTheme] = useState('light');
   const [chart, setChart] = useState('');
+  const [page, setPage] = useState('');
+  const [hiAbove, setHiAbove] = useState('');
+  const [hiBelow, setHiBelow] = useState('');
   const [insights, setInsights] = useState(false);
   const [compare, setCompare] = useState(false);
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
@@ -52,6 +55,10 @@ export default function Reports() {
     setMetrics(ms => ms.map((m, j) => (j === i ? { ...m, [k]: v } : m)));
   }
 
+  const num = (v: string) => (v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
+  const highlight = () => { const above = num(hiAbove), below = num(hiBelow); return above === undefined && below === undefined ? undefined : { above, below }; };
+  const buildDef = () => ({ metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, chart: chart || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined, page: page || undefined, highlight: highlight() });
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMsg('');
@@ -60,7 +67,7 @@ export default function Reports() {
         method: editingId ? 'PUT' : 'POST',
         body: JSON.stringify({
           name,
-          definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, chart: chart || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined },
+          definition: buildDef(),
           schedule_cron: cron || '',
           channel_id: channelId || ''
         })
@@ -75,7 +82,7 @@ export default function Reports() {
     try {
       const r = await api<{ html: string; rows: number }>('/v1/reports/preview', {
         method: 'POST',
-        body: JSON.stringify({ name, definition: { metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, chart: chart || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined } })
+        body: JSON.stringify({ name, definition: buildDef() })
       });
       setPreviewHTML(r.html); setPreviewRows(r.rows);
     } catch (e2) { setMsg(String(e2)); }
@@ -86,7 +93,7 @@ export default function Reports() {
     const d = r.definition;
     setEditingId(r.id); setName(r.name); setMetrics(d.metrics.length ? d.metrics : [{ device_id: '', point_id: '' }]);
     setWindowHours(d.window_hours); setGroupBy(d.group_by); setLayout(d.layout ?? ''); setAgg(d.agg ?? 'avg'); setRollup(d.rollup ?? '');
-    setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setTheme(d.theme ?? 'light'); setChart(d.chart ?? ''); setInsights(!!d.insights); setCompare(!!d.compare); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
+    setHeader(d.header ?? ''); setFooter(d.footer ?? ''); setTheme(d.theme ?? 'light'); setChart(d.chart ?? ''); setPage(d.page ?? ''); setHiAbove(d.highlight?.above != null ? String(d.highlight.above) : ''); setHiBelow(d.highlight?.below != null ? String(d.highlight.below) : ''); setInsights(!!d.insights); setCompare(!!d.compare); setComputed(d.computed ?? []); setCron(r.schedule_cron ?? ''); setChannelId(r.channel_id ?? '');
     setMsg(''); window.scrollTo({ top: 0 });
   }
   function cancelEdit() { setEditingId(''); setName(''); setCron(''); setMsg(''); }
@@ -152,10 +159,19 @@ export default function Reports() {
             <input maxLength={80} placeholder="Header text" aria-label="Report header" value={header} onChange={e => setHeader(e.target.value)} />
             <input maxLength={80} placeholder="Footer text" aria-label="Report footer" value={footer} onChange={e => setFooter(e.target.value)} />
           </div>
-          <label>Page theme (PDF and HTML)</label>
-          <label>Chart in HTML report</label>
+          <label>Chart in HTML and Excel reports</label>
           <select aria-label="Report chart" value={chart} onChange={e => setChart(e.target.value)}><option value="">None</option><option value="line">Line</option><option value="area">Area</option><option value="bar">Bar</option><option value="scatter">Scatter</option><option value="gauge">Gauge (latest)</option><option value="pie">Pie (share of total)</option></select>
+                    <label>Highlight cells in the per-point tables (HTML): red above, amber below. Leave empty for none</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input type="number" step="any" placeholder="Red above" aria-label="Highlight above" value={hiAbove} onChange={e => setHiAbove(e.target.value)} />
+            <input type="number" step="any" placeholder="Amber below" aria-label="Highlight below" value={hiBelow} onChange={e => setHiBelow(e.target.value)} />
+          </div>
+          <label>Page theme (PDF and HTML)</label>
           <select aria-label="Report theme" value={theme} onChange={e => setTheme(e.target.value)}><option value="light">Light</option><option value="dark">Dark</option></select>
+          <label>PDF page size</label>
+          <select aria-label="PDF page" value={page} onChange={e => setPage(e.target.value)}>
+            <option value="">A4 portrait (default)</option><option value="a4-landscape">A4 landscape</option><option value="letter">Letter portrait</option><option value="letter-landscape">Letter landscape</option>
+          </select>
           <label>Layout</label>
           <select value={layout} onChange={e => setLayout(e.target.value)}>
             <option value="">One table per point</option><option value="matrix">Matrix (time rows, point columns)</option>
