@@ -5,6 +5,7 @@
 //	expr   = term { ("+" | "-") term }
 //	term   = factor { ("*" | "/") factor }
 //	factor = number | "{" device "." point "}" | "(" expr ")" | "-" factor | call
+//	cond   = "if" "(" expr cmp expr "," expr "," expr ")"   cmp: > < >= <= == !=  (a call, only inside if)
 //	call   = name "(" expr { "," expr } ")"   name: abs round sqrt min max clamp (fixed list)
 package kpi
 
@@ -119,6 +120,41 @@ func (c call) eval(v map[string]float64) (float64, error) {
 		args[i] = x
 	}
 	return funcs[c.name].fn(args)
+}
+
+type cond struct {
+	op            string
+	l, r, yes, no node
+}
+
+func (c cond) eval(v map[string]float64) (float64, error) {
+	l, err := c.l.eval(v)
+	if err != nil {
+		return 0, err
+	}
+	r, err := c.r.eval(v)
+	if err != nil {
+		return 0, err
+	}
+	var t bool
+	switch c.op {
+	case ">":
+		t = l > r
+	case "<":
+		t = l < r
+	case ">=":
+		t = l >= r
+	case "<=":
+		t = l <= r
+	case "==":
+		t = l == r
+	default:
+		t = l != r
+	}
+	if t { // only the chosen branch is evaluated, so the other may divide by zero safely
+		return c.yes.eval(v)
+	}
+	return c.no.eval(v)
 }
 
 type parser struct {
@@ -257,6 +293,10 @@ func (p *parser) factor() (node, error) {
 			j++
 		}
 		name := p.s[p.i:j]
+		if name == "if" && j < len(p.s) && p.s[j] == '(' {
+			p.i = j + 1
+			return p.ifCall()
+		}
 		f, ok := funcs[name]
 		if !ok || j >= len(p.s) || p.s[j] != '(' {
 			return nil, fmt.Errorf("unknown function or word %q at %d", name, p.i)
@@ -287,6 +327,46 @@ func (p *parser) factor() (node, error) {
 	default:
 		return nil, fmt.Errorf("unexpected %q at %d", string(c), p.i)
 	}
+}
+
+func (p *parser) ifCall() (node, error) {
+	l, err := p.expr()
+	if err != nil {
+		return nil, err
+	}
+	p.ws()
+	op := ""
+	for _, c := range []string{">=", "<=", "==", "!=", ">", "<"} {
+		if strings.HasPrefix(p.s[p.i:], c) {
+			op = c
+			break
+		}
+	}
+	if op == "" {
+		return nil, errors.New("if needs a comparison: > < >= <= == !=")
+	}
+	p.i += len(op)
+	r, err := p.expr()
+	if err != nil {
+		return nil, err
+	}
+	var parts [2]node
+	for i := range parts {
+		p.ws()
+		if p.i >= len(p.s) || p.s[p.i] != ',' {
+			return nil, errors.New("if takes (condition, then, else)")
+		}
+		p.i++
+		if parts[i], err = p.expr(); err != nil {
+			return nil, err
+		}
+	}
+	p.ws()
+	if p.i >= len(p.s) || p.s[p.i] != ')' {
+		return nil, errors.New("missing ) after if arguments")
+	}
+	p.i++
+	return cond{op, l, r, parts[0], parts[1]}, nil
 }
 
 // validIdent allows the characters device and point ids use in practice.
