@@ -271,3 +271,7 @@ New optional channel type `whatsapp` (WhatsApp Business Cloud API) for alert rul
 New "Remote maintenance" card on Fleet updates: fetch an edge box's recent log lines (secrets hidden, size capped) and restart its agent program with four-eyes approval. The box must opt in with `remote_restart: true`. No reboot, no shell. See docs/remote-maintenance.md. Tested: edge gate and log tail units, server API against Postgres with a fake publisher, UI screenshot with seeded rows. NOT tested: real edge box, real broker and ACL, ingest handler on a real message, restart under systemd or Windows. Migration 0071, broker ACL lines for `ops` and `ops/result`.
 
 CI note (2026-10-08 evening): the remote-maintenance publish was done file by file, so a mid-publish run (e0d01d8) failed on missing files and the tip run was cancelled. A clean run on a later commit is the evidence; see the Actions tab.
+
+## 2026-10-08: multiple AI providers with ordered backups (user, 9:02 PM: "Its about multiple ai providers")
+
+Saved providers already existed; now up to 3 can be set as ordered backups that the assistant fails over to on outage, bad key, 429 or 5xx, with a 60 s skip for a failing one. Provider presets for OpenAI, Anthropic (compatibility layer), Gemini and OpenRouter fill the base URL. See docs/assistant.md. Migration 0072. Tested with fakes only; no real provider accounts were used.
