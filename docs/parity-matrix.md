@@ -45,7 +45,7 @@ Status words: Built (implemented and tested here), Partial (narrower version), N
 
 ## Microsoft Report Builder
 
-Full row-by-row matrix in `docs/report-builder-parity.md`. Summary: exports PDF, XLSX, CSV, HTML built and XML partial; charts line, area, bar, scatter, gauge, pie (HTML only) partial; row groups, parameters, expressions, conditional formatting, page layout partial; list region, maps, stacked/combo charts, subreports, drill-through, Word, PowerPoint and a drag-drop designer not built.
+Full row-by-row matrix in `docs/report-builder-parity.md`. Summary: exports PDF, XLSX, CSV, HTML built, XML and Word partial; charts line, area, bar, scatter, gauge, pie (HTML only) partial; row groups, parameters, expressions, conditional formatting, page layout partial; list region, maps, stacked/combo charts, subreports, drill-through, Word, PowerPoint and a drag-drop designer not built.
 
 ## What this document does not show
 
