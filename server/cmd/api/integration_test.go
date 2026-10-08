@@ -70,6 +70,8 @@ func testServer(t testing.TB) (*server, http.Handler) {
 	mux.HandleFunc("DELETE /v1/oncall/{id}", s.deleteOnCall)
 	mux.HandleFunc("POST /v1/reports/preview", s.previewReport)
 	mux.HandleFunc("POST /v1/reports", s.createReport)
+	mux.HandleFunc("POST /v1/reports/simple", s.createSimpleReport)
+	mux.HandleFunc("GET /v1/reports/check-formula", s.checkFormula)
 	mux.HandleFunc("PUT /v1/reports/{id}", s.updateReport)
 	mux.HandleFunc("GET /v1/reports/{id}/versions", s.listReportVersions)
 	mux.HandleFunc("POST /v1/reports/{id}/versions/{v}/restore", s.restoreReportVersion)
