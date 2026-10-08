@@ -249,3 +249,7 @@ Reports page has a palette of device points and a drop zone: drag a point onto t
 ## 2026-10-08: PDF chart types and gauges
 
 The PDF now follows the report's `chart` setting: bar, area, scatter, gauge and pie join the line chart (vector drawing, no images or fonts added). The default and explicit "line" output is byte-identical to before. Tested: unit test (each type is a valid PDF and differs from the others; empty, single, NaN and infinite buckets do not panic), existing PDF tests unchanged; all five rendered with pdftoppm and the image inspected. Untested: other PDF viewers (Acrobat, browsers). Limits: first 4 metrics, one chart per metric, no axis labels beyond min, max and first/last time, pie folds to 7 slices plus "other".
+
+## 2026-10-08: durable assistant runs
+
+Every assistant run is recorded (migration 0069, `assistant_runs`); `X-Run-Id` gives idempotent replay of the stored answer without a second model call; `GET /v1/assistant/runs/{id}`; runs in flight at a restart become `interrupted`. See docs/assistant-runs.md. Tested: real Postgres (replay, running duplicate refused, other user and tenant isolated, restart sweep, late finish cannot overwrite, stale reads as interrupted), handler test with the fake model (second request with the same id makes no model call), and a real process check: a running row, kill -9 of the API, restart, status read back as interrupted. NOT built or tested: resuming a half-finished model loop, replay of streamed chats, multi-process deployments, a real model, a real crash in the middle of a model call.
