@@ -233,3 +233,7 @@ Default admin login with forced change (server-enforced), hashed storage, no cre
 ## 2026-10-08: Conditional formatting from expressions
 
 Highlight `when` expression over a bucket (HTML, Word, PowerPoint). Tested: unit tests (rules, precedence, validation), real API: saved, HTML download shaded, bad reference rejected; UI field screenshot. Not tested: matrix/PDF/XLSX (not supported), opening Word/PowerPoint output in Office.
+
+## 2026-10-08: Assistant formula and report tools
+
+New docs/report-expressions.md (grammar, functions, if/and/or/not, `{row.*}`, examples), indexed for the assistant. New read tool `check_formula` (GET /v1/reports/check-formula, stores nothing) and confirmed write tool `create_report` (POST /v1/reports/simple, one metric plus optional highlight rule, admin/operator only, rule validated server side on save). Tested: policy/tool-list guards, API test (valid rules pass, bad syntax/unknown function/unknown row field refused, row fields refused in KPIs, viewer refused), retrieval eval cases. Untested: a real language model choosing these tools and writing correct formulas; no model eval has been run. Update of an existing report by the assistant is not built (done in the Reports page).
