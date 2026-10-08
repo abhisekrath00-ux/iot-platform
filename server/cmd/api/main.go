@@ -335,6 +335,7 @@ func main() {
 	s.cached(api, "GET /v1/profiles", s.listProfiles)
 	api.HandleFunc("POST /v1/profiles", s.createProfile)
 	api.HandleFunc("GET /v1/reports", s.listReports)
+	api.HandleFunc("GET /v1/reports/options", s.reportOptions)
 	api.HandleFunc("POST /v1/reports", s.createReport)
 	api.HandleFunc("PUT /v1/reports/{id}", s.updateReport)
 	api.HandleFunc("GET /v1/reports/{id}/versions", s.listReportVersions)
@@ -1726,7 +1727,27 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "report definition corrupt", 500)
 		return
 	}
-	def, perr := report.ApplyParams(def, r.URL.Query().Get)
+	qget := r.URL.Query().Get
+	if site, asset := qget("site"), qget("asset"); site != "" || asset != "" {
+		// cascading parameters: site, then asset inside it, then device inside both
+		devs, derr := s.cascadeDevices(r.Context(), auth.Tenant(r))
+		var ids []string
+		if derr == nil {
+			ids, derr = resolveCascade(devs, site, asset, qget("device"))
+		}
+		if derr != nil {
+			http.Error(w, derr.Error(), 400)
+			return
+		}
+		list := strings.Join(ids, ",")
+		qget = func(k string) string {
+			if k == "device" {
+				return list
+			}
+			return r.URL.Query().Get(k)
+		}
+	}
+	def, perr := report.ApplyParams(def, qget)
 	if perr != nil {
 		http.Error(w, perr.Error(), 400)
 		return
