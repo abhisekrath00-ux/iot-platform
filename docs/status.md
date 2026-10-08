@@ -265,3 +265,7 @@ New `scripts/report-load.sh` and docs/report-load-test.md. A 4-metric, 7-day rep
 ## 2026-10-08: WhatsApp alert channel (from the tor.ai gap check; user approved 8:07 PM)
 
 New optional channel type `whatsapp` (WhatsApp Business Cloud API) for alert rules, escalation, flows and report delivery; see docs/whatsapp-alerts.md. Off unless the operator sets `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_TOKEN`; needs the user's own Meta business account, template and internet. Tested: against a local fake of the API only (text and template bodies, token handling, validation, admin-only, Send test, 409 when unset). NOT tested: real Meta, real phone, templates, receipts. Fixed on the way: migration 0060 would have failed an API restart once any WhatsApp channel existed (its constraint list is re-applied on every start).
+
+## 2026-10-08: remote edge logs and agent restart (from the tor.ai gap check; user approved 8:07 PM)
+
+New "Remote maintenance" card on Fleet updates: fetch an edge box's recent log lines (secrets hidden, size capped) and restart its agent program with four-eyes approval. The box must opt in with `remote_restart: true`. No reboot, no shell. See docs/remote-maintenance.md. Tested: edge gate and log tail units, server API against Postgres with a fake publisher, UI screenshot with seeded rows. NOT tested: real edge box, real broker and ACL, ingest handler on a real message, restart under systemd or Windows. Migration 0071, broker ACL lines for `ops` and `ops/result`.
