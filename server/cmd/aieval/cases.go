@@ -36,6 +36,11 @@ func cases() []Case {
 		add("create_customer", n, fmt.Sprintf("Create a customer called %s", n))
 		add("create_asset", n, fmt.Sprintf("Create a machine asset called %s", n))
 	}
+	for _, q := range []string{"Is this highlight formula valid: if({row.avg} > 50 and {row.max} < 100, 1, 0)?", "Check my report rule if({row.max} > 80 or {row.min} < 5, 1, 0)"} {
+		add("check_formula", "row", q)
+	}
+	add("check_formula", "clamp", "Is the expression clamp({pump1.flow} * 2, 0, 100) correct?")
+	add("create_report", "temp", "Create a report called Hot Hours for pump-1 temp over 24 hours that highlights rows where the average is above 50")
 	for _, q := range []string{"How many alerts are open?", "List open alerts", "Which alerts are active right now?", "Show unresolved alerts", "Any acknowledged alerts?"} {
 		add("list_alerts", "", q)
 	}
