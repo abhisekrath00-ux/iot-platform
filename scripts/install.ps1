@@ -96,7 +96,7 @@ else {
   Ok ".env written with generated secrets"
 }
 if (-not $Workspace) { $Workspace = Ask "Name for your first workspace (lowercase letters, digits, dashes)" "my-plant" }
-if (-not $AdminEmail) { $AdminEmail = Ask "Administrator email" "admin@example.com" }
+if (-not $AdminEmail) { $AdminEmail = Ask "Administrator email (you must change it at first sign-in if it stays the default)" "admin@hexthings.com" }
 if ($Workspace -notmatch '^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$') { Fail "workspace '$Workspace' must be 3-40 characters: a-z, 0-9, dashes" }
 if ($AdminEmail -notmatch '^[^@ ]+@[^@ ]+\.[^@ ]+$') { Fail "'$AdminEmail' is not an email address" }
 $aiProfile = @()
@@ -146,15 +146,15 @@ if (-not $up) { Fail "the platform did not become healthy within 3 minutes. Run:
 Ok "platform is healthy"
 
 Say ""; Say "4. First workspace"
+if (Test-Path install-credentials.txt) { Warn "install-credentials.txt from an older install holds a password in plain text. Change that password in the app, then delete the file." }
 $Pass = ""
 $existing = (docker compose exec -T api /bin/tenantctl list 2>$null) -join "`n"
 if ($existing -match "(?m)^$Workspace ") { Ok "workspace '$Workspace' already exists; the administrator was not changed" }
 else {
-  $Pass = RandAlnum 20
-  $out = $Pass | docker compose exec -T api /bin/tenantctl create --id $Workspace --name $Workspace --admin-email $AdminEmail --password-stdin 2>&1
+  $out = docker compose exec -T api /bin/tenantctl create --id $Workspace --name $Workspace --admin-email $AdminEmail --default-credentials 2>&1
   Add-Content -Path $Log -Value $out
   if ($LASTEXITCODE -ne 0) { Fail "could not create the workspace (see $Log)" }
-  Set-Content -Path install-credentials.txt -Value "HexThings first sign-in`r`nURL:       http://localhost:$WebPort`r`nWorkspace: $Workspace`r`nEmail:     $AdminEmail`r`nPassword:  $Pass`r`n`r`nChange the password after signing in, then delete this file."
+  $Pass = "Hex@2026"   # documented first-run password; hashed in the database, not saved to any file
   Ok "workspace '$Workspace' and administrator created"
 }
 if ($aiProfile.Count -gt 0) {
@@ -172,7 +172,7 @@ try {
 } catch { Warn "could not add hexthings to PATH; run scripts\hexthings.ps1 instead" }
 Say ""; Say "Installed."; Say ""
 Say "  Open:      http://localhost:$WebPort"; Say "  Workspace: $Workspace"; Say "  Email:     $AdminEmail"
-if ($Pass) { Say "  Password:  $Pass"; Say "             (also saved in install-credentials.txt; change it and delete the file)" }
+if ($Pass) { Write-Host "  Password:  $Pass"; Say "             (first-run login: you are asked to change the email and password right after signing in; not saved anywhere)" }
 Say ""; Say "  Manage: hexthings status | update | backup | restore | logs | version   (open a new terminal first)"
 if ($script:Warnings -gt 0) { Say "  Note: $($script:Warnings) warning(s) above. The log is in $Log." }
 Write-Host ""; if ($hasUi) { Hx-Footer } else { Write-Host "  Made with <3 by Hexmon Technology" }
