@@ -28,9 +28,9 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Export: PowerPoint | Partial | `format=pptx` (PowerPoint button): title slide, per-metric table slides of at most 12 rows (overall row on the last), matrix and summary-grouping slides, highlight shading, 16:9. Standard-library zip, text plus optional chart pictures (one slide per metric, same kinds as Word), no macros/external links; capped at 60 slides with a final "Report truncated" slide. No logo, insights, master/theme branding or speaker notes. Unit-tested (all parts well-formed, escaping, wiring, paging, cap); real file converted by LibreOffice and inspected. Not opened in real PowerPoint. |
 | Scheduled delivery | Built | Cron plus notification channel. |
 | Versioning and restore | Built | |
-| Designer: drag-drop surface, wizard, toolbox | Partial | Drag points from a palette onto the report and drag rows to reorder metrics (browser-tested with synthetic drag events, not a real mouse drag). No free-form canvas, sections or wizard yet. |
+| Designer: drag-drop surface, wizard, toolbox | Partial | Drag points from a palette onto the report and drag rows to reorder metrics (browser-tested with synthetic drag events, not a real mouse drag). Text sections: up to 10 titled plain-text notes (80-char title, 2000-char text) printed after the data in HTML, CSV, Excel, PDF, Word and PowerPoint (not the XML export), set from a form on the Reports page; unit-tested in all six formats, a real PDF and PowerPoint checked, form screenshot. They are notes only: no ordering of the built-in blocks, no free-form canvas, no wizard. |
 
-Next units, in order: designer sections and layout canvas, subreports.
+Next units, in order: layout canvas and block ordering, subreports.
 
 ## Production grade and scale (user request, 2026-10-07)
 
