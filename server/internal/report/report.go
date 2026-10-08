@@ -34,7 +34,7 @@ type Definition struct {
 	// The expression language is the KPI one (numbers, + - * /, point references): no
 	// functions, no loops. References must be metrics of this report.
 	Computed []Computed `json:"computed,omitempty"`
-	// Rollup adds a summary section grouped by "asset" or "site" with a subtotal
+	// Rollup adds a summary section grouped by "asset" or "site" (or nested "site>asset" / "asset>site") with a subtotal
 	// per group and point and a grand total per point. Empty means off.
 	Rollup string `json:"rollup,omitempty"`
 	// Header and Footer are optional text (at most 80 printable characters) printed on every PDF
@@ -63,6 +63,8 @@ type Definition struct {
 	// GroupLabels maps device_id to its asset or site name. Filled by the server
 	// at render time from the database, never stored or read from a request.
 	GroupLabels map[string]string `json:"-"`
+	// InnerLabels is the same for the inner level of a nested rollup ("site>asset").
+	InnerLabels map[string]string `json:"-"`
 }
 
 type Highlight struct {
@@ -94,7 +96,7 @@ var (
 	ErrBadWindow  = errors.New("window_hours must be between 1 and 24*90")
 	ErrBadGroupBy = errors.New("group_by must be 15min, hour, day or week")
 	ErrBadLayout  = errors.New("layout must be empty or matrix; agg must be avg, min, max or sum")
-	ErrBadRollup  = errors.New("rollup must be empty, asset or site")
+	ErrBadRollup  = errors.New("rollup must be empty, asset, site, site>asset or asset>site")
 	ErrBadID      = errors.New("device_id and point_id: lowercase letters, digits, - _ only")
 )
 
@@ -161,7 +163,7 @@ func Validate(d Definition) error {
 		return fmt.Errorf("compare needs insights on and a window of at most 45 days")
 	}
 	switch d.Rollup {
-	case "", "asset", "site":
+	case "", "asset", "site", "site>asset", "asset>site":
 	default:
 		return ErrBadRollup
 	}
@@ -347,7 +349,7 @@ func writeRollupHTML(b *strings.Builder, d Definition, series map[Metric][]Bucke
 	if d.Rollup == "" {
 		return
 	}
-	b.WriteString(`<h2>Summary by ` + html.EscapeString(d.Rollup) + `</h2>`)
+	b.WriteString(`<h2>Summary by ` + html.EscapeString(RollupTitle(d)) + `</h2>`)
 	if len(rows) == 0 {
 		b.WriteString(`<p class="meta">no data in window</p>`)
 		return
@@ -361,6 +363,8 @@ func writeRollupHTML(b *strings.Builder, d Definition, series map[Metric][]Bucke
 		style := ""
 		if rows[i].Group == TotalLabel {
 			style = ` style="font-weight:600;background:#fafafa"`
+		} else if rows[i].Level == 1 {
+			style = ` style="font-weight:600;background:#f3f4f6"`
 		}
 		b.WriteString(`<tr` + style + `>`)
 		for _, v := range c {
