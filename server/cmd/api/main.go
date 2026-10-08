@@ -163,6 +163,7 @@ func main() {
 	api.HandleFunc("PUT /v1/users/{id}/password", s.resetUserPassword)
 	api.HandleFunc("POST /v1/users/{id}/totp/reset", s.resetUserTOTP)
 	api.HandleFunc("POST /v1/me/password", s.changeOwnPassword)
+	api.HandleFunc("POST /v1/me/credentials", s.changeCredentials)
 	api.HandleFunc("GET /v1/customers", s.listCustomers)
 	api.HandleFunc("POST /v1/customers", s.createCustomer)
 	api.HandleFunc("DELETE /v1/customers/{id}", s.deleteCustomer)
