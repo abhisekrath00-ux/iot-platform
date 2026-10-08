@@ -77,3 +77,38 @@ func TestHighlightWhenExpression(t *testing.T) {
 		t.Fatalf("styles: %q", got)
 	}
 }
+
+func TestDetailDrillThrough(t *testing.T) {
+	lo := 10.0
+	d := Definition{Metrics: []Metric{{DeviceID: "d", PointID: "p"}}, WindowHours: 24, GroupBy: "hour", Detail: 2, Highlight: &Highlight{Above: &lo}}
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []int{-1, 21} {
+		d2 := d
+		d2.Detail = bad
+		if Validate(d2) == nil {
+			t.Fatalf("detail %d accepted", bad)
+		}
+	}
+	d3 := d
+	d3.Highlight = nil
+	if Validate(d3) == nil {
+		t.Fatal("detail without a highlight accepted")
+	}
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	m := d.Metrics[0]
+	series := map[Metric][]Bucket{m: {{Start: t0, Avg: 35, Count: 2}, {Start: t0.Add(time.Hour), Avg: 5, Count: 1}}}
+	d.Samples = map[Metric]map[int64][]Sample{m: {
+		t0.Unix():                {{At: t0.Add(time.Minute), Value: 40}, {At: t0.Add(2 * time.Minute), Value: 30}},
+		t0.Add(time.Hour).Unix(): {{At: t0.Add(time.Hour), Value: 5}},
+	}}
+	out := Render("T", d, series, time.Now())
+	if strings.Count(out, "<details>") != 1 || !strings.Contains(out, "40.000") || strings.Contains(out, "5.000</td></tr></table></details>") {
+		t.Fatalf("drill-through wrong: only the highlighted bucket gets a list\n%s", out)
+	}
+	d.Detail = 0
+	if strings.Contains(Render("T", d, series, time.Now()), "<details>") {
+		t.Fatal("drill-through without opt-in")
+	}
+}
