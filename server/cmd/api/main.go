@@ -1805,6 +1805,16 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.docx"`)
 		w.Write(b)
 		return
+	case "pptx":
+		b, err := report.RenderPPTX(name, def, series, time.Now())
+		if err != nil {
+			http.Error(w, "pptx build failed", 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`.pptx"`)
+		w.Write(b)
+		return
 	case "xlsx":
 		b, err := report.RenderXLSX(def, series)
 		if err != nil {
