@@ -194,3 +194,12 @@ tighter than or; and/or short-circuit so a guarded division is safe). Parser dep
 Tested: unit tests for precedence, grouping vs arithmetic parentheses, short-circuit, 8
 malformed forms including 40-deep `not`, errors on evaluated branches. Not done: text/date
 functions, expressions in conditional formatting, no UI help text.
+
+## 2026-10-08: nested report groups
+
+Built: summary grouping `site>asset` and `asset>site` (outer subtotal, inner rows, grand total) in
+HTML, CSV, XLSX, PDF, plus a Reports page option. Tested: unit tests (order,
+subtotals equal leaves, unassigned, validation of bad forms), real-Postgres preview incl.
+cross-tenant leak check, full cmd/api and report suites; real API + browser run, PDF page
+rendered and fixed an overflow (group column width). Not tested: Excel, a third level, very long
+group names (truncated to 25 chars in PDF).
