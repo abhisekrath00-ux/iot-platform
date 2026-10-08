@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/autodetect"
+	"io"
 	"log"
 	"os"
 	"runtime"
@@ -28,6 +29,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/mqttc"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/paths"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/queue"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/remoteops"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/google/uuid"
 )
@@ -104,6 +106,8 @@ func main() {
 		os.Exit(healthCheck(*cfgPath, os.Stdout))
 	}
 	defer setupLogFile(*logFileFlag)()
+	logRing := &remoteops.Ring{} // in-memory tail of this run's log, for the server's remote log request
+	log.SetOutput(io.MultiWriter(log.Writer(), logRing))
 
 	if *scanSNMP != "" {
 		hs, err := discover.ScanSNMP(context.Background(), *scanSNMP, os.Getenv("SNMP_SCAN_COMMUNITY"), 800*time.Millisecond)
@@ -233,6 +237,7 @@ func main() {
 		log.Printf("command mode: MODBUS - allowlisted registers can be written after four-eyes approval")
 	}
 	var mcp atomic.Pointer[mqttc.Client]
+	opsHandler := remoteops.NewHandler(logRing, cfg.RemoteRestart)
 	onCmd := func(_ mqtt.Client, m mqtt.Message) {
 		ack, ok := cmdexec.Handle(ctx, gate, actuator, m.Payload(), time.Now())
 		log.Printf("cmd %s: %s %s", ack.RequestID, ack.State, ack.Detail)
@@ -339,6 +344,28 @@ func main() {
 			log.Printf("fleet: campaign %s -> %s (%s)", ack.CampaignID, ack.State, ack.Detail)
 		}); err != nil {
 			log.Printf("fleet subscribe: %v", err)
+		}
+
+		// Remote maintenance: send recent log lines, or restart this agent. Gate and limits in remoteops.
+		opsTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/ops"
+		if err := mc.Subscribe(opsTopic, func(_ mqtt.Client, m mqtt.Message) {
+			res, ok, restart := opsHandler.Handle(m.Payload(), time.Now())
+			log.Printf("ops %s: %s ok=%v %s", res.OpID, res.Kind, res.OK, res.Detail)
+			if ok {
+				b, _ := json.Marshal(res)
+				if err := mc.Publish(opsTopic+"/result", b); err != nil {
+					log.Printf("ops %s: result publish: %v", res.OpID, err)
+				}
+			}
+			if restart {
+				go func() {
+					time.Sleep(2 * time.Second) // let the result leave first
+					log.Printf("ops: restarting on an approved request")
+					stop()
+				}()
+			}
+		}); err != nil {
+			log.Printf("ops subscribe: %v", err)
 		}
 
 		// Commissioning probes: read-only port tests, answered on diag/result.
