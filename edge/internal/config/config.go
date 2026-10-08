@@ -60,8 +60,12 @@ type Config struct {
 	// AllowAutomaticCommands lets the server's AUTOMATIC commands (raised without a human approver under
 	// an admin's per-target setting) switch this gateway's alarm outputs (class alarm, kind modbus_coil)
 	// on or off. Off by default: only this file can turn it on, never the server.
-	AllowAutomaticCommands bool   `yaml:"allow_automatic_commands"`
-	CommandMode            string `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
+	AllowAutomaticCommands bool `yaml:"allow_automatic_commands"`
+	// RemoteRestart lets an approved server request restart this agent process (it exits and the service
+	// manager must start it again; the shipped Linux unit has Restart=always). Off by default; only this file
+	// can turn it on. It never reboots the machine.
+	RemoteRestart bool   `yaml:"remote_restart"`
+	CommandMode   string `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
 }
 
 // Autodetect configures edge-side discovery. Everything defaults to on except
