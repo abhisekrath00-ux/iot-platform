@@ -283,3 +283,7 @@ Optional report section: metered quantity x operator-entered factor = tCO2e, per
 ## 2026-10-08: charts in Word and PowerPoint exports
 
 Line, area, bar and scatter charts now appear in .docx and .pptx (PowerPoint gets one chart slide per metric; Word and matrix layouts the first 4 metrics). They are PNG pictures drawn with the standard library: not editable Office charts, no axis labels, with a caption giving range and first/last bucket. Gauge and pie are not drawn. Tested: PNG decodes, caption, absent when no chart, and real DOCX/PPTX converted by LibreOffice and inspected. NOT tested: Microsoft Word or PowerPoint.
+
+## 2026-10-08: device templates pushed to edge boxes (user, 11:16 PM: "edge templates")
+
+Server-managed, signed, versioned push of the device list with edge-side checks, 3-minute probation and automatic rollback. API only so far (no UI yet). See docs/device-templates.md. Edge binary 13.3 MB stripped, idle 12 MB RSS. Tested with fakes and unit tests; NOT tested on a real broker, real box or real devices. Migration 0073.
