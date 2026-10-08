@@ -92,6 +92,7 @@ func TestIntegrationAssistant(t *testing.T) {
 	api.HandleFunc("POST /v1/ai/test", s.testAI)
 	api.HandleFunc("GET /v1/ai/profiles", s.listAIProfiles)
 	api.HandleFunc("POST /v1/ai/profiles", s.saveAIProfile)
+	api.HandleFunc("PUT /v1/ai/backups", s.putAIBackups)
 	api.HandleFunc("PUT /v1/ai/profiles/{id}", s.saveAIProfile)
 	api.HandleFunc("DELETE /v1/ai/profiles/{id}", s.deleteAIProfile)
 	api.HandleFunc("POST /v1/ai/profiles/{id}/activate", s.activateAIProfile)
