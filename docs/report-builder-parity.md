@@ -21,7 +21,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Conditional formatting | Partial | `highlight` {above, below} thresholds plus an expression rule `when` over one bucket (`{row.avg}`, `{row.min}`, `{row.max}`, `{row.sum}`, `{row.count}`, with and/or/not via `if()`), colour red or amber (`when_color`); the rule is checked first, thresholds are the fallback. Applies to avg cells in per-metric HTML tables, Word and PowerPoint. Not in matrix layout, PDF or XLSX; one rule only, colours fixed. Unit-tested, validated on save (unknown references rejected), real HTML download checked, UI field screenshot. |
 | Sorting, interactive sort | Not built | |
 | Page layout, headers/footers, themes, logo | Partial | Header/footer text, light/dark, tenant logo, PDF page size and orientation (`page`: a4 default, a4-landscape, letter, letter-landscape; also a `page` URL parameter). Default PDF output verified byte-identical to before. No custom size or margins, no page-number tokens, no per-section breaks; HTML and XLSX ignore `page`. Reports page has a PDF page size select. Unit-tested, landscape rendered and inspected. |
-| Subreports, drill-through, bookmarks | Not built | |
+| Subreports, drill-through, bookmarks | Partial | Drill-through only: highlighted buckets expand to their highest raw readings in the HTML report (up to 10 buckets, 20 readings). No subreports, parameters passed between reports, or bookmarks. Not in PDF, Word, PowerPoint or Excel. |
 | Export: PDF, XLSX, CSV, HTML | Built | |
 | Export: XML | Partial | `format=xml`: one series per metric with a bucket element per row (well-formed, escaped, non-finite as empty). Flat series only: no matrix or rollup. Unit and DB tested; button added to Reports.tsx but the web build was not run here. |
 | Export: Word | Partial | `format=docx` (Word button on the Reports page): title, generated line, one table per metric or the matrix table, summary grouping table, header text, footer with page number, PDF page size and orientation, highlight shading. Standard-library zip, no macros or external links. No charts, logo or insights section. Unit-tested (every part well-formed XML, escaping, landscape/portrait, matrix, empty); real file converted by LibreOffice and inspected. Not opened in real Microsoft Word. |
@@ -30,7 +30,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Versioning and restore | Built | |
 | Designer: drag-drop surface, wizard, toolbox | Partial | Drag points from a palette onto the report and drag rows to reorder metrics (browser-tested with synthetic drag events, not a real mouse drag). No free-form canvas, sections or wizard yet. |
 
-Next units, in order: designer sections and layout canvas, subreports/drill-through, PDF chart types and gauges.
+Next units, in order: designer sections and layout canvas, subreports, PDF chart types and gauges.
 
 ## Production grade and scale (user request, 2026-10-07)
 
