@@ -294,6 +294,15 @@ func TestIntegrationReportRollup(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Summary by site") || !strings.Contains(w.Body.String(), `\u003ctd\u003eS\u003c/td\u003e`) {
 		t.Fatalf("site rollup: %d %s", w.Code, w.Body.String())
 	}
+	// nested: the site, then the asset inside it, with a subtotal per site; other tenant sees none of it
+	w = call(h, "itest-rg", "viewer", "POST", "/v1/reports/preview", `{"name":"P","definition":`+def("site>asset", "itest-rg-dev")+`}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `Summary by site \u0026gt; asset`) || !strings.Contains(w.Body.String(), "S / Line A") {
+		t.Fatalf("nested rollup: %d %s", w.Code, w.Body.String())
+	}
+	w = call(h, "itest-rg2", "viewer", "POST", "/v1/reports/preview", `{"name":"P","definition":`+def("site>asset", "itest-rg-dev")+`}`)
+	if w.Code != 200 || strings.Contains(w.Body.String(), "Line A") {
+		t.Fatalf("nested cross-tenant leak: %d %s", w.Code, w.Body.String())
+	}
 	// a device with no asset lands in (unassigned)
 	w = call(h, "itest-rg2", "viewer", "POST", "/v1/reports/preview", `{"name":"P","definition":`+def("asset", "itest-rg2-dev")+`}`)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "(unassigned)") || strings.Contains(w.Body.String(), "Line A") {
