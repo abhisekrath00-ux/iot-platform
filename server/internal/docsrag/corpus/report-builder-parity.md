@@ -11,7 +11,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Matrix / crosstab | Partial | Bucket rows by metric columns, agg choice, computed columns. No dynamic column groups. |
 | Row groups and subtotals | Partial | Rollup by asset or site, or nested two levels (`site>asset`, `asset>site`) with an outer subtotal, inner rows ("Site / Asset") and a grand total; set in the Reports page. Two fixed levels only: no arbitrary fields, no third level, no collapse/expand, no per-group page breaks. Unit, real-Postgres (incl. cross-tenant) tested; PDF/CSV/HTML rendered and inspected, XLSX not opened in Excel. |
 | List data region | Not built | |
-| Chart: line, area, bar | Built (HTML) | Inline SVG, opt-in `chart` field, unit-tested edge cases. PDF has a line chart (always, first 4 metrics). XLSX: native Excel charts (line, area, bar, scatter; flat layout; max 8; one per metric with 2+ buckets; gauge/pie get none). CSV none. |
+| Chart: line, area, bar | Built (HTML) | Inline SVG, opt-in `chart` field, unit-tested edge cases. PDF follows the `chart` field: line (default, always drawn, first 4 metrics), bar, area, scatter, gauge (latest average) and pie (share of bucket sums), drawn as vector graphics; rendered with pdftoppm and inspected, not opened in Acrobat or other viewers. XLSX: native Excel charts (line, area, bar, scatter; flat layout; max 8; one per metric with 2+ buckets; gauge/pie get none). CSV none. |
 | Chart: pie, scatter | Partial | Scatter of bucket averages; pie of each bucket's share of the window sum (folds to 7 + other, so it is weak for long windows). Unit-tested and rendered in headless Chrome, HTML only. |
 | Chart: stacked, combo, secondary axis | Not built | |
 | Gauge, indicator | Partial | Half-circle gauge of the latest bucket average across the series min..max (no custom ranges or colour bands). HTML only. |
@@ -30,7 +30,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Versioning and restore | Built | |
 | Designer: drag-drop surface, wizard, toolbox | Partial | Drag points from a palette onto the report and drag rows to reorder metrics (browser-tested with synthetic drag events, not a real mouse drag). No free-form canvas, sections or wizard yet. |
 
-Next units, in order: designer sections and layout canvas, subreports, PDF chart types and gauges.
+Next units, in order: designer sections and layout canvas, subreports, Word/PowerPoint charts.
 
 ## Production grade and scale (user request, 2026-10-07)
 
