@@ -133,6 +133,12 @@ func RenderDOCX(title string, d Definition, series map[Metric][]Bucket, generate
 			body.WriteString(table([]string{"bucket (UTC)", "avg", "min", "max", "sum", "samples"}, cs, true))
 		}
 	}
+	for _, sc := range d.Sections {
+		body.WriteString(para("Heading2", strings.TrimSpace(sc.Title)))
+		for _, p := range sectionParas(sc.Body) {
+			body.WriteString(para("", p))
+		}
+	}
 	if len(d.Emissions) > 0 {
 		er := BuildEmissions(d, series)
 		body.WriteString(para("Heading2", "Emissions (Scope 1 and 2)"))
