@@ -47,6 +47,23 @@ func init() {
 	}
 }
 
+// synonyms maps how people ask to the words the docs use. Query side only.
+var synonyms = map[string]string{
+	"gpu": "cpu model", "recovery time": "rto", "recovery point": "rpo", "service level objective": "slo",
+	"service level objectives": "slo", "offline": "air gapped", "no internet": "air gapped",
+	"password": "credentials login", "restore": "restore backup", "sign in": "login sso",
+}
+
+func expand(q string) string {
+	l := strings.ToLower(q)
+	for k, v := range synonyms {
+		if strings.Contains(l, k) {
+			q += " " + v
+		}
+	}
+	return q
+}
+
 func tokens(s string) []string {
 	var out []string
 	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' }) {
@@ -113,7 +130,8 @@ func New(passages []Passage) *Index {
 	total := 0
 	for _, p := range passages {
 		p.tf = map[string]int{}
-		for _, t := range tokens(p.Heading + " " + p.Heading + " " + p.Text) { // heading words count double
+		docWords := strings.NewReplacer("-", " ", "_", " ").Replace(strings.TrimSuffix(p.Doc, ".md"))
+		for _, t := range tokens(p.Heading + " " + p.Heading + " " + docWords + " " + p.Text) { // heading and document-name words count double
 			p.tf[t]++
 			p.n++
 		}
@@ -150,7 +168,7 @@ func (ix *Index) Size() int { return len(ix.passages) }
 
 // Search returns the best passages for a question (BM25, k1=1.4, b=0.75).
 func (ix *Index) Search(q string, k int) []Hit {
-	qt := tokens(q)
+	qt := tokens(expand(q))
 	if k <= 0 || len(qt) == 0 || len(ix.passages) == 0 {
 		return nil
 	}
