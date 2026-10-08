@@ -37,6 +37,10 @@ If the old copy is a git checkout (Linux/WSL): `./scripts/upgrade.sh` (or `bash 
 
 Air-gapped: build a new bundle with `scripts/airgap-bundle.sh`, copy it over, run `upgrade.sh` (bundle path verifies checksums) or on Windows `hexthings patch FILE.zip`.
 
+## Menu on Windows (single-node)
+
+In PowerShell, in the install folder: `.\scripts\hexthings.ps1` opens a native PowerShell menu (arrows or numbers). Pick "Update" to run the same update as `hexthings.ps1 update`. If scripts are blocked: `powershell -ExecutionPolicy Bypass -File .\scripts\hexthings.ps1`. The installer does not put `hexthings` on PATH, so run it from the folder. The bash menu (`setup.sh`) is the one with the Upgrade item that calls `upgrade.sh`; it needs WSL2 or Git Bash. Untested on real Windows PowerShell 5.1.
+
 ## Database changes
 
 The API applies new SQL migrations on start. They are additive and idempotent, so starting twice is safe. Older databases get new tables and columns; nothing is dropped. There is no automatic database downgrade: rollback means restoring the backup.
