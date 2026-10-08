@@ -48,3 +48,26 @@ func TestIntegrationAssistantReportFormulas(t *testing.T) {
 		t.Errorf("viewer must be refused: %d %s", v.Code, strings.TrimSpace(v.Body.String()))
 	}
 }
+
+func TestIntegrationReportDrillThrough(t *testing.T) {
+	s, h := testServer(t)
+	seed(t, s, "itest-dt")
+	def := func(detail string) string {
+		return `{"name":"D","definition":{"metrics":[{"device_id":"itest-dt-dev","point_id":"temp"}],"window_hours":2,"group_by":"hour","highlight":{"above":-1000}` + detail + `}}`
+	}
+	w := call(h, "itest-dt", "admin", "POST", "/v1/reports/preview", def(`,"detail":3`))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "readings") || !strings.Contains(w.Body.String(), "details") {
+		t.Fatalf("drill-through preview %d %s", w.Code, w.Body.String())
+	}
+	if w = call(h, "itest-dt", "admin", "POST", "/v1/reports/preview", def("")); w.Code != 200 || strings.Contains(w.Body.String(), "readings") {
+		t.Fatalf("off by default: %d", w.Code)
+	}
+	if w = call(h, "itest-dt", "admin", "POST", "/v1/reports/preview", def(`,"detail":99`)); w.Code != 400 {
+		t.Fatalf("detail 99 = %d, want 400", w.Code)
+	}
+	// another tenant's device yields no samples
+	other := strings.Replace(def(`,"detail":3`), "itest-dt-dev", "itest-d-dev", 1)
+	if w = call(h, "itest-dt", "admin", "POST", "/v1/reports/preview", other); strings.Contains(w.Body.String(), "readings") {
+		t.Fatalf("cross-tenant samples leaked: %s", w.Body.String())
+	}
+}
