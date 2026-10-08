@@ -25,7 +25,7 @@ Status words: Built (implemented and tested here), Partial (narrower version), N
 
 | Area | Status | Gap |
 |---|---|---|
-| Monitor: rules by asset type, KPIs from formulas | Partial | Arithmetic only; no functions |
+| Monitor: rules by asset type, KPIs from formulas | Partial | Arithmetic plus six numeric functions (abs, round, sqrt, min, max, clamp); no conditionals |
 | Asset Manager: hierarchy, aspects, files | Partial | Tree and device attach; limited aspects |
 | Predict: anomaly detection | Partial | Median/MAD outliers only; no trained models |
 | Visual Flow Creator style flows | Partial | See Node-RED |
