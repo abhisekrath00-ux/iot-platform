@@ -127,6 +127,13 @@ func TestIntegrationIndexSink(t *testing.T) {
 		t.Fatalf("auth header %q", f.auth)
 	}
 	// nothing new: a second step sends nothing (no duplicates), then a later row is picked up
+	// Other tests write telemetry into the shared database, and those rows can age past the lag window while this
+	// test runs, so first drain whatever is eligible, then check that an immediate second step sends nothing.
+	for i := 0; i < 50; i++ {
+		if n, err := k.Step(ctx); err != nil || n == 0 {
+			break
+		}
+	}
 	before := f.calls
 	if n, err := k.Step(ctx); err != nil || n != 0 || f.calls != before {
 		t.Fatalf("idle step n=%d err=%v calls %d->%d", n, err, before, f.calls)
