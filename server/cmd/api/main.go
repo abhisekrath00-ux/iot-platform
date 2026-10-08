@@ -336,6 +336,8 @@ func main() {
 	api.HandleFunc("POST /v1/gateways/{id}/ops", s.requestGatewayOp)
 	api.HandleFunc("GET /v1/gateways/{id}/ops", s.listGatewayOps)
 	api.HandleFunc("POST /v1/gateway-ops/{id}/approve", s.approveGatewayOp)
+	api.HandleFunc("POST /v1/gateways/{id}/config-push", s.pushGatewayConfig)
+	api.HandleFunc("GET /v1/gateways/{id}/config-push", s.listConfigPushes)
 	api.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
 	api.HandleFunc("POST /v1/gateways/{id}/scans/{sid}/add", s.addScannedDevice)
 	api.HandleFunc("GET /v1/gateways/{id}/edge-rules", s.getEdgeRules)
