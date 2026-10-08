@@ -64,8 +64,10 @@ type Config struct {
 	// RemoteRestart lets an approved server request restart this agent process (it exits and the service
 	// manager must start it again; the shipped Linux unit has Restart=always). Off by default; only this file
 	// can turn it on. It never reboots the machine.
-	RemoteRestart bool   `yaml:"remote_restart"`
-	CommandMode   string `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
+	RemoteRestart bool `yaml:"remote_restart"`
+	// ManagedDevices lets the server push device templates (the device list only) into managed-devices.yaml. Local opt-in; connection, TLS and identity settings are never pushed.
+	ManagedDevices bool   `yaml:"managed_devices"`
+	CommandMode    string `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
 }
 
 // Autodetect configures edge-side discovery. Everything defaults to on except
@@ -185,6 +187,11 @@ func Load(path string) (*Config, error) {
 	}
 	if c.Autodetect.AutoAdd {
 		c.mergeOverlay()
+	}
+	if c.ManagedDevices {
+		if err := c.mergeManaged(ManagedPath()); err != nil {
+			return nil, err
+		}
 	}
 	for _, d := range c.Devices {
 		if d.Interval <= 0 {
@@ -329,4 +336,28 @@ func (c *Config) mergeOverlay() {
 			c.Devices = append(c.Devices, o)
 		}
 	}
+}
+
+// ManagedPath is where server-pushed device templates are stored.
+func ManagedPath() string { return filepath.Join(paths.Data(), "managed-devices.yaml") }
+
+// mergeManaged applies the server-pushed device list: a managed device replaces a local one with the same
+// id, the rest are added. A missing file is fine; a broken file is an error so a bad push is never half used.
+func (c *Config) mergeManaged(path string) error {
+	devs, err := LoadOverlay(path)
+	if err != nil {
+		return fmt.Errorf("managed devices: %w", err)
+	}
+	for _, m := range devs {
+		replaced := false
+		for i, d := range c.Devices {
+			if d.ID == m.ID {
+				c.Devices[i], replaced = m, true
+			}
+		}
+		if !replaced {
+			c.Devices = append(c.Devices, m)
+		}
+	}
+	return nil
 }
