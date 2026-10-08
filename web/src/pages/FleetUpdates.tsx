@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { CampaignRow, allowedActions, parseStages, progress } from '../lib/fleetUpdates';
 
 interface Gw { id: string; serial: string; status: string; kind: string; site_id: string; }
+interface Op { id: string; kind: string; status: string; requested_by: string; approved_by: string; result: { ok?: boolean; detail?: string; lines?: string[] } | null; created_at: string; }
 interface Site { id: string; name: string; }
 interface Rel { id: string; version: string; artifact_sha256: string; notes: string; created_at: string; }
 
@@ -17,12 +18,21 @@ export default function FleetUpdates() {
   const [ver, setVer] = useState(''); const [sha, setSha] = useState(''); const [notes, setNotes] = useState('');
   const [rel, setRel] = useState(''); const [cname, setCname] = useState(''); const [stages, setStages] = useState('10,50,100'); const [thr, setThr] = useState(3);
   const [msg, setMsg] = useState('');
+  const [opGw, setOpGw] = useState(''); const [ops, setOps] = useState<Op[]>([]); const [showLog, setShowLog] = useState('');
   const load = useCallback(() => {
     api<Gw[]>('/v1/gateways').then((x) => setGws(x ?? [])).catch((e) => setMsg(String(e.message ?? e)));
     api<Rel[]>('/v1/fleet/releases').then((x) => { setRels(x ?? []); if (x?.[0]) setRel((r) => r || x[0].id); }).catch(() => {});
     api<CampaignRow[]>('/v1/fleet/campaigns').then((x) => setCamps(x ?? [])).catch(() => {});
   }, []);
   useEffect(() => { load(); api<Site[]>('/v1/sites').then(setSites).catch(() => {}); const t = setInterval(load, 10000); return () => clearInterval(t); }, [load]);
+  const loadOps = useCallback(() => { if (opGw) api<Op[]>(`/v1/gateways/${opGw}/ops`).then((x) => setOps(x ?? [])).catch(() => setOps([])); }, [opGw]);
+  useEffect(() => { loadOps(); const t = setInterval(loadOps, 5000); return () => clearInterval(t); }, [loadOps]);
+  const approveOp = async (id: string) => {
+    let body: string | undefined;
+    const t = await api<{ required_for_approval: boolean }>('/v1/me/totp').catch(() => null);
+    if (t?.required_for_approval) { const code = window.prompt('Authenticator code (6 digits)'); if (!code) return; body = JSON.stringify({ code }); }
+    run(() => api(`/v1/gateway-ops/${id}/approve`, { method: 'POST', body }), 'Restart approved and sent.').then(loadOps);
+  };
   const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? id;
   const run = async (fn: () => Promise<unknown>, ok: string) => { setMsg(''); try { await fn(); setMsg(ok); load(); } catch (e) { setMsg(String((e as Error).message ?? e)); } };
   const st = parseStages(stages);
@@ -72,6 +82,26 @@ export default function FleetUpdates() {
         </div>
         {st.error && <p role="alert" style={{ color: '#dc2626' }}>{st.error}</p>}
         {sel.size === 0 && <p className="muted">Select boxes above first.</p>}
+      </div>
+
+      <div className="card" style={{ marginTop: 12 }}>
+        <b>Remote maintenance</b>
+        <p className="muted">Fetch an edge box's recent log lines, or restart its agent program (not the machine). A restart needs a second admin to approve it, and the box only obeys if its own config file has <code>remote_restart: true</code> and a service manager starts the agent again.</p>
+        <select value={opGw} onChange={(e) => { setOpGw(e.target.value); setShowLog(''); }} aria-label="Edge box">
+          <option value="">Pick an edge box</option>
+          {gws.filter((g) => g.kind === 'edge' && g.status === 'active').map((g) => <option key={g.id} value={g.id}>{g.serial} ({siteName(g.site_id)})</option>)}
+        </select>{' '}
+        <button className="secondary" disabled={!opGw} onClick={() => run(() => post(`/v1/gateways/${opGw}/ops`, { kind: 'logs', lines: 200 }), 'Log request sent.').then(loadOps)}>Get recent log lines</button>{' '}
+        <button className="secondary" disabled={!opGw} onClick={() => { if (window.confirm('Ask this box to restart its agent? Another admin must approve it.')) run(() => post(`/v1/gateways/${opGw}/ops`, { kind: 'restart' }), 'Restart requested. Another admin must approve it.').then(loadOps); }}>Request agent restart</button>
+        {opGw && <table><thead><tr><th>When</th><th>What</th><th>State</th><th>By</th><th /></tr></thead><tbody>
+          {ops.map((o) => <tr key={o.id}><td>{new Date(o.created_at).toLocaleString()}</td><td>{o.kind === 'logs' ? 'Log lines' : 'Agent restart'}</td>
+            <td style={{ color: tone(o.status === 'requested' ? 'running' : o.status === 'pending_approval' ? 'pending' : o.status) }}>{o.status.replace('_', ' ')}{o.result?.detail ? ` - ${o.result.detail}` : ''}</td>
+            <td>{o.requested_by}{o.approved_by ? `, approved by ${o.approved_by}` : ''}</td>
+            <td>{o.status === 'pending_approval' && <button className="secondary" onClick={() => approveOp(o.id)}>Approve restart</button>}
+              {o.kind === 'logs' && o.result?.lines && <button className="secondary" onClick={() => setShowLog(showLog === o.id ? '' : o.id)}>{showLog === o.id ? 'Hide' : 'Show'}</button>}</td></tr>)}
+          {!ops.length && <tr><td colSpan={5} className="muted">Nothing requested for this box yet.</td></tr>}
+        </tbody></table>}
+        {showLog && <pre style={{ maxHeight: 320, overflow: 'auto', background: '#111', color: '#ddd', padding: 8, fontSize: 12 }}>{(ops.find((o) => o.id === showLog)?.result?.lines ?? []).join('\n')}</pre>}
       </div>
 
       <div className="card" style={{ marginTop: 12 }}>
