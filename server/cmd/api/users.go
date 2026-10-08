@@ -16,6 +16,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 )
@@ -356,7 +357,9 @@ func (s *server) localLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.st.Pool.Exec(r.Context(), `INSERT INTO audit_log(tenant_id,actor,action,target,detail) VALUES($1,$2,'auth.login',$2,'{}')`, tenant, id)
-	writeJSON(w, 200, map[string]any{"token": signed, "user_id": id, "tenant_id": tenant, "role": role})
+	var mc bool
+	s.st.Pool.QueryRow(r.Context(), `SELECT must_change_credentials FROM users WHERE id=$1`, id).Scan(&mc)
+	writeJSON(w, 200, map[string]any{"token": signed, "user_id": id, "tenant_id": tenant, "role": role, "must_change_credentials": mc})
 }
 
 // activeUser rejects a request whose user was disabled after the token was issued. Principals with no users
@@ -376,7 +379,8 @@ func (s *server) activeUser(next http.Handler) http.Handler {
 		var off bool
 		var role string
 		var validAfter *time.Time
-		err := s.st.Pool.QueryRow(r.Context(), `SELECT disabled_at IS NOT NULL, role, tokens_valid_after FROM users WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r)).Scan(&off, &role, &validAfter)
+		var mustChange bool
+		err := s.st.Pool.QueryRow(r.Context(), `SELECT disabled_at IS NOT NULL, role, tokens_valid_after, must_change_credentials FROM users WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r)).Scan(&off, &role, &validAfter, &mustChange)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
@@ -388,6 +392,11 @@ func (s *server) activeUser(next http.Handler) http.Handler {
 			}
 			if iat, ok := auth.IssuedAt(r); ok && validAfter != nil && iat.Before(validAfter.Truncate(time.Second)) {
 				http.Error(w, "session revoked", http.StatusUnauthorized)
+				return
+			}
+			// First-run default login: nothing works until the credentials are replaced (enforced here, not in the UI).
+			if mustChange && !(r.Method == http.MethodGet && r.URL.Path == "/v1/me") && !(r.Method == http.MethodPost && r.URL.Path == "/v1/me/credentials") {
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": "credentials_change_required", "message": "change the default email and password first"})
 				return
 			}
 			// The database role is authoritative: a demotion applies to tokens already issued.
@@ -408,6 +417,10 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 	var email, name string
 	if s.st.Pool.QueryRow(r.Context(), `SELECT email, display_name FROM users WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r)).Scan(&email, &name) == nil {
 		out["email"], out["display_name"] = email, name
+	}
+	var mc bool
+	if s.st.Pool.QueryRow(r.Context(), `SELECT must_change_credentials FROM users WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r)).Scan(&mc) == nil && mc {
+		out["must_change_credentials"] = true
 	}
 	var cid, cname string
 	if s.st.Pool.QueryRow(r.Context(), `SELECT c.id, c.name FROM user_customer_scope s JOIN customers c ON c.id=s.customer_id WHERE s.tenant_id=$1 AND s.user_id=$2`, auth.Tenant(r), auth.User(r)).Scan(&cid, &cname) == nil {
@@ -458,4 +471,73 @@ func (s *server) resetUserTOTP(w http.ResponseWriter, r *http.Request) {
 	s.st.Pool.Exec(r.Context(), `UPDATE users SET tokens_valid_after=now() WHERE id=$1 AND tenant_id=$2`, id, t)
 	s.audit(r, "user.totp_reset", id, nil)
 	w.WriteHeader(204)
+}
+
+// POST /v1/me/credentials {current, new_email, new} replaces the first-run default login. Allowed while the
+// change is still required (the only write that is). Needs the current password, a policy-passing new password
+// that is not the default, and a new email that is not the default one. Ends every earlier session and returns a
+// fresh token. Not available to API keys or the assistant.
+func (s *server) changeCredentials(w http.ResponseWriter, r *http.Request) {
+	if auth.ViaKey(r) || !localLoginEnabled() {
+		http.Error(w, "not available", http.StatusForbidden)
+		return
+	}
+	var in struct {
+		Current  string `json:"current"`
+		NewEmail string `json:"new_email"`
+		New      string `json:"new"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	in.NewEmail = strings.TrimSpace(in.NewEmail)
+	var email, role string
+	var stored *string
+	var mustChange bool
+	if s.st.Pool.QueryRow(r.Context(), `SELECT email, role, password_hash, must_change_credentials FROM users WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r)).Scan(&email, &role, &stored, &mustChange) != nil || stored == nil || !auth.VerifyPassword(in.Current, *stored) {
+		http.Error(w, "current password is wrong", http.StatusForbidden)
+		return
+	}
+	if a, err := mail.ParseAddress(in.NewEmail); err != nil || a.Address != in.NewEmail || len(in.NewEmail) > 254 {
+		http.Error(w, "enter a valid email address", 400)
+		return
+	}
+	if strings.EqualFold(in.NewEmail, auth.DefaultAdminEmail) && mustChange {
+		http.Error(w, "choose your own email address, not the default one", 400)
+		return
+	}
+	if err := auth.CheckPasswordPolicy(in.New, in.NewEmail); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if in.New == auth.DefaultAdminPassword || in.New == in.Current {
+		http.Error(w, "choose a new password that is different from the current and default ones", 400)
+		return
+	}
+	h, err := auth.HashPassword(in.New)
+	if err != nil {
+		http.Error(w, "unavailable", 503)
+		return
+	}
+	if _, err := s.st.Pool.Exec(r.Context(), `UPDATE users SET email=$3, password_hash=$4, must_change_credentials=false, failed_logins=0, locked_until=NULL, tokens_valid_after=now() WHERE id=$1 AND tenant_id=$2`, auth.User(r), auth.Tenant(r), in.NewEmail, h); err != nil {
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == "23505" {
+			http.Error(w, "that email is already used by another account", http.StatusConflict)
+			return
+		}
+		http.Error(w, "unavailable", 503)
+		return
+	}
+	s.audit(r, "user.credentials_change", auth.User(r), map[string]any{"email_changed": !strings.EqualFold(email, in.NewEmail)})
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
+		TenantID: auth.Tenant(r), Role: role,
+		RegisteredClaims: jwt.RegisteredClaims{Subject: auth.User(r), IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(time.Now().Add(12 * time.Hour))},
+	})
+	signed, err := tok.SignedString(s.secret)
+	if err != nil {
+		http.Error(w, "token", 500)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"token": signed, "email": in.NewEmail})
 }
