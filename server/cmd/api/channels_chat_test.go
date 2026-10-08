@@ -1,7 +1,10 @@
 package main
 
 import (
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -44,5 +47,58 @@ func TestIntegrationTeamsSMSChannels(t *testing.T) {
 	}
 	if c := post("viewer", `{"type":"sms","target":"+4915112345678"}`); c != 403 {
 		t.Fatalf("viewer creating a channel = %d", c)
+	}
+}
+
+func TestIntegrationWhatsAppChannel(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-wa1")
+	pool := s.st.Pool
+	clean := func() {
+		pool.Exec(t.Context(), `DELETE FROM notification_channels WHERE tenant_id='itest-wa1'`)
+		pool.Exec(t.Context(), `DELETE FROM audit_log WHERE tenant_id='itest-wa1'`)
+	}
+	clean()
+	t.Cleanup(clean)
+	pool.Exec(t.Context(), `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('wa-admin','itest-wa1','wa@wa-test.example','A','admin') ON CONFLICT DO NOTHING`)
+	t.Cleanup(func() { pool.Exec(t.Context(), `DELETE FROM users WHERE id='wa-admin'`) })
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/notifications/channels", s.createChannel)
+	mux.HandleFunc("POST /v1/notifications/channels/{id}/test", s.testChannel)
+	do := func(path, body string) (int, string) {
+		w := callAs(s.activeUser(mux), "itest-wa1", "wa-admin", "admin", "POST", path, body)
+		return w.Code, w.Body.String()
+	}
+	t.Setenv("WHATSAPP_PHONE_NUMBER_ID", "")
+	t.Setenv("WHATSAPP_TOKEN", "")
+	if c, _ := do("/v1/notifications/channels", `{"type":"whatsapp","target":"+919812345678"}`); c != 409 {
+		t.Fatalf("whatsapp unconfigured = %d, want 409", c)
+	}
+	var gotAuth, gotBody string
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotAuth, gotBody = r.Header.Get("Authorization"), string(b)
+		w.WriteHeader(200)
+		io.WriteString(w, `{"messages":[{"id":"wamid.T"}]}`)
+	}))
+	defer fake.Close()
+	t.Setenv("WHATSAPP_PHONE_NUMBER_ID", "777")
+	t.Setenv("WHATSAPP_TOKEN", "tok-wa")
+	t.Setenv("WHATSAPP_API_BASE", fake.URL)
+	t.Setenv("WHATSAPP_ALLOW_LOOPBACK", "1")
+	if c, _ := do("/v1/notifications/channels", `{"type":"whatsapp","target":"98123"}`); c != 400 {
+		t.Fatalf("bad number = %d", c)
+	}
+	c, body := do("/v1/notifications/channels", `{"type":"whatsapp","target":"+919812345678"}`)
+	if c != 201 {
+		t.Fatalf("create = %d %s", c, body)
+	}
+	var id string
+	pool.QueryRow(t.Context(), `SELECT id FROM notification_channels WHERE tenant_id='itest-wa1' AND type='whatsapp'`).Scan(&id)
+	if c, b := do("/v1/notifications/channels/"+id+"/test", ""); c != 200 {
+		t.Fatalf("test send = %d %s", c, b)
+	}
+	if gotAuth != "Bearer tok-wa" || !strings.Contains(gotBody, `"to":"919812345678"`) || !strings.Contains(gotBody, "test message from HexThings") {
+		t.Fatalf("delivery: %s %s", gotAuth, gotBody)
 	}
 }
