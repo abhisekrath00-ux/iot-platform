@@ -35,8 +35,7 @@ unencrypted broker, open self sign-up, test switches left on.
 
 ## 3. Known gaps a pilot must accept
 
-- Remote CI has not run since the Actions minutes ran out (2026-10-02). Everything was verified with the full local
-  gate and an empty-database run before each push, but no remote-green claim exists.
+- Remote CI runs again (see the 2026-10-09 update below). Read the job list of the run for the exact commit you deploy before trusting a green claim: intermediate commits made one file at a time can be red or cancelled; only the tip counts.
 - No external security review. The function node (sandboxed JavaScript) is off by default and unreviewed.
 - Protocols and edge hardware are simulator-only. See status.md for the per-protocol label.
 - Protocol writes are not built. Control goes through approval, four-eyes and the edge gate with a simulated
@@ -50,3 +49,15 @@ unencrypted broker, open self sign-up, test switches left on.
 One tenant, one site, one gateway, five to twenty devices, read-only telemetry first. Run for two weeks. Turn on
 alerts, then flows, then (only after a hazard review) control. Record real throughput and any false alerts, and
 feed them back into status.md.
+
+## Update 2026-10-09: where it stands
+
+Remote CI (go, web, security with gofmt/govulncheck/npm audit, compose-smoke) was green on the commits that shipped the 2026-10-08 work, for example run 37840233305 (narrow-screen layout fixes) and run 37824760639 (device templates screen). Each push was also compared byte for byte against a fresh clone and the server and edge suites were run on an empty Postgres first.
+
+Tested: unit and integration tests against real Postgres for the server, unit tests for the edge agent and web (85 web tests), fakes for the broker, WhatsApp, AI providers and Office readers, LibreOffice rendering of Word/PowerPoint/PDF, headless-Chrome layout checks at phone and tablet width, a report over 2.4M readings in about 1 to 2 s on a small machine, an edge binary of 13.3 MB using about 12 MB of memory idle.
+
+NOT tested, and required before calling it production-ready: any real edge board on real devices for days; a real broker with the ACL file under load; remote restart and device-template rollback under systemd or a Windows service; real WhatsApp, real AI providers, real SMTP/Slack; Microsoft Word and PowerPoint opening the exports; a real phone or Safari; load and soak on target hardware; failover or HA (single node only by decision); an outside security review (function node is off by default); the default first-run login `admin@hexthings.com` / `Hex@2026` is usable by anyone who reaches the port before the first sign-in, so change it at once and keep the port closed until then.
+
+Not built yet: report designer sections and free-form canvas, subreports, Scope 3 emissions, editable Office charts, per-endpoint API key scopes, a collapsing phone menu.
+
+Verdict: ready for a supervised pilot on one site with a human watching, not ready to run unattended or to be called production-certified.
