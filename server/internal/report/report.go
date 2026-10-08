@@ -46,6 +46,9 @@ type Definition struct {
 	// Rollup adds a summary section grouped by "asset" or "site" (or nested "site>asset" / "asset>site") with a subtotal
 	// per group and point and a grand total per point. Empty means off.
 	Rollup string `json:"rollup,omitempty"`
+	// Emissions adds a Scope 1 and 2 section (see emissions.go): metered quantity times an operator-entered factor.
+	Emissions          []EmissionSource    `json:"emissions,omitempty"`
+	EmissionsIntensity *EmissionsIntensity `json:"emissions_intensity,omitempty"`
 	// Header and Footer are optional text (at most 80 printable characters) printed on every PDF
 	// page, and at the top and bottom of the HTML. No markup; it is escaped.
 	Header string `json:"header,omitempty"`
@@ -258,6 +261,9 @@ func Validate(d Definition) error {
 	default:
 		return ErrBadRollup
 	}
+	if err := validateEmissions(d); err != nil {
+		return err
+	}
 	for _, t := range []struct{ name, v string }{{"header", d.Header}, {"footer", d.Footer}} {
 		if len(t.v) > 80 {
 			return fmt.Errorf("%s must be at most 80 characters", t.name)
@@ -390,6 +396,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		}
 		b.WriteString(`</tr></table>`)
 		writeInsightsHTML(&b, d, series)
+		writeEmissionsHTML(&b, d, series)
 		writeRollupHTML(&b, d, series)
 		writeFooter(&b, d)
 		return b.String()
@@ -425,6 +432,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		writeDetailHTML(&b, d, m, rows)
 	}
 	writeInsightsHTML(&b, d, series)
+	writeEmissionsHTML(&b, d, series)
 	writeRollupHTML(&b, d, series)
 	writeFooter(&b, d)
 	return b.String()
@@ -513,6 +521,7 @@ func RenderCSV(d Definition, series map[Metric][]Bucket) string {
 		for _, r := range append(rows, total) {
 			b.WriteString(strings.Join(r, ",") + "\n")
 		}
+		writeEmissionsCSV(&b, d, series)
 		writeRollupCSV(&b, d, series)
 		return b.String()
 	}
@@ -523,6 +532,7 @@ func RenderCSV(d Definition, series map[Metric][]Bucket) string {
 				k.Start.UTC().Format(time.RFC3339), k.Avg, k.Min, k.Max, k.Count, k.Sum)
 		}
 	}
+	writeEmissionsCSV(&b, d, series)
 	writeRollupCSV(&b, d, series)
 	return b.String()
 }
