@@ -261,3 +261,7 @@ New eval of 28 plain-language questions against the embedded docs (the old eval 
 ## 2026-10-08: report load check
 
 New `scripts/report-load.sh` and docs/report-load-test.md. A 4-metric, 7-day report over 2.4 million synthetic readings ran in about 1 to 2 s on a 2-CPU shared sandbox (p50 1.1 to 2.1 s across three runs; 8.7 s once when the table held many dead rows). With 20 simultaneous requests from one tenant, 2 ran and 18 were refused with 503 by the per-tenant limit. Tested: that, on one machine. NOT tested: several tenants at once, the global cap under real load, PDF/XLSX/Word/PowerPoint downloads, memory use, real (non-synthetic) data, production-class hardware. No capacity claim is made.
+
+## 2026-10-08: WhatsApp alert channel (from the tor.ai gap check; user approved 8:07 PM)
+
+New optional channel type `whatsapp` (WhatsApp Business Cloud API) for alert rules, escalation, flows and report delivery; see docs/whatsapp-alerts.md. Off unless the operator sets `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_TOKEN`; needs the user's own Meta business account, template and internet. Tested: against a local fake of the API only (text and template bodies, token handling, validation, admin-only, Send test, 409 when unset). NOT tested: real Meta, real phone, templates, receipts. Fixed on the way: migration 0060 would have failed an API restart once any WhatsApp channel existed (its constraint list is re-applied on every start).
