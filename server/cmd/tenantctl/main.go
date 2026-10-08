@@ -54,7 +54,11 @@ func main() {
 		email := fs.String("admin-email", "", "first admin's email")
 		aname := fs.String("admin-name", "Administrator", "first admin's display name")
 		pwStdin := fs.Bool("password-stdin", false, "read the admin's initial password from stdin (needs LOCAL_LOGIN deployments; omit for SSO-only)")
+		defaultCreds := fs.Bool("default-credentials", false, "seed the documented first-run login (admin@hexthings.com unless --admin-email is given, password Hex@2026) flagged so the first sign-in must change it; stored hashed only")
 		fs.Parse(os.Args[2:])
+		if *defaultCreds && *email == "" {
+			*email = auth.DefaultAdminEmail
+		}
 		if !idRe.MatchString(*id) || strings.TrimSpace(*name) == "" || len(*name) > 128 {
 			fatal("need --id (3-40 chars a-z 0-9 -) and --name")
 		}
@@ -62,6 +66,16 @@ func main() {
 			fatal("need a valid --admin-email")
 		}
 		var hash *string
+		if *defaultCreds && *pwStdin {
+			fatal("use either --default-credentials or --password-stdin")
+		}
+		if *defaultCreds {
+			h, err := auth.HashPassword(auth.DefaultAdminPassword)
+			if err != nil {
+				fatal(err.Error())
+			}
+			hash = &h
+		}
 		if *pwStdin {
 			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 			pw := strings.TrimRight(line, "\r\n")
@@ -83,7 +97,7 @@ func main() {
 			fatal("tenant exists or insert failed: " + err.Error())
 		}
 		uid := "u-" + *id + "-admin"
-		if _, err := tx.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role,password_hash) VALUES($1,$2,$3,$4,'admin',$5)`, uid, *id, *email, *aname, hash); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role,password_hash,must_change_credentials) VALUES($1,$2,$3,$4,'admin',$5,$6)`, uid, *id, *email, *aname, hash, *defaultCreds); err != nil {
 			fatal("admin email already registered or insert failed: " + err.Error())
 		}
 		// A first site so Add device and the commissioning wizard work straight away; rename or add more in the UI.
