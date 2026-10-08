@@ -42,29 +42,56 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		{"xl/workbook.xml", hdr + `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>`},
 		{"xl/_rels/workbook.xml.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`},
 	}
-	if logoPNG != nil {
-		files[0].b = strings.Replace(files[0].b, `<Default Extension="xml"`, `<Default Extension="png" ContentType="image/png"/><Default Extension="xml"`, 1)
-		files[0].b = strings.Replace(files[0].b, `</Types>`, `<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>`, 1)
-		w, h := logoSize(d.Logo)
-		files = append(files,
-			struct{ n, b string }{"xl/worksheets/_rels/sheet1.xml.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>`},
-			struct{ n, b string }{"xl/drawings/_rels/drawing1.xml.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo.png"/></Relationships>`},
-			struct{ n, b string }{"xl/drawings/drawing1.xml", hdr + fmt.Sprintf(`<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><xdr:oneCellAnchor><xdr:from><xdr:col>10</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="%d" cy="%d"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="Logo"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`, int(w*12700), int(h*12700), int(w*12700), int(h*12700))},
-		)
-	}
-	for _, f := range files {
-		if err := add(f.n, f.b); err != nil {
-			return nil, err
+	var charts []xlChart
+	// flush writes every package part once the sheet is known: the logo and the native charts
+	// share one drawing part.
+	flush := func() error {
+		hasDraw := logoPNG != nil || len(charts) > 0
+		var dRels, anchors strings.Builder
+		ctStr := files[0].b
+		ct := &ctStr
+		if hasDraw {
+			*ct = strings.Replace(*ct, `</Types>`, `<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>`, 1)
+			files = append(files, struct{ n, b string }{"xl/worksheets/_rels/sheet1.xml.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>`})
 		}
-	}
-	if logoPNG != nil {
-		if err := add("xl/media/logo.png", string(logoPNG)); err != nil {
-			return nil, err
+		startRow := 0
+		if logoPNG != nil {
+			*ct = strings.Replace(*ct, `<Default Extension="xml"`, `<Default Extension="png" ContentType="image/png"/><Default Extension="xml"`, 1)
+			w, h := logoSize(d.Logo)
+			dRels.WriteString(`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo.png"/>`)
+			fmt.Fprintf(&anchors, `<xdr:oneCellAnchor><xdr:from><xdr:col>10</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="%d" cy="%d"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="Logo"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`, int(w*12700), int(h*12700), int(w*12700), int(h*12700))
+			startRow = int(h/20) + 2
 		}
+		for i, c := range charts {
+			rid := fmt.Sprintf("rId%d", i+2)
+			ct2 := fmt.Sprintf(`<Override PartName="/xl/charts/chart%d.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`, i+1)
+			*ct = strings.Replace(*ct, `</Types>`, ct2+`</Types>`, 1)
+			fmt.Fprintf(&dRels, `<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart%d.xml"/>`, rid, i+1)
+			r0 := startRow + i*18
+			fmt.Fprintf(&anchors, `<xdr:twoCellAnchor><xdr:from><xdr:col>10</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>18</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="%d" name="Chart %d"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="%s"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`, r0, r0+16, i+10, i+1, rid)
+			files = append(files, struct{ n, b string }{fmt.Sprintf("xl/charts/chart%d.xml", i+1), hdr + xlChartXML(d.Chart, c)})
+		}
+		if hasDraw {
+			files = append(files,
+				struct{ n, b string }{"xl/drawings/_rels/drawing1.xml.rels", hdr + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + dRels.String() + `</Relationships>`},
+				struct{ n, b string }{"xl/drawings/drawing1.xml", hdr + `<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` + anchors.String() + `</xdr:wsDr>`})
+		}
+		files[0].b = ctStr
+		for _, f := range files {
+			if err := add(f.n, f.b); err != nil {
+				return err
+			}
+		}
+		if logoPNG != nil {
+			return add("xl/media/logo.png", string(logoPNG))
+		}
+		return nil
 	}
-	drawingTag := ""
-	if logoPNG != nil {
-		drawingTag = `<drawing r:id="rId1"/>`
+	drawingTag := func() string {
+		if logoPNG != nil || len(charts) > 0 {
+			return `<drawing r:id="rId1"/>`
+		}
+		return ""
 	}
 	var sb strings.Builder
 	sb.WriteString(hdr + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData>`)
@@ -114,8 +141,11 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		}
 		emit(total, true)
 		rollupRows()
-		sb.WriteString(`</sheetData>` + drawingTag + `</worksheet>`)
+		sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
 		if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
+			return nil, err
+		}
+		if err := flush(); err != nil {
 			return nil, err
 		}
 		if err := zw.Close(); err != nil {
@@ -130,6 +160,9 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 	}
 	sb.WriteString(`</row>`)
 	for _, m := range d.Metrics {
+		if xlChartKind(d.Chart) && len(series[m]) >= 2 && len(charts) < maxXLSXCharts {
+			charts = append(charts, xlChart{Title: m.DeviceID + " / " + m.PointID, First: row + 1, Last: row + len(series[m])})
+		}
 		for _, k := range series[m] {
 			row++
 			fmt.Fprintf(&sb, `<row r="%d">`, row)
@@ -139,8 +172,11 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		}
 	}
 	rollupRows()
-	sb.WriteString(`</sheetData>` + drawingTag + `</worksheet>`)
+	sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
 	if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
+		return nil, err
+	}
+	if err := flush(); err != nil {
 		return nil, err
 	}
 	if err := zw.Close(); err != nil {
