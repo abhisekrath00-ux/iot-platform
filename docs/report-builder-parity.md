@@ -9,7 +9,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 |---|---|---|
 | Table (per-metric rows) | Built | Default layout. |
 | Matrix / crosstab | Partial | Bucket rows by metric columns, agg choice, computed columns. No dynamic column groups. |
-| Row groups and subtotals | Partial | Rollup by asset or site with subtotals and grand total. No arbitrary nested groups. |
+| Row groups and subtotals | Partial | Rollup by asset or site, or nested two levels (`site>asset`, `asset>site`) with an outer subtotal, inner rows ("Site / Asset") and a grand total; set in the Reports page. Two fixed levels only: no arbitrary fields, no third level, no collapse/expand, no per-group page breaks. Unit, real-Postgres (incl. cross-tenant) tested; PDF/CSV/HTML rendered and inspected, XLSX not opened in Excel. |
 | List data region | Not built | |
 | Chart: line, area, bar | Built (HTML) | Inline SVG, opt-in `chart` field, unit-tested edge cases. PDF has a line chart (always, first 4 metrics). XLSX: native Excel charts (line, area, bar, scatter; flat layout; max 8; one per metric with 2+ buckets; gauge/pie get none). CSV none. |
 | Chart: pie, scatter | Partial | Scatter of bucket averages; pie of each bucket's share of the window sum (folds to 7 + other, so it is weak for long windows). Unit-tested and rendered in headless Chrome, HTML only. |
@@ -29,7 +29,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Versioning and restore | Built | |
 | Designer: drag-drop surface, wizard, toolbox | Not built | Current UI is a form, not a design surface. |
 
-Next units, in order: PDF chart types and gauges, nested groups, parameters, conditional formatting, page setup, designer surface.
+Next units, in order: cascading parameters, conditional formatting from expressions, Word/PowerPoint export, designer surface, PDF chart types and gauges.
 
 ## Production grade and scale (user request, 2026-10-07)
 
