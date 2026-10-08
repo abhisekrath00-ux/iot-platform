@@ -290,33 +290,10 @@ func (s *server) gatewayEdgeConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "gateway not found", 404)
 		return
 	}
-	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT d.id, d.profile, d.config, COALESCE(p.points,'[]'::jsonb)
-		 FROM devices d LEFT JOIN device_profiles p ON p.id = d.config->>'device_profile_id' AND p.tenant_id=d.tenant_id
-		 WHERE d.gateway_id=$1 AND d.tenant_id=$2 ORDER BY d.created_at`, gw, tenant)
+	devs, err := s.gatewayEdgeDevices(r, tenant, gw)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
-	}
-	defer rows.Close()
-	var devs []edgeDev
-	for rows.Next() {
-		var d edgeDev
-		var cfg, pts []byte
-		if err := rows.Scan(&d.ID, &d.Profile, &cfg, &pts); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		var c struct {
-			Connection map[string]any `json:"connection"`
-		}
-		json.Unmarshal(cfg, &c)
-		d.Conn = c.Connection
-		if d.Conn == nil {
-			d.Conn = map[string]any{}
-		}
-		json.Unmarshal(pts, &d.Points)
-		devs = append(devs, d)
 	}
 	s.audit(r, "gateway.edge_config.download", gw, nil)
 	w.Header().Set("Content-Type", "application/x-yaml")
@@ -337,4 +314,35 @@ func canKeyOK(key string) bool {
 	start, _ := strconv.Atoi(f[1])
 	n, _ := strconv.Atoi(f[2])
 	return n >= 1 && n <= 32 && start <= 63 && (f[3] == "be" || start+n <= 64)
+}
+
+// gatewayEdgeDevices loads a gateway's devices with their profile (template) points.
+func (s *server) gatewayEdgeDevices(r *http.Request, tenant, gw string) ([]edgeDev, error) {
+	rows, err := s.st.Pool.Query(r.Context(),
+		`SELECT d.id, d.profile, d.config, COALESCE(p.points,'[]'::jsonb)
+		 FROM devices d LEFT JOIN device_profiles p ON p.id = d.config->>'device_profile_id' AND p.tenant_id=d.tenant_id
+		 WHERE d.gateway_id=$1 AND d.tenant_id=$2 ORDER BY d.created_at`, gw, tenant)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var devs []edgeDev
+	for rows.Next() {
+		var d edgeDev
+		var cfg, pts []byte
+		if err := rows.Scan(&d.ID, &d.Profile, &cfg, &pts); err != nil {
+			return nil, err
+		}
+		var c struct {
+			Connection map[string]any `json:"connection"`
+		}
+		json.Unmarshal(cfg, &c)
+		d.Conn = c.Connection
+		if d.Conn == nil {
+			d.Conn = map[string]any{}
+		}
+		json.Unmarshal(pts, &d.Points)
+		devs = append(devs, d)
+	}
+	return devs, nil
 }
