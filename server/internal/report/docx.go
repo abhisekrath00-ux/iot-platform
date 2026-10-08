@@ -105,6 +105,23 @@ func RenderDOCX(title string, d Definition, series map[Metric][]Bucket, generate
 			body.WriteString(table([]string{"bucket (UTC)", "avg", "min", "max", "sum", "samples"}, cs, true))
 		}
 	}
+	if len(d.Emissions) > 0 {
+		er := BuildEmissions(d, series)
+		body.WriteString(para("Heading2", "Emissions (Scope 1 and 2)"))
+		var cs [][]cell
+		for _, r := range EmissionsCells(er) {
+			cs = append(cs, plain(r))
+		}
+		body.WriteString(table(EmissionsHeader(), cs, false))
+		if er.Intensity != "" {
+			body.WriteString(para("", er.Intensity))
+		}
+		body.WriteString(para("", "Factors used:"))
+		for _, l := range er.Sources {
+			body.WriteString(para("", l))
+		}
+		body.WriteString(para("", EmissionsNotice))
+	}
 	if d.Rollup != "" {
 		body.WriteString(para("Heading2", "Summary by "+RollupTitle(d)))
 		rr := BuildRollup(d, series)
