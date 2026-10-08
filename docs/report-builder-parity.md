@@ -18,7 +18,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Map | Not built | Needs air-gapped tiles decision. |
 | Report parameters (cascading, multivalue) | Partial | Window, group-by, layout, agg, page via URL parameters. `device` is multivalue (`device=a,b,c`, up to 10). Cascading `site` -> `asset` -> `device`: an asset must lie in the chosen site and a device in both, otherwise 400 (never silently ignored); site/asset expand to their devices through the same multivalue path, so the 10-device cap applies. Reports page shows three linked pickers (asset list narrows to the chosen site, device list to both) for single-device reports. Unit, real-Postgres (incl. cross-tenant, injection-shaped input) tested; picker behaviour checked in a real browser. Only the site/asset/device chain: no user-defined parameters, no default/prompt definitions, no multivalue for other parameters, not available to customer-scoped users. |
 | Expressions | Partial | KPI expression language for computed columns and KPIs: arithmetic, point refs and six pure functions (`abs round sqrt min max clamp`, fixed list, argument counts checked, nesting depth capped) and `if(a > b, then, else)` with > < >= <= == != and `and`/`or`/`not` with parentheses (and/or short-circuit; only the chosen branch runs). No text or date functions, aggregates over fields, or expressions in formatting. Unit-tested. |
-| Conditional formatting | Partial | `highlight` {above, below} thresholds colour avg cells in per-metric HTML tables (red/amber). Not in matrix layout, PDF or XLSX; no expressions. Reports page has red-above/amber-below inputs (see UI row). Unit-tested. |
+| Conditional formatting | Partial | `highlight` {above, below} thresholds plus an expression rule `when` over one bucket (`{row.avg}`, `{row.min}`, `{row.max}`, `{row.sum}`, `{row.count}`, with and/or/not via `if()`), colour red or amber (`when_color`); the rule is checked first, thresholds are the fallback. Applies to avg cells in per-metric HTML tables, Word and PowerPoint. Not in matrix layout, PDF or XLSX; one rule only, colours fixed. Unit-tested, validated on save (unknown references rejected), real HTML download checked, UI field screenshot. |
 | Sorting, interactive sort | Not built | |
 | Page layout, headers/footers, themes, logo | Partial | Header/footer text, light/dark, tenant logo, PDF page size and orientation (`page`: a4 default, a4-landscape, letter, letter-landscape; also a `page` URL parameter). Default PDF output verified byte-identical to before. No custom size or margins, no page-number tokens, no per-section breaks; HTML and XLSX ignore `page`. Reports page has a PDF page size select. Unit-tested, landscape rendered and inspected. |
 | Subreports, drill-through, bookmarks | Not built | |
@@ -30,7 +30,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Versioning and restore | Built | |
 | Designer: drag-drop surface, wizard, toolbox | Not built | Current UI is a form, not a design surface. |
 
-Next units, in order: conditional formatting from expressions, designer surface, PDF chart types and gauges.
+Next units, in order: designer surface, subreports/drill-through, PDF chart types and gauges.
 
 ## Production grade and scale (user request, 2026-10-07)
 
