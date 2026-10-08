@@ -70,17 +70,79 @@ type Definition struct {
 type Highlight struct {
 	Above *float64 `json:"above,omitempty"`
 	Below *float64 `json:"below,omitempty"`
+	// When is an optional expression over one bucket: {row.avg} {row.min} {row.max} {row.sum} {row.count},
+	// for example if({row.avg} > 50 and {row.max} < 100, 1, 0). A non-zero result colours the avg cell with
+	// WhenColor ("red", default, or "amber"). It is checked before Above/Below.
+	When      string `json:"when,omitempty"`
+	WhenColor string `json:"when_color,omitempty"`
+	expr      *kpi.Expr
 }
 
-// cellStyle returns an inline style for a value, or "". Non-finite values are never coloured.
-func (h *Highlight) cellStyle(v float64) string {
-	if h == nil || math.IsNaN(v) || math.IsInf(v, 0) {
+var rowPoints = map[string]bool{"avg": true, "min": true, "max": true, "sum": true, "count": true}
+
+func (h *Highlight) validateWhen() error {
+	if h.When == "" {
+		return nil
+	}
+	e, err := kpi.Parse(h.When)
+	if err != nil {
+		return fmt.Errorf("highlight when: %v", err)
+	}
+	for _, r := range e.Refs {
+		if r.Device != "row" || !rowPoints[r.Point] {
+			return fmt.Errorf("highlight when may only use {row.avg}, {row.min}, {row.max}, {row.sum}, {row.count}; got {%s}", r)
+		}
+	}
+	if h.WhenColor != "" && h.WhenColor != "red" && h.WhenColor != "amber" {
+		return fmt.Errorf("highlight when_color must be red or amber")
+	}
+	return nil
+}
+
+// kind returns "red", "amber" or "" for a bucket. Non-finite averages are never coloured.
+func (h *Highlight) kind(b Bucket) string {
+	if h == nil || math.IsNaN(b.Avg) || math.IsInf(b.Avg, 0) {
 		return ""
 	}
-	if h.Above != nil && v > *h.Above {
-		return ` style="background:#fecaca;color:#7f1d1d"`
+	if h.When != "" {
+		if h.expr == nil {
+			h.expr, _ = kpi.Parse(h.When) // validated before storing; nil means no match
+		}
+		if h.expr != nil {
+			v, err := h.expr.Eval(map[string]float64{"row.avg": b.Avg, "row.min": b.Min, "row.max": b.Max, "row.sum": b.Sum, "row.count": float64(b.Count)})
+			if err == nil && v != 0 {
+				if h.WhenColor == "amber" {
+					return "amber"
+				}
+				return "red"
+			}
+		}
 	}
-	if h.Below != nil && v < *h.Below {
+	if h.Above != nil && b.Avg > *h.Above {
+		return "red"
+	}
+	if h.Below != nil && b.Avg < *h.Below {
+		return "amber"
+	}
+	return ""
+}
+
+// fill is the docx/pptx shading for a bucket.
+func (h *Highlight) fill(b Bucket) string {
+	switch h.kind(b) {
+	case "red":
+		return "FECACA"
+	case "amber":
+		return "FDE68A"
+	}
+	return ""
+}
+
+func (h *Highlight) bucketStyle(b Bucket) string {
+	switch h.kind(b) {
+	case "red":
+		return ` style="background:#fecaca;color:#7f1d1d"`
+	case "amber":
 		return ` style="background:#fde68a;color:#78350f"`
 	}
 	return ""
@@ -143,6 +205,9 @@ func Validate(d Definition) error {
 		}
 		if h.Above != nil && h.Below != nil && *h.Below > *h.Above {
 			return fmt.Errorf("highlight below must not exceed above")
+		}
+		if err := h.validateWhen(); err != nil {
+			return err
 		}
 	}
 	if _, ok := pageSizes[d.Page]; !ok {
@@ -326,7 +391,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 		b.WriteString(`<table><tr><th>` + html.EscapeString(d.GroupBy) + `</th><th>avg</th><th>min</th><th>max</th><th>sum</th><th>samples</th></tr>`)
 		for _, r := range rows {
 			fmt.Fprintf(&b, `<tr><td>%s</td><td%s>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`,
-				r.Start.UTC().Format("2006-01-02 15:04"), d.Highlight.cellStyle(r.Avg), r.Avg, r.Min, r.Max, r.Sum, r.Count)
+				r.Start.UTC().Format("2006-01-02 15:04"), d.Highlight.bucketStyle(r), r.Avg, r.Min, r.Max, r.Sum, r.Count)
 		}
 		ta, tmin, tmax, tsum, tn := Summary(rows)
 		fmt.Fprintf(&b, `<tr style="font-weight:600;background:#fafafa"><td>overall</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%d</td></tr>`, ta, tmin, tmax, tsum, tn)
