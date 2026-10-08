@@ -291,3 +291,7 @@ Server-managed, signed, versioned push of the device list with edge-side checks,
 ## 2026-10-09: narrow-screen layout pass
 
 Checked 19 pages at phone (390 px) and tablet (820 px) width in headless Chrome: pages Fleet updates, Alerts, Reports, Profiles, Audit, Settings, Users and Edge setup ran wider than the screen. Fixed with CSS only: tables scroll inside their card, button rows wrap, form controls cap at screen width. After the fix none of the 19 pages overflows at either width (measured). NOT done: the menu takes about half a phone screen before the page content (no collapse yet); not tested on a real phone or Safari; touch behaviour of the report designer drag-and-drop is untested.
+
+## 2026-10-09: production-readiness update
+
+docs/pilot-readiness.md now has a dated tested / not-tested summary and verdict (supervised pilot: yes; unattended production: no). Stale "CI has not run" line replaced.
