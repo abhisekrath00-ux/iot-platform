@@ -230,3 +230,11 @@ button.link { background: none; border: 0; box-shadow: none; padding: 0; color: 
 @media (max-width: 900px) {
   div[style*="display: flex"], div[style*="display:flex"] { flex-wrap: wrap; }
 }
+
+/* Phone: the menu is collapsed behind a button so the page content is not pushed down by about half a screen. */
+nav .menu-toggle { display: none; }
+@media (max-width: 700px) {
+  nav { height: auto; position: static; }
+  nav .menu-toggle { display: block; width: 100%; text-align: left; }
+  nav:not(.open) > :not(.menu-toggle):not(.brand) { display: none; }
+}
