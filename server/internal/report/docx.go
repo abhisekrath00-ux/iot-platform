@@ -133,7 +133,7 @@ func RenderDOCX(title string, d Definition, series map[Metric][]Bucket, generate
 			body.WriteString(table([]string{"bucket (UTC)", "avg", "min", "max", "sum", "samples"}, cs, true))
 		}
 	}
-	for _, sc := range d.Sections {
+	for _, sc := range d.allSections() {
 		body.WriteString(para("Heading2", strings.TrimSpace(sc.Title)))
 		for _, p := range sectionParas(sc.Body) {
 			body.WriteString(para("", p))
