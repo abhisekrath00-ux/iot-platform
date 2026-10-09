@@ -22,7 +22,39 @@ type Section struct {
 	Body  string `json:"body"`
 }
 
+// SubreportRef points at another saved report whose summary is embedded.
+type SubreportRef struct {
+	ReportID string `json:"report_id"`
+}
+
+const maxSubreports = 5
+
+// allSections is the typed notes followed by the embedded subreport summaries, as the renderers print them.
+func (d Definition) allSections() []Section {
+	return append(append([]Section{}, d.Sections...), d.SubSummaries...)
+}
+
+func validateSubreports(d Definition) error {
+	if len(d.Subreports) > maxSubreports {
+		return fmt.Errorf("at most %d subreports", maxSubreports)
+	}
+	seen := map[string]bool{}
+	for i, r := range d.Subreports {
+		if !validID(r.ReportID) {
+			return fmt.Errorf("subreport %d: a report id is required", i+1)
+		}
+		if seen[r.ReportID] {
+			return fmt.Errorf("subreport %d: the same report is listed twice", i+1)
+		}
+		seen[r.ReportID] = true
+	}
+	return nil
+}
+
 func validateSections(d Definition) error {
+	if err := validateSubreports(d); err != nil {
+		return err
+	}
 	if len(d.Sections) > maxSections {
 		return fmt.Errorf("at most %d text sections", maxSections)
 	}
@@ -55,7 +87,7 @@ func sectionParas(body string) []string {
 }
 
 func writeSectionsHTML(b *strings.Builder, d Definition) {
-	for _, s := range d.Sections {
+	for _, s := range d.allSections() {
 		b.WriteString(`<h2>` + html.EscapeString(strings.TrimSpace(s.Title)) + `</h2>`)
 		for _, p := range sectionParas(s.Body) {
 			b.WriteString(`<p>` + html.EscapeString(p) + `</p>`)
@@ -65,7 +97,7 @@ func writeSectionsHTML(b *strings.Builder, d Definition) {
 
 func writeSectionsCSV(b *strings.Builder, d Definition) {
 	q := func(s string) string { return `"` + strings.ReplaceAll(CSVSafe(s), `"`, `""`) + `"` }
-	for _, s := range d.Sections {
+	for _, s := range d.allSections() {
 		b.WriteString("\n")
 		for _, l := range append([]string{strings.TrimSpace(s.Title)}, sectionParas(s.Body)...) {
 			b.WriteString(q(l) + "\n")
