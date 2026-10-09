@@ -96,6 +96,7 @@ export default function App() {
     if (me.role !== 'admin') return !['/users', '/customers', '/system', '/dev-tools'].includes(to);
     return true;
   });
+  const [menuOpen, setMenuOpen] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => {
     const on = () => setOnline(true), off = () => setOnline(false);
@@ -114,7 +115,8 @@ export default function App() {
       {me?.must_change_credentials && <FirstRunCredentials email={me.email} />}
       {tour && !me?.must_change_credentials && <Tour onClose={() => setTour(false)} />}
       {!online && <div role="status" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50, textAlign: 'center', padding: '6px 12px', background: '#b45309', color: '#fff', fontSize: 13 }}>You are offline. The app opened from this device, but live data needs a connection to the server.</div>}
-      <nav>
+      <nav className={menuOpen ? 'open' : ''} onClick={(e) => { if ((e.target as HTMLElement).closest('a')) setMenuOpen(false); }}>
+        <button className="menu-toggle" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? 'Close menu' : 'Menu'}</button>
         <div className="brand">{logo ? <img src={logo} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }} /> : <img src="/logo-mark.svg" alt="" style={{ width: 28, height: 28 }} />}{brand}</div>
         {me?.customer_name && <div className="muted" style={{ padding: '0 12px 8px' }}>{me.customer_name}</div>}
         {visible.map(([to, label]) => (
