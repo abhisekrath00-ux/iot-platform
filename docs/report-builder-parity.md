@@ -30,7 +30,7 @@ Status labels: Built, Partial, Not built. "Tested" means unit tests on this mach
 | Versioning and restore | Built | |
 | Designer: drag-drop surface, wizard, toolbox | Partial | Drag points from a palette onto the report and drag rows to reorder metrics (browser-tested with synthetic drag events, not a real mouse drag). Text sections: up to 10 titled plain-text notes (80-char title, 2000-char text) printed after the data in HTML, CSV, Excel, PDF, Word and PowerPoint (not the XML export), set from a form on the Reports page; unit-tested in all six formats, a real PDF and PowerPoint checked, form screenshot. They are notes only: no ordering of the built-in blocks, no free-form canvas, no wizard. |
 
-Next units, in order: layout canvas and block ordering, subreports.
+Embedded subreports (summary only): a report can list up to 5 other saved reports of the same workspace; each prints a text summary (avg, min, max, sum, readings per metric, over that report's own window) after the notes in HTML, CSV, Excel, PDF, Word and PowerPoint (not XML). One level only, no parameters passed down, no nested layout or charts, so this is NOT parity with Report Builder subreports. Next units: layout canvas and block ordering, true nested subreports.
 
 ## Production grade and scale (user request, 2026-10-07)
 
