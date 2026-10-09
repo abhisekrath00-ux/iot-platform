@@ -14,7 +14,7 @@ RUN git clone https://github.com/ggml-org/llama.cpp /src && cd /src && git check
 RUN cd /src && cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF \
  && cmake --build build --target llama-server -j2
 
-FROM golang:1.25-alpine AS front
+FROM golang:1.26-alpine AS front
 WORKDIR /src
 COPY server/go.mod server/go.sum ./
 RUN go mod download
