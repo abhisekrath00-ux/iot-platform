@@ -299,3 +299,7 @@ docs/pilot-readiness.md now has a dated tested / not-tested summary and verdict 
 ## 2026-10-09: report text sections (first designer-sections slice; user 10:16 PM "work on those")
 
 Up to 10 titled plain-text notes per report, printed after the data (before emissions) in HTML, CSV, Excel, PDF, Word and PowerPoint, with a form on the Reports page. Plain text, escaped everywhere, CSV formula-safe. Not the XML export. Not a canvas, not block ordering, not subreports. Tested: validation, all six formats incl. matrix layout, real PDF and PowerPoint output read back, form screenshot. NOT tested: Microsoft Office.
+
+## 2026-10-09: phone menu collapse
+
+On screens up to 700 px the navigation sits behind a Menu button and closes after a link is tapped, so the page content is no longer pushed down by about half a screen. Tested: Chromium at 390 px (closed, open, navigate, 0 horizontal overflow), screenshots inspected, tsc clean. NOT tested: real phones, Safari.
