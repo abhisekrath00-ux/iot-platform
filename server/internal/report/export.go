@@ -103,7 +103,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 	}
 	num := func(f float64) string { return fmt.Sprintf(`<c><v>%.10g</v></c>`, f) }
 	sectionRows := func() {
-		for _, sc := range d.Sections {
+		for _, sc := range d.allSections() {
 			row += 2
 			sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str(strings.TrimSpace(sc.Title)) + `</row>`)
 			for _, p := range sectionParas(sc.Body) {
@@ -375,7 +375,7 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 		put(fmt.Sprintf("%-17s %10.3f %10.3f %10.3f %12.3f %8d", "overall", a, mn, mx, sm, n), true)
 		put("", false)
 	}
-	for _, sc := range d.Sections {
+	for _, sc := range d.allSections() {
 		put(strings.TrimSpace(sc.Title), true)
 		for _, p := range sectionParas(sc.Body) {
 			for len(p) > 88 {
