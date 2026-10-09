@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.26' }
+        with: { go-version: '1.26', check-latest: true }
       - name: vet + test server
         working-directory: server
         run: |
@@ -125,7 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.26' }
+        with: { go-version: '1.26', check-latest: true }
       - name: gofmt check
         run: |
           unformatted=$(gofmt -l server edge)
