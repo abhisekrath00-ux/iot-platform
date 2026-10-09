@@ -168,7 +168,7 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 			}
 		}
 	}
-	for _, sc := range d.Sections {
+	for _, sc := range d.allSections() {
 		if !ok {
 			break
 		}
