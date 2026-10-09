@@ -309,3 +309,7 @@ On screens up to 700 px the navigation sits behind a Menu button and closes afte
 CI govulncheck failed on new advisories in golang.org/x/net v0.44.0 (fixed in v0.60.0). Bumped x/net (and x/sync, x/text, x/sys) in server and edge, which raises the go directive to 1.26.0; the three Dockerfiles now build from golang:1.26-alpine. Tested locally: build, vet, edge tests, binary govulncheck shows no x/net findings. The remaining local findings are in the Go standard library of the sandbox toolchain (go1.26.6), which CI replaces with its own 1.26.x; CI result is the check. Docker image builds are exercised only by the CI compose-smoke job.
 
 CI now sets check-latest on setup-go so the newest Go 1.26 patch is used; govulncheck was still red after the x/net bump (standard-library advisories fixed in go1.26.9). Unverified until the CI run reads green.
+
+## 2026-10-09: embedded subreports (summary only)
+
+Reports can embed a summary of up to 5 other saved reports of the same workspace (picker on the Reports page). The summary is plain text lines, one level deep, escaped in every format; a deleted or foreign report shows a note. Tested: validation (bad or duplicate id, over 5), escaped HTML and CSV in unit tests, and through the running API a report embedding another rendered correctly in PDF, CSV, PowerPoint (via LibreOffice), Word and Excel, plus a missing-report note; form screenshot. NOT tested: Microsoft Office, a cross-workspace attempt beyond the tenant-scoped query. Not parity with Report Builder subreports.
