@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/report"
@@ -16,6 +19,7 @@ func (s *server) withReportContext(ctx context.Context, tenant string, def repor
 	if err != nil {
 		return def, err
 	}
+	def = s.subSummaries(ctx, tenant, def)
 	if def.Detail > 0 {
 		if def.Samples, err = s.detailSamples(ctx, tenant, def); err != nil {
 			return def, err
@@ -89,4 +93,47 @@ func (s *server) detailSamples(ctx context.Context, tenant string, def report.De
 		}
 	}
 	return out, nil
+}
+
+// subSummaries fills the embedded summaries of other saved reports of the same workspace. Tenant-scoped by the
+// query; a missing report becomes a note, not an error; the embedded report's own subreports are ignored so there
+// is no recursion. Plain text only.
+func (s *server) subSummaries(ctx context.Context, tenant string, def report.Definition) report.Definition {
+	def.SubSummaries = nil
+	for _, ref := range def.Subreports {
+		var name string
+		var raw []byte
+		err := s.st.Pool.QueryRow(ctx, `SELECT name, definition FROM reports WHERE id=$1 AND tenant_id=$2`, ref.ReportID, tenant).Scan(&name, &raw)
+		var sub report.Definition
+		if err == nil {
+			err = json.Unmarshal(raw, &sub)
+		}
+		if err != nil {
+			def.SubSummaries = append(def.SubSummaries, report.Section{Title: "Subreport", Body: "This report is not available (deleted, or not in this workspace)."})
+			continue
+		}
+		sub.Subreports, sub.Sections = nil, nil
+		series, _, serr := s.buildSeries(ctx, tenant, sub)
+		title := "Subreport: " + name
+		if r := []rune(title); len(r) > 80 {
+			title = string(r[:80])
+		}
+		var lines []string
+		if serr != nil {
+			lines = append(lines, "The data for this report could not be read.")
+		}
+		for _, m := range sub.Metrics {
+			avg, mn, mx, sum, n := report.Summary(series[m])
+			if n == 0 {
+				lines = append(lines, fmt.Sprintf("%s.%s: no readings in the last %d h", m.DeviceID, m.PointID, sub.WindowHours))
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s.%s: avg %.4g, min %.4g, max %.4g, sum %.4g (%d readings, last %d h)", m.DeviceID, m.PointID, avg, mn, mx, sum, n, sub.WindowHours))
+		}
+		if len(lines) == 0 {
+			lines = append(lines, "This report has no metrics.")
+		}
+		def.SubSummaries = append(def.SubSummaries, report.Section{Title: title, Body: strings.Join(lines, "\n")})
+	}
+	return def
 }
