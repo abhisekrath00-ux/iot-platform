@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.26' }
+        with: { go-version: '1.26', check-latest: true }
       - name: build edge packages (linux+windows, amd64+arm64)
         run: scripts/build-edge.sh "${GITHUB_REF_NAME:-dev}"
       - uses: actions/upload-artifact@v4
