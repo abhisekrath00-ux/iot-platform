@@ -48,7 +48,11 @@ type Definition struct {
 	Rollup string `json:"rollup,omitempty"`
 	// Emissions adds a Scope 1 and 2 section (see emissions.go): metered quantity times an operator-entered factor.
 	// Sections are titled plain-text notes printed after the data (see sections.go).
-	Sections           []Section           `json:"sections,omitempty"`
+	Sections []Section `json:"sections,omitempty"`
+	// Subreports embeds a summary (avg, min, max, sum, readings per metric) of up to 5 other saved reports of the
+	// same workspace. SubSummaries is filled by the server at render time and never stored or read from a request.
+	Subreports         []SubreportRef      `json:"subreports,omitempty"`
+	SubSummaries       []Section           `json:"-"`
 	Emissions          []EmissionSource    `json:"emissions,omitempty"`
 	EmissionsIntensity *EmissionsIntensity `json:"emissions_intensity,omitempty"`
 	// Header and Footer are optional text (at most 80 printable characters) printed on every PDF
