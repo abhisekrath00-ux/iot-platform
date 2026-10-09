@@ -71,3 +71,35 @@ func TestSectionsInEveryFormat(t *testing.T) {
 		t.Fatal("no sections, no output")
 	}
 }
+
+func TestSubreportsValidateAndPrint(t *testing.T) {
+	d := Definition{Metrics: []Metric{{DeviceID: "d1", PointID: "p1"}}, WindowHours: 24, GroupBy: "hour"}
+	d.Subreports = []SubreportRef{{ReportID: "0e654552-fb7f-4bc3-95f6-50874145cf29"}}
+	if err := Validate(d); err != nil {
+		t.Fatal(err)
+	}
+	d.Subreports = []SubreportRef{{ReportID: "a"}, {ReportID: "a"}}
+	if Validate(d) == nil {
+		t.Fatal("duplicate subreport accepted")
+	}
+	d.Subreports = []SubreportRef{{ReportID: "x'; drop"}}
+	if Validate(d) == nil {
+		t.Fatal("bad id accepted")
+	}
+	d.Subreports = make([]SubreportRef, 6)
+	for i := range d.Subreports {
+		d.Subreports[i].ReportID = "r" + string(rune('a'+i))
+	}
+	if Validate(d) == nil {
+		t.Fatal("six subreports accepted")
+	}
+	d.Subreports = nil
+	d.SubSummaries = []Section{{Title: "Subreport: <b>Plant</b>", Body: "d2.p2: avg 1, min 0, max 2, sum 3 (3 readings, last 24 h)"}}
+	h := Render("T", d, map[Metric][]Bucket{}, time.Now())
+	if !strings.Contains(h, "Subreport: &lt;b&gt;Plant&lt;/b&gt;") || !strings.Contains(h, "d2.p2: avg 1") {
+		t.Fatal("summary not printed escaped in HTML")
+	}
+	if !strings.Contains(RenderCSV(d, map[Metric][]Bucket{}), "d2.p2: avg 1") {
+		t.Fatal("summary missing from CSV")
+	}
+}
