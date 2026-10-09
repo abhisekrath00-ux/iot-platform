@@ -1,6 +1,6 @@
 module github.com/abhisekrath00-ux/iot-platform/server
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/dop251/goja v0.0.0-20261001121453-e1fc788e4f41
@@ -25,7 +25,7 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
-	golang.org/x/net v0.44.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 )
