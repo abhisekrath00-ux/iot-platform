@@ -12,7 +12,7 @@ Add `--yes` (`-Yes` on Windows) to accept every default and ask nothing.
 
 ## One command (needs Docker)
 
-Linux / macOS: `curl -fsSL https://raw.githubusercontent.com/abhisekrath00-ux/iot-platform/main/scripts/get.sh | bash`
+Linux / macOS (Ubuntu terminal): `curl -fsSL https://raw.githubusercontent.com/abhisekrath00-ux/iot-platform/main/scripts/get.sh | bash`. It also puts a `hexthings` command on your PATH. Run `hexthings` for the animated menu, or `hexthings status | health | doctor | start | stop | restart | logs [service] | backup | upgrade | ai [status|start|stop] | open | version`. Same menu and commands as `scripts/setup.sh`, which also works directly.
 
 Windows (PowerShell): `irm https://raw.githubusercontent.com/abhisekrath00-ux/iot-platform/main/scripts/get.ps1 | iex`
 
