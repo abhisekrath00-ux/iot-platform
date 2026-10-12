@@ -25,7 +25,7 @@ done
 if [ -n "${HX_LINK:-}" ]; then echo "After setup, run: hexthings   (menu, status, doctor, logs, ai; $HX_LINK)"; else echo "After setup, run: bash $(pwd)/scripts/hexthings"; fi
 case "${HX_LINK:-}" in "$HOME/.local/bin/"*) case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Add $HOME/.local/bin to your PATH to use it by name." ;; esac ;; esac
 # Prerequisites: skips whatever is present, asks once before installing anything missing.
-bash scripts/prereq.sh; rc=$?
+rc=0; bash scripts/prereq.sh || rc=$?   # set -e: capture the code, prereq exits 3 on purpose
 case $rc in
   0) ;;
   3) # Docker was installed and this login is not in the docker group yet: continue inside the group
