@@ -27,7 +27,13 @@ clip() { local c; c=$(( $(cols) - 6 )); printf '%s' "${1:0:$c}"; }
 dot_ok() { if [ "$COLOR" = 1 ]; then printf '%s●%s' "$G" "$N"; else printf 'OK '; fi; }
 dot_bad() { if [ "$COLOR" = 1 ]; then printf '%s●%s' "$R" "$N"; else printf 'XX '; fi; }
 dot_warn() { if [ "$COLOR" = 1 ]; then printf '%s●%s' "$Y" "$N"; else printf '?? '; fi; }
-need_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || { echo "  Docker is not available here (not installed, not running, or not allowed for this user)."; return 1; }; }
+need_docker() {
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && return 0
+  if command -v docker >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1; then
+    echo "  Docker is running, but your user is not allowed to use it. Fix: sudo usermod -aG docker $(id -un), then log out and in (or run: newgrp docker)."
+  else echo "  Docker is not available here (not installed, not running, or not allowed for this user). Try: sudo systemctl start docker"; fi
+  return 1
+}
 compose() { docker compose "$@"; }
 
 probe_http() { # probe_http name url -> prints a row, returns 0 when healthy
