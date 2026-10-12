@@ -132,7 +132,7 @@ step "Checking this machine"
 
 # ---- preflight --------------------------------------------------------------------------------
 command -v docker >/dev/null 2>&1 || fail "Docker is not installed. Install Docker Engine (or Docker Desktop) and run this again."
-docker info >/dev/null 2>&1 || fail "Docker is installed but not running, or your user may not use it. Start Docker, or add yourself to the docker group."
+docker info >/dev/null 2>&1 || fail "Docker is installed but not running, or your user may not use it. Start it (sudo systemctl start docker), or add yourself to the docker group: sudo usermod -aG docker \$USER, then log out and in (or run: newgrp docker) and try again. The one-line installer (scripts/get.sh) does this for you."
 ok "Docker is running"
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is missing ('docker compose version' fails). Install the compose plugin."
 ok "Docker Compose v2 present"
