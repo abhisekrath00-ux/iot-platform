@@ -15,6 +15,15 @@ else
   else echo "need git, or curl and tar"; exit 1; fi
 fi
 cd "$DIR"
+# Put a `hexthings` command on PATH (menu, status, start, stop, doctor, ai ...). Best effort: never stops the install.
+hx_target="$(pwd)/scripts/hexthings"; chmod +x "$hx_target" 2>/dev/null || true
+for hx_bin in /usr/local/bin "$HOME/.local/bin"; do
+  mkdir -p "$hx_bin" 2>/dev/null || true
+  if [ -w "$hx_bin" ] && ln -sf "$hx_target" "$hx_bin/hexthings" 2>/dev/null; then HX_LINK="$hx_bin/hexthings"; break
+  elif [ "$hx_bin" = /usr/local/bin ] && command -v sudo >/dev/null 2>&1 && sudo -n ln -sf "$hx_target" "$hx_bin/hexthings" 2>/dev/null; then HX_LINK="$hx_bin/hexthings"; break; fi
+done
+if [ -n "${HX_LINK:-}" ]; then echo "After setup, run: hexthings   (menu, status, doctor, logs, ai; $HX_LINK)"; else echo "After setup, run: bash $(pwd)/scripts/hexthings"; fi
+case "${HX_LINK:-}" in "$HOME/.local/bin/"*) case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Add $HOME/.local/bin to your PATH to use it by name." ;; esac ;; esac
 # Prerequisites: skips whatever is present, asks once before installing anything missing.
 bash scripts/prereq.sh; rc=$?
 case $rc in
