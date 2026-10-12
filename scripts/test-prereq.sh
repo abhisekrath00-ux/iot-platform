@@ -18,13 +18,13 @@ cat > "$T/bin/docker" <<'D'
 #!/usr/bin/env bash
 [ -f "$FAKE_STATE/docker" ] || exit 127
 case "$1" in
-  info) [ -f "$FAKE_STATE/engine" ] || [ "${FAKE_ENGINE:-0}" = 1 ] ;;
+  info) [ "${FAKE_NEEDSUDO:-0}" = 1 ] && [ -z "${SUDO_ACTIVE:-}" ] && exit 1; [ -f "$FAKE_STATE/engine" ] || [ "${FAKE_ENGINE:-0}" = 1 ] ;;
   compose) [ "${FAKE_NOCOMPOSE:-0}" = 1 ] && exit 1; exit 0 ;;
 esac
 D
 cat > "$T/bin/sudo" <<'S'
 #!/usr/bin/env bash
-echo "sudo $*" >> "$FAKE_LOG"; exec "$@"
+echo "sudo $*" >> "$FAKE_LOG"; SUDO_ACTIVE=1 exec "$@"
 S
 cat > "$T/bin/systemctl" <<'S'
 #!/usr/bin/env bash
@@ -37,6 +37,10 @@ S
 cat > "$T/bin/id" <<'S'
 #!/usr/bin/env bash
 case "$1" in -u) echo 1000 ;; -un) echo tester ;; -nG) echo "tester wheel" ;; esac
+S
+cat > "$T/bin/getent" <<'S'
+#!/usr/bin/env bash
+if [ "${FAKE_IN_GROUP:-0}" = 1 ]; then echo "docker:x:999:other,tester"; else echo "docker:x:999:other"; fi
 S
 cat > "$T/bin/docker-real-shim" <<'S'
 S
@@ -78,5 +82,16 @@ check "macOS without brew: clear manual step" '[ $rc -eq 1 ] && grep -q "docker-
 
 fresh; HEXTHINGS_FAKE_OS=plan9 run --yes
 check "unknown OS refused" '[ $rc -eq 1 ]'
+
+
+# --- not in the docker group (Docker works only with sudo) ---
+fresh; touch "$T/state/docker" "$T/state/engine"; FAKE_NEEDSUDO=1 run --yes
+check "not in docker group, --yes: adds the user, says so, exits 3 to continue in the group" '[ $rc -eq 3 ] && grep -q "usermod -aG docker tester" "$T/log" && grep -q "Added tester to the docker group" "$T/out"'
+
+fresh; touch "$T/state/docker" "$T/state/engine"; FAKE_NEEDSUDO=1 run
+check "not in docker group, no --yes and no terminal: still fixes it automatically, exit 3" '[ $rc -eq 3 ] && grep -q "^usermod -aG docker tester" "$T/log"'
+
+fresh; touch "$T/state/docker" "$T/state/engine"; FAKE_NEEDSUDO=1 FAKE_IN_GROUP=1 run --yes
+check "already in the group but session is old: no usermod, exit 3 to continue in the group" '[ $rc -eq 3 ] && ! grep -q "usermod" "$T/log" && grep -q "session started before" "$T/out"'
 
 echo; [ $fails -eq 0 ] && echo "all prereq checks passed" || { echo "$fails failed"; exit 1; }
