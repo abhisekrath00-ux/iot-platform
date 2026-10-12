@@ -126,6 +126,7 @@ finally:
 o, rc = run(["ai", "bogus"]); ok("ai with a bad word: usage, exit 2", rc == 2 and "usage: ai" in o, o)
 o, rc = run(["version"]); ok("version prints something", rc == 0 and "HexThings" in o, o)
 o, rc = run(["open"]); ok("open prints the web address", "localhost:8080" in o, o)
+os.chmod(os.path.join(ROOT, "scripts", "hexthings"), 0o755)  # the web editor does not keep the exec bit
 lk = os.path.join(T, "linkdir"); os.makedirs(lk); os.symlink(os.path.join(ROOT, "scripts", "hexthings"), os.path.join(lk, "hexthings"))
 r = subprocess.run([os.path.join(lk, "hexthings"), "status"], cwd="/", env=env(), capture_output=True, text=True)
 ok("hexthings via a symlink works from any directory", r.returncode == 0 and "services up" in r.stdout, r.stdout + r.stderr)
