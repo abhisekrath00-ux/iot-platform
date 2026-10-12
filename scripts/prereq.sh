@@ -56,6 +56,10 @@ if [ $fail = 0 ] && { [ $has_docker = 0 ] || [ $compose = 0 ]; }; then
             else bad "Docker Desktop is not installed and Homebrew is not available. Download Docker Desktop from https://www.docker.com/products/docker-desktop/ , start it once, then run this again."; fail=1; fi ;;
     *) bad "unsupported system '$OS'. Use Linux, macOS, or Windows (get.ps1)."; fail=1 ;;
   esac
+elif [ $fail = 0 ] && [ $engine = 0 ] && [ "$OS" = linux ] && [ -n "$SUDO" ] && $SUDO docker info >/dev/null 2>&1; then
+  PERM=1
+  if getent group docker 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -qx "$(id -un)"; then plan+=("Continue inside the docker group (your login session predates it)")
+  else plan+=("Add user '$(id -un)' to the 'docker' group (Docker works for you only with sudo)"); fi
 elif [ $fail = 0 ] && [ $engine = 0 ]; then
   case "$OS" in
     linux) plan+=("Start the docker service (${SUDO:-as root} systemctl start docker)") ;;
@@ -70,7 +74,7 @@ if [ $CHECK = 1 ]; then say ""; say "Would do:"; printf '  - %s\n' "${plan[@]}";
 say ""; say "To continue, this will change the machine:"
 printf '  - %s\n' "${plan[@]}"
 say "Nothing else is touched. It needs the internet for the download."
-if [ "$YES" != 1 ]; then
+if [ "$YES" != 1 ] && [ "${PERM:-0}" != 1 ]; then
   if [ -t 0 ]; then r=""; read -r -p "Go ahead? [y/N] " r
   elif ( : < /dev/tty ) 2>/dev/null; then r=""; read -r -p "Go ahead? [y/N] " r < /dev/tty
   else say "Cannot ask here (no terminal). Run again with --yes (or HEXTHINGS_YES=1) to accept the plan above."; exit 2; fi
@@ -89,7 +93,7 @@ if [ $has_docker = 0 ] || [ $compose = 0 ]; then
     brew install --cask docker || { bad "brew install failed"; exit 1; }
   fi
 fi
-if ! docker info >/dev/null 2>&1; then
+if [ "${PERM:-0}" != 1 ] && ! docker info >/dev/null 2>&1; then
   case "$OS" in
     linux) command -v systemctl >/dev/null 2>&1 && $SUDO systemctl start docker >/dev/null 2>&1 ;;
     darwin) open -a Docker >/dev/null 2>&1 ;;
@@ -99,7 +103,15 @@ if ! docker info >/dev/null 2>&1; then
 fi
 if docker info >/dev/null 2>&1; then ok "Docker engine is running"; docker compose version >/dev/null 2>&1 || { bad "Compose v2 still missing"; exit 1; }; exit 0; fi
 if [ "$OS" = linux ] && [ -n "$SUDO" ] && $SUDO docker info >/dev/null 2>&1; then
-  say "  Docker works, but this login is not in the 'docker' group yet."; exit 3
+  me="$(id -un)"
+  if getent group docker 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -qx "$me"; then
+    say "  Docker works, and $me is in the 'docker' group, but this login session started before that. Continuing inside the group."; exit 3
+  fi
+  say "  Docker works, but your user ($me) is not in the 'docker' group, so it only works with sudo."
+  say "  Fix: sudo usermod -aG docker $me   (gives $me control of Docker on this machine)"
+  say "  Fixing that now (sudo may ask for your password)."
+    $SUDO usermod -aG docker "$me" || { bad "usermod failed. Run it by hand, then log out and in and run this again."; exit 1; }
+    say "  Added $me to the docker group. Continuing inside the group, no logout needed for this run."; exit 3
 fi
 bad "Docker is installed but the engine did not start. Look at: ${SUDO:+sudo }systemctl status docker (Linux) or open Docker Desktop and accept its terms (macOS). Then run this again."
 exit 1
