@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# `hexthings`: the HexThings command for Linux and macOS terminals (same idea as hexthings.ps1 on Windows).
+#   hexthings                 animated menu          hexthings status | health | doctor | logs [service]
+#   hexthings start | stop | restart                 hexthings backup | restore FILE | upgrade | version | open
+#   hexthings ai [status|start|stop]                 hexthings help
+# It finds its install folder through the link it was started from, so it works from any directory.
+# The installer is not changed: this only calls scripts/setup.sh in the install folder.
+self="$0"; while [ -L "$self" ]; do d="$(cd "$(dirname "$self")" && pwd)"; self="$(readlink "$self")"; case "$self" in /*) ;; *) self="$d/$self" ;; esac; done
+here="$(cd "$(dirname "$self")" && pwd)"
+case "${1:-}" in
+  help|-h|--help) sed -n 2,5p "$self"; exit 0 ;;
+  install) shift; exec bash "$here/setup.sh" single "$@" ;;
+esac
+exec bash "$here/setup.sh" "$@"
