@@ -10,13 +10,14 @@
 #   bash scripts/setup.sh health           live probes: API, web, MQTT, Postgres, with latency
 #   bash scripts/setup.sh logs [service]   follow logs (Ctrl-C stops following)
 #   bash scripts/setup.sh backup | verify FILE | restore FILE | upgrade
+#   bash scripts/setup.sh start | stop | restart | doctor | open | version | ai [status|start|stop]
 #   bash scripts/setup.sh cluster [host]   Patroni view: leader, replicas, lag (HA installs; host defaults to $HEXTHINGS_NODE or localhost)
 # Menu keys: up/down or j/k, Enter, number keys, q. Works without colour (NO_COLOR), on narrow terminals,
 # and without a terminal (subcommands only; the menu refuses with a usage line).
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"; root="$(cd "$here/.." && pwd)"
 cd "$root"
-usage() { sed -n 2,17p "$0"; }
+usage() { sed -n 2,18p "$0"; }
 if [ "${1:-}" = -h ] || [ "${1:-}" = --help ]; then usage; exit 0; fi
 LOG=/dev/null
 # shellcheck source=hx-ui.sh
@@ -130,6 +131,42 @@ guided_multi() {
   local a; read -r -p "  Generate the per-node folders now? [y/N]: " a || a=""
   case "$a" in y|Y) run_script install-ha.sh render --nodes "$n1,$n2,$n3" --vip "$vip" --iface "$ifc" --out "$out" ;; *) echo "  Nothing generated." ;; esac
 }
+ai_on() { [ -f models/model.gguf ]; }
+profargs() { ai_on && echo "--profile ai"; }
+cmd_start() { need_docker || return 1; compose $(profargs) up -d && echo "  Started." ; }
+cmd_stop() { need_docker || return 1; compose $(profargs) stop && echo "  Stopped. Data is kept."; }
+cmd_restart() { need_docker || return 1; compose $(profargs) restart && echo "  Restarted."; }
+cmd_open() { local u="http://${HEXTHINGS_HOST:-localhost}:8080"; echo "  HexThings is at $u"; if command -v xdg-open >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then xdg-open "$u" >/dev/null 2>&1 || true; fi; }
+cmd_version() { if [ -d .git ] && command -v git >/dev/null 2>&1; then echo "  HexThings commit $(git rev-parse --short HEAD 2>/dev/null)"; else echo "  HexThings (installed from an archive, no git history here)"; fi; }
+cmd_ai() {
+  need_docker || return 1
+  case "${1:-status}" in
+    status)
+      if ! ai_on; then echo "  No local AI model installed (models/model.gguf is missing). Re-run the installer with AI, or put a .gguf there."; return 0; fi
+      if compose --profile ai ps --status running --format '{{.Service}}' 2>/dev/null | grep -qx ai-runtime; then printf '  %s local AI model is running\n' "$(dot_ok)"
+      else printf '  %s local AI model is installed but NOT running (start it: AI start)\n' "$(dot_warn)"; fi ;;
+    start) ai_on || { echo "  No models/model.gguf, nothing to start."; return 1; }
+      AI_MODEL_SHA256=$(sha256sum models/model.gguf | cut -d' ' -f1) compose --profile ai up -d --force-recreate ai-runtime && echo "  AI model starting. The first answer is slow while it loads (10 to 60 s)." ;;
+    stop) compose --profile ai stop ai-runtime && echo "  AI model stopped. The platform keeps running." ;;
+    *) echo "  usage: ai [status|start|stop]"; return 2 ;;
+  esac
+}
+cmd_doctor() {
+  local bad=0
+  echo ""; printf '  %sDoctor%s\n\n' "$B" "$N"
+  if command -v docker >/dev/null 2>&1; then printf '  %s docker present\n' "$(dot_ok)"; else printf '  %s docker is not installed\n' "$(dot_bad)"; bad=1; fi
+  if docker info >/dev/null 2>&1; then printf '  %s docker engine answers\n' "$(dot_ok)"; else printf '  %s docker engine not reachable for this user (is it running, are you in the docker group?)\n' "$(dot_bad)"; bad=1; fi
+  if docker compose version >/dev/null 2>&1; then printf '  %s docker compose v2 present\n' "$(dot_ok)"; else printf '  %s docker compose v2 missing\n' "$(dot_bad)"; bad=1; fi
+  local free; free=$(df -Pk . 2>/dev/null | awk 'NR==2{print int($4/1048576)}')
+  if [ -n "$free" ] && [ "$free" -ge 5 ] 2>/dev/null; then printf '  %s %s GB free on this disk\n' "$(dot_ok)" "$free"; else printf '  %s only %s GB free here (5 GB or more is comfortable)\n' "$(dot_warn)" "${free:-?}"; fi
+  [ -f .env ] || [ -f docker-compose.yml ] || { printf '  %s no HexThings checkout here (%s)\n' "$(dot_bad)" "$root"; bad=1; }
+  cmd_status || bad=1
+  if compose ps --format '{{.State}}' 2>/dev/null | grep -qv '^running$'; then printf '  %s at least one service is not running (see the list above)\n' "$(dot_bad)"; bad=1; fi
+  cmd_health || bad=1
+  cmd_ai status || true
+  echo ""; [ "$bad" = 0 ] && echo "  Doctor found nothing wrong." || echo "  Doctor found problems above. After fixing, run it again."
+  return "$bad"
+}
 dispatch() {
   case "$1" in
     single) shift; exec bash "$here/install.sh" "$@" ;;
@@ -138,17 +175,19 @@ dispatch() {
     backup) run_script backup.sh ;; verify) shift; run_script restore.sh --verify "${1:?usage: setup.sh verify FILE}" ;;
     restore) shift; cmd_restore "${1:-}" ;; upgrade) run_script upgrade.sh ;;
     cluster) shift; cmd_cluster "${1:-}" ;;
+    start) cmd_start ;; stop) cmd_stop ;; restart) cmd_restart ;; open) cmd_open ;; version) cmd_version ;; doctor) cmd_doctor ;;
+    ai) shift; cmd_ai "${1:-status}" ;;
     *) echo "unknown command: $1" >&2; usage >&2; return 2 ;;
   esac
 }
 
 if [ $# -gt 0 ]; then dispatch "$@"; exit $?; fi
-[ -t 0 ] && [ -t 1 ] || { echo "usage: setup.sh single|multi|status|health|logs|backup|verify|restore|upgrade|cluster [args]  (the interactive menu needs a terminal)" >&2; exit 2; }
+[ -t 0 ] && [ -t 1 ] || { echo "usage: setup.sh single|multi|status|health|logs|backup|verify|restore|upgrade|cluster|start|stop|restart|doctor|open|version|ai [args]  (the interactive menu needs a terminal)" >&2; exit 2; }
 
 # ---- interactive menu -------------------------------------------------------------------------
-labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Quit")
-hints=("one machine, Docker Compose (the guided installer)" "generate per-node setup with automatic database failover" "services and their state" "live probes with latency" "pick a service, Ctrl-C to stop" "Postgres dump to ./backups" "verify, confirm, then restore" "backup, update, health check, auto-rollback" "leader, replicas and lag (HA installs)" "")
-keys=(single multi status health logs backup restore upgrade cluster quit)
+labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Start" "Stop" "Restart" "Doctor" "AI status" "Open in browser" "Quit")
+hints=("one machine, Docker Compose (the guided installer)" "generate per-node setup with automatic database failover" "services and their state" "live probes with latency" "pick a service, Ctrl-C to stop" "Postgres dump to ./backups" "verify, confirm, then restore" "backup, update, health check, auto-rollback" "leader, replicas and lag (HA installs)" "start all services (and the AI model if installed)" "stop services, data is kept" "restart services" "checks Docker, disk, services, health, AI" "is the local AI model running" "print the web address, open it if a desktop is present" "")
+keys=(single multi status health logs backup restore upgrade cluster start stop restart doctor ai open quit)
 sel=0; n=${#labels[@]}
 cleanup() { [ "$COLOR" = 1 ] && printf '\033[?25h'; }
 trap 'cleanup; echo; exit 130' INT TERM
@@ -156,7 +195,8 @@ trap cleanup EXIT
 draw() {
   local i line
   for ((i=0;i<n;i++)); do
-    line="$(printf '%d. %-32s %s' $(( (i+1)%10 )) "${labels[$i]}" "${hints[$i]}")"; line=$(clip "$line")
+    if [ "$COLOR" != 1 ] || [ "$i" -lt 9 ]; then num=$((i+1)); elif [ "$i" -eq $((n-1)) ]; then num=0; else num='-'; fi
+    line="$(printf '%s. %-32s %s' "$num" "${labels[$i]}" "${hints[$i]}")"; line=$(clip "$line")
     if [ "$i" = "$sel" ]; then
       if [ "$COLOR" = 1 ]; then printf '  %s%s▸%s %s%s%s\033[K\n' "$C1" "$B" "$N" "$B" "$line" "$N"; else printf '  > %s\n' "$line"; fi
     else
@@ -199,5 +239,7 @@ while :; do
     restore) read -r -p "  Backup file path: " f || f=""; cmd_restore "$f"; pause ;;
     upgrade) run_script upgrade.sh; pause ;;
     cluster) read -r -p "  A node address [localhost]: " h || h=""; cmd_cluster "${h:-localhost}"; pause ;;
+    start) cmd_start; pause ;; stop) cmd_stop; pause ;; restart) cmd_restart; pause ;;
+    doctor) cmd_doctor; pause ;; ai) cmd_ai status; pause ;; open) cmd_open; pause ;;
   esac
 done
