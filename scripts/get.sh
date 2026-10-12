@@ -29,7 +29,8 @@ bash scripts/prereq.sh; rc=$?
 case $rc in
   0) ;;
   3) # Docker was installed and this login is not in the docker group yet: continue inside the group
-     if command -v sg >/dev/null 2>&1; then USE_SG=1; else echo "Log out and in again (or run: newgrp docker), then run this command again."; exit 3; fi ;;
+     if command -v sg >/dev/null 2>&1 && sg docker -c 'docker info' >/dev/null 2>&1; then USE_SG=1
+     else echo "Docker group access is not active in this session yet. Log out and in again (or run: newgrp docker), then run this command again. Nothing else is needed."; exit 3; fi ;;
   *) exit $rc ;;
 esac
 if [ -n "${HEXTHINGS_NO_AI:-}" ]; then set -- --no-ai "$@"; fi
