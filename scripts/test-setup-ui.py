@@ -12,8 +12,10 @@ def stub(name, body):
 stub("docker", '''
 case "$1 $2" in
   "info "*) exit 0 ;;
-  "compose ps") printf 'api|running|healthy\\nweb|running|\\npostgres|running|healthy\\ningest|exited|\\n' ;;
+  "compose ps") case "$*" in *"--format {{.State}}") if [ -n "${HX_ALL_UP:-}" ]; then printf 'running\\nrunning\\n'; else printf 'running\\nexited\\n'; fi ;; *) if [ -n "${HX_ALL_UP:-}" ]; then printf 'api|running|healthy\\nweb|running|\\npostgres|running|healthy\\n'; else printf 'api|running|healthy\\nweb|running|\\npostgres|running|healthy\\ningest|exited|\\n'; fi ;; esac ;;
   "compose exec") exit 0 ;;
+  "compose up"|"compose restart") echo "stub: $*" >> "$HX_STUB_LOG" ;;
+  "compose --profile") echo "stub: $*" >> "$HX_STUB_LOG"; case "$*" in *"ps --status"*) [ -n "${HX_AI_UP:-}" ] && echo ai-runtime ;; esac ;;
   "compose stop"|"compose start") echo "stub: $*" >> "$HX_STUB_LOG" ;;
   "compose logs") echo "stub log line"; sleep 30 ;;
 esac
@@ -98,4 +100,38 @@ o, rc = subprocess.run(["bash", "-c", f"echo nope | bash scripts/setup.sh restor
 ok("restore: wrong confirmation changes nothing (no stop/start issued)", not os.path.exists(os.path.join(T, "stub.log")), o)
 o, rc = run(["multi"]); ok("multi without args off-terminal prints usage, exit 0", rc == 0 and "multi node:" in o)
 o, rc = run(["multi", "plan", "--nodes", "a=10.0.0.11,b=10.0.0.12,c=10.0.0.13", "--vip", "10.0.0.10"]); ok("multi plan still reaches the HA generator", "any ONE node" in o, o)
+# ---- Ubuntu/Linux terminal command: start/stop/restart/doctor/ai/open/version and the `hexthings` link ----
+def stublog():
+    p = os.path.join(T, "stub.log"); return open(p).read() if os.path.exists(p) else ""
+def clearlog():
+    p = os.path.join(T, "stub.log")
+    if os.path.exists(p): os.remove(p)
+clearlog(); o, rc = run(["start"]); ok("start runs compose up -d", rc == 0 and "stub: compose up -d" in stublog() and "Started" in o, o + stublog())
+clearlog(); o, rc = run(["stop"]); ok("stop runs compose stop and says data is kept", rc == 0 and "stub: compose stop" in stublog() and "Data is kept" in o, o + stublog())
+clearlog(); o, rc = run(["restart"]); ok("restart runs compose restart", rc == 0 and "stub: compose restart" in stublog(), o + stublog())
+o, rc = run(["doctor"], e=env(HEXTHINGS_MQTT_PORT=MQ, HX_ALL_UP="1")); ok("doctor: everything up -> exit 0 and says nothing wrong", rc == 0 and "docker engine answers" in o and "Doctor found nothing wrong" in o, o)
+o, rc = run(["doctor"], e=env(HEXTHINGS_MQTT_PORT=MQ)); ok("doctor: a service down -> exit 1 and says so", rc == 1 and "at least one service is not running" in o and "Doctor found problems" in o, o)
+o, rc = run(["doctor"], e=env(HEXTHINGS_MQTT_PORT=MQ, HX_ALL_UP="1", HX_API_DOWN="1")); ok("doctor: API down -> exit 1", rc == 1 and "Doctor found problems" in o, o)
+o, rc = run(["ai"]); ok("ai status without a model explains how to add one", rc == 0 and "models/model.gguf is missing" in o, o)
+os.makedirs(os.path.join(ROOT, "models"), exist_ok=True); mg = os.path.join(ROOT, "models", "model.gguf"); had = os.path.exists(mg)
+if not had: open(mg, "wb").write(b"x")
+try:
+    o, rc = run(["ai", "status"]); ok("ai status: model installed but not running", "NOT running" in o, o)
+    o, rc = run(["ai", "status"], e=env(HX_AI_UP="1")); ok("ai status: running", "is running" in o and "NOT" not in o, o)
+    clearlog(); o, rc = run(["ai", "start"]); ok("ai start recreates ai-runtime only", "up -d --force-recreate ai-runtime" in stublog(), o + stublog())
+    clearlog(); o, rc = run(["ai", "stop"]); ok("ai stop stops ai-runtime only", "stop ai-runtime" in stublog(), o + stublog())
+    clearlog(); o, rc = run(["start"]); ok("start includes the ai profile when a model is installed", "--profile ai up -d" in stublog(), stublog())
+finally:
+    if not had: os.remove(mg)
+o, rc = run(["ai", "bogus"]); ok("ai with a bad word: usage, exit 2", rc == 2 and "usage: ai" in o, o)
+o, rc = run(["version"]); ok("version prints something", rc == 0 and "HexThings" in o, o)
+o, rc = run(["open"]); ok("open prints the web address", "localhost:8080" in o, o)
+lk = os.path.join(T, "linkdir"); os.makedirs(lk); os.symlink(os.path.join(ROOT, "scripts", "hexthings"), os.path.join(lk, "hexthings"))
+r = subprocess.run([os.path.join(lk, "hexthings"), "status"], cwd="/", env=env(), capture_output=True, text=True)
+ok("hexthings via a symlink works from any directory", r.returncode == 0 and "services up" in r.stdout, r.stdout + r.stderr)
+r = subprocess.run(["bash", os.path.join(ROOT, "scripts", "hexthings"), "help"], cwd="/", env=env(), capture_output=True, text=True)
+ok("hexthings help prints usage", r.returncode == 0 and "hexthings ai" in r.stdout, r.stdout)
+o, rc = tty([], [b"j" * 9 + b"\r", b"q"], total=12)
+ok("menu: arrow to the 10th entry (Start) runs it", "Started" in o and "Press Enter to return" in o, o[-300:])
+o, rc = tty([], [b"q"]); ok("menu lists Doctor, AI status and Open", all(w in o for w in ("Doctor", "AI status", "Open in browser")), o[-400:])
 sys.exit(1 if fails else 0)
