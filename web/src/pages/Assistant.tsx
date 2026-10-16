@@ -5,7 +5,12 @@ import { api } from '../lib/api';
 interface Msg { role: 'user' | 'assistant'; content: string; }
 interface Pending { id: string; method: string; path: string; body?: string; summary: string; status?: string; }
 interface Trace { tool: string; detail: string; status: string; }
-interface Reply { reply: string; plan: string[]; trace: Trace[]; pending: Pending[]; model?: string; error?: string; fallback?: string; }
+export interface Reply { reply: string; plan: string[]; trace: Trace[]; pending: Pending[]; model?: string; error?: string; fallback?: string; }
+
+/** The API sends null for plan, trace or pending when the model produced none; the page needs arrays. */
+export function normalizeReply(r: Reply): Reply {
+  return { ...r, plan: r.plan ?? [], trace: r.trace ?? [], pending: r.pending ?? [] };
+}
 
 // The assistant: it plans, calls the platform as you, and reports back. Reads happen at once.
 // Every change waits here for your confirmation, and nothing it proposes can approve a control command.
@@ -26,7 +31,7 @@ export default function Assistant() {
     try {
       const r = await api<Reply>('/v1/assistant/chat', { method: 'POST', body: JSON.stringify({ messages: next }) });
       setMsgs([...next, { role: 'assistant', content: r.reply }]);
-      setRuns(rs => [...rs, r]);
+      setRuns(rs => [...rs, normalizeReply(r)]);
     } catch (e2) {
       const m = String(e2);
       try { const j = JSON.parse(m.slice(m.indexOf('{'))); setErr(j.error + (j.fallback ? ' You can still use the question box on the Fleet page.' : '')); } catch { setErr(m); }
