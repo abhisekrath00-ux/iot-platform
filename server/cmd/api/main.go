@@ -5,8 +5,10 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/csv"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -1189,6 +1191,54 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 403)
 		return
 	}
+	// Resolve the identity mode before redeeming, so a configuration or CSR
+	// problem never burns the one-time code:
+	//   - mTLS CA configured (production): the CSR is validated here and signed
+	//     inside the redemption transaction below; only the request that wins
+	//     the atomic redeem ever gets a certificate.
+	//   - mTLS CA half-configured or unreadable: fail closed. Nothing is
+	//     redeemed; fix the CA and retry with the same code.
+	//   - no CA and this is not a lab (MQTT_TLS not "false"): fail closed. Run
+	//     scripts/gen-ca.sh and set MTLS_CA_CERT/MTLS_CA_KEY, or accept the lab
+	//     posture explicitly. Nothing is redeemed.
+	//   - no CA and MQTT_TLS="false" (the documented lab posture): intentional
+	//     token-only identity; the broker is unauthenticated in this mode.
+	var caCert, caKey []byte
+	mtls := false
+	if in.CSRPEM != "" {
+		certEnv, keyEnv := os.Getenv("MTLS_CA_CERT"), os.Getenv("MTLS_CA_KEY")
+		switch {
+		case certEnv != "" || keyEnv != "":
+			if certEnv == "" || keyEnv == "" {
+				http.Error(w, "mTLS CA is half-configured: set both MTLS_CA_CERT and MTLS_CA_KEY or neither. Nothing was changed; the claim code is still valid.", 500)
+				return
+			}
+			var certErr, keyErr error
+			caCert, certErr = os.ReadFile(certEnv)
+			caKey, keyErr = os.ReadFile(keyEnv)
+			if certErr != nil || keyErr != nil {
+				http.Error(w, "mTLS CA files are not readable on the server. Nothing was changed; the claim code is still valid.", 500)
+				return
+			}
+			// validate the CSR now so a bad CSR is a 400 that does not burn the code
+			block, _ := pem.Decode([]byte(in.CSRPEM))
+			if block == nil {
+				http.Error(w, "csr rejected: bad PEM input", 400)
+				return
+			}
+			csr, csrErr := x509.ParseCertificateRequest(block.Bytes)
+			if csrErr != nil || csr.CheckSignature() != nil || csr.Subject.CommonName != in.Serial {
+				http.Error(w, "csr rejected: invalid CSR for this serial", 400)
+				return
+			}
+			mtls = true
+		case os.Getenv("MQTT_TLS") != "false":
+			http.Error(w, "no mTLS CA is configured, so the server cannot mint a gateway certificate. Production: run scripts/gen-ca.sh and set MTLS_CA_CERT/MTLS_CA_KEY. Lab only: MQTT_TLS=false runs the broker without authentication and the claim falls back to a token-only identity. Nothing was changed; the claim code is still valid.", 500)
+			return
+		default:
+			log.Printf("claim: no mTLS CA configured and MQTT_TLS=false (lab mode); issuing a token-only identity for serial %s", in.Serial)
+		}
+	}
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -1201,8 +1251,24 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, enroll.ErrAlreadyUsed.Error(), 403)
 		return
 	}
-	if _, err := tx.Exec(r.Context(),
-		`UPDATE gateways SET status='active', last_seen_at=now() WHERE id=$1`, gwID); err != nil {
+	// Sign inside the redemption transaction: only the request that won the
+	// atomic redeem above gets a certificate, and a signing failure rolls the
+	// redemption back instead of burning the code.
+	var certPEM []byte
+	var fp string
+	if mtls {
+		certPEM, fp, err = pki.SignCSR(caCert, caKey, []byte(in.CSRPEM), in.Serial, 825)
+		if err != nil {
+			http.Error(w, "mtls CA could not sign the gateway CSR: "+err.Error(), 500)
+			return
+		}
+		_, err = tx.Exec(r.Context(),
+			`UPDATE gateways SET status='active', last_seen_at=now(), cert_fingerprint=$2 WHERE id=$1`, gwID, fp)
+	} else {
+		_, err = tx.Exec(r.Context(),
+			`UPDATE gateways SET status='active', last_seen_at=now() WHERE id=$1`, gwID)
+	}
+	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -1220,26 +1286,9 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := map[string]any{"gateway_id": gwID, "ingest_token": signed, "status": "active"}
-	if in.CSRPEM != "" {
-		// mTLS issuance: sign the gateway CSR with the deployment CA. CN is
-		// bound to the claimed serial, and the fingerprint lands on the
-		// gateway row for revocation and audit.
-		caCert, certErr1 := os.ReadFile(os.Getenv("MTLS_CA_CERT"))
-		caKey, certErr2 := os.ReadFile(os.Getenv("MTLS_CA_KEY"))
-		if certErr1 != nil || certErr2 != nil {
-			http.Error(w, "mtls CA not configured on server", 500)
-			return
-		}
-		certPEM, fp, err := pki.SignCSR(caCert, caKey, []byte(in.CSRPEM), in.Serial, 825)
-		if err != nil {
-			http.Error(w, "csr rejected: "+err.Error(), 400)
-			return
-		}
-		if _, err := s.st.Pool.Exec(r.Context(),
-			`UPDATE gateways SET cert_fingerprint=$1 WHERE id=$2`, fp, gwID); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
+	if mtls {
+		// the fingerprint landed on the gateway row in the same transaction as
+		// the redemption, for revocation and audit.
 		resp["client_cert_pem"] = string(certPEM)
 		resp["ca_cert_pem"] = string(caCert)
 		resp["cert_fingerprint"] = fp
