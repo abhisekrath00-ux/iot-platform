@@ -17,12 +17,14 @@ case "$1 $2" in
   "compose version") exit 0 ;;
   "compose stop"*|"compose start"*) exit 0 ;;
 esac
+# a real `docker load` reads the image stream from stdin; the fake must consume it,
+# or the gunzip feeding the pipe dies with SIGPIPE and pipefail fails the upgrade.
+if [ "$1" = load ]; then cat > /dev/null; exit 0; fi
 if [ "$1" = compose ]; then
   case " $* " in
     *" pg_dump "*) echo "FAKE-DUMP"; exit 0 ;;
     *" pg_restore "*) cat > "$FAKE_RESTORED"; exit 0 ;;
     *" up "*) [ "${FAKE_UP_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
-    *" load "*) cat > /dev/null; exit 0 ;;
   esac
 fi
 exit 0
