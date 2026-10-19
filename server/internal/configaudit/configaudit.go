@@ -51,6 +51,12 @@ func Audit(get func(string) string) []Finding {
 	if get("MQTT_TLS") == "false" {
 		add(Warn, "MQTT_TLS", "broker traffic is not encrypted; use 8883 with mTLS outside a lab")
 	}
+	caCrt, caKey := get("MTLS_CA_CERT"), get("MTLS_CA_KEY")
+	if (caCrt == "") != (caKey == "") {
+		add(Fail, "MTLS_CA_CERT", "set both MTLS_CA_CERT and MTLS_CA_KEY or neither; a half-configured device CA makes every gateway claim fail")
+	} else if caCrt == "" && get("MQTT_TLS") != "false" {
+		add(Warn, "MTLS_CA_CERT", "no device CA configured: gateway claims fail closed until scripts/gen-ca.sh runs and MTLS_CA_CERT/MTLS_CA_KEY are set (lab: MQTT_TLS=false allows token-only claims)")
+	}
 	if u := get("APP_PUBLIC_URL"); u != "" {
 		if pu, err := url.Parse(u); err != nil || pu.Host == "" {
 			add(Fail, "APP_PUBLIC_URL", "is not a valid URL")
