@@ -13,7 +13,11 @@ On-prem must run fully without the vendor cloud.
 ## Production checklist
 
 1. **TLS everywhere.** MQTT listener 8883 with mTLS: CA + server certs on the
-   broker, unique client certificate per gateway. Uncomment the production
+   broker, unique client certificate per gateway. Run `scripts/gen-ca.sh` to
+   create the device CA and set `MTLS_CA_CERT`/`MTLS_CA_KEY` in `.env` so the
+   API can sign gateway certificates at enrollment - without them, gateway
+   claims fail closed (only the unauthenticated lab posture `MQTT_TLS=false`
+   gets a token-only identity). Uncomment the production
    sketch in `deploy/mosquitto/mosquitto.conf` and mount `certs/`.
    Web/API behind a reverse proxy (nginx/traefik) terminating TLS 1.2+.
 2. **Broker ACLs.** Per-gateway ACL: publish only
