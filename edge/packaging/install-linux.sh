@@ -38,6 +38,7 @@ if [ "$SKIP_USER" != 1 ]; then
 fi
 install -d -m 750 "$STATE" ; [ "$SKIP_USER" = 1 ] || chown hexmon:hexmon "$STATE"
 install -d -m 755 "$ETC"
+install -d -m 755 "$PREFIX"
 
 upgrading=0
 if [ -x "$PREFIX/edge-agent" ]; then
