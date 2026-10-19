@@ -64,6 +64,29 @@ func TestOtherFindings(t *testing.T) {
 	}
 }
 
+func TestDeviceCAFindings(t *testing.T) {
+	// half-configured CA is a hard fail
+	half := Audit(env(map[string]string{"MTLS_CA_CERT": "/ca.crt"}))
+	if !find(half, "MTLS_CA_CERT", Fail) {
+		t.Errorf("half-configured CA not flagged: %v", half)
+	}
+	// no CA outside a lab warns that claims fail closed
+	none := Audit(env(map[string]string{}))
+	if !find(none, "MTLS_CA_CERT", Warn) {
+		t.Errorf("missing CA not flagged: %v", none)
+	}
+	// lab posture keeps it quiet beyond the existing MQTT_TLS warning
+	lab := Audit(env(map[string]string{"MQTT_TLS": "false"}))
+	if find(lab, "MTLS_CA_CERT", Warn) || find(lab, "MTLS_CA_CERT", Fail) {
+		t.Errorf("lab setup flagged for missing CA: %v", lab)
+	}
+	// both set: no finding
+	both := Audit(env(map[string]string{"MTLS_CA_CERT": "/ca.crt", "MTLS_CA_KEY": "/ca.key"}))
+	if find(both, "MTLS_CA_CERT", Warn) || find(both, "MTLS_CA_CERT", Fail) {
+		t.Errorf("configured CA flagged: %v", both)
+	}
+}
+
 func TestNoSecretInOutput(t *testing.T) {
 	out := Format(Audit(env(map[string]string{"JWT_SIGNING_SECRET": "devsecret", "DATABASE_URL": "postgres://u:hunter2@db.example.com/x"})))
 	if strings.Contains(out, "hunter2") || strings.Contains(out, "devsecret") {
