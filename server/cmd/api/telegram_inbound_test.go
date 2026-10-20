@@ -187,7 +187,6 @@ func TestIntegrationTelegramInbound(t *testing.T) {
 	}
 }
 
-
 func TestIntegrationTelegramInboundRecovery(t *testing.T) {
 	s, _ := testServer(t)
 	seed(t, s, "itest-tgrec")
@@ -228,7 +227,7 @@ func TestIntegrationTelegramInboundRecovery(t *testing.T) {
 	// documented single-duplicate tradeoff (Telegram has no idempotent send).
 	pool.Exec(ctx, `INSERT INTO telegram_inbox(update_id,chat_id,chat_type,title,author,text) VALUES (90002,'rec1','group','Ops','op1','/help')`)
 	telegramRepliedAt = sync.Map{}
-	s.telegramRecover(ctx) // stands in for the pre-crash run's reply
+	s.telegramRecover(ctx)                                                             // stands in for the pre-crash run's reply
 	pool.Exec(ctx, `UPDATE telegram_inbox SET answered_at=NULL WHERE update_id=90002`) // the crash: recording lost, send really happened
 	telegramRepliedAt = sync.Map{}
 	s.telegramRecover(ctx)
