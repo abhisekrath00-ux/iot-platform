@@ -50,7 +50,7 @@ export default function AssistantChannels() {
           <input type="password" autoComplete="off" aria-label="Email gateway secret" placeholder={cs.has_email_secret ? 'Gateway secret stored; leave empty to keep' : 'Shared secret for the gateway HMAC'} value={mailSec} onChange={e => setMailSec(e.target.value)} disabled={!cs.secrets_available} />
           <button onClick={saveCs} style={{ marginTop: 8 }}>Save channels</button>
           <details style={{ marginTop: 10 }}>
-            <summary>Slack setup steps (needs internet; about 10 minutes)</summary>
+            <summary>Slack setup steps (needs internet)</summary>
             <ol className="muted" style={{ margin: '6px 0 4px 18px', padding: 0 }}>
               <li>Create the app at api.slack.com/apps (from scratch, your workspace).</li>
               <li>Copy its Signing Secret (Basic Information) into the field above and Save.</li>
@@ -59,7 +59,7 @@ export default function AssistantChannels() {
               <li>Install the app, copy the Bot User OAuth Token (xoxb-...) to your platform operator for SLACK_BOT_TOKEN on the server. Without it the assistant reads but cannot reply.</li>
               <li>Each person: Link me below with their Slack member id (Slack profile, ..., Copy member ID), then DM the shown code to the bot within 15 minutes.</li>
             </ol>
-            <p className="muted" style={{ margin: '0 0 6px' }}>Direct messages only, by design: answers can never leak into a shared channel. Full guide: docs/assistant-slack-email-setup.md, or ask the assistant below.</p>
+            <p className="muted" style={{ margin: '0 0 6px' }}>Only direct-message events are accepted; anything posted to a channel is ignored. The in-product assistant has the full setup guide - ask it about any step.</p>
           </details>
           <details style={{ marginTop: 6 }}>
             <summary>Email setup steps (works on a LAN with your own mail gateway)</summary>
@@ -70,7 +70,7 @@ export default function AssistantChannels() {
               <li>Outbound replies use the server's SMTP settings, so those must work too.</li>
               <li>Each person: Link me below with their email address, then send the shown code FROM that mailbox within 15 minutes.</li>
             </ol>
-            <p className="muted" style={{ margin: '0 0 6px' }}>Full guide: docs/assistant-slack-email-setup.md, or ask the assistant below.</p>
+            <p className="muted" style={{ margin: '0 0 6px' }}>The in-product assistant has the full setup guide - ask it about any step.</p>
           </details>
         </div>
       )}
