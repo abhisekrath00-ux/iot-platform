@@ -11,6 +11,7 @@ export interface WizardStep {
   options?: Opt[];
   loadOptions?: (answers: Record<string, string>) => Promise<Opt[]>;
   validate?: (v: string) => string | null;
+  skipIf?: (answers: Record<string, string>) => boolean;
   skippable?: boolean;
 }
 export interface Wizard {
@@ -153,9 +154,9 @@ export const WIZARDS: Wizard[] = [
           .map(d => ({ value: d.id, label: d.name })),
       },
       {
-        key: 'nominal', prompt: 'What is the metered system\'s nominal voltage and frequency? This only frames the hint numbers below - you enter the actual limits yourself.', kind: 'select',
+        key: 'nominal', prompt: 'What is the metered system\'s nominal voltage and frequency? This only frames the illustrative hint numbers below - you enter the actual limits yourself.', kind: 'select',
         options: [
-          { value: '230ln-50', label: '230 V phase-to-neutral, 50 Hz (public LV grid: EU, India, ...)' },
+          { value: '230ln-50', label: '230 V phase-to-neutral, 50 Hz' },
           { value: '400ll-50', label: '400 V line-to-line, 50 Hz' },
           { value: '277ln-60', label: '277 V phase-to-neutral (480 V line-to-line), 60 Hz' },
           { value: '120-60', label: '120 V, 60 Hz' },
@@ -163,49 +164,84 @@ export const WIZARDS: Wizard[] = [
         ],
       },
       {
-        key: 'voltage_point', prompt: 'Which point is the voltage to watch? Only points the device reports in volts are listed - check the unit matches what you chose above (phase-to-neutral vs line-to-line).', kind: 'select',
+        key: 'v_basis', prompt: 'Which voltage do you want to watch? A unit of volts alone cannot tell phase-to-neutral from line-to-line - confirm the basis yourself.', kind: 'select',
+        options: [
+          { value: 'ln', label: 'Phase-to-neutral (L-N) voltages' },
+          { value: 'll', label: 'Line-to-line (L-L) voltages' },
+          { value: 'none', label: 'No voltage watch' },
+        ],
+      },
+      {
+        key: 'voltage_point', prompt: 'Which point is the voltage to watch? Only points the device reports in volts are listed - check the live value matches the basis you just chose (L-N vs L-L).', kind: 'select',
+        skipIf: a => a.v_basis === 'none',
         loadOptions: async a => (await api<{ point_id: string; value: number; unit: string }[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(a.device_id)}`))
           .filter(p2 => p2.unit === 'V')
           .map(p2 => ({ value: p2.point_id, label: `${p2.point_id} (now ${p2.value} V)` })),
       },
-      { key: 'v_high', prompt: 'Alert ABOVE what voltage (V)? Enter the value that fits your installation. A widely used public-grid variation band is nominal +10% (230 V nominal: 253; 400 V: 440; 277 V: 305; 120 V: 132) - that comes from the grid-quality standard EN 50160, it is a statistical grid band, NOT an equipment-protection or compliance limit.', kind: 'number', validate: isNumber },
-      { key: 'v_low', prompt: 'Alert BELOW what voltage (V)? The same public-grid band at nominal -10% (230 V: 207; 400 V: 360; 277 V: 249; 120 V: 108) - again informational, choose what fits your installation.', kind: 'number', validate: isNumber },
-      { key: 'freq_watch', prompt: 'Watch the frequency too? Only for 50 Hz systems: alerts outside 49.5-50.5 Hz (EN 50160 public-grid band, statistical, not a protection limit). For any other nominal frequency choose No and use the single alert rule template with your own limits.', kind: 'select', options: [{ value: 'no', label: 'No frequency watch' }, { value: 'yes', label: 'Yes, 50 Hz system - alert outside 49.5-50.5 Hz' }] },
-      { key: 'i_limit', prompt: 'Overload watch: alert when a current point goes above how many amps? Answer 0 to skip. One rule is created per current point the device reports in amps.', kind: 'number', validate: v => /^\d+(\.\d+)?$/.test(v.trim()) ? null : 'Answer with a number of amps, or 0 to skip' },
+      { key: 'v_high', prompt: 'Alert ABOVE what voltage (V)? Enter the value that fits your installation. Illustrative, editable suggestions: +10% of nominal is 253 for 230 V L-N, 440 for 400 V L-L, 132 for 120 V - these are not equipment-protection or compliance limits.', kind: 'number', validate: isNumber, skipIf: a => a.v_basis === 'none' },
+      { key: 'v_low', prompt: 'Alert BELOW what voltage (V)? Illustrative, editable suggestions for 230 V L-N: -10% is 207, -15% is 195.5 - again not protection or compliance limits, choose what fits your installation.', kind: 'number', validate: isNumber, skipIf: a => a.v_basis === 'none' },
+      {
+        key: 'freq_watch', prompt: 'Watch the frequency too? You enter the band yourself in the next two steps - any band you set is a configuration choice, not an equipment-protection or compliance limit.', kind: 'select',
+        loadOptions: async a => {
+          const fp = (await api<{ point_id: string; unit: string }[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(a.device_id)}`)).find(p2 => p2.unit === 'Hz');
+          return fp
+            ? [{ value: 'yes', label: `Yes, watch ${fp.point_id}` }, { value: 'no', label: 'No frequency watch' }]
+            : [{ value: 'no', label: 'No frequency watch (no point the device reports in Hz)' }];
+        },
+      },
+      { key: 'f_hi', prompt: 'Alert ABOVE what frequency (Hz)? Illustrative, editable suggestions - 1% above nominal: 50.5 for a 50 Hz system, 60.6 for 60 Hz. Not protection or compliance limits.', kind: 'number', validate: isNumber, skipIf: a => a.freq_watch !== 'yes' },
+      { key: 'f_lo', prompt: 'Alert BELOW what frequency (Hz)? Illustrative, editable suggestions - 1% below nominal: 49.5 for a 50 Hz system, 59.4 for 60 Hz. Not protection or compliance limits.', kind: 'number', validate: isNumber, skipIf: a => a.freq_watch !== 'yes' },
+      {
+        key: 'overload', prompt: 'Overload watch? One current limit applies to every point the device reports in amps - including neutral or aggregate currents if your meter reports them. The review lists the exact points.', kind: 'select',
+        loadOptions: async a => {
+          const amps = (await api<{ point_id: string; unit: string }[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(a.device_id)}`)).filter(p2 => p2.unit === 'A').map(p2 => p2.point_id);
+          return amps.length
+            ? [{ value: 'watch', label: `Watch: ${amps.join(', ')}` }, { value: 'none', label: 'No overload watch' }]
+            : [{ value: 'none', label: 'No overload watch (no point the device reports in A)' }];
+        },
+      },
+      { key: 'i_limit', prompt: 'Alert when a current point goes above how many amps?', kind: 'number', validate: v => /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0 ? null : 'Answer with a number of amps above zero', skipIf: a => a.overload !== 'watch' },
       { key: 'severity', prompt: 'Severity for these rules?', kind: 'select', options: [{ value: 'info', label: 'Info' }, { value: 'warning', label: 'Warning' }, { value: 'critical', label: 'Critical' }] },
     ],
     summary: a => {
-      const parts = [`${a.voltage_point} > ${a.v_high} V`, `${a.voltage_point} < ${a.v_low} V`];
-      if (a.freq_watch === 'yes') parts.push('frequency outside 49.5-50.5 Hz');
-      if (Number(a.i_limit) > 0) parts.push(`every reported current point > ${a.i_limit} A`);
+      const parts: string[] = [];
+      if (a.v_basis && a.v_basis !== 'none') parts.push(`voltage basis ${a.v_basis_label} (your choice): ${a.voltage_point_label} > ${a.v_high} V and < ${a.v_low} V`);
+      if (a.freq_watch === 'yes') parts.push(`frequency point ${(a.freq_watch_label || '').replace(/^Yes, watch /, '')} outside ${a.f_lo}-${a.f_hi} Hz`);
+      if (a.overload === 'watch') parts.push(`every reported current point (${(a.overload_label || '').replace(/^Watch: /, '')}) > ${a.i_limit} A`);
+      if (parts.length === 0) return 'Nothing selected - every watch is off, nothing will be created.';
       return `Nominal system: ${a.nominal_label}. Create ${a.severity} rules on ${a.device_id_label}: ${parts.join('; ')}. The rules are ENABLED the moment they are created - any channel already enabled in Settings can receive these alerts immediately.`;
     },
     run: async (a, ctx) => {
-      if (!(Number(a.v_high) > Number(a.v_low))) throw new Error('400 The high limit must be above the low limit. Nothing was created.');
+      if (a.v_basis && a.v_basis !== 'none' && !(Number(a.v_high) > Number(a.v_low))) throw new Error('400 The high limit must be above the low limit. Nothing was created.');
+      if (a.freq_watch === 'yes' && !(Number(a.f_hi) > Number(a.f_lo))) throw new Error('400 The high frequency limit must be above the low limit. Nothing was created.');
       const key = (suffix: string): Record<string, string> => ctx?.idempotencyKey ? { 'Idempotency-Key': `${ctx.idempotencyKey}-${suffix}` } : {};
       const sev = a.severity, dev = a.device_id, base = { device_id: dev, severity: sev };
       type Plan = { suffix: string; name: string; def: Record<string, unknown>; label: string };
-      const plan: Plan[] = [
-        { suffix: 'vhigh', name: `High voltage on ${a.device_id_label}`, label: `voltage > ${a.v_high} V`, def: { ...base, point_id: a.voltage_point, op: '>', threshold: Number(a.v_high), message: `Voltage above ${a.v_high} V` } },
-        { suffix: 'vlow', name: `Low voltage on ${a.device_id_label}`, label: `voltage < ${a.v_low} V`, def: { ...base, point_id: a.voltage_point, op: '<', threshold: Number(a.v_low), message: `Voltage below ${a.v_low} V` } },
-      ];
+      const plan: Plan[] = [];
       const skipped: string[] = [];
       const latest = async () => (await api<{ point_id: string; unit: string }[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(dev)}`));
+      if (a.v_basis && a.v_basis !== 'none') {
+        plan.push(
+          { suffix: 'vhigh', name: `High voltage on ${a.device_id_label}`, label: `voltage > ${a.v_high} V`, def: { ...base, point_id: a.voltage_point, op: '>', threshold: Number(a.v_high), message: `Voltage above ${a.v_high} V` } },
+          { suffix: 'vlow', name: `Low voltage on ${a.device_id_label}`, label: `voltage < ${a.v_low} V`, def: { ...base, point_id: a.voltage_point, op: '<', threshold: Number(a.v_low), message: `Voltage below ${a.v_low} V` } },
+        );
+      }
       if (a.freq_watch === 'yes') {
         const fp = (await latest()).find(p2 => p2.unit === 'Hz');
         if (!fp) skipped.push('frequency watch (no point the device reports in Hz)');
         else {
           plan.push(
-            { suffix: 'fhi', name: `High frequency on ${a.device_id_label}`, label: 'frequency > 50.5 Hz', def: { ...base, point_id: fp.point_id, op: '>', threshold: 50.5, message: 'Frequency above 50.5 Hz' } },
-            { suffix: 'flo', name: `Low frequency on ${a.device_id_label}`, label: 'frequency < 49.5 Hz', def: { ...base, point_id: fp.point_id, op: '<', threshold: 49.5, message: 'Frequency below 49.5 Hz' } },
+            { suffix: 'fhi', name: `High frequency on ${a.device_id_label}`, label: `frequency > ${a.f_hi} Hz`, def: { ...base, point_id: fp.point_id, op: '>', threshold: Number(a.f_hi), message: `Frequency above ${a.f_hi} Hz` } },
+            { suffix: 'flo', name: `Low frequency on ${a.device_id_label}`, label: `frequency < ${a.f_lo} Hz`, def: { ...base, point_id: fp.point_id, op: '<', threshold: Number(a.f_lo), message: `Frequency below ${a.f_lo} Hz` } },
           );
         }
       }
-      if (Number(a.i_limit) > 0) {
+      if (a.overload === 'watch') {
         const amps = (await latest()).filter(p2 => p2.unit === 'A');
         if (amps.length === 0) skipped.push('overload watch (no point the device reports in A)');
         else for (const p2 of amps) plan.push({ suffix: `i-${p2.point_id}`, name: `Overcurrent ${p2.point_id} on ${a.device_id_label}`, label: `${p2.point_id} > ${a.i_limit} A`, def: { ...base, point_id: p2.point_id, op: '>', threshold: Number(a.i_limit), message: `Current ${p2.point_id} above ${a.i_limit} A` } });
       }
+      if (plan.length === 0 && skipped.length === 0) throw new Error('400 Nothing was created - every watch was set to none.');
       const created: string[] = [], failed: string[] = [];
       for (const r of plan) {
         try {
