@@ -20,7 +20,7 @@ The operator sets these in the API environment (`.env`). Put the token in the fi
 | `WHATSAPP_TEMPLATE_LANG` | template language code, default `en` |
 | `WHATSAPP_API_BASE` | optional, default `https://graph.facebook.com/v20.0`; for a compatible gateway |
 
-Until the first two are set, creating a WhatsApp channel returns 409. Then an admin adds a channel in Settings: type WhatsApp, number in international form such as `+919812345678`.
+Until the first two are set, creating a WhatsApp channel returns 409. Then an admin adds a channel in Settings: type WhatsApp, number in international form such as `+919812345678`. New channels of every type are staged disabled until an admin presses Enable on the row, and Send test works while a channel is off.
 
 ## Honest status
 
