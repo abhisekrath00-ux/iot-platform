@@ -161,16 +161,16 @@ export function IndicatorWidget({ w }: { w: Widget }) {
 }
 
 /** Open alerts for the whole tenant, newest first. Not tied to a device. */
-export function AlarmsWidget({ w }: { w: Widget }) {
+export function AlarmsWidget({ w, assetId }: { w: Widget; assetId?: string }) {
   const [rows, setRows] = useState<AlertRow[]>([]);
   const [err, setErr] = useState('');
   useEffect(() => {
     let alive = true;
-    const load = () => api<AlertRow[]>('/v1/alerts?status=open').then(d => { if (alive) { setRows(d.slice(0, 8)); setErr(''); } }).catch(e => { if (alive) setErr(String(e)); });
+    const load = () => api<AlertRow[]>(`/v1/alerts?status=open${assetId ? `&asset_id=${encodeURIComponent(assetId)}` : ''}`).then(d => { if (alive) { setRows(d.slice(0, 8)); setErr(''); } }).catch(e => { if (alive) setErr(String(e)); });
     load();
     const t = setInterval(load, 15000);
     return () => { alive = false; clearInterval(t); };
-  }, []);
+  }, [assetId]);
   const sev: Record<string, string> = { critical: STATE_VAR.bad, warning: STATE_VAR.warn, info: STATE_VAR.none };
   return (
     <div className="card" style={{ minWidth: 0 }}>
