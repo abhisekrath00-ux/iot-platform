@@ -109,6 +109,12 @@ export default function Settings() {
                 <li>Send <b>/pair CODE</b> to the bot inside your chat (the code works for 10 minutes, once).</li>
                 <li>Press Find chats - your chat appears, and Use fills in its id. Only chats you paired this way can be used.</li>
               </ol>
+              <p style={{ margin: '0 0 8px' }}>
+                <b>Pairing a group is an audience decision:</b> everyone in the group - now and anyone who joins later -
+                can read the bot's answers there (<b>/alerts</b> lists this site's open alerts) and will receive its alert
+                messages. Pair only groups that may see this site's alerts. Access is per chat, not per person: you cannot
+                revoke one member's view inside a paired group - delete the channel/pairing to stop the whole chat.
+              </p>
               <p style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button type="button" className="ghost" onClick={getPairCode}>Get pairing code</button>
                 {tgCode && <span>Your code: <b style={{ letterSpacing: 1 }}>{tgCode}</b> (10 minutes, single use)</span>}
@@ -116,14 +122,14 @@ export default function Settings() {
               <p><button type="button" className="ghost" onClick={findTgChats}>Find chats</button></p>
               {tgMsg && <p>{tgMsg}</p>}
               {tgChats && tgChats.length > 0 && (
-                <table style={{ marginTop: 4 }}>
+                <div style={{ overflowX: 'auto' }}><table style={{ marginTop: 4 }}>
                   <tbody>
                     {tgChats.map(c => (
-                      <tr key={c.id}><td>{c.title || '(no name)'}</td><td className="muted">{c.type}</td><td className="muted">{c.id}</td>
+                      <tr key={c.id}><td style={{ minWidth: 140 }}>{c.title || '(no name)'}{(c.type === 'group' || c.type === 'supergroup' || c.type === 'channel') && <div className="muted" style={{ fontSize: 12 }}>All current and future members will see this site's alerts here.</div>}</td><td className="muted">{c.type}</td><td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.id}</td>
                         <td><button type="button" className="ghost" onClick={() => { setTarget(c.id); setTgChats(null); setTgMsg(''); }}>Use</button></td></tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               )}
             </div>
           )}
