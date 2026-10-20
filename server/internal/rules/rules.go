@@ -23,7 +23,13 @@ type Definition struct {
 	DeviceID string `json:"device_id"` // empty = any device exposing the point
 	// Profile limits the rule to devices of one device profile (asset type), so
 	// one rule covers every device of that type, now and in the future.
-	Profile   string  `json:"profile,omitempty"`
+	Profile string `json:"profile,omitempty"`
+	// AssetID limits the rule to devices attached to this asset or any asset
+	// below it in the tree, so one rule covers a whole line or site. Cannot be
+	// combined with DeviceID (one names a set, the other one device); applies
+	// to threshold, sigma and seasonal rules (kpi_band and forecast_limit
+	// already name their own target).
+	AssetID   string  `json:"asset_id,omitempty"`
 	PointID   string  `json:"point_id"`
 	Op        string  `json:"op"` // ">" or "<"
 	Threshold float64 `json:"threshold"`
@@ -68,6 +74,15 @@ func (d Definition) Validate() error {
 	}
 	if len(d.Profile) > 64 || len(d.Message) > 500 {
 		return fmt.Errorf("profile or message too long")
+	}
+	if len(d.AssetID) > 64 {
+		return fmt.Errorf("asset_id too long")
+	}
+	if d.AssetID != "" && d.DeviceID != "" {
+		return fmt.Errorf("asset_id cannot be combined with device_id")
+	}
+	if d.AssetID != "" && (d.Kind == "kpi_band" || d.Kind == "forecast_limit") {
+		return fmt.Errorf("asset_id does not apply to %s rules", d.Kind)
 	}
 	if d.Method != "" && d.Method != "mean" && d.Method != "robust" {
 		return fmt.Errorf("method must be mean or robust")
@@ -237,6 +252,18 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 		if d.Profile != "" {
 			var prof string
 			if pool.QueryRow(ctx, `SELECT profile FROM devices WHERE id=$1 AND tenant_id=$2`, deviceID, tenantID).Scan(&prof) != nil || prof != d.Profile {
+				continue
+			}
+		}
+		if d.AssetID != "" {
+			var in bool
+			if pool.QueryRow(ctx,
+				`WITH RECURSIVE sub AS (
+				   SELECT id FROM assets WHERE tenant_id=$2 AND id=$3
+				   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$2
+				 )
+				 SELECT EXISTS(SELECT 1 FROM devices d WHERE d.id=$1 AND d.tenant_id=$2 AND d.asset_id IN (SELECT id FROM sub))`,
+				deviceID, tenantID, d.AssetID).Scan(&in); !in {
 				continue
 			}
 		}
