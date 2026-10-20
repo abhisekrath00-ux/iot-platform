@@ -32,16 +32,19 @@ func eventBody(event string, data map[string]any) []byte {
 
 // ParseKafkaTarget returns brokers and topic.
 func ParseKafkaTarget(raw string) ([]string, string, error) {
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "kafka" || u.Host == "" || u.User != nil || len(raw) > 512 {
+	// Not url.Parse: Go 1.26 rejects the multi-broker host list ("k1:9092,k2:9093") as an
+	// invalid port, so split the target by hand.
+	rest, ok := strings.CutPrefix(raw, "kafka://")
+	if !ok || rest == "" || strings.Contains(rest, "@") || len(raw) > 512 {
 		return nil, "", errors.New("kafka target must look like kafka://host:9092[,host2:9092]/topic")
 	}
-	topic := strings.Trim(u.Path, "/")
-	if topic == "" || strings.ContainsAny(topic, "/ ") || len(topic) > 249 {
+	hosts, path, found := strings.Cut(rest, "/")
+	topic := strings.Trim(path, "/")
+	if !found || topic == "" || strings.ContainsAny(topic, "/ ") || len(topic) > 249 {
 		return nil, "", errors.New("kafka target needs a single topic name")
 	}
 	var brokers []string
-	for _, h := range strings.Split(u.Host, ",") {
+	for _, h := range strings.Split(hosts, ",") {
 		if _, _, err := net.SplitHostPort(h); err != nil {
 			return nil, "", fmt.Errorf("kafka broker %q needs host:port", h)
 		}
