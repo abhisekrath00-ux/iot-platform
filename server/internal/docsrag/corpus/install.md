@@ -4,7 +4,7 @@ One command, the same steps online and air-gapped.
 
 | Where | Command |
 |---|---|
-| Linux, macOS, WSL, source checkout | `./scripts/install.sh` |
+| Linux, macOS, WSL, source checkout | `bash scripts/install.sh` |
 | Linux, macOS, WSL, air-gapped bundle | `./install.sh` (inside the extracted bundle) |
 | Windows (Docker Desktop, WSL2) | double-click `install.bat`, or `powershell -ExecutionPolicy Bypass -File install.ps1` |
 
