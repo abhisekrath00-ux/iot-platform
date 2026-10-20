@@ -8,6 +8,20 @@ Honest status: the channels are tested with hand-built signed payloads and a rec
 notifier, not against a real Slack workspace or mail gateway. Treat the first real setup
 as a pilot and check each step's effect before moving on.
 
+## Check the signing path first (no Slack workspace or gateway needed)
+
+Settings > Messaging assistant offers "Check Slack signing" / "Check email signing" once a secret is
+stored. The server builds a signed sample request with the stored secret (the secret never leaves
+the server) and shows two commands:
+
+- Run the first against your server: **HTTP 200** means signature, freshness, and (for email) the
+  relay checks all passed. The sample sender matches no linked identity, so it is then audited as
+  `inbound_refused` and ignored - nothing is acted on.
+- Run the second (same signature, altered body): **HTTP 401** proves tampering is caught. If this
+  one returns 200, stop - the verification is broken.
+
+The timestamp is accepted for 5 minutes; generate a fresh command if it lapses.
+
 ## Slack
 
 Slack needs internet reachability both ways: Slack's servers call your server, and your
@@ -47,7 +61,7 @@ server (a Postfix pipe or a hosted inbound-parse webhook) that does the signing.
 
 Contract for each message:
 
-- JSON body: `{"id": "<unique per message>", "from": "sender@example.com", "to": ["assistant@yourdomain"], "subject": "...", "text": "plain text body", "dkim": "pass", "spf": "pass", "ts": <unix seconds>}`
+- JSON body: `{"message_id": "<unique per message>", "from": "sender@example.com", "subject": "...", "text": "plain text body", "dkim": "pass", "spf": "pass"}`
 - Headers: `X-Timestamp: <unix seconds>` and
   `X-Signature: hex(HMAC-SHA256(secret, ts + "." + body))` where ts is the X-Timestamp
   value and body is the exact raw request body.
