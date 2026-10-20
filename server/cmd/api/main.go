@@ -2276,49 +2276,56 @@ func (s *server) createRule(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin", "operator") {
 		return
 	}
-	var in struct {
-		Name       string          `json:"name"`
-		Definition json.RawMessage `json:"definition"`
-		Enabled    bool            `json:"enabled"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" || len(in.Definition) == 0 {
-		http.Error(w, "name and definition required", 400)
-		return
-	}
-	// kinds: threshold (point_id, op >|<, threshold), sigma (point_id, sigma, window_minutes, direction) or kpi_band (kpi_id, min and/or max)
-	var def rules.Definition
-	if err := json.Unmarshal(in.Definition, &def); err != nil {
-		http.Error(w, "invalid rule definition", 400)
-		return
-	}
-	if err := def.Validate(); err != nil {
-		http.Error(w, "invalid rule definition: "+err.Error(), 400)
-		return
-	}
-	if def.Kind == "kpi_band" {
-		var one int
-		if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM kpis WHERE id=$1 AND tenant_id=$2`, def.KPIID, auth.Tenant(r)).Scan(&one) != nil {
-			http.Error(w, "unknown kpi", 404)
-			return
-		}
-	}
-	if def.AssetID != "" {
-		var one int
-		if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM assets WHERE id=$1 AND tenant_id=$2`, def.AssetID, auth.Tenant(r)).Scan(&one) != nil {
-			http.Error(w, "unknown asset", 404)
-			return
-		}
-	}
-	id := uuid.NewString()
-	_, err := s.st.Pool.Exec(r.Context(),
-		`INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
-		id, auth.Tenant(r), in.Name, in.Definition, in.Enabled, auth.User(r))
+	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<16))
 	if err != nil {
-		dbErr(w, err)
+		http.Error(w, "body too large", 413)
 		return
 	}
-	s.audit(r, "rule.create", id, map[string]any{"name": in.Name, "enabled": in.Enabled})
-	writeJSON(w, 201, map[string]any{"id": id})
+	s.withIdempotency(w, r, "rule.create", payload, func(w http.ResponseWriter) {
+		var in struct {
+			Name       string          `json:"name"`
+			Definition json.RawMessage `json:"definition"`
+			Enabled    bool            `json:"enabled"`
+		}
+		if err := json.Unmarshal(payload, &in); err != nil || in.Name == "" || len(in.Definition) == 0 {
+			http.Error(w, "name and definition required", 400)
+			return
+		}
+		// kinds: threshold (point_id, op >|<, threshold), sigma (point_id, sigma, window_minutes, direction) or kpi_band (kpi_id, min and/or max)
+		var def rules.Definition
+		if err := json.Unmarshal(in.Definition, &def); err != nil {
+			http.Error(w, "invalid rule definition", 400)
+			return
+		}
+		if err := def.Validate(); err != nil {
+			http.Error(w, "invalid rule definition: "+err.Error(), 400)
+			return
+		}
+		if def.Kind == "kpi_band" {
+			var one int
+			if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM kpis WHERE id=$1 AND tenant_id=$2`, def.KPIID, auth.Tenant(r)).Scan(&one) != nil {
+				http.Error(w, "unknown kpi", 404)
+				return
+			}
+		}
+		if def.AssetID != "" {
+			var one int
+			if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM assets WHERE id=$1 AND tenant_id=$2`, def.AssetID, auth.Tenant(r)).Scan(&one) != nil {
+				http.Error(w, "unknown asset", 404)
+				return
+			}
+		}
+		id := uuid.NewString()
+		_, err := s.st.Pool.Exec(r.Context(),
+			`INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
+			id, auth.Tenant(r), in.Name, in.Definition, in.Enabled, auth.User(r))
+		if err != nil {
+			dbErr(w, err)
+			return
+		}
+		s.audit(r, "rule.create", id, map[string]any{"name": in.Name, "enabled": in.Enabled})
+		writeJSON(w, 201, map[string]any{"id": id})
+	})
 }
 
 // --- notification channels ---
