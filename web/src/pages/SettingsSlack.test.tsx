@@ -103,6 +103,16 @@ test('a Slack API failure (ok:false) surfaces its error text, not a crash', asyn
   expect(box.textContent).toContain('slack: invalid_auth');
 });
 
+test('a truncated large-workspace listing says so instead of pretending to be complete', async () => {
+  mockApi({ channels: CHS, truncated: true });
+  await act(async () => root.render(<MemoryRouter><Settings /></MemoryRouter>));
+  await act(async () => {});
+  await pickSlack();
+  await pressFind();
+  expect(box.textContent).toContain('first 2000 channels');
+  expect(box.textContent).toContain('not listed');
+});
+
 test('an empty workspace view tells the admin to invite the bot', async () => {
   mockApi({ channels: [] });
   await act(async () => root.render(<MemoryRouter><Settings /></MemoryRouter>));
