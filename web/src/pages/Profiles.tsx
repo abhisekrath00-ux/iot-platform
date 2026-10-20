@@ -17,6 +17,8 @@ export default function Profiles() {
   const isModbus = driver.startsWith('modbus');
   const [paste, setPaste] = useState('');
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [pendingTpl, setPendingTpl] = useState<string | null>(null);
+  const [pendingOk, setPendingOk] = useState(false);
   const liveIssues = isModbus && points.some(p => p.id) ? validateMap(points.filter(p => p.id) as MapPoint[]) : [];
   const shown = issues.length ? issues : liveIssues;
   function loadMap(pts: MapPoint[], iss: Issue[]) { if (pts.length) setPoints(pts); setIssues(iss); }
@@ -74,7 +76,12 @@ export default function Profiles() {
               <b>Start from a template or import a register map</b>
               <p className="muted">Loads the points into the form below so you can review and edit them. Nothing is saved until you press Create profile. Format: CSV with a header (id, register, func, type, word_order, scale, unit, min, max) or JSON.</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <select style={{ width: 'auto' }} aria-label="Template" defaultValue="" onChange={e => { const t = EDGE_TEMPLATES.find(x => x.id === e.target.value); if (t) { loadMap(templatePoints(t.id), []); if (!name) setName(t.name); } e.target.value = ''; }}>
+                <select style={{ width: 'auto' }} aria-label="Template" defaultValue="" onChange={e => {
+                  const t = EDGE_TEMPLATES.find(x => x.id === e.target.value);
+                  if (t?.provisional) { setPendingTpl(t.id); setPendingOk(false); }
+                  else if (t) { loadMap(templatePoints(t.id), []); if (!name) setName(t.name); }
+                  e.target.value = '';
+                }}>
                   <option value="">Load a built-in template…</option>
                   {EDGE_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}{t.provisional ? ' (provisional)' : ''}</option>)}
                 </select>
@@ -82,6 +89,22 @@ export default function Profiles() {
                 <button type="button" className="ghost" onClick={() => save('register-map.csv', toCsv(points.filter(p => p.id) as MapPoint[]))}>Export CSV</button>
                 <button type="button" className="ghost" onClick={() => save('register-map.json', JSON.stringify(points.filter(p => p.id), null, 2))}>Export JSON</button>
               </div>
+              {pendingTpl && (() => {
+                const t = EDGE_TEMPLATES.find(x => x.id === pendingTpl)!;
+                return (
+                  <div className="muted" style={{ border: '1px solid var(--warn, #b58900)', padding: 8, borderRadius: 6, marginTop: 8 }}>
+                    <p style={{ margin: 0 }}><b>Provisional map: {t.name}.</b> {t.provisional}</p>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8, width: '100%' }}>
+                      <input type="checkbox" style={{ width: 'auto' }} checked={pendingOk} onChange={e => setPendingOk(e.target.checked)} />
+                      I have checked this against the meter or its manual
+                    </label>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button type="button" className="ghost" disabled={!pendingOk} onClick={() => { loadMap(templatePoints(t.id), []); if (!name) setName(t.name); setPendingTpl(null); }}>Load {t.name}</button>
+                      <button type="button" className="ghost" onClick={() => setPendingTpl(null)}>Cancel</button>
+                    </div>
+                  </div>
+                );
+              })()}
               <textarea aria-label="Paste a register map" rows={3} style={{ width: '100%', marginTop: 8 }} placeholder="Or paste CSV / JSON here" value={paste} onChange={e => setPaste(e.target.value)} />
               <button type="button" className="ghost" disabled={!paste.trim()} onClick={() => { const r = parseAny(paste); loadMap(r.points, r.issues); }}>Import pasted text</button>
               {shown.length > 0 && <ul role="alert" style={{ color: '#dc2626', margin: '8px 0 0', paddingLeft: 18 }}>{shown.slice(0, 12).map((i, k) => <li key={k}>{i.row ? `Row ${i.row}: ` : ''}{i.text}</li>)}{shown.length > 12 && <li>…and {shown.length - 12} more</li>}</ul>}
