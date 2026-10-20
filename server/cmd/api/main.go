@@ -216,6 +216,7 @@ func main() {
 	api.HandleFunc("PUT /v1/geofences/{id}", s.updateGeofence)
 	api.HandleFunc("DELETE /v1/geofences/{id}", s.deleteGeofence)
 	api.HandleFunc("GET /v1/assets", s.listAssets)
+	api.HandleFunc("GET /v1/assets/{id}/device-count", s.getAssetDeviceCount)
 	api.HandleFunc("GET /v1/direct-auth/policy", s.getDirectAuthPolicy)
 	api.HandleFunc("PUT /v1/direct-auth/policy", s.putDirectAuthPolicy)
 	api.HandleFunc("GET /v1/direct-devices", s.listDirectDevices)
