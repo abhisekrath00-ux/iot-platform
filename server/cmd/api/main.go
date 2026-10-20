@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -669,34 +670,45 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) createDevice(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		GatewayID string         `json:"gateway_id"`
-		Profile   string         `json:"profile"`
-		Name      string         `json:"name"`
-		Config    map[string]any `json:"config"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.GatewayID == "" || in.Profile == "" || in.Name == "" {
-		http.Error(w, "gateway_id, profile, name required", 400)
+	// Onboarding writes a device: operator-grade roles only (a viewer creating devices was a defect).
+	if !requireRole(w, r, "admin", "operator", "installer") {
 		return
 	}
-	if !s.quotaOK(w, r, "devices", 1) {
-		return
-	}
-	id := uuid.NewString()
-	cfg, _ := json.Marshal(in.Config)
-	_, err := s.st.Pool.Exec(r.Context(),
-		`INSERT INTO devices(id,tenant_id,gateway_id,profile,name,config)
-		 SELECT $1, $2, $3, $4, $5, $6 WHERE EXISTS
-		   (SELECT 1 FROM gateways WHERE id=$3 AND tenant_id=$2)`,
-		id, auth.Tenant(r), in.GatewayID, in.Profile, in.Name, cfg)
+	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<16))
 	if err != nil {
-		dbErr(w, err)
+		http.Error(w, "body too large", 413)
 		return
 	}
-	s.audit(r, "device.create", id, map[string]any{"profile": in.Profile, "name": in.Name})
-	s.es.Index(r.Context(), "devices", id, map[string]any{
-		"id": id, "tenant_id": auth.Tenant(r), "name": in.Name, "profile": in.Profile, "gateway_id": in.GatewayID})
-	writeJSON(w, 201, map[string]any{"id": id})
+	s.withIdempotency(w, r, "device.create", payload, func(w http.ResponseWriter) {
+		var in struct {
+			GatewayID string         `json:"gateway_id"`
+			Profile   string         `json:"profile"`
+			Name      string         `json:"name"`
+			Config    map[string]any `json:"config"`
+		}
+		if err := json.Unmarshal(payload, &in); err != nil || in.GatewayID == "" || in.Profile == "" || in.Name == "" {
+			http.Error(w, "gateway_id, profile, name required", 400)
+			return
+		}
+		if !s.quotaOK(w, r, "devices", 1) {
+			return
+		}
+		id := uuid.NewString()
+		cfg, _ := json.Marshal(in.Config)
+		_, err := s.st.Pool.Exec(r.Context(),
+			`INSERT INTO devices(id,tenant_id,gateway_id,profile,name,config)
+			 SELECT $1, $2, $3, $4, $5, $6 WHERE EXISTS
+			   (SELECT 1 FROM gateways WHERE id=$3 AND tenant_id=$2)`,
+			id, auth.Tenant(r), in.GatewayID, in.Profile, in.Name, cfg)
+		if err != nil {
+			dbErr(w, err)
+			return
+		}
+		s.audit(r, "device.create", id, map[string]any{"profile": in.Profile, "name": in.Name})
+		s.es.Index(r.Context(), "devices", id, map[string]any{
+			"id": id, "tenant_id": auth.Tenant(r), "name": in.Name, "profile": in.Profile, "gateway_id": in.GatewayID})
+		writeJSON(w, 201, map[string]any{"id": id})
+	})
 }
 
 // --- telemetry ---
@@ -2332,87 +2344,94 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin") {
 		return
 	}
-	var in struct {
-		Type   string `json:"type"`
-		Target string `json:"target"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Target == "" ||
-		(in.Type != "email" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp" && in.Type != "teams" && in.Type != "sms" && in.Type != "whatsapp" && in.Type != "telegram") {
-		http.Error(w, "type (email|slack|webhook|teams|sms|whatsapp|telegram|kafka|amqp) and target required", 400)
-		return
-	}
-	if in.Type == "teams" {
-		if err := notify.ValidateTeamsURL(in.Target); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-	}
-	if in.Type == "sms" {
-		if !notify.SMSConfigured() {
-			http.Error(w, "SMS is not configured on this deployment (the operator sets SMS_GATEWAY_URL)", 409)
-			return
-		}
-		if err := notify.ValidatePhone(in.Target); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-	}
-	if in.Type == "telegram" {
-		if !notify.TelegramConfigured() {
-			http.Error(w, "Telegram is not configured on this deployment (the operator sets TELEGRAM_BOT_TOKEN)", 409)
-			return
-		}
-		if err := notify.ValidateTelegramChatID(in.Target); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-		var paired bool
-		s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM telegram_chats WHERE tenant_id=$1 AND chat_id=$2)`, auth.Tenant(r), in.Target).Scan(&paired)
-		if !paired {
-			http.Error(w, "pair this chat first: get a code with 'Get pairing code', send it to the bot inside your chat, then Find chats", 400)
-			return
-		}
-	}
-	if in.Type == "whatsapp" {
-		if !notify.WhatsAppConfigured() {
-			http.Error(w, "WhatsApp is not configured on this deployment (the operator sets WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TOKEN)", 409)
-			return
-		}
-		if err := notify.ValidateWhatsAppNumber(in.Target); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-	}
-	if in.Type == "webhook" {
-		if err := notify.ValidateWebhookURL(in.Target); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-	}
-	if in.Type == "kafka" {
-		if _, _, err := notify.ParseKafkaTarget(in.Target); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-	}
-	if in.Type == "amqp" {
-		if _, _, _, _, err := notify.ParseAMQPTarget(in.Target); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-	}
-	id := uuid.NewString()
-	// New channels are staged disabled: an existing rule must not start delivering to a
-	// destination nobody has verified. The admin presses Enable after Send test confirms it.
-	_, err := s.st.Pool.Exec(r.Context(),
-		`INSERT INTO notification_channels(id,tenant_id,type,target,enabled) VALUES($1,$2,$3,$4,false)`,
-		id, auth.Tenant(r), in.Type, in.Target)
+	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<16))
 	if err != nil {
-		dbErr(w, err)
+		http.Error(w, "body too large", 413)
 		return
 	}
-	s.audit(r, "channel.create", id, map[string]any{"type": in.Type})
-	writeJSON(w, 201, map[string]any{"id": id})
+	s.withIdempotency(w, r, "channel.create", payload, func(w http.ResponseWriter) {
+		var in struct {
+			Type   string `json:"type"`
+			Target string `json:"target"`
+		}
+		if err := json.Unmarshal(payload, &in); err != nil || in.Target == "" ||
+			(in.Type != "email" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp" && in.Type != "teams" && in.Type != "sms" && in.Type != "whatsapp" && in.Type != "telegram") {
+			http.Error(w, "type (email|slack|webhook|teams|sms|whatsapp|telegram|kafka|amqp) and target required", 400)
+			return
+		}
+		if in.Type == "teams" {
+			if err := notify.ValidateTeamsURL(in.Target); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+		}
+		if in.Type == "sms" {
+			if !notify.SMSConfigured() {
+				http.Error(w, "SMS is not configured on this deployment (the operator sets SMS_GATEWAY_URL)", 409)
+				return
+			}
+			if err := notify.ValidatePhone(in.Target); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+		}
+		if in.Type == "telegram" {
+			if !notify.TelegramConfigured() {
+				http.Error(w, "Telegram is not configured on this deployment (the operator sets TELEGRAM_BOT_TOKEN)", 409)
+				return
+			}
+			if err := notify.ValidateTelegramChatID(in.Target); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			var paired bool
+			s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM telegram_chats WHERE tenant_id=$1 AND chat_id=$2)`, auth.Tenant(r), in.Target).Scan(&paired)
+			if !paired {
+				http.Error(w, "pair this chat first: get a code with 'Get pairing code', send it to the bot inside your chat, then Find chats", 400)
+				return
+			}
+		}
+		if in.Type == "whatsapp" {
+			if !notify.WhatsAppConfigured() {
+				http.Error(w, "WhatsApp is not configured on this deployment (the operator sets WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TOKEN)", 409)
+				return
+			}
+			if err := notify.ValidateWhatsAppNumber(in.Target); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+		}
+		if in.Type == "webhook" {
+			if err := notify.ValidateWebhookURL(in.Target); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+		}
+		if in.Type == "kafka" {
+			if _, _, err := notify.ParseKafkaTarget(in.Target); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+		}
+		if in.Type == "amqp" {
+			if _, _, _, _, err := notify.ParseAMQPTarget(in.Target); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+		}
+		id := uuid.NewString()
+		// New channels are staged disabled: an existing rule must not start delivering to a
+		// destination nobody has verified. The admin presses Enable after Send test confirms it.
+		_, err := s.st.Pool.Exec(r.Context(),
+			`INSERT INTO notification_channels(id,tenant_id,type,target,enabled) VALUES($1,$2,$3,$4,false)`,
+			id, auth.Tenant(r), in.Type, in.Target)
+		if err != nil {
+			dbErr(w, err)
+			return
+		}
+		s.audit(r, "channel.create", id, map[string]any{"type": in.Type})
+		writeJSON(w, 201, map[string]any{"id": id})
+	})
 }
 
 // --- search (Elasticsearch; tenant-scoped) ---
