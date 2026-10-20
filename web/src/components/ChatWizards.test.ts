@@ -52,31 +52,56 @@ describe('guided chat templates', () => {
 
 describe('meter-watch pack', () => {
   beforeEach(() => apiMock.mockReset());
-  const answers = { device_id: 'd1', device_id_label: 'Meter 1', nominal: '230ln-50', nominal_label: '230 V phase-to-neutral, 50 Hz (public LV grid: EU, India, ...)', voltage_point: 'va_n', voltage_point_label: 'va_n', v_high: '253', v_low: '207', freq_watch: 'no', i_limit: '0', severity: 'warning' };
-  it('summary names the nominal, the rules and the enabled-immediately disclosure', () => {
+  const answers = { device_id: 'd1', device_id_label: 'Meter 1', nominal: '230ln-50', nominal_label: '230 V phase-to-neutral, 50 Hz', v_basis: 'ln', v_basis_label: 'Phase-to-neutral (L-N) voltages', voltage_point: 'va_n', voltage_point_label: 'va_n (now 231.5 V)', v_high: '253', v_low: '207', freq_watch: 'no', f_hi: '50.5', f_lo: '49.5', overload: 'none', overload_label: 'No overload watch', i_limit: '80', severity: 'warning' };
+  it('summary names the nominal, the exact points, the chosen basis and the enabled-immediately disclosure', () => {
     const w = byId('meter-watch');
     const s = w.summary(answers);
     expect(s).toContain('Nominal system: 230 V phase-to-neutral, 50 Hz');
     expect(s).toContain('Create warning rules on Meter 1:');
-    expect(s).toContain('va_n > 253 V');
-    expect(s).toContain('va_n < 207 V');
+    expect(s).toContain('voltage basis Phase-to-neutral (L-N) voltages (your choice)');
+    expect(s).toContain('va_n (now 231.5 V) > 253 V and < 207 V');
     expect(s).toContain('ENABLED the moment they are created');
     expect(s).toContain('already enabled in Settings can receive these alerts immediately');
-    const s2 = w.summary({ ...answers, freq_watch: 'yes', i_limit: '80' });
-    expect(s2).toContain('Create warning rules on Meter 1:');
-    expect(s2).toContain('49.5-50.5 Hz');
-    expect(s2).toContain('every reported current point > 80 A');
+    const s2 = w.summary({ ...answers, freq_watch: 'yes', freq_watch_label: 'Yes, watch f50', overload: 'watch', overload_label: 'Watch: ia, ib, ic' });
+    expect(s2).toContain('frequency point f50 outside 49.5-50.5 Hz');
+    expect(s2).toContain('every reported current point (ia, ib, ic) > 80 A');
+    expect(w.summary({ ...answers, v_basis: 'none' })).toContain('Nothing selected');
+  });
+  it('the UI never names a standard or jurisdiction - thresholds stay illustrative, editable configuration choices', () => {
+    const w = byId('meter-watch');
+    for (const st of w.steps) {
+      expect(st.prompt).not.toMatch(/EN ?50160|public LV grid|EU, India/i);
+      for (const o of st.options ?? []) expect(o.label).not.toMatch(/EN ?50160|public LV grid|EU, India/i);
+    }
   });
   it('nominal choice includes non-230V and non-50Hz systems, and band hints are not framed as protection', () => {
     const w = byId('meter-watch');
-    const nom = w.steps.find(s => s.key === 'nominal')!;
-    const vals = (nom.options ?? []).map(o => o.value);
+    const vals = (w.steps.find(s => s.key === 'nominal')!.options ?? []).map(o => o.value);
     expect(vals).toEqual(['230ln-50', '400ll-50', '277ln-60', '120-60', 'other']);
     const vh = w.steps.find(s => s.key === 'v_high')!.prompt;
     expect(vh).toContain('253');
-    expect(vh).toContain('NOT an equipment-protection or compliance limit');
+    expect(vh).toContain('not equipment-protection or compliance limits');
     expect(w.steps.find(s => s.key === 'v_low')!.prompt).toContain('207');
-    expect(w.steps.find(s => s.key === 'freq_watch')!.prompt).toContain('49.5-50.5');
+  });
+  it('frequency limits are user-entered with nominal-scoped suggestions - no fixed 49.5-50.5 for a 60 Hz system', () => {
+    const w = byId('meter-watch');
+    const fhi = w.steps.find(s => s.key === 'f_hi')!;
+    const flo = w.steps.find(s => s.key === 'f_lo')!;
+    expect(fhi.prompt).toContain('50.5');
+    expect(fhi.prompt).toContain('60.6'); // 1% above 60 Hz, so a 60 Hz operator is not handed a 50 Hz band
+    expect(flo.prompt).toContain('49.5');
+    expect(flo.prompt).toContain('59.4');
+    expect(fhi.skipIf!({ freq_watch: 'no' })).toBe(true);
+    expect(fhi.skipIf!({ freq_watch: 'yes' })).toBe(false);
+  });
+  it('voltage basis must be chosen explicitly and skips the voltage steps when off', () => {
+    const w = byId('meter-watch');
+    const vals = (w.steps.find(s => s.key === 'v_basis')!.options ?? []).map(o => o.value);
+    expect(vals).toEqual(['ln', 'll', 'none']);
+    const vp = w.steps.find(s => s.key === 'voltage_point')!;
+    expect(vp.skipIf!({ v_basis: 'none' })).toBe(true);
+    expect(vp.skipIf!({ v_basis: 'ln' })).toBe(false);
+    expect(w.steps.find(s => s.key === 'v_high')!.skipIf!({ v_basis: 'none' })).toBe(true);
   });
   it('voltage point options are filtered to points the device reports in volts', async () => {
     apiMock.mockResolvedValue([{ point_id: 'va_n', value: 231.5, unit: 'V' }, { point_id: 'ia', value: 12, unit: 'A' }, { point_id: 'volts_total', value: 9, unit: '' }]);
@@ -84,14 +109,36 @@ describe('meter-watch pack', () => {
     expect(opts.map(o => o.value)).toEqual(['va_n']); // unit-validated, never name-inferred
     expect(opts[0].label).toContain('231.5 V');
   });
-  it('i_limit accepts 0 (skip) or a plain number, rejects text', () => {
+  it('overload options enumerate the exact amp points; i_limit must be above zero', async () => {
+    apiMock.mockResolvedValue([{ point_id: 'ia', unit: 'A' }, { point_id: 'ic', unit: 'A' }, { point_id: 'va_n', unit: 'V' }]);
+    const st = byId('meter-watch').steps.find(s => s.key === 'overload')!;
+    const opts = await st.loadOptions!({ device_id: 'd1' });
+    expect(opts[0]).toEqual({ value: 'watch', label: 'Watch: ia, ic' });
+    expect(opts[1].value).toBe('none');
+    apiMock.mockResolvedValue([{ point_id: 'va_n', unit: 'V' }]);
+    const opts2 = await st.loadOptions!({ device_id: 'd1' });
+    expect(opts2.length).toBe(1);
+    expect(opts2[0].value).toBe('none');
     const v = byId('meter-watch').steps.find(s => s.key === 'i_limit')?.validate!;
-    expect(v('0')).toBeNull();
     expect(v('63')).toBeNull();
+    expect(v('0')).toBeTruthy();
     expect(v('many')).toBeTruthy();
+    expect(byId('meter-watch').steps.find(s => s.key === 'i_limit')!.skipIf!({ overload: 'none' })).toBe(true);
+  });
+  it('frequency watch options enumerate the exact Hz point', async () => {
+    apiMock.mockResolvedValue([{ point_id: 'f50', unit: 'Hz' }]);
+    const st = byId('meter-watch').steps.find(s => s.key === 'freq_watch')!;
+    const opts = await st.loadOptions!({ device_id: 'd1' });
+    expect(opts[0]).toEqual({ value: 'yes', label: 'Yes, watch f50' });
+    apiMock.mockResolvedValue([{ point_id: 'va_n', unit: 'V' }]);
+    const opts2 = await st.loadOptions!({ device_id: 'd1' });
+    expect(opts2.length).toBe(1);
+    expect(opts2[0].value).toBe('no');
   });
   it('run refuses an inverted band before creating anything', async () => {
     await expect(byId('meter-watch').run({ ...answers, v_low: '999' }, { idempotencyKey: 'r0' })).rejects.toThrow('Nothing was created');
+    await expect(byId('meter-watch').run({ ...answers, freq_watch: 'yes', f_hi: '49', f_lo: '51' }, { idempotencyKey: 'r0b' })).rejects.toThrow('Nothing was created');
+    await expect(byId('meter-watch').run({ ...answers, v_basis: 'none' }, { idempotencyKey: 'r0c' })).rejects.toThrow('every watch was set to none');
     expect(apiMock.mock.calls.filter(c => c[0] === '/v1/rules').length).toBe(0);
   });
   it('run creates two voltage rules with per-rule idempotency keys when extras are skipped', async () => {
@@ -104,9 +151,9 @@ describe('meter-watch pack', () => {
     expect(posts.map(c => c[1].headers['Idempotency-Key'])).toEqual(['run-1-vhigh', 'run-1-vlow']);
     expect(JSON.parse(posts[0][1].body)).toMatchObject({ enabled: true, definition: { device_id: 'd1', point_id: 'va_n', op: '>', threshold: 253, severity: 'warning' } });
   });
-  it('frequency watch keys off the Hz unit, not the point name', async () => {
+  it('frequency watch keys off the Hz unit with the entered band, not the point name', async () => {
     apiMock.mockImplementation(async (path?: string) => String(path).includes('telemetry') ? [{ point_id: 'f50', unit: 'Hz' }] : []);
-    const msg = await byId('meter-watch').run({ ...answers, freq_watch: 'yes' }, { idempotencyKey: 'run-2' });
+    const msg = await byId('meter-watch').run({ ...answers, freq_watch: 'yes', f_hi: '50.5', f_lo: '49.5' }, { idempotencyKey: 'run-2' });
     expect(msg).toContain('frequency > 50.5 Hz');
     expect(apiMock.mock.calls.filter(c => c[0] === '/v1/rules').length).toBe(4);
     apiMock.mockReset();
@@ -115,9 +162,18 @@ describe('meter-watch pack', () => {
     expect(msg2).toContain('Skipped: frequency watch');
     expect(apiMock.mock.calls.filter(c => c[0] === '/v1/rules').length).toBe(2); // voltage only
   });
+  it('a 60 Hz operator gets their own band, not a 50 Hz one', async () => {
+    apiMock.mockImplementation(async (path?: string) => String(path).includes('telemetry') ? [{ point_id: 'f60', unit: 'Hz' }] : []);
+    const msg = await byId('meter-watch').run({ ...answers, v_basis: 'none', freq_watch: 'yes', f_hi: '60.6', f_lo: '59.4', overload: 'none' }, { idempotencyKey: 'run-2c' });
+    expect(msg).toContain('frequency > 60.6 Hz');
+    expect(msg).toContain('frequency < 59.4 Hz');
+    const posts = apiMock.mock.calls.filter(c => c[0] === '/v1/rules');
+    expect(posts.length).toBe(2);
+    expect(JSON.parse(posts[0][1].body).definition.threshold).toBe(60.6);
+  });
   it('overload keys off the A unit and skips cleanly when nothing reports amps', async () => {
     apiMock.mockImplementation(async (path?: string) => String(path).includes('telemetry') ? [{ point_id: 'ia', unit: 'A' }, { point_id: 'ib', unit: 'A' }, { point_id: 'va_n', unit: 'V' }] : []);
-    const msg = await byId('meter-watch').run({ ...answers, i_limit: '80' }, { idempotencyKey: 'run-4' });
+    const msg = await byId('meter-watch').run({ ...answers, overload: 'watch' }, { idempotencyKey: 'run-4' });
     expect(msg).toContain('ia > 80 A');
     expect(msg).toContain('ib > 80 A');
     const posts = apiMock.mock.calls.filter(c => c[0] === '/v1/rules');
@@ -125,7 +181,7 @@ describe('meter-watch pack', () => {
     expect(posts[2][1].headers['Idempotency-Key']).toBe('run-4-i-ia');
     apiMock.mockReset();
     apiMock.mockImplementation(async (path?: string) => String(path).includes('telemetry') ? [{ point_id: 'va_n', unit: 'V' }] : []);
-    const msg2 = await byId('meter-watch').run({ ...answers, i_limit: '80' }, { idempotencyKey: 'run-5' });
+    const msg2 = await byId('meter-watch').run({ ...answers, overload: 'watch' }, { idempotencyKey: 'run-5' });
     expect(msg2).toContain('Skipped: overload watch');
   });
   it('partial failure throws a full created/failed tally, and a Confirm retry replays with the same keys', async () => {
