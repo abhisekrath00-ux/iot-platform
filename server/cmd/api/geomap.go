@@ -92,6 +92,11 @@ func (s *server) setDeviceLocationSource(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "device not found", 404)
 		return
 	}
+	if s.pos != nil {
+		// This process picks the change up at once; the MQTT worker's cache
+		// expires within store.PositionTTL.
+		s.pos.Reset()
+	}
 	s.audit(r, "device.location_source", r.PathValue("id"), map[string]any{"lat_point": in.LatPoint, "lon_point": in.LonPoint})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
