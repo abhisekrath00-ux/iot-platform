@@ -50,7 +50,7 @@ func (s *server) listFlowVersions(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, version, status, created_by, created_at, published_at
 		 FROM flow_versions WHERE flow_id=$1 ORDER BY version DESC`, id)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -106,7 +106,7 @@ func (s *server) createFlowDraft(w http.ResponseWriter, r *http.Request) {
 		 SELECT $1, $2, $3, COALESCE(MAX(version),0)+1, $4, 'draft', $5
 		 FROM flow_versions WHERE flow_id=$2 RETURNING version`,
 		verID, id, auth.Tenant(r), def, auth.User(r)).Scan(&ver); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "flow.draft", id, map[string]any{"version": ver})
@@ -132,27 +132,27 @@ func (s *server) setPublished(w http.ResponseWriter, r *http.Request, flowID str
 	}
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return false
 	}
 	defer tx.Rollback(r.Context())
 	if _, err := tx.Exec(r.Context(),
 		`UPDATE flow_versions SET status='archived' WHERE flow_id=$1 AND status='published'`, flowID); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return false
 	}
 	if _, err := tx.Exec(r.Context(),
 		`UPDATE flow_versions SET status='published', published_at=now() WHERE id=$1`, verID); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return false
 	}
 	if _, err := tx.Exec(r.Context(),
 		`UPDATE flows SET published_version_id=$1 WHERE id=$2`, verID, flowID); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return false
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return false
 	}
 	return true
@@ -236,7 +236,7 @@ func (s *server) simulateFlow(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY observed_at LIMIT 10000`,
 		auth.Tenant(r), in.Definition.Trig().DeviceID, in.Definition.Trig().PointID, in.Hours)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	var readings []flow.Reading
