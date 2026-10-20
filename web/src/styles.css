@@ -84,7 +84,7 @@ pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: 
   main { min-width: 0; }
   nav { position: static; height: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
   nav .brand { width: 100%; margin-bottom: 8px; }
-  main { padding: 22px 18px; }
+  main { padding: 22px 18px 90px; }
 }
 
 /* commissioning wizard */
