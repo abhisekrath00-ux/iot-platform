@@ -159,15 +159,18 @@ func (s *server) ingestBatch(w http.ResponseWriter, r *http.Request, tenant, dev
 	}
 	br := s.st.Pool.SendBatch(ctx, batch)
 	for _, g := range good {
-		if _, err := br.Exec(); err != nil {
+		ct, err := br.Exec()
+		if err != nil {
 			rejected = append(rejected, rej{g.idx, "store error"})
 			continue
 		}
 		accepted++
-		if s.pos != nil {
-			// Live position: a reading on a configured position point moves
-			// the device on the map. Metadata only, never an ingest error.
-			_ = s.pos.Track(ctx, tenant, in.DeviceID, g.t.PointID, g.t.Value)
+		if s.pos != nil && ct.RowsAffected() == 1 {
+			// Live position: a newly stored reading on a configured position
+			// point moves the device on the map (the tracker itself drops
+			// stale and out-of-order fixes). Metadata, never an ingest error.
+			at, _ := g.t.ObservedAt.(time.Time)
+			_ = s.pos.Track(ctx, tenant, in.DeviceID, g.t.PointID, g.t.Value, at)
 		}
 		rules.Evaluate(ctx, s.st.Pool, n, tenant, in.DeviceID, g.t.PointID, g.t.Value)
 		flow.EvaluateWith(ctx, s.st.Pool, n, fnRunner, tenant, in.DeviceID, g.t.PointID, g.t.Value)
