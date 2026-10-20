@@ -2,7 +2,11 @@
 // Template numbers come from docs/devices/*.md (never run on real hardware).
 
 export interface TplPoint { id: string; register: number; unit: string; min: number; max: number; scale?: number; type?: string; }
-export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; func: number; type: string; word_order: string; points: TplPoint[]; note: string; provisional?: string; }
+export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; func: number; type: string; word_order: string; points: TplPoint[]; note: string; provisional?: string;
+  // wordOrderUnverified: the vendor documents do not state the multi-register word order, so the
+  // template's word_order is only a suggestion - the UI must make the installer choose it explicitly
+  // (from their exact model's documentation or a live display check) before any YAML is generated.
+  wordOrderUnverified?: boolean; }
 
 const p = (id: string, register: number, unit: string, min: number, max: number): TplPoint => ({ id, register, unit, min, max });
 // ps adds an explicit scale and/or type for scaled-integer maps (e.g. Socomec U32 in V 10e-2);
@@ -123,8 +127,9 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   },
   {
     id: 'abb-m4m', name: 'ABB M4M 20/30 (three-phase network analyzer)', link: 'rtu', func: 3, type: 'u32', word_order: 'abcd',
-    note: 'Map workbook 9AKK107492A7627 v1.3O covers the M4M 20/30 family (docs/devices/abb-m4m.md). FC 03 (holding registers), NOT FC 04. M4M 30 Ethernet speaks Modbus TCP with the same map. UINT64 energy counters excluded (driver has no u64/i64). Read-only; never run on a real meter.',
-    provisional: 'Two evidence classes, separated honestly. (1) ABB\'s official Modbus manual directly supports only the FC-03 function code and the L1-voltage address 0x5B02 (its worked example). (2) Every other address, every scale (x0.1 V; x0.01 A/W/var/VA/Hz; x0.001 PF) and the ABCD word order come from ABB\'s map workbook 9AKK107492A7627 v1.3O (2023-10-23, M4M 20/30 family; some registers need firmware P1.3.10.0 or later) as re-typed by a third-party mirror - not re-verified line-by-line against ABB\'s file. Confirming here verifies nothing: it only records that you take responsibility. Do not rely on a point until you have checked it against the meter display or ABB\'s workbook for your exact model and firmware, and correct or drop any point whose values disagree.',
+    wordOrderUnverified: true,
+    note: 'Every address, scale and signed/unsigned type verified line-by-line against ABB\'s official workbook 9AKK107492A7627 v1.3O, M4M 20/30 all versions (docs/devices/abb-m4m.md). FC 03 (holding registers), NOT FC 04. M4M 30 Ethernet speaks Modbus TCP with the same map. UINT64 energy counters excluded (driver has no u64/i64). Read-only; never run on a real meter.',
+    provisional: 'Addresses, scales and types are verified against ABB\'s official workbook 9AKK107492A7627 v1.3O. ABB\'s documents do NOT state the multi-register word order, so no default is trusted: choose the word order yourself below - from your exact model\'s documentation, or by comparing one 32-bit reading (e.g. L1 voltage) against the meter display and picking the order that matches. The mirror\'s "abcd" claim is not adopted as fact. Single-register points (frequency, power factors) are unaffected by word order.',
     points: [
       ps('v_sys_ln', 23296, 'V', 0, 1000, 0.1),
       ps('v1n', 23298, 'V', 0, 1000, 0.1), ps('v2n', 23300, 'V', 0, 1000, 0.1), ps('v3n', 23302, 'V', 0, 1000, 0.1),
@@ -143,7 +148,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
 
 export interface DeviceInput {
   deviceId: string; templateId: string; link: 'rtu' | 'tcp';
-  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; host?: string; tcpPort?: number; address: number; intervalSec: number; provisionalConfirmed?: boolean;
+  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; host?: string; tcpPort?: number; address: number; intervalSec: number; provisionalConfirmed?: boolean; wordOrder?: string;
 }
 
 export function validateDevice(d: DeviceInput): string[] {
@@ -152,6 +157,7 @@ export function validateDevice(d: DeviceInput): string[] {
   const tpl = EDGE_TEMPLATES.find((t) => t.id === d.templateId);
   if (!tpl) e.push('Pick a template.');
   if (tpl?.provisional && !d.provisionalConfirmed) e.push(`Provisional template: ${tpl.provisional}`);
+  if (tpl?.wordOrderUnverified && !d.wordOrder) e.push('Word order: the vendor does not document it - choose it explicitly from your model\'s documentation or a display check against the meter.');
   if (!Number.isInteger(d.address) || d.address < 1 || d.address > 247) e.push('Modbus address must be 1-247.');
   if (!(d.intervalSec >= 1 && d.intervalSec <= 3600)) e.push('Read interval must be 1-3600 seconds.');
   if (d.link === 'rtu') {
@@ -177,7 +183,7 @@ export function deviceYaml(d: DeviceInput): string {
   }
   L.push(`    address: ${d.address}`, `    interval: ${d.intervalSec}s`, '    points:');
   for (const x of t.points) {
-    L.push(`      - {id: ${x.id}, register: ${x.register}, func: ${t.func}, type: ${x.type ?? t.type}, word_order: ${t.word_order}, scale: ${x.scale ?? 1}, unit: "${x.unit}", min: ${x.min}, max: ${x.max}}`);
+    L.push(`      - {id: ${x.id}, register: ${x.register}, func: ${t.func}, type: ${x.type ?? t.type}, word_order: ${d.wordOrder ?? t.word_order}, scale: ${x.scale ?? 1}, unit: "${x.unit}", min: ${x.min}, max: ${x.max}}`);
   }
   return L.join('\n') + '\n';
 }
