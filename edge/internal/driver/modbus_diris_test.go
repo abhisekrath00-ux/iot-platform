@@ -19,9 +19,9 @@ func TestDIRISA40MapDecodesScaledIntegers(t *testing.T) {
 		regs[addr+1] = uint16(v)
 	}
 	regs := map[int]uint16{}
-	put32(regs, 18444, 23050)   // v1n: 230.50 V at scale 0.01
-	put32(regs, 18458, 4250)    // i1: 4.250 A at scale 0.001
-	put32(regs, 18442, 49980)   // freq: 49.980 Hz at scale 0.001
+	put32(regs, 18444, 23050)      // v1n: 230.50 V at scale 0.01
+	put32(regs, 18458, 4250)       // i1: 4.250 A at scale 0.001
+	put32(regs, 18442, 49980)      // freq: 49.980 Hz at scale 0.001
 	put32(regs, 18476, 0xFFFFC486) // p_total: S32 -15226 W at scale 1
 	regs[18518] = uint16(0xFC25)   // pf1: S16 -987 -> -0.987 at scale 0.001
 	fp := &fakePort{regs: regs}
