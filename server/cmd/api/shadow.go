@@ -73,7 +73,7 @@ func (s *server) getShadow(w http.ResponseWriter, r *http.Request) {
 		 FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND observed_at > now() - interval '7 days'
 		 ORDER BY point_id, observed_at DESC`, tenant, id)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -124,7 +124,7 @@ func (s *server) setDeviceAttributes(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ct, err := s.st.Pool.Exec(r.Context(), `UPDATE devices SET attributes=$1 WHERE id=$2 AND tenant_id=$3`, raw, id, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if ct.RowsAffected() == 0 {
