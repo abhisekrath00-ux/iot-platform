@@ -237,6 +237,41 @@ describe('edge setup', () => {
     expect(y).toContain('register: 62'); // 0x3E = 62 (L1-L2 voltage): hex addresses land as decimal in YAML
     expect(y).toContain('scale: 0.1'); expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
   });
+  it('eaton-iq250-260 registers match the official IB02601006E map (docs/devices/eaton-iq250-260-pxm2000.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'eaton-iq250-260')!;
+    expect(t.link).toBe('rtu'); // same holding-register map applies over TCP with the Ethernet option
+    expect(t.func).toBe(3); // the doc's B-3 note: holding registers only
+    expect(t.type).toBe('f32');
+    expect(t.word_order).toBe('abcd'); // B-1: lower-addressed register is the high-order half; B-2 worked example C4E1 1DB9 = -1800.929
+    expect(t.wordOrderUnverified).toBeUndefined();
+    expect(t.pduBaseUnverified).toBeUndefined(); // B-3: hex column is the wire address (serial number hex 0008 = SCADA 40009 - 40001)
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.provisional).toBeUndefined();
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('va_n').register).toBe(0x03E7); // decimal 1000-1001 in the doc's 1-based column
+    expect(pt('vc_a').register).toBe(0x03F1);
+    expect(pt('ia').register).toBe(0x03F3);
+    expect(pt('p_total').register).toBe(0x03F9);
+    expect(pt('pf_total').register).toBe(0x03FF);
+    expect(pt('freq').register).toBe(0x0401);
+    expect(pt('freq').max).toBe(65); // doc range 0 to 65.00
+    expect(pt('i_n').register).toBe(0x0403);
+    expect(pt('p_a').register).toBe(0x0405);
+    expect(pt('pf_c').register).toBe(0x041B);
+    // energy counters are documented SINT32 (signedness vendor-stated), read raw per the programmed energy format
+    expect(pt('energy_received').register).toBe(0x05DB);
+    expect(pt('energy_received').type).toBe('i32');
+    expect(pt('vah_total').register).toBe(0x05EB);
+    expect(pt('varh_total').type).toBe('i32');
+    // readings floats have no per-point type override (fall back to template f32)
+    expect(pt('va_n').type).toBeUndefined();
+    // no duplicate or overlapping 2-register spans
+    const used = new Set<number>();
+    for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
+    const y = deviceYaml({ deviceId: 'iq-1', templateId: 'eaton-iq250-260', link: 'rtu', port: '/dev/ttyUSB0', baud: 9600, parity: 'none', address: 1, intervalSec: 5 });
+    expect(y).toContain('register: 999'); // 0x03E7 = 999 (Volts A-N): hex wire addresses land as decimal in YAML
+    expect(y).toContain('func: 3'); expect(y).toContain('type: f32'); expect(y).toContain('type: i32'); expect(y).toContain('word_order: abcd');
+  });
   it('carlo-gavazzi-em340 registers match EM300 series communication protocol CP (docs/devices/carlo-gavazzi-em340.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'carlo-gavazzi-em340')!;
     expect(t.word_order).toBe('cdab'); // LSW->MSW per the protocol doc
