@@ -59,6 +59,8 @@ func regCount(typ string) (int, error) {
 		return 1, nil
 	case "u32", "i32", "f32":
 		return 2, nil
+	case "f64":
+		return 4, nil
 	}
 	return 0, fmt.Errorf("unknown type %q", typ)
 }
@@ -101,6 +103,8 @@ func decodeWords(words []uint16, typ, order string) (float64, error) {
 		return float64(int32(binary.BigEndian.Uint32(b))), nil
 	case "f32":
 		return float64(math.Float32frombits(binary.BigEndian.Uint32(b))), nil
+	case "f64":
+		return math.Float64frombits(binary.BigEndian.Uint64(b)), nil
 	}
 	return 0, fmt.Errorf("unknown type %q", typ)
 }
