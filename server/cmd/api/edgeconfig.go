@@ -292,7 +292,7 @@ func (s *server) gatewayEdgeConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	devs, err := s.gatewayEdgeDevices(r, tenant, gw)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "gateway.edge_config.download", gw, nil)
