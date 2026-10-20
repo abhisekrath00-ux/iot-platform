@@ -7,11 +7,11 @@ const GUIDES: Record<string, { title: string; steps: string[]; note?: string }> 
     title: 'Slack setup (one time)',
     steps: [
       'Create a Slack app: open https://api.slack.com/apps and create a new app ("Blank app"/"From scratch"), name it (for example "Site alerts"), pick your workspace.',
-      'In the app, open "OAuth & Permissions" and add the Bot Token Scope chat:write (post messages). Add channels:read and groups:read only if you want to list channel IDs through the API - not needed otherwise.',
+      'In the app, open "OAuth & Permissions" and add the Bot Token Scope chat:write (post messages). Add channels:read and groups:read too - the Find channels picker below needs them to list your channels.',
       'Press "Install to Workspace" and copy the "Bot User OAuth Token" (usually starts with xoxb-).',
       'Give the token to your platform operator - they set SLACK_BOT_TOKEN on the server. Never paste the token into this page.',
       'Invite the bot to your channel: type /invite @YourBotName inside the channel. Slack does not let a bot post to a channel it has not joined.',
-      'Find the channel ID: open the channel, click its name at the top - the ID is at the bottom of the dialog (starts with C, or G for private channels). Paste it in the field above.',
+      'Find the channel ID: press Find channels below and pick from the list the bot can see, or open the channel in Slack, click its name at the top - the ID is at the bottom of the dialog (starts with C, or G for private channels). Paste it in the field above.',
       'Add the channel here, press Send test, and Enable it once the test message arrives.',
     ],
     note: 'By default the server talks to https://slack.com/api. The operator can point SLACK_API_BASE at any Slack-compatible API endpoint instead (for example an internal relay) if your deployment needs one.',
