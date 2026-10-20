@@ -24,10 +24,12 @@ test('admin sees guided Slack setup steps with the live inbound URL', async () =
   expect(t).toContain('Slack setup steps');
   expect(t).toContain('/v1/assistant/inbound/slack/t1');
   expect(t).toContain('Signing Secret');
+  expect(t).not.toContain('about 10 minutes');
+  expect(t).not.toContain('docs/assistant-slack-email-setup.md');
   expect(t).toContain('message.im');
   expect(t).toContain('SLACK_BOT_TOKEN');
   expect(t).toContain('Copy member ID');
-  expect(t).toContain('Direct messages only');
+  expect(t).toContain('Only direct-message events are accepted');
 });
 
 test('admin sees guided email setup steps with the contract and the live inbound URL', async () => {
