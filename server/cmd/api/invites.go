@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
@@ -188,9 +187,7 @@ func (s *server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unavailable", 503)
 		return
 	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{TenantID: tenant, Role: role,
-		RegisteredClaims: jwt.RegisteredClaims{Subject: uid, IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(time.Now().Add(12 * time.Hour))}})
-	signed, err := tok.SignedString(s.secret)
+	signed, err := s.sessionToken(tenant, role, uid, s.startSession(r, tenant, uid))
 	if err != nil {
 		http.Error(w, "token", 500)
 		return
