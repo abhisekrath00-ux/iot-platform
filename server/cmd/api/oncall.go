@@ -15,7 +15,7 @@ import (
 func (s *server) listOnCall(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(), `SELECT id,name,anchor,shift_hours,channel_ids FROM oncall_schedules WHERE tenant_id=$1 ORDER BY name`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
