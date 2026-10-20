@@ -39,6 +39,28 @@ func (s *server) listAssets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
+// GET /v1/assets/{id}/device-count returns the exact size of the asset's
+// device subtree under the caller's tenant and customer scope, so a viewer
+// can tell a capped device list (the 1000-row list limit) from a complete
+// one instead of silently filtering against a partial subtree.
+func (s *server) getAssetDeviceCount(w http.ResponseWriter, r *http.Request) {
+	var n int
+	err := s.st.Pool.QueryRow(r.Context(),
+		`WITH RECURSIVE sub AS (
+		   SELECT id FROM assets WHERE tenant_id=$1 AND id=$2
+		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
+		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($3,'')", 1)+`
+		 SELECT count(*) FROM devices d
+		 WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub)
+		   AND ($3='' OR d.customer_id IN (SELECT id FROM csub))`,
+		auth.Tenant(r), r.PathValue("id"), scopeOf(r)).Scan(&n)
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"count": n})
+}
+
 // assetDepth returns how many ancestors an asset has (0 for a root) and
 // whether it exists for this tenant. Bounded loop, so bad data cannot hang it.
 func (s *server) assetDepth(r *http.Request, id string) (int, bool) {
