@@ -28,6 +28,8 @@ export default function Settings() {
   const [tgChats, setTgChats] = useState<{ id: string; type: string; title: string }[] | null>(null);
   const [tgMsg, setTgMsg] = useState('');
   const [tgCode, setTgCode] = useState('');
+  const [slChannels, setSlChannels] = useState<{ id: string; name: string; is_member: boolean; is_private: boolean }[] | null>(null);
+  const [slMsg, setSlMsg] = useState('');
   const [bName, setBName] = useState('');
   const [bAccent, setBAccent] = useState('');
   const [bMsg, setBMsg] = useState('');
@@ -77,6 +79,24 @@ export default function Settings() {
     } catch (e) { setTgMsg(friendlyTgError(e)); }
   }
 
+  function friendlySlError(e: unknown): string {
+    const m = String(e);
+    if (m.includes('429') || m.includes('wait a few seconds')) return 'One moment - wait about 10 seconds, then press Find channels again.';
+    if (m.includes('409') || m.includes('not configured')) return 'Slack is not configured on this deployment yet. Your platform operator sets SLACK_BOT_TOKEN on the server.';
+    return m;
+  }
+  async function findSlChannels() {
+    setSlMsg('Looking up channels...'); setSlChannels(null);
+    try {
+      const r = await api<{ channels: { id: string; name: string; is_member: boolean; is_private: boolean }[]; error?: string }>('/v1/notifications/slack/channels');
+      if (r.error) { setSlMsg(friendlySlError(r.error)); return; }
+      setSlChannels(r.channels);
+      if (r.channels.length === 0) {
+        setSlMsg('The bot cannot see any channels yet. Invite it to a channel in Slack (type /invite @YourBotName inside the channel), then press Find channels again.');
+      } else { setSlMsg(''); }
+    } catch (e) { setSlMsg(friendlySlError(e)); }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMsg('');
@@ -104,6 +124,29 @@ export default function Settings() {
           <input value={target} onChange={e => setTarget(e.target.value)} placeholder={({ email: 'ops@yourcompany.com', slack: 'C0123456789', webhook: 'https://example.com/hook', teams: 'https://prod-XX.westus.logic.azure.com/workflows/... (from the Workflows app)', sms: '+4915112345678', whatsapp: '+919812345678', telegram: '-1001234567890 (a group) or 123456789 (a person)' } as Record<string, string>)[type]} required />
           {targetHint(type, target) && <div className="muted" role="status" style={{ marginTop: 4 }}>{targetHint(type, target)}</div>}
           {type !== 'telegram' && <ChannelGuide type={type} />}
+          {type === 'slack' && (
+            <div className="muted" style={{ marginTop: 6 }}>
+              <p style={{ marginTop: 0 }}>Skip the ID hunt in step 6: press Find channels to list every channel the bot can see, then press Use this channel to fill in the field.</p>
+              <p><button type="button" className="ghost" onClick={findSlChannels}>Find channels</button></p>
+              {slMsg && <p>{slMsg}</p>}
+              {slChannels && slChannels.length > 0 && (
+                <div data-testid="sl-channel-review" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                  {slChannels.map(c => (
+                    <div key={c.id} data-testid="sl-channel-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: '10px 12px' }}>
+                      <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>#{c.name || c.id}</div>
+                      <div className="muted" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{c.is_private ? 'private channel' : 'public channel'} - id {c.id}</div>
+                      {!c.is_member && (
+                        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>The bot is not a member of this channel - invite it first (/invite @YourBotName) or the test message will fail.</div>
+                      )}
+                      <div style={{ marginTop: 8 }}>
+                        <button type="button" className="ghost" onClick={() => { setTarget(c.id); setSlChannels(null); setSlMsg(''); }}>Use this channel</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {type === 'telegram' && (
             <div className="muted" style={{ marginTop: 6 }}>
               <p style={{ marginTop: 0 }}>
