@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import ApiKeys from '../components/ApiKeys';
 import RetentionCard from '../components/RetentionCard';
@@ -24,6 +24,7 @@ export default function Settings() {
   const [type, setType] = useState('email');
   const [target, setTarget] = useState('');
   const [msg, setMsg] = useState('');
+  const [testMsg, setTestMsg] = useState<Record<string, string>>({});
   const [tgChats, setTgChats] = useState<{ id: string; type: string; title: string }[] | null>(null);
   const [tgMsg, setTgMsg] = useState('');
   const [tgCode, setTgCode] = useState('');
@@ -35,14 +36,14 @@ export default function Settings() {
   useEffect(() => { load(); api<{ product_name: string; accent: string }>('/v1/branding').then(b => { setBName(b.product_name); setBAccent(b.accent); }).catch(() => {}); }, []);
 
   async function testCh(c: Channel) {
-    setMsg(`Sending a test to ${c.type} ${c.target}...`);
+    setTestMsg(m => ({ ...m, [c.id]: 'Sending a test...' }));
     try {
       const r = await api<{ ok: boolean; error?: string }>(`/v1/notifications/channels/${c.id}/test`, { method: 'POST' });
-      setMsg(r.ok ? `Test sent to ${c.target}. Check that it arrived.` : `Test failed: ${r.error}`);
-    } catch (e) { setMsg(String(e)); }
+      setTestMsg(m => ({ ...m, [c.id]: r.ok ? 'Test sent. Check that it arrived, then press Enable.' : `Test failed: ${r.error}` }));
+    } catch (e) { setTestMsg(m => ({ ...m, [c.id]: String(e) })); }
   }
   async function toggleCh(c: Channel) {
-    try { await api(`/v1/notifications/channels/${c.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !c.enabled }) }); load(); } catch (e) { setMsg(String(e)); }
+    try { await api(`/v1/notifications/channels/${c.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !c.enabled }) }); setTestMsg(m => { const n = { ...m }; delete n[c.id]; return n; }); load(); } catch (e) { setMsg(String(e)); }
   }
   async function delCh(c: Channel) {
     if (!window.confirm(`Delete the ${c.type} channel ${c.target}?`)) return;
@@ -79,9 +80,11 @@ export default function Settings() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMsg('');
+    const t = target;
     try {
       await api('/v1/notifications/channels', { method: 'POST', body: JSON.stringify({ type, target }) });
       setTarget('');
+      setMsg(`Added ${type} channel ${t}. It is off: press Send test on its row, check the test arrived, then press Enable.`);
       load();
     } catch (e2) { setMsg(String(e2)); }
   }
@@ -145,17 +148,21 @@ export default function Settings() {
           <div style={{ marginTop: 14 }}><button type="submit">Add channel</button></div>
         </form>
         {msg && <p className="muted">{msg}</p>}
+        {channels.length > 0 && (
         <table style={{ marginTop: 16 }}>
           <thead><tr><th>Type</th><th>Target</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {channels.map(c => <tr key={c.id}><td>{c.type}</td><td>{c.target}</td><td className="muted">{c.enabled ? 'on' : 'off'}</td>
+            {channels.map(c => <Fragment key={c.id}><tr><td>{c.type}</td><td>{c.target}</td><td className="muted">{c.enabled ? 'on' : 'off'}</td>
               <td style={{ whiteSpace: 'nowrap' }}>
                 <button type="button" className="ghost" onClick={() => testCh(c)}>Send test</button>{' '}
                 <button type="button" className="ghost" onClick={() => toggleCh(c)}>{c.enabled ? 'Disable' : 'Enable'}</button>{' '}
                 <button type="button" className="ghost" onClick={() => delCh(c)}>Delete</button>
-              </td></tr>)}
+              </td></tr>
+              {testMsg[c.id] && <tr><td colSpan={4} className="muted" role="status" data-testid={`test-result-${c.id}`} style={{ fontSize: 12, paddingTop: 0 }}>{testMsg[c.id]}</td></tr>}
+            </Fragment>)}
           </tbody>
         </table>
+        )}
       </div>
       <div className="card" style={{ maxWidth: 640, margin: '20px 0' }}>
         <b>Branding</b>
