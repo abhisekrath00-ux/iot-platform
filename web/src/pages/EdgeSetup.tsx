@@ -15,7 +15,7 @@ export default function EdgeSetup() {
   const [sites, setSites] = useState<Site[]>([]);
   const [site, setSite] = useState('');
   const [serial, setSerial] = useState('');
-  const [dev, setDev] = useState<DeviceInput>({ deviceId: 'meter-1', templateId: EDGE_TEMPLATES[0].id, link: 'rtu', port: '/dev/ttyUSB0', baud: 9600, parity: 'none', host: '', tcpPort: 502, address: 1, intervalSec: 10 });
+  const [dev, setDev] = useState<DeviceInput>({ deviceId: 'meter-1', templateId: EDGE_TEMPLATES[0].id, link: 'rtu', port: '/dev/ttyUSB0', baud: 9600, parity: 'none', stopBits: 1, host: '', tcpPort: 502, address: 1, intervalSec: 10 });
   const [minted, setMinted] = useState<Minted | null>(null);
   const [gw, setGw] = useState<Gw | null>(null);
   const [msg, setMsg] = useState('');
@@ -57,13 +57,15 @@ export default function EdgeSetup() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
           <label>Site<select value={site} onChange={(e) => setSite(e.target.value)}>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
           <label>Edge box serial or name<input value={serial} onChange={(e) => setSerial(e.target.value)} placeholder="e.g. HX-PLANT1-01" /></label>
-          <label>Sensor template<select value={dev.templateId} onChange={(e) => setDev({ ...dev, templateId: e.target.value, provisionalConfirmed: false, wordOrder: undefined, pduBase: undefined, readFunc: undefined })}>{EDGE_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name}{t.provisional ? ' (provisional)' : ''}</option>)}</select></label>
+          <label>Sensor template<select value={dev.templateId} onChange={(e) => { const nt = EDGE_TEMPLATES.find((t) => t.id === e.target.value); setDev({ ...dev, templateId: e.target.value, provisionalConfirmed: false, wordOrder: undefined, pduBase: undefined, readFunc: undefined, stopBits: nt?.stopBits ?? 1 }); }}>{EDGE_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name}{t.provisional ? ' (provisional)' : ''}</option>)}</select></label>
           <label>Device id<input value={dev.deviceId} onChange={(e) => setDev({ ...dev, deviceId: e.target.value })} /></label>
           <label>Connection<select value={dev.link} onChange={(e) => setDev({ ...dev, link: e.target.value as 'rtu' | 'tcp' })}><option value="rtu">RS-485 serial (Modbus RTU)</option><option value="tcp">Network (Modbus TCP)</option></select></label>
           {dev.link === 'rtu' ? <>
             <label>Serial port<input value={dev.port} onChange={(e) => setDev({ ...dev, port: e.target.value })} /></label>
             <label>Baud<select value={dev.baud} onChange={num('baud')}>{[1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].map((b) => <option key={b}>{b}</option>)}</select></label>
             <label>Parity<select value={dev.parity} onChange={(e) => setDev({ ...dev, parity: e.target.value as 'none' })}><option>none</option><option>even</option><option>odd</option></select></label>
+            <label>Stop bits<select value={dev.stopBits ?? 1} onChange={num('stopBits')}><option value={1}>1</option><option value={2}>2</option></select></label>
+            {tpl.stopBits ? <p className="muted" style={{ fontSize: 12, margin: 0 }}>{tpl.stopBits} stop bits are vendor-documented for this device - preset from its manual. Check your exact model.</p> : null}
           </> : <>
             <label>Host or IP<input value={dev.host} onChange={(e) => setDev({ ...dev, host: e.target.value })} /></label>
             <label>TCP port<input type="number" value={dev.tcpPort} onChange={num('tcpPort')} /></label>
