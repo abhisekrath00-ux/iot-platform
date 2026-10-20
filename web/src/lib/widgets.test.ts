@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { thresholdState, fraction, freshness, optNum, spanOf, moveItem, summarize, indicatorOn } from './widgets';
+import { thresholdState, fraction, freshness, optNum, spanOf, moveItem, summarize, indicatorOn, filterWidgetsByAsset, Widget } from './widgets';
 
 describe('widget logic', () => {
   it('threshold state: crit beats warn, none when no value', () => {
@@ -64,5 +64,20 @@ describe('widget library additions', () => {
   it('table is wide by default', () => {
     expect(spanOf({ type: 'table' })).toBe(2);
     expect(spanOf({ type: 'stat' })).toBe(1);
+  });
+});
+
+describe('filterWidgetsByAsset', () => {
+  const w = (id: string, device_id: string): Widget => ({ id, type: 'kpi', title: id, device_id });
+  const widgets = [w('a', 'dev-1'), w('b', 'dev-2'), w('note', ''), w('alarms', '')];
+  it('passes everything through with no filter', () => {
+    expect(filterWidgetsByAsset(widgets, null)).toHaveLength(4);
+  });
+  it('keeps only devices under the asset, plus unbound widgets', () => {
+    const vis = filterWidgetsByAsset(widgets, new Set(['dev-2']));
+    expect(vis.map(x => x.id)).toEqual(['b', 'note', 'alarms']);
+  });
+  it('an empty subtree leaves only unbound widgets', () => {
+    expect(filterWidgetsByAsset(widgets, new Set()).map(x => x.id)).toEqual(['note', 'alarms']);
   });
 });
