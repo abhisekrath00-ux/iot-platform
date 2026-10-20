@@ -74,6 +74,45 @@ func (n *Notifier) Slack(ctx context.Context, channel, text string) error {
 	return nil
 }
 
+// SlackChannel is one workspace channel the bot token can see.
+type SlackChannel struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	IsMember  bool   `json:"is_member"`
+	IsPrivate bool   `json:"is_private"`
+}
+
+// SlackChannels lists the workspace channels the bot token can see (conversations.list), so the
+// settings page can offer a picker instead of making the operator copy a channel ID by hand.
+// Slack answers application-level failures with HTTP 200 and ok:false, so check ok, not the status.
+func (n *Notifier) SlackChannels(ctx context.Context) ([]SlackChannel, error) {
+	if n.slackToken == "" {
+		return nil, fmt.Errorf("slack not configured")
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", n.slackBase+"/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200", nil)
+	req.Header.Set("Authorization", "Bearer "+n.slackToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK       bool           `json:"ok"`
+		Error    string         `json:"error"`
+		Channels []SlackChannel `json:"channels"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if !out.OK {
+		return nil, fmt.Errorf("slack: %s", out.Error)
+	}
+	return out.Channels, nil
+}
+
+// SlackConfigured reports whether a bot token is set (SLACK_BOT_TOKEN).
+func SlackConfigured() bool { return os.Getenv("SLACK_BOT_TOKEN") != "" }
+
 // Configured reports whether outgoing mail is set up (SMTP_HOST and ALERT_FROM_EMAIL). Mail is optional and
 // off by default: an air-gapped deployment with no relay simply has no email features.
 func (n *Notifier) Configured() bool { return n.smtpHost != "" && n.from != "" }
