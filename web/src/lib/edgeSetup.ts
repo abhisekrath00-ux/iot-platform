@@ -13,7 +13,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   {
     id: 'selec-mx300', name: 'Selec MX300-1-C-CE (single-phase meter)', link: 'rtu', func: 4, type: 'f32', word_order: 'abcd',
     note: 'From the manufacturer leaflet. Factory serial 9600 8N1, address 1. Power units unverified. Never run on a real meter.',
-    points: [p('voltage', 0, 'V', 0, 600000), p('current', 2, 'A', 0, 10000), p('active_power', 4, 'kW', -1e6, 1e6), p('reactive_power', 6, 'kvar', -1e6, 1e6), p('apparent_power', 8, 'kVA', 0, 1e6), p('power_factor', 10, '', -1, 1), p('frequency', 12, 'Hz', 0, 65)],
+    points: [p('voltage', 0, 'V', 0, 600000), p('current', 2, 'A', 0, 10000), p('active_power', 4, 'kW', -1e6, 1e6), ps('reactive_power', 6, 'kvar', -1e6, 1e6), ps('apparent_power', 8, 'kVA', 0, 1e6), p('power_factor', 10, '', -1, 1), p('frequency', 12, 'Hz', 0, 65)],
   },
   {
     id: 'selec-mfm383a', name: 'Selec MFM383A-C (three-phase meter)', link: 'rtu', func: 4, type: 'f32', word_order: 'abcd',
@@ -46,7 +46,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     note: 'From the official SDM120Modbus Protocol V2.4 PDF (docs/devices/eastron-sdm120.md). Factory serial 2400 8N1 (NOT 9600 like the SDM630), address 1, no broadcast. Units as printed. Read-only; never run on a real meter.',
     points: [
       p('voltage', 0, 'V', 0, 1000), p('current', 6, 'A', 0, 1000),
-      p('active_power', 12, 'W', -1e7, 1e7), p('apparent_power', 18, 'VA', 0, 1e7), p('reactive_power', 24, 'VAr', -1e7, 1e7),
+      p('active_power', 12, 'W', -1e7, 1e7), ps('apparent_power', 18, 'VA', 0, 1e7), ps('reactive_power', 24, 'VAr', -1e7, 1e7),
       p('power_factor', 30, '', -1, 1), p('frequency', 70, 'Hz', 0, 70),
       p('kwh_import', 72, 'kWh', 0, 1e12), p('kwh_export', 74, 'kWh', 0, 1e12),
       p('kvarh_import', 76, 'kvarh', 0, 1e12), p('kvarh_export', 78, 'kvarh', 0, 1e12),
@@ -73,7 +73,33 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('pf1', 18518, '', -1, 1, 0.001, 'i16'), ps('pf2', 18519, '', -1, 1, 0.001, 'i16'), ps('pf3', 18520, '', -1, 1, 0.001, 'i16'),
     ],
   },
+  {
+    id: 'siemens-pac3200', name: 'Siemens SENTRON PAC3200 (three-phase power monitoring, Modbus TCP)', link: 'tcp', func: 4, type: 'f32', word_order: 'abcd',
+    note: 'From the official SENTRON PAC3200 manual A5E01168664B-04, table 3-6 (docs/devices/siemens-pac3200.md). Register numbers are the manual\'s 1-based offsets. Instantaneous values are Float; energy counters are Double (f64, 4 registers) - word order for doubles is not stated in the manual, standard big-endian assumed and flagged in the doc. Read-only: the writable counter resets and 50xxx config registers are excluded. Min/max history offsets 75-211 not in this template. Never run on a real meter.',
+    points: [
+      p('va_n', 1, 'V', 0, 1000), p('vb_n', 3, 'V', 0, 1000), p('vc_n', 5, 'V', 0, 1000),
+      p('va_b', 7, 'V', 0, 1000), p('vb_c', 9, 'V', 0, 1000), p('vc_a', 11, 'V', 0, 1000),
+      p('ia', 13, 'A', 0, 100000), p('ib', 15, 'A', 0, 100000), p('ic', 17, 'A', 0, 100000),
+      p('sa', 19, 'VA', 0, 1e9), p('sb', 21, 'VA', 0, 1e9), p('sc', 23, 'VA', 0, 1e9),
+      p('pa', 25, 'W', -1e9, 1e9), p('pb', 27, 'W', -1e9, 1e9), p('pc', 29, 'W', -1e9, 1e9),
+      p('qa', 31, 'var', -1e9, 1e9), p('qb', 33, 'var', -1e9, 1e9), p('qc', 35, 'var', -1e9, 1e9),
+      p('pfa', 37, '', 0, 1), p('pfb', 39, '', 0, 1), p('pfc', 41, '', 0, 1),
+      p('thd_va', 43, '%', 0, 100), p('thd_vb', 45, '%', 0, 100), p('thd_vc', 47, '%', 0, 100),
+      p('thd_ia', 49, '%', 0, 100), p('thd_ib', 51, '%', 0, 100), p('thd_ic', 53, '%', 0, 100),
+      p('freq', 55, 'Hz', 45, 65),
+      p('avg_vpn', 57, 'V', 0, 1000), p('avg_vpp', 59, 'V', 0, 1000), p('avg_i', 61, 'A', 0, 100000),
+      p('s_total', 63, 'VA', 0, 1e9), p('p_total', 65, 'W', -1e9, 1e9), p('q_total', 67, 'var', -1e9, 1e9), p('pf_total', 69, '', 0, 1),
+      p('unbal_v', 71, '%', 0, 100), p('unbal_i', 73, '%', 0, 200),
+      ps('work_hours', 213, 's', 0, 999999999, 1, 'u32'), ps('universal_counter', 215, '', 0, 999999999, 1, 'u32'),
+      ps('energy_import_t1', 801, 'Wh', 0, 1e12, 1, 'f64'), ps('energy_import_t2', 805, 'Wh', 0, 1e12, 1, 'f64'),
+      ps('energy_export_t1', 809, 'Wh', 0, 1e12, 1, 'f64'), ps('energy_export_t2', 813, 'Wh', 0, 1e12, 1, 'f64'),
+      ps('reactive_import_t1', 817, 'varh', 0, 1e12, 1, 'f64'), ps('reactive_import_t2', 821, 'varh', 0, 1e12, 1, 'f64'),
+      ps('reactive_export_t1', 825, 'varh', 0, 1e12, 1, 'f64'), ps('reactive_export_t2', 829, 'varh', 0, 1e12, 1, 'f64'),
+      ps('apparent_t1', 833, 'VAh', 0, 1e12, 1, 'f64'), ps('apparent_t2', 837, 'VAh', 0, 1e12, 1, 'f64'),
+    ],
+  },
 ];
+
 
 export interface DeviceInput {
   deviceId: string; templateId: string; link: 'rtu' | 'tcp';
