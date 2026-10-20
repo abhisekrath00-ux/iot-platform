@@ -203,6 +203,20 @@ func (s *server) slackChannels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"channels": chs, "truncated": truncated})
 }
 
+// GET /v1/notifications/email/status reports whether SMTP sending is configured on this
+// deployment, so the channel form can warn the admin BEFORE a failed Send test instead of
+// only after one. Admin only, never through an API key or the assistant. Local env check
+// only - no external call, no secret values returned, no rate limit needed.
+func (s *server) emailStatus(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin") || auth.ViaKey(r) {
+		if auth.ViaKey(r) {
+			http.Error(w, "not available to API keys or the assistant", http.StatusForbidden)
+		}
+		return
+	}
+	writeJSON(w, 200, map[string]any{"configured": notify.SMTPConfigured()})
+}
+
 // POST /v1/notifications/telegram/pair-code -> {"code": "...", "expires_in_minutes": 10}
 func (s *server) telegramPairCode(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin") || auth.ViaKey(r) {
