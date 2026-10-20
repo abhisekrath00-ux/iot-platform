@@ -78,7 +78,7 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	devs, err := s.gatewayEdgeDevices(r, tenant, gw)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	yml := devicesSection(renderEdgeYAML(tenant, gw, serial, devs))
@@ -94,7 +94,7 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.st.Pool.Exec(r.Context(),
 		`INSERT INTO gateway_config_pushes(id,tenant_id,gateway_id,version,devices_yaml,sha256,status,requested_by) VALUES($1,$2,$3,$4,$5,$6,'sent',$7)`,
 		id, tenant, gw, ver, yml, sha, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "gateway.config.push", gw, map[string]any{"push_id": id, "version": ver, "devices": len(devs)})
@@ -117,7 +117,7 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT id, version, status, detail, requested_by, sha256, created_at, updated_at FROM gateway_config_pushes WHERE tenant_id=$1 AND gateway_id=$2 ORDER BY version DESC LIMIT 20`, tenant, gw)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
