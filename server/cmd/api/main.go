@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -574,6 +575,19 @@ func seedDemo(ctx context.Context, st *store.Store) error {
 	return err
 }
 
+// dbErr logs the real error with the calling handler's name and answers with
+// a generic 500: raw database errors (schema names, SQLSTATE detail, query
+// text) are not for clients.
+func dbErr(w http.ResponseWriter, err error) {
+	pc, _, _, _ := runtime.Caller(1)
+	name := "handler"
+	if fn := runtime.FuncForPC(pc); fn != nil {
+		name = fn.Name()
+	}
+	log.Printf("%s: %v", name, err)
+	http.Error(w, "internal error", 500)
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -604,7 +618,7 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		   AND ($7='' OR customer_id IN (SELECT id FROM csub))
 		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw, asset, group, scopeOf(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -642,7 +656,7 @@ func (s *server) createDevice(w http.ResponseWriter, r *http.Request) {
 		   (SELECT 1 FROM gateways WHERE id=$3 AND tenant_id=$2)`,
 		id, auth.Tenant(r), in.GatewayID, in.Profile, in.Name, cfg)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "device.create", id, map[string]any{"profile": in.Profile, "name": in.Name})
@@ -660,7 +674,7 @@ func (s *server) latestTelemetry(w http.ResponseWriter, r *http.Request) {
 		 FROM telemetry WHERE tenant_id=$1 AND device_id=$2
 		 ORDER BY point_id, observed_at DESC`, auth.Tenant(r), device)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -697,7 +711,7 @@ func (s *server) countTelemetry(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.Pool.QueryRow(r.Context(),
 		`SELECT count(*) FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND received_at > $3`,
 		auth.Tenant(r), dev, since).Scan(&n); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"device_id": dev, "since": since, "count": n})
@@ -730,7 +744,7 @@ func (s *server) seriesTelemetry(w http.ResponseWriter, r *http.Request) {
 		}
 		bs, err := store.Aggregate(r.Context(), tsstore.SeriesQuery{Tenant: auth.Tenant(r), DeviceID: q.Get("device_id"), PointID: q.Get("point_id"), WindowHours: hours, GroupBy: gb})
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 		out := make([]map[string]any, 0, len(bs))
@@ -747,7 +761,7 @@ func (s *server) seriesTelemetry(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY observed_at LIMIT 5000`,
 		auth.Tenant(r), q.Get("device_id"), q.Get("point_id"), hours)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -782,7 +796,7 @@ func (s *server) requestCommand(w http.ResponseWriter, r *http.Request) {
 		 VALUES($1,$2,$3,$4,$5,$6,$7)`,
 		id, auth.Tenant(r), in.GatewayID, in.DeviceID, in.Action, params, auth.User(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "command.request", id, map[string]any{"action": in.Action, "device": in.DeviceID})
@@ -821,7 +835,7 @@ func (s *server) approveCommand(w http.ResponseWriter, r *http.Request) {
 		 WHERE request_id=$2 AND tenant_id=$3 AND status='pending_approval' AND requested_by<>$1`,
 		auth.User(r), id, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -892,7 +906,7 @@ func (s *server) listCommands(w http.ResponseWriter, r *http.Request) {
 		`SELECT request_id, device_id, action, status, requested_by, approved_by, created_at, reason, parameters::text
 		 FROM commands WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -931,7 +945,7 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		   AND ($5='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.customer_id IN (SELECT id FROM csub)))
 		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset, assigned, scopeOf(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -957,7 +971,7 @@ func (s *server) listDashboards(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.st.Pool.Query(r.Context(), q, args...)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -989,7 +1003,7 @@ func (s *server) saveDashboard(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO dashboards(id,tenant_id,name,layout,created_by) VALUES($1,$2,$3,$4,$5)`,
 		id, auth.Tenant(r), in.Name, in.Layout, auth.User(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "dashboard.create", id, map[string]any{"name": in.Name})
@@ -1018,7 +1032,7 @@ func (s *server) updateDashboard(w http.ResponseWriter, r *http.Request) {
 		`UPDATE dashboards SET name=$1, layout=$2 WHERE id=$3 AND tenant_id=$4`,
 		in.Name, in.Layout, id, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if res.RowsAffected() == 0 {
@@ -1038,7 +1052,7 @@ func (s *server) deleteDashboard(w http.ResponseWriter, r *http.Request) {
 	res, err := s.st.Pool.Exec(r.Context(),
 		`DELETE FROM dashboards WHERE id=$1 AND tenant_id=$2`, id, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if res.RowsAffected() == 0 {
@@ -1079,14 +1093,14 @@ func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 	}
 	code, err := enroll.NewCode()
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	tenant := auth.Tenant(r)
 	gwID := uuid.NewString()
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -1094,7 +1108,7 @@ func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO gateways(id,tenant_id,site_id,serial,status,kind)
 		 SELECT $1,$2,$3,$4,'pending',$5 WHERE EXISTS (SELECT 1 FROM sites WHERE id=$3 AND tenant_id=$2)`,
 		gwID, tenant, in.SiteID, in.Serial, in.Kind); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	expires := time.Now().Add(time.Duration(in.TTLHours) * time.Hour)
@@ -1102,11 +1116,11 @@ func (s *server) mintEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO enrollment_tokens(id,tenant_id,site_id,gateway_id,serial,code_hash,expires_at,created_by)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 		uuid.NewString(), tenant, in.SiteID, gwID, in.Serial, enroll.Hash(code), expires, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "enrollment.mint", gwID, map[string]any{"serial": in.Serial, "site_id": in.SiteID, "kind": in.Kind})
@@ -1213,7 +1227,7 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -1231,7 +1245,8 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 	if mtls {
 		certPEM, fp, err = pki.SignCSR(caCert, caKey, []byte(in.CSRPEM), in.Serial, 825)
 		if err != nil {
-			http.Error(w, "mtls CA could not sign the gateway CSR: "+err.Error(), 500)
+			log.Printf("enroll: mtls CA could not sign the gateway CSR: %v", err)
+			http.Error(w, "mtls CA could not sign the gateway CSR", 500)
 			return
 		}
 		_, err = tx.Exec(r.Context(),
@@ -1241,11 +1256,11 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 			`UPDATE gateways SET status='active', last_seen_at=now() WHERE id=$1`, gwID)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
@@ -1254,7 +1269,7 @@ func (s *server) claimEnrollment(w http.ResponseWriter, r *http.Request) {
 	})
 	signed, err := tok.SignedString(s.secret)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	resp := map[string]any{"gateway_id": gwID, "ingest_token": signed, "status": "active"}
@@ -1279,16 +1294,16 @@ func (s *server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	state, err := auth.RandomToken()
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	nonce, err := auth.RandomToken()
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if err := s.states.Put(state, nonce, 10*time.Minute); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	http.Redirect(w, r, s.oidc.AuthURL(state, nonce), http.StatusFound)
@@ -1328,7 +1343,7 @@ func (s *server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	})
 	signed, err := tok.SignedString(s.secret)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "auth.sso_login", userID, map[string]any{"email": ident.Email})
@@ -1373,7 +1388,7 @@ func (s *server) listProfiles(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, name, driver_profile, points, created_at FROM device_profiles WHERE tenant_id=$1 ORDER BY created_at DESC`,
 		auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -1420,7 +1435,7 @@ func (s *server) createProfile(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO device_profiles(id,tenant_id,name,driver_profile,points,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
 		id, auth.Tenant(r), name, in.DriverProfile, pts, auth.User(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "profile.create", id, map[string]any{"name": name, "driver_profile": in.DriverProfile})
@@ -1440,7 +1455,7 @@ func (s *server) listReports(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.st.Pool.Query(r.Context(), q, args...)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -1506,7 +1521,7 @@ func (s *server) createReport(w http.ResponseWriter, r *http.Request) {
 		   (SELECT 1 FROM notification_channels WHERE id=$6 AND tenant_id=$2)`,
 		id, auth.Tenant(r), name, def, cron, channelID, auth.User(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "report.create", id, map[string]any{"name": name})
@@ -1526,7 +1541,7 @@ func (s *server) runReport(w http.ResponseWriter, r *http.Request) {
 			writeReportBusy(w)
 			return
 		}
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"report_id": id, "status": "ok"})
@@ -1874,7 +1889,7 @@ func (s *server) listPoints(w http.ResponseWriter, r *http.Request) {
 		`SELECT d.id, d.name, p.id, COALESCE(p.unit,'') FROM devices d JOIN points p ON p.device_id=d.id
 		 WHERE d.tenant_id=$1 ORDER BY d.name, p.id LIMIT 5000`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -1906,7 +1921,7 @@ func (s *server) exportTelemetryCSV(w http.ResponseWriter, r *http.Request) {
 		   AND observed_at > now() - ($4 || ' hours')::interval
 		 ORDER BY observed_at LIMIT 200000`, auth.Tenant(r), dev, pt, fmt.Sprint(hours))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -1972,7 +1987,7 @@ func (s *server) listFlows(w http.ResponseWriter, r *http.Request) {
 		 WHERE f.tenant_id=$1 ORDER BY f.created_at DESC`,
 		auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -2028,14 +2043,14 @@ func (s *server) createFlow(w http.ResponseWriter, r *http.Request) {
 	verID := uuid.NewString()
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
 	if _, err := tx.Exec(r.Context(),
 		`INSERT INTO flows(id,tenant_id,name,definition,created_by) VALUES($1,$2,$3,$4,$5)`,
 		id, auth.Tenant(r), name, def, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	// ?draft=1 saves an unpublished draft (the graph editor uses this so a person
@@ -2045,7 +2060,7 @@ func (s *server) createFlow(w http.ResponseWriter, r *http.Request) {
 			`INSERT INTO flow_versions(id,flow_id,tenant_id,version,definition,status,created_by)
 			 VALUES($1,$2,$3,1,$4,'draft',$5)`,
 			verID, id, auth.Tenant(r), def, auth.User(r)); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 	} else {
@@ -2053,17 +2068,17 @@ func (s *server) createFlow(w http.ResponseWriter, r *http.Request) {
 			`INSERT INTO flow_versions(id,flow_id,tenant_id,version,definition,status,created_by,published_at)
 			 VALUES($1,$2,$3,1,$4,'published',$5,now())`,
 			verID, id, auth.Tenant(r), def, auth.User(r)); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 		if _, err := tx.Exec(r.Context(),
 			`UPDATE flows SET published_version_id=$1 WHERE id=$2`, verID, id); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "flow.create", id, map[string]any{"name": name})
@@ -2142,7 +2157,7 @@ func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT actor, action, target, detail, at FROM audit_log WHERE tenant_id=$1 ORDER BY at DESC LIMIT 200`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -2175,7 +2190,7 @@ func (s *server) listRules(w http.ResponseWriter, r *http.Request) {
 		        OR definition->>'asset_id' IN (SELECT id FROM up))
 		 ORDER BY created_at DESC`, auth.Tenant(r), asset)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -2233,7 +2248,7 @@ func (s *server) createRule(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
 		id, auth.Tenant(r), in.Name, in.Definition, in.Enabled, auth.User(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "rule.create", id, map[string]any{"name": in.Name, "enabled": in.Enabled})
@@ -2245,7 +2260,7 @@ func (s *server) listChannels(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT id, type, target, enabled FROM notification_channels WHERE tenant_id=$1`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -2321,7 +2336,7 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO notification_channels(id,tenant_id,type,target) VALUES($1,$2,$3,$4)`,
 		id, auth.Tenant(r), in.Type, in.Target)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "channel.create", id, map[string]any{"type": in.Type})
