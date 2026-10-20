@@ -26,6 +26,7 @@ export default function Flows() {
   const [flows, setFlows] = useState<FlowRow[]>([]);
   const [importMsg, setImportMsg] = useState('');
   const [profile, setProfile] = useState('');
+  const [ruleAsset, setRuleAsset] = useState('');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [fname, setFname] = useState('');
   const [fdevice, setFdevice] = useState('');
@@ -83,6 +84,7 @@ export default function Flows() {
           definition: {
             device_id: deviceId || undefined,
             profile: profile || undefined,
+            asset_id: ruleAsset || undefined,
             point_id: pointId,
             op,
             threshold: parseFloat(threshold),
@@ -109,6 +111,12 @@ export default function Flows() {
           <input value={deviceId} onChange={e => setDeviceId(e.target.value)} placeholder="meter-1" />
           <label>Device profile (optional - applies to every device of this profile)</label>
           <input value={profile} onChange={e => setProfile(e.target.value)} placeholder="modbus-tcp" />
+          <label>Asset (optional - every device attached to this asset or below it)</label>
+          <select aria-label="Rule asset" value={ruleAsset} onChange={e => setRuleAsset(e.target.value)} disabled={!!deviceId} style={{ width: 'auto' }}>
+            <option value="">No asset scope</option>
+            {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          {deviceId && <span className="muted"> An asset scope cannot be combined with a single device.</span>}
           <label>Condition</label>
           <div style={{ display: 'flex', gap: 8 }}>
             <select value={op} onChange={e => setOp(e.target.value)} style={{ width: 70 }}>
@@ -126,7 +134,7 @@ export default function Flows() {
       <AnomalyRuleForm onCreated={load} />
       {assets.length > 0 && <div style={{ marginBottom: 8 }}><label htmlFor="rule-asset" className="muted">Rules for devices under </label>
         <select id="rule-asset" value={assetFilter} onChange={e => setAssetFilter(e.target.value)} style={{ width: 'auto' }}><option value="">All assets</option>{assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
-        {assetFilter && <span className="muted"> Rules that apply to any device or a whole profile are hidden while filtering.</span>}</div>}
+        {assetFilter && <span className="muted"> Rules that apply to any device or a whole profile are hidden while filtering; rules scoped to this asset or one above it are shown.</span>}</div>}
       {rules.length === 0 && <Empty title="No rules yet" hint="Create a threshold rule above to raise alerts when a point crosses a limit." />}
       {rules.length > 0 && <table>
         <thead><tr><th>Name</th><th>Condition</th><th>Severity</th><th>Status</th></tr></thead>
