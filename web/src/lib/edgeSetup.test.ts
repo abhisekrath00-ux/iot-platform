@@ -181,6 +181,43 @@ describe('edge setup', () => {
     for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
   });
 
+
+  it('janitza-umg96rm registers match the official Modbus-address list firmware 1.14+ (docs/devices/janitza-umg96rm.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'janitza-umg96rm')!;
+    expect(t.type).toBe('f32');
+    expect(t.word_order).toBe('abcd'); // vendor-stated Big-Endian for listed addresses
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1n').register).toBe(19000);
+    expect(pt('v31').register).toBe(19010); // manual prints L1-L3
+    expect(pt('i_n').register).toBe(19018); // vector sum IN
+    expect(pt('p_total').register).toBe(19026);
+    expect(pt('s_total').register).toBe(19034);
+    expect(pt('q_total').register).toBe(19042);
+    expect(pt('pf1').register).toBe(19044); // CosPhi fundamental
+    expect(pt('pf_total').register).toBe(826); // Sum CosPhisum3, Measured-values block
+    expect(pt('freq').register).toBe(19050);
+    expect(pt('kwh_import').register).toBe(19068); // Wh float, consumed rate 1
+    expect(pt('kwh_import').scale).toBe(0.001);
+    expect(pt('kwh_export').register).toBe(19076);
+    expect(pt('kvah_total').register).toBe(19084);
+    expect(pt('kvarh_total').register).toBe(19092);
+    // base IS vendor-stated (user manual "Modbus Address" column); FC 03 vs 04 is NOT: stays gated
+    expect(t.funcUnverified).toBe(true);
+    expect(t.pduBaseUnverified).toBeUndefined();
+    expect(t.stopBits).toBe(2); // vendor-stated serial: 8 data bits, parity none, 2 stop bits
+    const missing = validateDevice({ deviceId: 'umg-1', templateId: 'janitza-umg96rm', link: 'rtu', port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, provisionalConfirmed: true });
+    expect(missing.length).toBeGreaterThan(0);
+    const base = { deviceId: 'umg-1', templateId: 'janitza-umg96rm', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, readFunc: 3 as const, provisionalConfirmed: true };
+    expect(validateDevice(base)).toEqual([]);
+    const yaml = deviceYaml(base);
+    expect(yaml).toContain('register: 19000'); // verbatim
+    expect(yaml).toContain('register: 19068');
+    expect(yaml).toContain('func: 3');
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+  });
+
   it('schneider-pm53xx registers match the official register list v2011_v2021_R01 (docs/devices/schneider-pm53xx.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm53xx')!;
     expect(t.func).toBe(3); // holding registers (FC not stated by Schneider; FC 03 chosen, gated in the provisional text)
