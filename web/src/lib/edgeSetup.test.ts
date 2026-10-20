@@ -64,6 +64,44 @@ describe('edge setup', () => {
     const used = new Set<number>();
     for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
   });
+  it('schneider-em6400ng registers match the official Public register list v1050, EM6400 NG column (docs/devices/schneider-em6400ng.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-em6400ng')!;
+    expect(t.func).toBe(3); // holding registers (FC not stated by Schneider; FC 03 chosen, gated in the provisional text)
+    expect(t.type).toBe('f32');
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('i1').register).toBe(3000); // Current A
+    expect(pt('i_avg').register).toBe(3010); // Current Avg
+    expect(pt('v12').register).toBe(3020); // Voltage A-B
+    expect(pt('v_avg_ll').register).toBe(3026); // Voltage L-L Avg
+    expect(pt('v1n').register).toBe(3028); // Voltage A-N
+    expect(pt('v_avg_ln').register).toBe(3036); // Voltage L-N Avg
+    expect(pt('p_total').register).toBe(3060); // Active Power Total
+    expect(pt('q_total').register).toBe(3068); // Reactive Power Total
+    expect(pt('s_total').register).toBe(3076); // Apparent Power Total
+    expect(pt('pf_total').register).toBe(3084); // PF Total, 4Q_FP_PF encoding
+    expect(pt('pf_total').max).toBe(2); // Schneider 4Q range, NOT plain -1..1
+    expect(pt('freq').register).toBe(3110); // Frequency
+    expect(pt('kwh_import').register).toBe(2700); // Active Energy Delivered, resettable FLOAT32 kWh (2676 = Permanent block)
+    // word order AND register base AND function code are NOT documented by Schneider: no YAML without explicit choices
+    expect(t.wordOrderUnverified).toBe(true);
+    expect(t.pduBaseUnverified).toBe(true);
+    expect(t.funcUnverified).toBe(true);
+    const base = { deviceId: 'em64-1', templateId: 'schneider-em6400ng', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(base).join(' ')).toContain('Word order');
+    expect(validateDevice({ ...base, wordOrder: 'abcd' }).join(' ')).toContain('Register base');
+    expect(validateDevice({ ...base, wordOrder: 'abcd', pduBase: 'listed' as const }).join(' ')).toContain('Read function');
+    const listed = deviceYaml({ ...base, wordOrder: 'abcd', pduBase: 'listed' as const, readFunc: 3 as const });
+    expect(listed).toContain('register: 3110'); // frequency verbatim
+    expect(listed).toContain('word_order: abcd');
+    expect(listed).toContain('func: 3');
+    const minus1 = deviceYaml({ ...base, wordOrder: 'abcd', pduBase: 'minus1' as const, readFunc: 4 as const });
+    expect(minus1).toContain('register: 3109'); // frequency minus one
+    expect(minus1).toContain('func: 4');
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+  });
+
   it('schneider-pm53xx registers match the official register list v2011_v2021_R01 (docs/devices/schneider-pm53xx.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm53xx')!;
     expect(t.func).toBe(3); // holding registers (FC not stated by Schneider; FC 03 chosen, gated in the provisional text)
