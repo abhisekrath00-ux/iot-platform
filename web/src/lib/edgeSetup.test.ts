@@ -86,13 +86,19 @@ describe('edge setup', () => {
     // word order AND register base are NOT documented by Schneider: no YAML without explicit choices
     expect(t.wordOrderUnverified).toBe(true);
     expect(t.pduBaseUnverified).toBe(true);
+    expect(t.funcUnverified).toBe(true);
     const base = { deviceId: 'pm-1', templateId: 'schneider-pm53xx', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5, provisionalConfirmed: true };
     expect(validateDevice(base).join(' ')).toContain('Word order');
     expect(validateDevice({ ...base, wordOrder: 'abcd' }).join(' ')).toContain('Register base');
-    const listed = deviceYaml({ ...base, wordOrder: 'abcd', pduBase: 'listed' as const });
+    expect(validateDevice({ ...base, wordOrder: 'abcd', pduBase: 'listed' as const }).join(' ')).toContain('Read function');
+    const listed = deviceYaml({ ...base, wordOrder: 'abcd', pduBase: 'listed' as const, readFunc: 3 as const });
     expect(listed).toContain('register: 3110'); // frequency verbatim
     expect(listed).toContain('word_order: abcd');
-    const minus1 = deviceYaml({ ...base, wordOrder: 'abcd', pduBase: 'minus1' as const });
+    expect(listed).toContain('func: 3');
+    const fc4 = deviceYaml({ ...base, wordOrder: 'abcd', pduBase: 'listed' as const, readFunc: 4 as const });
+    expect(fc4).toContain('func: 4');
+    expect(fc4).not.toContain('func: 3');
+    const minus1 = deviceYaml({ ...base, wordOrder: 'abcd', pduBase: 'minus1' as const, readFunc: 3 as const });
     expect(minus1).toContain('register: 3109'); // frequency minus one
     expect(minus1).toContain('register: 2999'); // current A minus one
     const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
