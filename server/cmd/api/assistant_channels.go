@@ -177,6 +177,10 @@ func (s *server) createChannelLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "kind must be slack or email", 400)
 		return
 	}
+	if isSelftestSender(in.Kind, addr) {
+		http.Error(w, "that address is reserved for the built-in self-test", 400)
+		return
+	}
 	tenant, user := auth.Tenant(r), auth.User(r)
 	code := newCode() + newCode()[:2]
 	tag, err := s.st.Pool.Exec(r.Context(), `INSERT INTO assistant_channel_links(id,tenant_id,user_id,kind,address,code_hash) VALUES($1,$2,$3,$4,$5,$6)
@@ -296,6 +300,18 @@ func (s *server) firstSeen(ctx context.Context, tenant, id string) bool {
 	return err == nil && tag.RowsAffected() == 1
 }
 
+// Reserved identities used by the setup self-test. They are ignored by the inbound handlers no
+// matter what (even if a link row is inserted directly) and cannot be linked through the API, so a
+// valid self-test sample can never reach a real user, the model, or a reply path.
+const (
+	selftestSlackUser = "U0SELFTEST"
+	selftestEmail     = "selftest@example.invalid"
+)
+
+func isSelftestSender(kind, sender string) bool {
+	return kind == "slack" && sender == selftestSlackUser || kind == "email" && sender == selftestEmail
+}
+
 // GET /v1/assistant/selftest/{kind} (admin): ready-to-run signed test commands that prove the
 // inbound verification path end to end without a real Slack workspace or mail gateway. The secret
 // never leaves the server. The sample sender matches no linked identity, so a 200 means signature,
@@ -316,11 +332,11 @@ func (s *server) getChannelSelftest(w http.ResponseWriter, r *http.Request) {
 	switch kind {
 	case "email":
 		urlPath = "/v1/assistant/inbound/email/" + tenant
-		body = fmt.Sprintf(`{"message_id":"selftest-%s@hexthings.local","from":"selftest@example.invalid","subject":"setup check","text":"selftest - ignore","dkim":"pass","spf":"pass"}`, id)
+		body = fmt.Sprintf(`{"message_id":"selftest-%s@hexthings.local","from":"`+selftestEmail+`","subject":"setup check","text":"selftest - ignore","dkim":"pass","spf":"pass"}`, id)
 		sigHeader, sigValue = "X-Signature", hmacHex(secret, ts+"."+body)
 	case "slack":
 		urlPath = "/v1/assistant/inbound/slack/" + tenant
-		body = fmt.Sprintf(`{"type":"event_callback","event_id":"EvSelf%s","event":{"type":"message","user":"U0SELFTEST","channel":"D0SELFTEST","channel_type":"im","text":"selftest - ignore"}}`, id)
+		body = fmt.Sprintf(`{"type":"event_callback","event_id":"EvSelf%s","event":{"type":"message","user":"`+selftestSlackUser+`","channel":"D0SELFTEST","channel_type":"im","text":"selftest - ignore"}}`, id)
 		sigHeader, sigValue = "X-Slack-Signature", "v0="+hmacHex(secret, "v0:"+ts+":"+body)
 	default:
 		http.NotFound(w, r)
@@ -335,10 +351,11 @@ func (s *server) getChannelSelftest(w http.ResponseWriter, r *http.Request) {
 		return fmt.Sprintf("curl -i -X POST %q -H %q -H %q -H %q -d %q",
 			base+urlPath, "Content-Type: application/json", tsHeader(kind)+": "+ts, sigHeader+": "+sigValue, b)
 	}
+	w.Header().Set("Cache-Control", "no-store") // the signed sample is a short-lived replayable request; never cache it
 	writeJSON(w, http.StatusOK, map[string]any{
 		"kind": kind, "expires": "the timestamp is accepted for 5 minutes; regenerate if it lapses",
 		"sample":          map[string]any{"url_path": urlPath, "body": body, "ts": ts, "sig_header": sigHeader, "sig_value": sigValue},
-		"expect_ok":       "HTTP 200 = the signature and freshness checks passed. The sender matches no linked identity, so it is then audited as inbound_refused and ignored - that is the expected result.",
+		"expect_ok":       "HTTP 200 = the server's signature and freshness checks passed and the reserved self-test sender was ignored with zero actions, replies, or model calls. This proves the server's verification logic; it does not prove Slack or your gateway can actually deliver messages.",
 		"expect_tampered": "HTTP 401 = tampering was caught. If the server answers 200 to this one, the check is broken.",
 		"curl_valid":      shell(body),
 		"curl_tampered":   shell(tampered),
@@ -404,7 +421,11 @@ func (s *server) inboundSlack(w http.ResponseWriter, r *http.Request) {
 	s.bg.Add(1)
 	go func() {
 		defer s.bg.Done()
-		s.handleChat(tenant, "slack", strings.ToUpper(e.User), e.Channel, "", e.Text)
+		if isSelftestSender("slack", strings.ToUpper(e.User)) {
+			s.auditAs(r.Context(), tenant, "", "assistant.selftest_ok", "slack", map[string]any{})
+		} else {
+			s.handleChat(tenant, "slack", strings.ToUpper(e.User), e.Channel, "", e.Text)
+		}
 	}()
 }
 
@@ -455,7 +476,11 @@ func (s *server) inboundEmail(w http.ResponseWriter, r *http.Request) {
 	s.bg.Add(1)
 	go func() {
 		defer s.bg.Done()
-		s.handleChat(tenant, "email", from, from, in.Subject, in.Text)
+		if isSelftestSender("email", from) {
+			s.auditAs(r.Context(), tenant, "", "assistant.selftest_ok", "email", map[string]any{})
+		} else {
+			s.handleChat(tenant, "email", from, from, in.Subject, in.Text)
+		}
 	}()
 }
 
