@@ -116,7 +116,7 @@ func (s *server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.st.Pool.Exec(r.Context(),
 		`INSERT INTO api_keys(id,tenant_id,name,secret_hash,role,created_by,expires_at,scopes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
 		id, auth.Tenant(r), in.Name, hashSecret(secret), in.Role, auth.User(r), exp, in.Scopes); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "apikey.create", id, map[string]any{"name": in.Name, "role": in.Role, "expires_at": exp, "scopes": in.Scopes})
@@ -133,7 +133,7 @@ func (s *server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT id,name,role,created_by,created_at,expires_at,last_used_at,revoked_at,scopes FROM api_keys WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -159,7 +159,7 @@ func (s *server) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	ct, err := s.st.Pool.Exec(r.Context(),
 		`UPDATE api_keys SET revoked_at=now() WHERE id=$1 AND tenant_id=$2 AND revoked_at IS NULL`, id, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if ct.RowsAffected() == 0 {
