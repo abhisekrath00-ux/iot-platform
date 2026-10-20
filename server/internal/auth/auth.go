@@ -16,10 +16,11 @@ import (
 type ctxKey string
 
 const (
-	CtxTenant ctxKey = "tenant"
-	CtxUser   ctxKey = "user"
-	CtxRole   ctxKey = "role"
-	CtxIssued ctxKey = "issued_at"
+	CtxTenant  ctxKey = "tenant"
+	CtxUser    ctxKey = "user"
+	CtxRole    ctxKey = "role"
+	CtxIssued  ctxKey = "issued_at"
+	CtxSession ctxKey = "session_id"
 )
 
 type Claims struct {
@@ -100,6 +101,9 @@ func Middleware(secret []byte, resolvers ...KeyResolver) func(http.Handler) http
 			if c.IssuedAt != nil {
 				ctx = context.WithValue(ctx, CtxIssued, c.IssuedAt.Time)
 			}
+			if c.ID != "" {
+				ctx = context.WithValue(ctx, CtxSession, c.ID)
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -109,6 +113,11 @@ func Middleware(secret []byte, resolvers ...KeyResolver) func(http.Handler) http
 func WithRole(r *http.Request, role string) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), CtxRole, role))
 }
+
+// SessionID is the tracked session (user_sessions.id) the token carries as
+// its JWT id; empty for API keys and tokens minted before sessions were
+// tracked, which stay valid until they expire (12 hours at most).
+func SessionID(r *http.Request) string { v, _ := r.Context().Value(CtxSession).(string); return v }
 
 // IssuedAt is when the session token was issued; ok=false for API keys and tokens without iat.
 func IssuedAt(r *http.Request) (time.Time, bool) {
