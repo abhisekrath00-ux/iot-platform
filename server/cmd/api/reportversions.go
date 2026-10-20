@@ -126,7 +126,7 @@ func (s *server) updateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if !found {
@@ -148,7 +148,7 @@ func (s *server) listReportVersions(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT version, name, definition, schedule_cron, superseded_by, superseded_at FROM report_versions WHERE report_id=$1 ORDER BY version DESC`, id)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -200,7 +200,7 @@ func (s *server) restoreReportVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if !found {
