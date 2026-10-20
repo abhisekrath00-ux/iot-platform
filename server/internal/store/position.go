@@ -12,9 +12,25 @@ import (
 // process. A config change via the API takes up to this long to reach ingest.
 const PositionTTL = time.Minute
 
-// PositionTracker updates devices.lat/lon when readings arrive on the points
-// the device names as its latitude and longitude sources, so the map and
-// geofence alerts follow reported positions, not only hand-entered ones.
+// PositionPairWindow is the largest time gap between a device's latitude and
+// longitude fixes that still counts as one position. A wider gap means the
+// device may have moved between the two readings, so pairing them could place
+// it somewhere it never was (and trip a geofence falsely). GPS trackers that
+// send both axes in one message always agree; stragglers get two minutes.
+const PositionPairWindow = 2 * time.Minute
+
+// PositionTracker turns readings on a device's configured position points
+// into devices.lat/lon updates. Freshness and provenance rules:
+//   - each axis keeps its own value and observation time (devices.lat_fix /
+//     lat_fix_at, lon_fix / lon_fix_at), shared across processes via the row;
+//   - a reading older than (or as old as) the stored fix for its axis is
+//     dropped, so replays, duplicates and out-of-order batches never move a
+//     device backwards;
+//   - devices.lat/lon is published only when both axes exist and their fix
+//     times agree within PositionPairWindow;
+//   - a hand-set position (PUT /location) stands until the next paired fix,
+//     and clearing the source freezes the last published position.
+//
 // Position is metadata: a bad value is dropped, never an ingest error.
 type PositionTracker struct {
 	pool *pgxpool.Pool
@@ -24,7 +40,6 @@ type PositionTracker struct {
 
 type posCfg struct {
 	latPt, lonPt string
-	lat, lon     *float64
 	expires      time.Time
 }
 
@@ -33,16 +48,18 @@ func NewPositionTracker(pool *pgxpool.Pool) *PositionTracker {
 }
 
 // Reset drops every cached config; the next reading per device reloads from
-// the database. Tests use it to skip the TTL.
+// the database. The API calls it after a config change so its own ingest path
+// picks the change up at once; tests use it to skip the TTL.
 func (t *PositionTracker) Reset() {
 	t.mu.Lock()
 	t.cfg = map[string]posCfg{}
 	t.mu.Unlock()
 }
 
-// Track reports one accepted reading. It is a no-op unless the device's
-// position points are configured and point is one of them.
-func (t *PositionTracker) Track(ctx context.Context, tenant, device, point string, value float64) error {
+// Track reports one accepted and newly stored reading. observedAt is the
+// reading's own timestamp, not the arrival time. It is a no-op unless the
+// device's position points are configured and point is one of them.
+func (t *PositionTracker) Track(ctx context.Context, tenant, device, point string, value float64, observedAt time.Time) error {
 	c, err := t.config(ctx, tenant, device)
 	if err != nil {
 		return err
@@ -51,26 +68,53 @@ func (t *PositionTracker) Track(ctx context.Context, tenant, device, point strin
 	if !isLat && !isLon {
 		return nil
 	}
-	// The axis this reading carries must be in range; the other axis keeps
-	// whatever is stored. Lat and lon often arrive as separate messages, so a
-	// half fix is stored and the map simply waits for both axes.
 	if isLat && !validAxis(value, 90) || isLon && !validAxis(value, 180) {
 		return nil
 	}
-	lat, lon := c.lat, c.lon
-	if isLat {
-		lat = &value
-	} else {
-		lon = &value
-	}
-	if _, err := t.pool.Exec(ctx, `UPDATE devices SET lat=$1, lon=$2 WHERE id=$3 AND tenant_id=$4`, lat, lon, device, tenant); err != nil {
+	// Serialize on the device row so the two ingest processes cannot split a
+	// read-modify-write of the axis pair.
+	tx, err := t.pool.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	t.mu.Lock()
-	c.lat, c.lon = lat, lon
-	t.cfg[device] = c
-	t.mu.Unlock()
-	return nil
+	defer tx.Rollback(ctx)
+	var latV, lonV *float64
+	var latT, lonT *time.Time
+	if err := tx.QueryRow(ctx,
+		`SELECT lat_fix, lat_fix_at, lon_fix, lon_fix_at FROM devices WHERE id=$1 AND tenant_id=$2 FOR UPDATE`,
+		device, tenant).Scan(&latV, &latT, &lonV, &lonT); err != nil {
+		return err
+	}
+	if isLat {
+		if latT != nil && !observedAt.After(*latT) {
+			return nil // stale, duplicate or out-of-order
+		}
+		latV, latT = &value, &observedAt
+	} else {
+		if lonT != nil && !observedAt.After(*lonT) {
+			return nil
+		}
+		lonV, lonT = &value, &observedAt
+	}
+	var pubLat, pubLon *float64
+	if latV != nil && lonV != nil && latT != nil && lonT != nil {
+		d := latT.Sub(*lonT)
+		if d < 0 {
+			d = -d
+		}
+		if d <= PositionPairWindow {
+			pubLat, pubLon = latV, lonV
+		}
+	}
+	_, err = tx.Exec(ctx,
+		`UPDATE devices SET lat_fix=$1, lat_fix_at=$2, lon_fix=$3, lon_fix_at=$4,
+		   lat = COALESCE($5, lat), lon = COALESCE($6, lon)
+		 WHERE id=$7 AND tenant_id=$8`,
+		latV, latT, lonV, lonT, pubLat, pubLon, device, tenant)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (t *PositionTracker) config(ctx context.Context, tenant, device string) (posCfg, error) {
@@ -81,16 +125,15 @@ func (t *PositionTracker) config(ctx context.Context, tenant, device string) (po
 		return c, nil
 	}
 	var latPt, lonPt *string
-	var lat, lon *float64
 	err := t.pool.QueryRow(ctx,
-		`SELECT lat_point, lon_point, lat, lon FROM devices WHERE id=$1 AND tenant_id=$2`, device, tenant).
-		Scan(&latPt, &lonPt, &lat, &lon)
+		`SELECT lat_point, lon_point FROM devices WHERE id=$1 AND tenant_id=$2`, device, tenant).
+		Scan(&latPt, &lonPt)
 	if err != nil {
 		// Unknown device: cache an empty config so hot telemetry paths do
 		// not re-query every reading.
-		latPt, lonPt, lat, lon = nil, nil, nil, nil
+		latPt, lonPt = nil, nil
 	}
-	c = posCfg{lat: lat, lon: lon, expires: time.Now().Add(PositionTTL)}
+	c = posCfg{expires: time.Now().Add(PositionTTL)}
 	if latPt != nil {
 		c.latPt = *latPt
 	}
