@@ -6,11 +6,12 @@ import { EDGE_TEMPLATES } from '../lib/edgeSetup';
 export interface Opt { value: string; label: string }
 export interface WizardStep {
   key: string;
-  prompt: string;
-  kind: 'text' | 'number' | 'select';
+  prompt: string | ((answers: Record<string, string>) => string);
+  // 'pick-or-text' loads suggestion chips like 'select' but still accepts a typed answer.
+  kind: 'text' | 'number' | 'select' | 'pick-or-text';
   options?: Opt[];
   loadOptions?: (answers: Record<string, string>) => Promise<Opt[]>;
-  validate?: (v: string) => string | null;
+  validate?: (v: string, answers?: Record<string, string>) => string | null;
   skipIf?: (answers: Record<string, string>) => boolean;
   skippable?: boolean;
 }
@@ -108,14 +109,52 @@ export const WIZARDS: Wizard[] = [
     steps: [
       { key: 'type', prompt: 'Which type of channel?', kind: 'select', options: CHANNEL_TYPES },
       {
-        key: 'target', prompt: 'Where should alerts go? (email address, Slack channel id, paired Telegram chat id, webhook URL, phone number)', kind: 'text',
-        validate: nonEmpty('A destination'),
+        key: 'target',
+        prompt: a => a.type === 'slack'
+          ? 'Which Slack channel should alerts go to? Pick one below, or paste a channel id.'
+          : a.type === 'telegram'
+            ? 'Which paired Telegram chat? Pick one below, or paste a chat id.'
+            : a.type === 'email'
+              ? 'Which email address should alerts go to?'
+              : a.type === 'webhook' || a.type === 'teams'
+                ? 'What is the HTTPS webhook URL?'
+                : 'Where should alerts go? (phone number or destination id)',
+        kind: 'pick-or-text',
+        loadOptions: async a => {
+          try {
+            if (a.type === 'slack') {
+              const r = await api<{ channels: { id: string; name: string; is_member: boolean; is_private: boolean }[]; error?: string }>('/v1/notifications/slack/channels');
+              if (r.error) return [];
+              return r.channels.map(c => ({ value: c.id, label: '#' + c.name + (c.is_private ? ' (private)' : '') + (c.is_member ? '' : ' - bot not in channel') }));
+            }
+            if (a.type === 'telegram') {
+              const r = await api<{ chats: { id: string; type: string; title: string }[]; error?: string }>('/v1/notifications/telegram/chats');
+              if (r.error) return [];
+              return (r.chats || []).map(c => ({ value: c.id, label: (c.title || c.id) + ' (' + c.type + ')' }));
+            }
+          } catch { return []; } // lookup failed (no token yet): fall back to typing
+          return [];
+        },
+        validate: (v, a) => {
+          const t = v.trim();
+          if (!t) return 'A destination is required';
+          if (a?.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t)) return 'That does not look like an email address';
+          if ((a?.type === 'webhook' || a?.type === 'teams') && !/^https:\/\//i.test(t)) return 'The webhook URL must start with https://';
+          return null;
+        },
       },
     ],
-    summary: a => `Add a ${a.type} channel to ${a.target}. Nothing is delivered to it until you verify it with Send test and press Enable in Settings.`,
+    summary: a => `Add a ${a.type} channel to ${a.target_label || a.target}. Nothing is delivered to it until you verify it with Send test and press Enable in Settings.`,
     run: async (a, ctx) => {
       if (a.type === 'telegram') {
-        return 'Telegram needs a paired chat first: in Settings, pick Telegram, press Get pairing code and send it to the bot inside your chat. Then add the channel there with Find chats.';
+        let paired = false;
+        try {
+          const r = await api<{ chats: { id: string }[]; error?: string }>('/v1/notifications/telegram/chats');
+          paired = !r.error && (r.chats || []).some(c => c.id === a.target);
+        } catch { paired = false; }
+        if (!paired) {
+          return 'Telegram needs a paired chat first: in Settings, pick Telegram, press Get pairing code and send it to the bot inside your chat. Then add the channel there with Find chats.';
+        }
       }
       await api('/v1/notifications/channels', { method: 'POST', headers: ctx?.idempotencyKey ? { 'Idempotency-Key': ctx.idempotencyKey } : {}, body: JSON.stringify({ type: a.type, target: a.target }) });
       return `Channel added. It is OFF: verify it with Send test in Settings, then press Enable.`;
