@@ -54,15 +54,17 @@ func PoolSize(env string, cpus int) int32 {
 
 func (s *Store) Close() { s.Pool.Close() }
 
-// InsertTelemetry dedupes on event_id (idempotent replay).
-func (s *Store) InsertTelemetry(ctx context.Context, e Telemetry) error {
-	_, err := s.Pool.Exec(ctx, `INSERT INTO telemetry
+// InsertTelemetry dedupes on event_id (idempotent replay). It reports
+// whether the row was actually stored, so callers can skip derived work
+// (rules, position tracking) for a replayed duplicate.
+func (s *Store) InsertTelemetry(ctx context.Context, e Telemetry) (bool, error) {
+	ct, err := s.Pool.Exec(ctx, `INSERT INTO telemetry
 		(event_id,tenant_id,site_id,gateway_id,device_id,point_id,observed_at,value,unit,quality,schema_version)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		ON CONFLICT (event_id, observed_at) DO NOTHING`,
 		e.EventID, e.TenantID, e.SiteID, e.GatewayID, e.DeviceID, e.PointID,
 		e.ObservedAt, e.Value, e.Unit, e.Quality, e.SchemaVersion)
-	return err
+	return ct.RowsAffected() == 1, err
 }
 
 type Telemetry struct {
