@@ -27,6 +27,7 @@ export default function Flows() {
   const [importMsg, setImportMsg] = useState('');
   const [profile, setProfile] = useState('');
   const [ruleAsset, setRuleAsset] = useState('');
+  const [ruleRelation, setRuleRelation] = useState('');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [fname, setFname] = useState('');
   const [fdevice, setFdevice] = useState('');
@@ -85,6 +86,7 @@ export default function Flows() {
             device_id: deviceId || undefined,
             profile: profile || undefined,
             asset_id: ruleAsset || undefined,
+            relation: ruleRelation.trim() || undefined,
             point_id: pointId,
             op,
             threshold: parseFloat(threshold),
@@ -92,7 +94,7 @@ export default function Flows() {
           }
         })
       });
-      setName(''); setPointId(''); setDeviceId(''); setThreshold('');
+      setName(''); setPointId(''); setDeviceId(''); setThreshold(''); setRuleRelation('');
       load();
     } catch (e2) { setMsg(String(e2)); }
   }
@@ -117,6 +119,13 @@ export default function Flows() {
             {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           {deviceId && <span className="muted"> An asset scope cannot be combined with a single device.</span>}
+          {ruleAsset && (
+            <>
+              <label>Relation (optional - instead of the asset tree, cover what this asset reaches via a typed relation)</label>
+              <input aria-label="Rule relation" value={ruleRelation} onChange={e => setRuleRelation(e.target.value)} placeholder="feeds" pattern="[a-z][a-z0-9_]{0,31}" title="Lower-case letters, digits and underscores, starting with a letter" style={{ width: 'auto' }} />
+              {ruleRelation.trim() && <span className="muted"> Covers devices on assets this asset reaches downstream via "{ruleRelation.trim()}" (and devices named directly), not the anchor's own devices.</span>}
+            </>
+          )}
           <label>Condition</label>
           <div style={{ display: 'flex', gap: 8 }}>
             <select value={op} onChange={e => setOp(e.target.value)} style={{ width: 70 }}>
