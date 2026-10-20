@@ -48,7 +48,7 @@ var (
 
 // scopedAllows is the allowlist: the only requests a customer-scoped user may make. Anything else is refused.
 func scopedAllows(method, p string) bool {
-	if method == http.MethodPost && (p == "/v1/me/password" || p == "/v1/me/sessions/revoke") { // a scoped user can still change their own password
+	if method == http.MethodPost && (p == "/v1/me/password" || p == "/v1/me/sessions/revoke") { // own-account exceptions: change own password, sign out everywhere
 		return true
 	}
 	if method != http.MethodGet {
