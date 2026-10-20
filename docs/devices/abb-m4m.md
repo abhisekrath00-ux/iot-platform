@@ -1,20 +1,31 @@
 # ABB M4M 30 (three-phase network analyzer)
 
-Sources and provenance, in two honestly separated classes:
+Sources and provenance:
 
-1. Directly supported by ABB's official "MODBUS MANUAL M4M Network analyzers"
-   (library.e.abb.com, "M4M Modbus communication.pdf", fetched 2026-10-20): measurements
-   are read with function code 03 (read holding registers) - NOT FC 04 - and the manual's
-   worked example reads phase voltage L1 from register 0x5B02 with 2 registers. The manual
-   also confirms the M4M family offers both Modbus RTU (RS-485) and Modbus TCP variants.
-2. From ABB's separate "M4M Modbus protocol map" workbook 9AKK107492A7627, map v1.3O
-   (rev. 2023-10-23), which covers the M4M 20 / M4M 30 family (all variants; tariff energy,
-   CT neutral ratio and unbalance exist only on M4M 30; some registers need firmware
-   P1.3.10.0 or later) - as re-typed by the third-party mirror
-   easymodbus.com/modbus-register-maps/abb/m4m-20-30 (fetched 2026-10-20), NOT re-verified
-   line-by-line against ABB's own file: every address other than 0x5B02, every scale
-   (x0.1 V; x0.01 A/W/var/VA/Hz; x0.001 PF) and the ABCD high-word-first word order.
-   The mirror's L1-voltage row (decimal 23298 = 0x5B02) agrees with the class-1 anchor.
+1. ABB's official "MODBUS MANUAL M4M Network analyzers" (library.e.abb.com,
+   "M4M Modbus communication.pdf", fetched 2026-10-20): measurements are read with
+   function code 03 (read holding registers) - NOT FC 04 - and the manual's worked
+   example reads phase voltage L1 from register 0x5B02 with 2 registers. The manual
+   confirms the M4M family offers both Modbus RTU (RS-485) and Modbus TCP variants.
+2. ABB's official "M4M Modbus protocol map" workbook 9AKK107492A7627, map v1.3O, fetched
+   2026-10-20 from ABB's own library service
+   (search-ext.abb.com/library/Download.aspx?DocumentID=9AKK107492A7627). Every
+   instantaneous address, scale and signed/unsigned type in the tables below was checked
+   line-by-line against this workbook: all match, including the vendor's L3-L2 / L1-L3
+   line-voltage naming order. Product coverage per the workbook: M4M 20 (all versions)
+   and M4M 30 (all versions); tariff energy, CT neutral ratio and unbalance exist only
+   on M4M 30; some registers elsewhere in the workbook need firmware P1.3.10.0 or later
+   (none in the instantaneous block used here).
+3. A third-party mirror (easymodbus.com) first led to the workbook. Its claims were never
+   adopted as ABB's word: it remains an untrusted lead, and one of its claims - the
+   "high word first" word order - is NOT confirmed by any ABB document found.
+
+Unresolved: ABB's documents do not state the multi-register word order. The template
+therefore ships no trusted default: the installer must choose the word order explicitly
+(from the exact model's documentation, or by comparing one 32-bit reading such as L1
+voltage against the meter display and picking the matching order). The Edge setup form
+refuses to generate a config until a word order is chosen. Single-register points
+(frequency, power factors) are unaffected by word order.
 
 Nothing here has been run against a real meter. The template's installer confirmation is
 an acknowledgement of this split, not a verification: exclude or correct any point whose
@@ -48,8 +59,8 @@ kWh/kvarh/kVAh.
 | freq | 5B32 | 23346 | UINT16 | 0.01 | Hz |
 | pf_total, pf1-pf3 | 5B40-5B43 | 23360-23363 | INT16 | 0.001 | |
 
-Vendor naming quirk: the line voltages are documented as L1-L2, L3-L2, L1-L3 (in that
-order); the template keeps the v12/v23/v31 ids in address order.
+Vendor naming quirk, confirmed in the official workbook: the line voltages are L1-L2,
+L3-L2, L1-L3 (in that order); the template keeps the v12/v23/v31 ids in address order.
 
 ## Excluded
 
