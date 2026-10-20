@@ -57,7 +57,7 @@ export default function EdgeSetup() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
           <label>Site<select value={site} onChange={(e) => setSite(e.target.value)}>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
           <label>Edge box serial or name<input value={serial} onChange={(e) => setSerial(e.target.value)} placeholder="e.g. HX-PLANT1-01" /></label>
-          <label>Sensor template<select value={dev.templateId} onChange={(e) => setDev({ ...dev, templateId: e.target.value, provisionalConfirmed: false })}>{EDGE_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name}{t.provisional ? ' (provisional)' : ''}</option>)}</select></label>
+          <label>Sensor template<select value={dev.templateId} onChange={(e) => setDev({ ...dev, templateId: e.target.value, provisionalConfirmed: false, wordOrder: undefined })}>{EDGE_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name}{t.provisional ? ' (provisional)' : ''}</option>)}</select></label>
           <label>Device id<input value={dev.deviceId} onChange={(e) => setDev({ ...dev, deviceId: e.target.value })} /></label>
           <label>Connection<select value={dev.link} onChange={(e) => setDev({ ...dev, link: e.target.value as 'rtu' | 'tcp' })}><option value="rtu">RS-485 serial (Modbus RTU)</option><option value="tcp">Network (Modbus TCP)</option></select></label>
           {dev.link === 'rtu' ? <>
@@ -79,6 +79,13 @@ export default function EdgeSetup() {
               <input type="checkbox" style={{ width: 'auto' }} checked={!!dev.provisionalConfirmed} onChange={(e) => setDev({ ...dev, provisionalConfirmed: e.target.checked })} />
               I have checked this against the meter or its manual
             </label>
+            {tpl.wordOrderUnverified && (
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8, width: '100%' }}>Word order (required - not documented by the vendor):
+                <select style={{ width: 'auto', flex: 'none' }} value={dev.wordOrder ?? ''} onChange={(e) => setDev({ ...dev, wordOrder: e.target.value || undefined })}>
+                  <option value=''>Choose...</option><option value='abcd'>abcd</option><option value='badc'>badc</option><option value='cdab'>cdab</option><option value='dcba'>dcba</option>
+                </select>
+              </label>
+            )}
           </div>
         )}
         <table><thead><tr><th>Point</th><th>Register</th><th>Unit</th><th>Valid range</th></tr></thead><tbody>
