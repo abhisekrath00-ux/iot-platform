@@ -86,3 +86,13 @@ export function filterWidgetsByAsset(widgets: Widget[], assetDeviceIds: Set<stri
   if (!assetDeviceIds) return widgets;
   return widgets.filter(w => !w.device_id || assetDeviceIds.has(w.device_id));
 }
+
+/** Latest-wins request sequencer: each begin() invalidates earlier tokens, so
+ * a slow earlier response can never overwrite a newer selection. */
+export function createSequencer(): { begin(): number; isCurrent(token: number): boolean } {
+  let latest = 0;
+  return {
+    begin: () => ++latest,
+    isCurrent: (token: number) => token === latest,
+  };
+}
