@@ -166,3 +166,53 @@ func TestIntegrationDeviceFilterByAsset(t *testing.T) {
 		t.Fatal("unfiltered list empty")
 	}
 }
+
+// Exact subtree device count: the dashboard asset filter uses it to tell a
+// complete device list from one cut by the 1000-row list limit.
+func TestIntegrationAssetDeviceCount(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-ac1")
+	seed(t, s, "itest-ac2")
+	ctx := t.Context()
+	clean := func() {
+		for _, tn := range []string{"itest-ac1", "itest-ac2"} {
+			s.st.Pool.Exec(ctx, `UPDATE devices SET asset_id=NULL WHERE tenant_id=$1`, tn)
+			s.st.Pool.Exec(ctx, `DELETE FROM assets WHERE tenant_id=$1 AND parent_id IS NOT NULL`, tn)
+			s.st.Pool.Exec(ctx, `DELETE FROM assets WHERE tenant_id=$1`, tn)
+			s.st.Pool.Exec(ctx, `DELETE FROM devices WHERE tenant_id=$1 AND id LIKE 'itest-ac1-d%'`, tn)
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+	for _, q := range []string{
+		`INSERT INTO assets(id,tenant_id,parent_id,name,kind) VALUES('ac-plant','itest-ac1',NULL,'P','plant'),('ac-other','itest-ac2',NULL,'O','plant')`,
+		`INSERT INTO assets(id,tenant_id,parent_id,name,kind) VALUES('ac-line','itest-ac1','ac-plant','L','line')`,
+		`UPDATE devices SET asset_id='ac-line' WHERE id='itest-ac1-dev'`,
+		`INSERT INTO devices(id,tenant_id,gateway_id,profile,name,asset_id) VALUES('itest-ac1-d2','itest-ac1','itest-ac1-gw','modbus-tcp','second','ac-plant')`,
+	} {
+		if _, err := s.st.Pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	api := http.NewServeMux()
+	api.HandleFunc("GET /v1/assets/{id}/device-count", s.getAssetDeviceCount)
+	count := func(tenant, asset string) (int, int) {
+		w := call(api, tenant, "viewer", "GET", "/v1/assets/"+asset+"/device-count", "")
+		var o map[string]any
+		json.Unmarshal(w.Body.Bytes(), &o)
+		n, _ := o["count"].(float64)
+		return w.Code, int(n)
+	}
+	if code, n := count("itest-ac1", "ac-plant"); code != 200 || n != 2 {
+		t.Fatalf("subtree count = %d (code %d), want 2 (device on child + device on root)", n, code)
+	}
+	if code, n := count("itest-ac1", "ac-line"); code != 200 || n != 1 {
+		t.Fatalf("child count = %d (code %d), want 1", n, code)
+	}
+	if code, n := count("itest-ac1", "ac-other"); code != 200 || n != 0 {
+		t.Fatalf("other tenant's asset = %d (code %d), want 0", n, code)
+	}
+	if code, n := count("itest-ac1", "ac-ghost"); code != 200 || n != 0 {
+		t.Fatalf("unknown asset = %d (code %d), want 0", n, code)
+	}
+}
