@@ -336,6 +336,7 @@ func main() {
 	api.HandleFunc("GET /v1/search", s.searchAll)
 	api.HandleFunc("GET /v1/notifications/channels", s.listChannels)
 	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
+	api.HandleFunc("GET /v1/notifications/telegram/chats", s.telegramChats)
 	api.HandleFunc("POST /v1/notifications/channels/{id}/test", s.testChannel)
 	api.HandleFunc("PATCH /v1/notifications/channels/{id}", s.patchChannel)
 	api.HandleFunc("DELETE /v1/notifications/channels/{id}", s.deleteChannel)
@@ -2394,8 +2395,10 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	id := uuid.NewString()
+	// New channels are staged disabled: an existing rule must not start delivering to a
+	// destination nobody has verified. The admin presses Enable after Send test confirms it.
 	_, err := s.st.Pool.Exec(r.Context(),
-		`INSERT INTO notification_channels(id,tenant_id,type,target) VALUES($1,$2,$3,$4)`,
+		`INSERT INTO notification_channels(id,tenant_id,type,target,enabled) VALUES($1,$2,$3,$4,false)`,
 		id, auth.Tenant(r), in.Type, in.Target)
 	if err != nil {
 		dbErr(w, err)
