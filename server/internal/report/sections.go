@@ -20,6 +20,10 @@ const (
 type Section struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
+	// PageBreak starts this section at the top of a new page in the PDF, and sets a
+	// printed-page break in the HTML. CSV, XLSX, DOCX and PPTX ignore it (their pages
+	// are the reader's). Subreport summaries never carry it.
+	PageBreak bool `json:"page_break,omitempty"`
 }
 
 // SubreportRef points at another saved report whose summary is embedded.
@@ -88,7 +92,11 @@ func sectionParas(body string) []string {
 
 func writeSectionsHTML(b *strings.Builder, d Definition) {
 	for _, s := range d.allSections() {
-		b.WriteString(`<h2>` + html.EscapeString(strings.TrimSpace(s.Title)) + `</h2>`)
+		h2 := `<h2>`
+		if s.PageBreak {
+			h2 = `<h2 style="page-break-before:always;break-before:page">`
+		}
+		b.WriteString(h2 + html.EscapeString(strings.TrimSpace(s.Title)) + `</h2>`)
 		for _, p := range sectionParas(s.Body) {
 			b.WriteString(`<p>` + html.EscapeString(p) + `</p>`)
 		}
