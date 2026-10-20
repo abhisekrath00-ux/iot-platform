@@ -23,6 +23,8 @@ export default function Settings() {
   const [type, setType] = useState('email');
   const [target, setTarget] = useState('');
   const [msg, setMsg] = useState('');
+  const [tgChats, setTgChats] = useState<{ id: string; type: string; title: string }[] | null>(null);
+  const [tgMsg, setTgMsg] = useState('');
   const [bName, setBName] = useState('');
   const [bAccent, setBAccent] = useState('');
   const [bMsg, setBMsg] = useState('');
@@ -45,6 +47,16 @@ export default function Settings() {
     try { await api(`/v1/notifications/channels/${c.id}`, { method: 'DELETE' }); setMsg('Channel deleted.'); load(); } catch (e) { setMsg(String(e)); }
   }
 
+  async function findTgChats() {
+    setTgMsg('Asking the bot what it has seen...'); setTgChats(null);
+    try {
+      const r = await api<{ chats: { id: string; type: string; title: string }[]; error?: string }>('/v1/notifications/telegram/chats');
+      if (r.error) { setTgMsg(r.error); return; }
+      setTgChats(r.chats);
+      setTgMsg(r.chats.length === 0 ? 'The bot has not seen any chat yet. Add it to your group or send it a message, then try again.' : '');
+    } catch (e) { setTgMsg(String(e)); }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMsg('');
@@ -60,7 +72,7 @@ export default function Settings() {
       <h1>Settings</h1>
       <div className="card" style={{ maxWidth: 760, marginBottom: 20 }}>
         <b>Notification channels</b>
-        <p className="muted">Alerts from your rules go to these destinations. Email uses your SMTP server (deployment env), Slack uses a bot token, Telegram uses a bot token (deployment env, TELEGRAM_BOT_TOKEN).</p>
+        <p className="muted">Alerts from your rules go to these destinations. Email uses your SMTP server (deployment env), Slack uses a bot token, Telegram uses a bot token (deployment env, TELEGRAM_BOT_TOKEN). A new channel stays off until you press Enable on its row, so no alert is delivered before you have checked the destination. Send test works while a channel is off.</p>
         <form onSubmit={submit}>
           <label>Type</label>
           <select value={type} onChange={e => setType(e.target.value)}>
@@ -69,11 +81,25 @@ export default function Settings() {
           <label>{({ email: 'Email address', slack: 'Slack channel ID', webhook: 'Webhook URL', teams: 'Teams incoming-webhook URL (https)', sms: 'Phone number (+country code)', whatsapp: 'WhatsApp number (+country code)', telegram: 'Telegram chat ID' } as Record<string, string>)[type]}</label>
           <input value={target} onChange={e => setTarget(e.target.value)} placeholder={({ email: 'ops@yourcompany.com', slack: 'C0123456789', webhook: 'https://example.com/hook', teams: 'https://...webhook.office.com/...', sms: '+4915112345678', whatsapp: '+919812345678', telegram: '-1001234567890 (a group) or 123456789 (a person)' } as Record<string, string>)[type]} required />
           {type === 'telegram' && (
-            <p className="muted" style={{ marginTop: 6 }}>
-              Setup: in Telegram, create a bot with @BotFather and give the token to your platform operator (they set TELEGRAM_BOT_TOKEN on the server).
-              Add the bot to your chat or group, send any message there, then find the numeric chat id (for example via the bot's getUpdates or @userinfobot).
-              Group and channel ids start with -100. Press Add channel, then Send test on the row below - nothing is sent until you do.
-            </p>
+            <div className="muted" style={{ marginTop: 6 }}>
+              <p style={{ marginTop: 0 }}>
+                Setup: in Telegram, create a bot with @BotFather and give the token to your platform operator (they set TELEGRAM_BOT_TOKEN on the server; never paste it here).
+                Add the bot to your chat or group and send any message there. Then press Find chats - it lists every chat your bot has seen, and Use fills in the chat id for you.
+                Group and channel ids start with -100.
+              </p>
+              <p><button type="button" className="ghost" onClick={findTgChats}>Find chats the bot can see</button></p>
+              {tgMsg && <p>{tgMsg}</p>}
+              {tgChats && tgChats.length > 0 && (
+                <table style={{ marginTop: 4 }}>
+                  <tbody>
+                    {tgChats.map(c => (
+                      <tr key={c.id}><td>{c.title || '(no name)'}</td><td className="muted">{c.type}</td><td className="muted">{c.id}</td>
+                        <td><button type="button" className="ghost" onClick={() => { setTarget(c.id); setTgChats(null); setTgMsg(''); }}>Use</button></td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           )}
           <div style={{ marginTop: 14 }}><button type="submit">Add channel</button></div>
         </form>
