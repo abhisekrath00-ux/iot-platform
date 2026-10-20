@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,5 +139,58 @@ func TestIntegrationForecastLimitRule(t *testing.T) {
 	rules.Evaluate(ctx, pool, nil, "itest-fl", "d1", "temp", 9999)
 	if count("fl-far") != 0 {
 		t.Fatal("forecast rule fired on a raw reading")
+	}
+}
+
+// Robust sigma: spikes already in the baseline must not mask a real outlier.
+// The mean/std rule stays silent here (the spikes inflate the deviation);
+// the median/MAD rule fires - the gap noted in docs/competitive-gap.md.
+func TestIntegrationRobustSigmaRule(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-rb1")
+	ctx := context.Background()
+	pool := s.st.Pool
+	clean := func() {
+		pool.Exec(ctx, `DELETE FROM alerts WHERE tenant_id='itest-rb1'`)
+		pool.Exec(ctx, `DELETE FROM rules WHERE tenant_id='itest-rb1'`)
+		pool.Exec(ctx, `DELETE FROM telemetry WHERE tenant_id='itest-rb1'`)
+	}
+	clean()
+	t.Cleanup(clean)
+	for _, q := range []string{
+		`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('rb-user','itest-rb1','rb@x.local','rb','admin') ON CONFLICT DO NOTHING`,
+		// 60 samples of 20..22, one per minute, with three spikes (45, 50, 42)
+		`INSERT INTO telemetry(event_id,tenant_id,gateway_id,device_id,point_id,observed_at,value,unit,schema_version)
+		 SELECT 'rb-'||g, 'itest-rb1','itest-rb1-gw','itest-rb1-dev','vib', now() - make_interval(mins => g+2),
+		        20 + (g % 3) + CASE g WHEN 5 THEN 25 WHEN 17 THEN 30 WHEN 29 THEN 22 ELSE 0 END, 'mm/s', 1
+		 FROM generate_series(1,60) g`,
+		`INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES
+		 ('rb-robust','itest-rb1','vib robust','{"kind":"sigma","point_id":"vib","sigma":3.5,"window_minutes":120,"method":"robust","severity":"warning"}',true,'rb-user'),
+		 ('rb-mean','itest-rb1','vib mean','{"kind":"sigma","point_id":"vib","sigma":3.5,"window_minutes":120,"severity":"warning"}',true,'rb-user')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	count := func(rule string) (n int) {
+		pool.QueryRow(ctx, `SELECT count(*) FROM alerts WHERE rule_id=$1`, rule).Scan(&n)
+		return
+	}
+	rules.Evaluate(ctx, pool, nil, "itest-rb1", "itest-rb1-dev", "vib", 21) // typical
+	if count("rb-robust") != 0 || count("rb-mean") != 0 {
+		t.Fatal("typical reading alerted")
+	}
+	rules.Evaluate(ctx, pool, nil, "itest-rb1", "itest-rb1-dev", "vib", 34) // masked for mean/std, real for robust
+	if count("rb-robust") != 1 {
+		t.Fatalf("robust alerts = %d, want 1", count("rb-robust"))
+	}
+	if count("rb-mean") != 0 {
+		t.Fatalf("mean/std fired on a spike-masked baseline; the robust method exists for this case")
+	}
+	// the alert message explains itself with median language, not mean
+	var msg string
+	pool.QueryRow(ctx, `SELECT message FROM alerts WHERE rule_id='rb-robust'`).Scan(&msg)
+	if !strings.Contains(msg, "median") {
+		t.Fatalf("robust alert message should cite the median, got %q", msg)
 	}
 }
