@@ -185,9 +185,10 @@ func TestLeaderKeysDistinct(t *testing.T) {
 		leaderAutoCommands:    "auto-commands",
 		leaderIndexSink:       "index-sink",
 		leaderRetention:       "retention",
+		leaderTelegramInbound: "telegram-inbound",
 	}
-	if len(keys) != 6 {
-		names := []string{keys[leaderReportScheduler], keys[leaderFlowScheduler], keys[leaderKPIRules], keys[leaderAutoCommands], keys[leaderIndexSink], keys[leaderRetention]}
+	if len(keys) != 7 {
+		names := []string{keys[leaderReportScheduler], keys[leaderFlowScheduler], keys[leaderKPIRules], keys[leaderAutoCommands], keys[leaderIndexSink], keys[leaderRetention], keys[leaderTelegramInbound]}
 		t.Fatalf("leader advisory keys collide: %v", names)
 	}
 }
