@@ -10,7 +10,10 @@ export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; f
   // pduBaseUnverified: the vendor lists register numbers but does not state whether the on-wire
   // (PDU) address is the listed number or the listed number minus 1. The UI must make the
   // installer pick explicitly before any YAML is generated.
-  pduBaseUnverified?: boolean; }
+  pduBaseUnverified?: boolean;
+  // funcUnverified: the vendor does not state the read function code (FC 03 holding vs FC 04
+  // input). The UI must make the installer pick explicitly; the emitted YAML uses the choice.
+  funcUnverified?: boolean; }
 
 const p = (id: string, register: number, unit: string, min: number, max: number): TplPoint => ({ id, register, unit, min, max });
 // ps adds an explicit scale and/or type for scaled-integer maps (e.g. Socomec U32 in V 10e-2);
@@ -150,8 +153,9 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     id: 'schneider-pm53xx', name: 'Schneider PowerLogic PM53xx (PM5310/20/30/31/40/41)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
     wordOrderUnverified: true,
     pduBaseUnverified: true,
+    funcUnverified: true,
     note: 'Every register number, data type and size verified line-by-line against Schneider\'s official PM51xx_PM53xx_PMC Register List v2011_v2021_R01.xls (linked from se.com FAQ FA234017; docs/devices/schneider-pm53xx.md). All points are FLOAT32 holding registers, present on PM5310/20/30/31/40/41 per the list. INT64 Wh counters excluded (driver has no u64/i64); the FLOAT32 kWh counter at 2700 is used instead. Read-only; never run on a real meter.',
-    provisional: 'Register numbers, types and sizes are verified against Schneider\'s official register list (v2011_v2021_R01). Three things Schneider\'s documents do NOT state: the multi-register word order, the register base (listed number vs listed minus 1 on the wire), and the read function code (this template uses FC 03, read holding registers). Choose the word order and base yourself below - from your exact model\'s documentation, or by reading frequency (listed at 3110): if it returns a sane Hz value, both choices are right. Power factor total is Schneider\'s four-quadrant encoding (-2..2), not plain -1..1 - see the doc. Either way, an unvalidated choice is not hardware-tested: confirm one real reading against the meter display during the pilot.',
+    provisional: 'Register numbers, types and sizes are verified against Schneider\'s official register list (v2011_v2021_R01). Three things Schneider\'s documents do NOT state: the multi-register word order, the register base (listed number vs listed minus 1 on the wire), and the read function code (FC 03 holding vs FC 04 input). Make all three choices yourself below, from your exact model\'s documentation. Then validate against the real meter: compare SEVERAL independent known readings (for example frequency, one voltage and one current) with the meter\'s own display - a single plausible value is only a smoke check, it does not prove the address, word order or function code, and says nothing about the other registers. Power factor total is Schneider\'s four-quadrant encoding (-2..2), not plain -1..1 - see the doc. Until that display comparison is done, every value from this template is hardware-untested.',
     points: [
       p('i1', 3000, 'A', 0, 10000), p('i2', 3002, 'A', 0, 10000), p('i3', 3004, 'A', 0, 10000), p('i_n', 3006, 'A', 0, 10000), p('i_avg', 3010, 'A', 0, 10000),
       p('v12', 3020, 'V', 0, 1000), p('v23', 3022, 'V', 0, 1000), p('v31', 3024, 'V', 0, 1000), p('v_avg_ll', 3026, 'V', 0, 1000),
@@ -168,7 +172,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
 
 export interface DeviceInput {
   deviceId: string; templateId: string; link: 'rtu' | 'tcp';
-  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; host?: string; tcpPort?: number; address: number; intervalSec: number; provisionalConfirmed?: boolean; wordOrder?: string; pduBase?: 'listed' | 'minus1';
+  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; host?: string; tcpPort?: number; address: number; intervalSec: number; provisionalConfirmed?: boolean; wordOrder?: string; pduBase?: 'listed' | 'minus1'; readFunc?: 3 | 4;
 }
 
 export function validateDevice(d: DeviceInput): string[] {
@@ -179,6 +183,7 @@ export function validateDevice(d: DeviceInput): string[] {
   if (tpl?.provisional && !d.provisionalConfirmed) e.push(`Provisional template: ${tpl.provisional}`);
   if (tpl?.wordOrderUnverified && !d.wordOrder) e.push('Word order: the vendor does not document it - choose it explicitly from your model\'s documentation or a display check against the meter.');
   if (tpl?.pduBaseUnverified && !d.pduBase) e.push('Register base: the vendor numbers registers from 1 but does not document whether the on-wire address is the listed number or the listed number minus 1 - choose it explicitly from your model\'s documentation or a live read of a known value (e.g. frequency at 3110).');
+  if (tpl?.funcUnverified && !d.readFunc) e.push('Read function: the vendor does not document whether these registers are read with FC 03 (holding) or FC 04 (input) - choose it explicitly from your model\'s documentation or a gateway/scan tool that shows which one the meter answers.');
   if (!Number.isInteger(d.address) || d.address < 1 || d.address > 247) e.push('Modbus address must be 1-247.');
   if (!(d.intervalSec >= 1 && d.intervalSec <= 3600)) e.push('Read interval must be 1-3600 seconds.');
   if (d.link === 'rtu') {
@@ -205,7 +210,7 @@ export function deviceYaml(d: DeviceInput): string {
   L.push(`    address: ${d.address}`, `    interval: ${d.intervalSec}s`, '    points:');
   for (const x of t.points) {
     const reg = d.pduBase === 'minus1' ? x.register - 1 : x.register;
-    L.push(`      - {id: ${x.id}, register: ${reg}, func: ${t.func}, type: ${x.type ?? t.type}, word_order: ${d.wordOrder ?? t.word_order}, scale: ${x.scale ?? 1}, unit: "${x.unit}", min: ${x.min}, max: ${x.max}}`);
+    L.push(`      - {id: ${x.id}, register: ${reg}, func: ${d.readFunc ?? t.func}, type: ${x.type ?? t.type}, word_order: ${d.wordOrder ?? t.word_order}, scale: ${x.scale ?? 1}, unit: "${x.unit}", min: ${x.min}, max: ${x.max}}`);
   }
   return L.join('\n') + '\n';
 }
