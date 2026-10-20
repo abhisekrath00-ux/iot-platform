@@ -1,6 +1,6 @@
 # Parity matrix per product
 
-One place to see, per product, what is built, partial or not built. No product is at parity. Every row is taken from `docs/competitive-gap.md` (rows marked from the code, not intent) or `docs/report-builder-parity.md`; follow the link for the evidence and test status. Siemens, ThingsBoard and Node-RED comparisons use their public documentation, not hands-on use. Last reviewed 2026-10-08; three rows refreshed 2026-10-20 against docs/competitive-gap.md (groups/attributes built in migration 0043, logo upload in 0049, 10 widget types).
+One place to see, per product, what is built, partial or not built. No product is at parity. Every row is taken from `docs/competitive-gap.md` (rows marked from the code, not intent) or `docs/report-builder-parity.md`; follow the link for the evidence and test status. Siemens, ThingsBoard and Node-RED comparisons use their public documentation, not hands-on use. Last reviewed 2026-10-08; refreshed 2026-10-20 against docs/competitive-gap.md and the code (groups/attributes in migration 0043, logo upload in 0049, 10 widget types, maps row, chart-export summary, per-customer branding).
 
 Status words: Built (implemented and tested here), Partial (narrower version), Not built.
 
@@ -15,9 +15,9 @@ Status words: Built (implemented and tested here), Partial (narrower version), N
 | Dashboards and widgets | Partial | 10 widget types against ThingsBoard's 300+ |
 | Rule engine | Partial | Flows and threshold rules, no full node library |
 | Device groups, typed attributes | Built | Named groups with fleet filter and editor; admin-defined typed attributes (text, number, yes/no, one-of, required). No nested groups, no group-wide rules or dashboards yet |
-| Maps and geofencing | Partial | Circular zones; no polygons, enter/exit alerts or live GPS |
+| Maps and geofencing | Partial | Circular zones with enter/exit alerts; device positions from telemetry points (simulator-tested, no real GPS hardware); no polygons or GPS tracks |
 | OTA firmware for end devices | Partial | Edge agent releases only |
-| White-label | Partial | Name, accent colour and logo upload (PNG/JPEG, also drawn into report PDFs). No custom domain, no email template branding |
+| White-label | Partial | Name, accent colour and logo upload (PNG/JPEG, also drawn into report PDFs), plus per-customer name/accent/logo overrides (2026-10-20). No custom domain, no email template branding |
 | Mobile app | Partial | Responsive web and PWA; no native app |
 | Microservice-style clustering | Partial | Scheduler leader election, per-replica caches; 3-node HA generator never run on real machines (docs/ha-multi-node.md) |
 
@@ -45,7 +45,7 @@ Status words: Built (implemented and tested here), Partial (narrower version), N
 
 ## Microsoft Report Builder
 
-Full row-by-row matrix in `docs/report-builder-parity.md`. Summary: exports PDF, XLSX, CSV, HTML built, XML, Word and PowerPoint partial; conditional formatting incl. expression rules partial; charts line, area, bar, scatter, gauge, pie (HTML only) partial; row groups, parameters, expressions, conditional formatting, page layout partial; list region, maps, stacked/combo charts, subreports, drill-through, Word, PowerPoint and a drag-drop designer not built.
+Full row-by-row matrix in `docs/report-builder-parity.md`. Summary: exports PDF, XLSX, CSV, HTML built, XML, Word and PowerPoint partial; conditional formatting incl. expression rules partial; charts line, area, bar, scatter, gauge, pie partial (HTML and PDF; native XLSX for line, area, bar, scatter); row groups, parameters, expressions, conditional formatting, page layout partial; list region, maps, stacked/combo charts, subreports, drill-through, Word, PowerPoint and a drag-drop designer not built.
 
 ## What this document does not show
 
