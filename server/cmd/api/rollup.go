@@ -52,7 +52,7 @@ func (s *server) rollupTelemetry(w http.ResponseWriter, r *http.Request) {
 		 WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND bucket >= $4 AND bucket < $5
 		 GROUP BY 1 ORDER BY 1 LIMIT 20000`, auth.Tenant(r), q.Get("device_id"), q.Get("point_id"), from, to, unit)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
