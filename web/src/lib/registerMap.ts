@@ -5,9 +5,9 @@ import { EDGE_TEMPLATES } from './edgeSetup';
 export interface MapPoint { id: string; register: number; func: number; type: string; word_order: string; scale: number; unit: string; min: number; max: number; }
 export interface Issue { row: number; text: string; }
 
-const TYPES = ['u16', 'i16', 'u32', 'i32', 'f32', 'bool'];
+const TYPES = ['u16', 'i16', 'u32', 'i32', 'f32', 'f64', 'bool'];
 const ORDERS = ['abcd', 'badc', 'cdab', 'dcba'];
-const WIDTH: Record<string, number> = { u16: 1, i16: 1, bool: 1, u32: 2, i32: 2, f32: 2 };
+const WIDTH: Record<string, number> = { u16: 1, i16: 1, bool: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
 export const CSV_COLUMNS = ['id', 'register', 'func', 'type', 'word_order', 'scale', 'unit', 'min', 'max'];
 
 function splitLine(line: string): string[] {
