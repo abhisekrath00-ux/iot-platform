@@ -122,9 +122,9 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
-    id: 'abb-m4m', name: 'ABB M4M 30 (three-phase network analyzer)', link: 'rtu', func: 3, type: 'u32', word_order: 'abcd',
-    note: 'From the official ABB MODBUS MANUAL M4M plus ABB\'s official Modbus table (docs/devices/abb-m4m.md). FC 03 (holding registers), NOT FC 04. M4M 30 also speaks Modbus TCP with the same map. UINT64 energy counters excluded (driver has no u64/i64). Read-only; never run on a real meter.',
-    provisional: 'The FC-03 function code and the L1-voltage address are verified against the official ABB manual; the per-quantity scales (x0.1 V, x0.01 A/W/var/VA/Hz, x0.001 PF) come from ABB\'s table as mirrored, not re-checked line-by-line. Confirm one live voltage and one live power reading against the meter display before relying on values.',
+    id: 'abb-m4m', name: 'ABB M4M 20/30 (three-phase network analyzer)', link: 'rtu', func: 3, type: 'u32', word_order: 'abcd',
+    note: 'Map workbook 9AKK107492A7627 v1.3O covers the M4M 20/30 family (docs/devices/abb-m4m.md). FC 03 (holding registers), NOT FC 04. M4M 30 Ethernet speaks Modbus TCP with the same map. UINT64 energy counters excluded (driver has no u64/i64). Read-only; never run on a real meter.',
+    provisional: 'Two evidence classes, separated honestly. (1) ABB\'s official Modbus manual directly supports only the FC-03 function code and the L1-voltage address 0x5B02 (its worked example). (2) Every other address, every scale (x0.1 V; x0.01 A/W/var/VA/Hz; x0.001 PF) and the ABCD word order come from ABB\'s map workbook 9AKK107492A7627 v1.3O (2023-10-23, M4M 20/30 family; some registers need firmware P1.3.10.0 or later) as re-typed by a third-party mirror - not re-verified line-by-line against ABB\'s file. Confirming here verifies nothing: it only records that you take responsibility. Do not rely on a point until you have checked it against the meter display or ABB\'s workbook for your exact model and firmware, and correct or drop any point whose values disagree.',
     points: [
       ps('v_sys_ln', 23296, 'V', 0, 1000, 0.1),
       ps('v1n', 23298, 'V', 0, 1000, 0.1), ps('v2n', 23300, 'V', 0, 1000, 0.1), ps('v3n', 23302, 'V', 0, 1000, 0.1),
