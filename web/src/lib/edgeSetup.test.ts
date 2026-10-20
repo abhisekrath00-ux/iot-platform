@@ -102,6 +102,42 @@ describe('edge setup', () => {
     for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
   });
 
+
+  it('schneider-iem3000 registers match the official register list DOCA0005EN-07 (docs/devices/schneider-iem3000.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-iem3000')!;
+    expect(t.func).toBe(3); // FC 03 is vendor-stated (the only read FC in the doc's function list)
+    expect(t.type).toBe('f32');
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('i1').register).toBe(3000); // I1: phase 1 current
+    expect(pt('i_avg').register).toBe(3010); // Current Avg
+    expect(pt('v12').register).toBe(3020); // Voltage L1-L2
+    expect(pt('v_avg_ll').register).toBe(3026); // Voltage L-L Avg
+    expect(pt('v1n').register).toBe(3028); // Voltage L1-N
+    expect(pt('v_avg_ln').register).toBe(3036); // Voltage L-N Avg
+    expect(pt('p_total').register).toBe(3060); // Total Active Power
+    expect(pt('pf_total').register).toBe(3084); // Total Power Factor, four-quadrant encoding
+    expect(pt('pf_total').min).toBe(-2); expect(pt('pf_total').max).toBe(2); // 4Q range, NOT plain -1..1
+    expect(pt('freq').register).toBe(3110); // Frequency
+    expect(pt('energy_import').register).toBe(45100); // Total Active Energy Import, 32-bit float block
+    expect(pt('energy_import').unit).toBe('Wh'); // float block prints Wh; Int64 block at 3204 excluded (no i64 driver type)
+    expect(t.points.find((p) => p.id === 'q_total')).toBeUndefined(); // 3068 not applicable on iEM3150/3250/3350: excluded
+    expect(t.points.find((p) => p.id === 's_total')).toBeUndefined(); // 3076 same exclusion
+    // word order is NOT documented: no YAML without an explicit choice. FC and address base ARE vendor-stated, so not gated.
+    expect(t.wordOrderUnverified).toBe(true);
+    expect(t.pduBaseUnverified).toBeUndefined();
+    expect(t.funcUnverified).toBeUndefined();
+    const base = { deviceId: 'iem3-1', templateId: 'schneider-iem3000', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(base).join(' ')).toContain('Word order');
+    const listed = deviceYaml({ ...base, wordOrder: 'abcd' });
+    expect(listed).toContain('register: 3110'); // frequency verbatim (listed address = on-wire address, vendor-stated)
+    expect(listed).toContain('register: 45100'); // float energy verbatim
+    expect(listed).toContain('word_order: abcd');
+    expect(listed).toContain('func: 3');
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+  });
+
   it('schneider-pm53xx registers match the official register list v2011_v2021_R01 (docs/devices/schneider-pm53xx.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm53xx')!;
     expect(t.func).toBe(3); // holding registers (FC not stated by Schneider; FC 03 chosen, gated in the provisional text)
