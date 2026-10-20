@@ -83,7 +83,7 @@ func (s *server) requestGatewayOp(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.st.Pool.Exec(r.Context(),
 		`INSERT INTO gateway_ops(id,tenant_id,gateway_id,kind,status,params,requested_by) VALUES($1,$2,$3,$4,$5,$6,$7)`,
 		id, tenant, gw, in.Kind, st, pj, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "gateway.op.request", gw, map[string]any{"kind": in.Kind, "op_id": id})
@@ -159,7 +159,7 @@ func (s *server) listGatewayOps(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, kind, status, requested_by, COALESCE(approved_by,''), COALESCE(result,'null'::jsonb), created_at, updated_at
 		 FROM gateway_ops WHERE tenant_id=$1 AND gateway_id=$2 ORDER BY created_at DESC LIMIT 20`, tenant, gw)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
