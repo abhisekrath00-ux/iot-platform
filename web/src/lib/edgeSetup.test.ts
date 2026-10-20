@@ -71,6 +71,23 @@ describe('edge setup', () => {
     const spans = t.points.map((x) => [x.register, x.register + ((x.type ?? t.type) === 'f64' ? 4 : 2) - 1]);
     for (const [a] of spans) for (const [b] of spans) if (a !== b) expect(spans.filter((s) => s[0] === a).length).toBe(1);
   });
+  it('carlo-gavazzi-em340 registers match EM300 series communication protocol CP (docs/devices/carlo-gavazzi-em340.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'carlo-gavazzi-em340')!;
+    expect(t.word_order).toBe('cdab'); // LSW->MSW per the protocol doc
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1n').register).toBe(0x0000); // INT32, Volt*10
+    expect(pt('v1n').scale).toBe(0.1);
+    expect(pt('i1').register).toBe(0x000C); // INT32, Ampere*1000
+    expect(pt('i1').scale).toBe(0.001);
+    expect(pt('p1').register).toBe(0x0012); // INT32, Watt*10
+    expect(pt('pf1').register).toBe(0x002E); // INT16, PF*1000
+    expect(pt('pf1').type).toBe('i16');
+    expect(pt('freq').register).toBe(0x0033); // INT16, Hz*10
+    expect(pt('freq').type).toBe('i16');
+    expect(pt('kwh_import').register).toBe(0x0034); // INT32, kWh*10
+    expect(pt('kwh_export').register).toBe(0x004E);
+    expect(pt('kvarh_export').register).toBe(0x0050);
+  });
   it('every template point has a validation range', () => {
     for (const t of EDGE_TEMPLATES) for (const p of t.points) expect(p.max).toBeGreaterThan(p.min);
   });
