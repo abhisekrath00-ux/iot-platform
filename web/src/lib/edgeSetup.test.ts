@@ -153,6 +153,62 @@ describe('edge setup', () => {
     expect(pt('kwh_export').register).toBe(0x004E);
     expect(pt('kvarh_export').register).toBe(0x0050);
   });
+  it('inepro-pro380 registers match the official manual V2.18-8 A3.2 (docs/devices/inepro-pro380.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'inepro-pro380')!;
+    expect(t.func).toBe(3); // FC printed per row
+    expect(t.word_order).toBe('abcd'); // "Float ABCD" printed per row
+    expect(t.wordOrderUnverified).toBeUndefined(); // all conventions vendor-stated
+    const reg = (id: string) => t.points.find((p) => p.id === id)?.register;
+    expect(reg('v1n')).toBe(0x5002); expect(reg('v2n')).toBe(0x5004); expect(reg('v3n')).toBe(0x5006);
+    expect(reg('freq')).toBe(0x5008);
+    expect(reg('i1')).toBe(0x500C); expect(reg('i2')).toBe(0x500E); expect(reg('i3')).toBe(0x5010);
+    expect(reg('p_total')).toBe(0x5012); expect(reg('p1')).toBe(0x5014); expect(reg('p2')).toBe(0x5016); expect(reg('p3')).toBe(0x5018);
+    expect(reg('q_total')).toBe(0x501A); expect(reg('s_total')).toBe(0x5022); expect(reg('pf_total')).toBe(0x502A);
+    expect(reg('kwh_total')).toBe(0x6000); expect(reg('kwh_import')).toBe(0x600C); expect(reg('kwh_export')).toBe(0x6018);
+    // the undefined starred aggregates are excluded
+    expect(t.points.some((p) => p.register === 0x5000 || p.register === 0x500A)).toBe(false);
+    const used = new Set<number>();
+    for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
+    const y = deviceYaml({ deviceId: 'pro-1', templateId: 'inepro-pro380', link: 'rtu', port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5 });
+    expect(y).toContain('register: 20488'); expect(y).toContain('func: 3'); expect(y).toContain('word_order: abcd');
+  });
+  it('eastron-sdm72d-m registers match the manufacturer manual V1.4 part 3 (docs/devices/eastron-sdm72d-m.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'eastron-sdm72d-m')!;
+    expect(t.func).toBe(4); // vendor-stated for all input registers
+    expect(t.wordOrderUnverified).toBe(true); // vendor: byte order "normal or reverse", automatic
+    const reg = (id: string) => t.points.find((p) => p.id === id)?.register;
+    expect(reg('p1')).toBe(0x000C); expect(reg('p2')).toBe(0x000E); expect(reg('p3')).toBe(0x0010);
+    expect(reg('p_total')).toBe(0x0034);
+    expect(reg('kwh_import')).toBe(0x0048); expect(reg('kwh_export')).toBe(0x004A); expect(reg('kwh_total')).toBe(0x0156);
+    expect(reg('p_import')).toBe(0x0500); expect(reg('p_export')).toBe(0x0502);
+    const used = new Set<number>();
+    for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
+    const base72 = { deviceId: 'sdm72-1', templateId: 'eastron-sdm72d-m', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(base72).join(' ')).toContain('Word order');
+    const y = deviceYaml({ ...base72, wordOrder: 'dcba' });
+    expect(y).toContain('word_order: dcba'); expect(y).toContain('func: 4'); expect(y).toContain('register: 52');
+  });
+  it('accuenergy-acuvim2 registers match the official workbook v1.10 (docs/devices/accuenergy-acuvim2.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'accuenergy-acuvim2')!;
+    expect(t.func).toBe(3); // sheet headers "03H Read"
+    expect(t.wordOrderUnverified).toBe(true); // float word order not stated (only dword layout is)
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('freq').register).toBe(0x4000);
+    expect(pt('v1n').register).toBe(0x4002); expect(pt('v_avg_ll').register).toBe(0x4010);
+    expect(pt('i1').register).toBe(0x4012); expect(pt('i_n').register).toBe(0x401A);
+    expect(pt('p1').register).toBe(0x401C); expect(pt('p_total').register).toBe(0x4022);
+    expect(pt('q_total').register).toBe(0x402A); expect(pt('s_total').register).toBe(0x4032); expect(pt('pf_total').register).toBe(0x403A);
+    // energy is UINT32 scaled /10, not float
+    expect(pt('kwh_import').register).toBe(0x4048);
+    expect(pt('kwh_import').type).toBe('u32'); expect(pt('kwh_import').scale).toBe(0.1);
+    const floats = t.points.filter((p) => p.id !== 'kwh_import');
+    const used = new Set<number>();
+    for (const p of floats) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
+    const baseA = { deviceId: 'acu-1', templateId: 'accuenergy-acuvim2', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(baseA).join(' ')).toContain('Word order');
+    const y = deviceYaml({ ...baseA, wordOrder: 'abcd' });
+    expect(y).toContain('func: 3'); expect(y).toContain('register: 16384'); expect(y).toContain('type: u32'); expect(y).toContain('scale: 0.1');
+  });
   it('provisional templates block config until the assumption is confirmed', () => {
     const d: DeviceInput = { ...base, templateId: 'siemens-pac3200', link: 'tcp', host: '192.168.1.60', tcpPort: 502 };
     const errs = validateDevice(d);
