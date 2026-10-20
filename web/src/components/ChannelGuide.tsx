@@ -4,17 +4,17 @@
 
 const GUIDES: Record<string, { title: string; steps: string[]; note?: string }> = {
   slack: {
-    title: 'Slack setup (about 10 minutes, one time)',
+    title: 'Slack setup (one time)',
     steps: [
-      'Create a Slack app: open https://api.slack.com/apps, choose "Create New App" - "From scratch", name it (for example "Site alerts"), pick your workspace.',
+      'Create a Slack app: open https://api.slack.com/apps and create a new app ("Blank app"/"From scratch"), name it (for example "Site alerts"), pick your workspace.',
       'In the app, open "OAuth & Permissions" and add the Bot Token Scope chat:write (post messages). Add channels:read and groups:read only if you want to list channel IDs through the API - not needed otherwise.',
-      'Press "Install to Workspace" and copy the "Bot User OAuth Token" (starts with xoxb-).',
+      'Press "Install to Workspace" and copy the "Bot User OAuth Token" (usually starts with xoxb-).',
       'Give the token to your platform operator - they set SLACK_BOT_TOKEN on the server. Never paste the token into this page.',
       'Invite the bot to your channel: type /invite @YourBotName inside the channel. Slack does not let a bot post to a channel it has not joined.',
       'Find the channel ID: open the channel, click its name at the top - the ID is at the bottom of the dialog (starts with C, or G for private channels). Paste it below.',
       'Add the channel here, press Send test, and Enable it once the test message arrives.',
     ],
-    note: 'Air-gapped deployments: the operator can point SLACK_API_BASE at a Slack-compatible relay instead of slack.com.',
+    note: 'By default the server talks to https://slack.com/api. The operator can point SLACK_API_BASE at any Slack-compatible API endpoint instead (for example an internal relay) if your deployment needs one.',
   },
   email: {
     title: 'Email setup',
@@ -27,10 +27,11 @@ const GUIDES: Record<string, { title: string; steps: string[]; note?: string }> 
   teams: {
     title: 'Microsoft Teams setup',
     steps: [
-      'In Teams, open the channel menu (...) - "Connectors" (or "Workflows" in new Teams) and add "Incoming Webhook".',
-      'Name it (for example "Site alerts") and copy the webhook URL (starts with https).',
-      'Paste the URL below, press Send test, and Enable once the test card arrives in the channel.',
+      'In Teams, open the channel\'s menu (...) and choose "Workflows".',
+      'Pick a webhook template such as "Send webhook alerts to a channel", name it (for example "Site alerts"), save it, and copy the webhook URL it shows (starts with https).',
+      'Paste the URL below, press Send test, and Enable once the test message arrives in the channel.',
     ],
+    note: 'Microsoft retired the classic "Connectors > Incoming Webhook" in 2026 - old connector URLs no longer deliver, so use the Workflows route above. Webhook posts appear under the Workflows (Flow) bot identity: Microsoft does not support a custom bot name or icon on these posts, and interactive buttons are not rendered. Our alerts send the MessageCard body that Workflows accepts.',
   },
   webhook: {
     title: 'Webhook setup',
