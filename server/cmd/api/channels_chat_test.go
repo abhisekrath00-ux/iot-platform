@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -110,11 +111,12 @@ func TestIntegrationTelegramChannel(t *testing.T) {
 	clean := func() {
 		pool.Exec(t.Context(), `DELETE FROM notification_channels WHERE tenant_id='itest-tg1'`)
 		pool.Exec(t.Context(), `DELETE FROM audit_log WHERE tenant_id='itest-tg1'`)
+		pool.Exec(t.Context(), `DELETE FROM telegram_chats WHERE tenant_id='itest-tg1'`)
 	}
 	clean()
 	t.Cleanup(clean)
 	pool.Exec(t.Context(), `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('tg-admin','itest-tg1','tg@tg-test.example','A','admin') ON CONFLICT DO NOTHING`)
-	t.Cleanup(func() { pool.Exec(t.Context(), `DELETE FROM users WHERE id='tg-admin'`) })
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM users WHERE id='tg-admin'`) })
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/notifications/channels", s.createChannel)
 	mux.HandleFunc("POST /v1/notifications/channels/{id}/test", s.testChannel)
@@ -137,6 +139,11 @@ func TestIntegrationTelegramChannel(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "tok-tg")
 	t.Setenv("TELEGRAM_API_BASE", fake.URL)
 	t.Setenv("TELEGRAM_ALLOW_LOOPBACK", "1")
+	if c, _ := do("/v1/notifications/channels", `{"type":"telegram","target":"-1001234567890"}`); c != 400 {
+		t.Fatalf("unpaired chat must be refused = %d, want 400", c)
+	}
+	pool.Exec(t.Context(), `INSERT INTO telegram_chats(tenant_id,chat_id,title) VALUES('itest-tg1','-1001234567890','paired test chat')`)
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM telegram_chats WHERE tenant_id='itest-tg1'`) })
 	if c, _ := do("/v1/notifications/channels", `{"type":"telegram","target":"@somechannel"}`); c != 400 {
 		t.Fatalf("bad chat id = %d", c)
 	}
@@ -158,41 +165,99 @@ func TestIntegrationTelegramChannel(t *testing.T) {
 	}
 }
 
-func TestIntegrationTelegramChatLookup(t *testing.T) {
+func TestIntegrationTelegramPairing(t *testing.T) {
 	s, _ := testServer(t)
 	seed(t, s, "itest-tg2")
+	seed(t, s, "itest-tg3")
 	pool := s.st.Pool
 	pool.Exec(t.Context(), `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('tg2-admin','itest-tg2','tg2@tg-test.example','A','admin') ON CONFLICT DO NOTHING`)
-	t.Cleanup(func() {
-		pool.Exec(t.Context(), `DELETE FROM users WHERE id='tg2-admin'`)
-		pool.Exec(t.Context(), `DELETE FROM audit_log WHERE tenant_id='itest-tg2'`)
-	})
+	pool.Exec(t.Context(), `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('tg3-admin','itest-tg3','tg3@tg-test.example','A','admin') ON CONFLICT DO NOTHING`)
+	clean2 := func() {
+		pool.Exec(context.Background(), `DELETE FROM users WHERE id IN ('tg2-admin','tg3-admin')`)
+		pool.Exec(context.Background(), `DELETE FROM telegram_chats WHERE tenant_id IN ('itest-tg2','itest-tg3')`)
+		pool.Exec(context.Background(), `DELETE FROM telegram_pair_codes WHERE tenant_id IN ('itest-tg2','itest-tg3')`)
+		pool.Exec(context.Background(), `DELETE FROM notification_channels WHERE tenant_id IN ('itest-tg2','itest-tg3')`)
+		pool.Exec(context.Background(), `DELETE FROM audit_log WHERE tenant_id IN ('itest-tg2','itest-tg3')`)
+	}
+	clean2()
+	t.Cleanup(clean2)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/notifications/telegram/chats", s.telegramChats)
-	get := func(user, role string) (int, string) {
-		w := callAs(s.activeUser(mux), "itest-tg2", user, role, "GET", "/v1/notifications/telegram/chats", "")
+	mux.HandleFunc("POST /v1/notifications/telegram/pair-code", s.telegramPairCode)
+	mux.HandleFunc("POST /v1/notifications/channels", s.createChannel)
+	get := func(tenant, user, role, method, path, body string) (int, string) {
+		w := callAs(s.activeUser(mux), tenant, user, role, method, path, body)
 		return w.Code, w.Body.String()
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
-	if c, _ := get("tg2-admin", "admin"); c != 409 {
-		t.Fatalf("unconfigured = %d, want 409", c)
+	if c, _ := get("itest-tg2", "tg2-admin", "admin", "POST", "/v1/notifications/telegram/pair-code", ""); c != 409 {
+		t.Fatalf("pair code unconfigured = %d, want 409", c)
 	}
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		io.WriteString(w, `{"ok":true,"result":[{"message":{"chat":{"id":-1001234567890,"type":"supergroup","title":"Plant Ops"}}}]}`)
+		io.WriteString(w, `{"ok":true,"result":[
+			{"message":{"text":"hello","chat":{"id":-1001111111111,"type":"supergroup","title":"Other Tenant Group"}}}
+		]}`)
 	}))
 	defer fake.Close()
 	t.Setenv("TELEGRAM_BOT_TOKEN", "tok-tg")
 	t.Setenv("TELEGRAM_API_BASE", fake.URL)
 	t.Setenv("TELEGRAM_ALLOW_LOOPBACK", "1")
-	if c, _ := get("tg2-viewer", "viewer"); c != 403 {
-		t.Fatalf("viewer lookup = %d, want 403", c)
+
+	c, body := get("itest-tg2", "tg2-admin", "admin", "POST", "/v1/notifications/telegram/pair-code", "")
+	if c != 200 || !strings.Contains(body, `"code"`) {
+		t.Fatalf("pair code = %d %s", c, body)
 	}
-	c, body := get("tg2-admin", "admin")
-	if c != 200 || !strings.Contains(body, "Plant Ops") || !strings.Contains(body, "-1001234567890") {
-		t.Fatalf("lookup = %d %s", c, body)
+	var code string
+	pool.QueryRow(t.Context(), `SELECT code FROM telegram_pair_codes WHERE tenant_id='itest-tg2'`).Scan(&code)
+
+	// The bot sees another tenant's group chattering; without a spoken code nothing pairs.
+	telegramChatsAt.Delete("itest-tg2")
+	c, body = get("itest-tg2", "tg2-admin", "admin", "GET", "/v1/notifications/telegram/chats", "")
+	if c != 200 || strings.Contains(body, "Other Tenant Group") {
+		t.Fatalf("unpaired chats must not be listed: %d %s", c, body)
 	}
-	if c, _ = get("tg2-admin", "admin"); c != 429 {
-		t.Fatalf("second lookup = %d, want 429", c)
+
+	// The other tenant's admin cannot claim tg2's chat by id, even if they know it.
+	pool.Exec(t.Context(), `INSERT INTO telegram_chats(tenant_id,chat_id,title) VALUES('itest-tg2','-1001234567890','Plant Ops')`)
+	if c, _ = get("itest-tg3", "tg3-admin", "admin", "POST", "/v1/notifications/channels", `{"type":"telegram","target":"-1001234567890"}`); c != 400 {
+		t.Fatalf("cross-tenant chat id must be refused = %d, want 400", c)
+	}
+	telegramChatsAt.Delete("itest-tg3")
+	c, body = get("itest-tg3", "tg3-admin", "admin", "GET", "/v1/notifications/telegram/chats", "")
+	if c != 200 || strings.Contains(body, "Plant Ops") {
+		t.Fatalf("tenant isolation: %d %s", c, body)
+	}
+
+	// tg2 speaks its code in its own chat: that chat pairs, the code is consumed.
+	fake2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		io.WriteString(w, `{"ok":true,"result":[
+			{"message":{"text":"/pair `+code+`","chat":{"id":-1009876543210,"type":"supergroup","title":"Boiler Room"}}},
+			{"message":{"text":"hello","chat":{"id":-1001111111111,"type":"supergroup","title":"Other Tenant Group"}}}
+		]}`)
+	}))
+	defer fake2.Close()
+	t.Setenv("TELEGRAM_API_BASE", fake2.URL)
+	pool.Exec(t.Context(), `DELETE FROM telegram_chats WHERE tenant_id='itest-tg2'`)
+	telegramChatsAt.Delete("itest-tg2")
+	c, body = get("itest-tg2", "tg2-admin", "admin", "GET", "/v1/notifications/telegram/chats", "")
+	if c != 200 || !strings.Contains(body, "Boiler Room") || strings.Contains(body, "Other Tenant Group") {
+		t.Fatalf("pairing scan: %d %s", c, body)
+	}
+	var codeLeft int
+	pool.QueryRow(t.Context(), `SELECT count(*) FROM telegram_pair_codes WHERE tenant_id='itest-tg2'`).Scan(&codeLeft)
+	if codeLeft != 0 {
+		t.Fatal("pair code must be single use")
+	}
+	if c, b := get("itest-tg2", "tg2-admin", "admin", "POST", "/v1/notifications/channels", `{"type":"telegram","target":"-1009876543210"}`); c != 201 {
+		t.Fatalf("paired chat channel = %d %s", c, b)
+	}
+	// rate limit still applies
+	if c, _ = get("itest-tg2", "tg2-admin", "admin", "GET", "/v1/notifications/telegram/chats", ""); c != 429 {
+		t.Fatalf("second scan = %d, want 429", c)
+	}
+	if c, _ = get("itest-tg2", "tg2-viewer", "viewer", "GET", "/v1/notifications/telegram/chats", ""); c != 403 {
+		t.Fatalf("viewer = %d, want 403", c)
 	}
 }
