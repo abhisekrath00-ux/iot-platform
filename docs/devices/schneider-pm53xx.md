@@ -48,12 +48,15 @@ must apply the quadrant decode. This is why the template's pf_total max is 2.
    and neither the list nor the manual says whether the on-wire address is the listed number or
    the listed number minus 1. -> The template forces an explicit base choice
    (pduBaseUnverified gate): "listed numbers as-is" or "listed numbers minus 1".
-3. Read function code. No FC statement in either document. The template uses FC 03 (read
-   holding registers), the only sensible reading of a "register list"; if the meter rejects
-   FC 03, that is visible immediately (exception 01) and the doc must be revisited.
+3. Read function code. No FC statement in either document. The template forces an explicit
+   choice (funcUnverified gate): FC 03 (read holding registers) or FC 04 (read input registers);
+   the emitted YAML carries the choice. No default is trusted.
 
-Practical validation path for an installer (also in the template text): read frequency (listed
-at 3110). A sane Hz value confirms word order, base, and FC in one reading.
+Validation path for an installer (also in the template text): after choosing, compare SEVERAL
+independent known readings (for example frequency, one voltage and one current) against the
+meter's own display. A single plausible value is only a smoke check - it does not prove the
+address, word order or function code, and says nothing about the other registers. Until that
+display comparison is done, every value from this template is hardware-untested.
 
 Min/max guardrails in the template (0-1000 V, 0-10000 A, 40-70 Hz, etc.) are platform sanity
 ranges, not vendor-stated limits: the workbook's native FLOAT32 range is +/-1e38.
