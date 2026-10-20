@@ -176,6 +176,26 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'eaton-iq250-260', name: 'Eaton IQ 250/260 / PXM2000 (three-phase power meter, Modbus RTU/TCP)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    note: 'From Eaton\'s official register map IB02601006E (eaton.com, published in the Power Xpert Meter 2000 series documentation set for IQ250/260 and PXM2000; the document text itself says "IQ 250/260 Meter"), docs/devices/eaton-iq250-260-pxm2000.md. All conventions are vendor-stated, not provisional: holding registers only (FC 03); the map\'s HEX column is the wire address (the decimal column is 1-based for SCADA UIs: 40000 + decimal, strip 4, subtract 1 = the hex value); FLOAT and SINT32 span 2 registers with the lower-addressed register the high-order half (ABCD), and the doc\'s worked float example (C4E1 1DB9 = -1800.929) proves negative values are well-defined. Energy counters are SINT32 read RAW (scale 1): their implied decimal point and unit scale (units/kilo/mega) follow the meter\'s programmed Energy Format setting, so know that setting before reading magnitudes. Per-phase power and PF are non-zero only for WYE hookup (doc note 2). Frequency float reads 0-65 Hz. Serial parameters are programmed on the meter (baud 9600-57600, parity none/even/odd, 1-2 stop bits): match the form to the meter\'s settings. The same map applies over Modbus TCP on units with the Ethernet option. Read-only; never run on a real meter.',
+    points: [
+      ps('va_n', 0x03E7, 'V', 0, 1e6, 1), ps('vb_n', 0x03E9, 'V', 0, 1e6, 1), ps('vc_n', 0x03EB, 'V', 0, 1e6, 1),
+      ps('va_b', 0x03ED, 'V', 0, 1e6, 1), ps('vb_c', 0x03EF, 'V', 0, 1e6, 1), ps('vc_a', 0x03F1, 'V', 0, 1e6, 1),
+      ps('ia', 0x03F3, 'A', 0, 1e6, 1), ps('ib', 0x03F5, 'A', 0, 1e6, 1), ps('ic', 0x03F7, 'A', 0, 1e6, 1), ps('i_n', 0x0403, 'A', 0, 1e6, 1),
+      ps('p_total', 0x03F9, 'W', -1e9, 1e9, 1), ps('q_total', 0x03FB, 'var', -1e9, 1e9, 1), ps('s_total', 0x03FD, 'VA', -1e9, 1e9, 1),
+      ps('pf_total', 0x03FF, '', -1, 1, 1), ps('freq', 0x0401, 'Hz', 0, 65, 1),
+      ps('p_a', 0x0405, 'W', -1e9, 1e9, 1), ps('p_b', 0x0407, 'W', -1e9, 1e9, 1), ps('p_c', 0x0409, 'W', -1e9, 1e9, 1),
+      ps('q_a', 0x040B, 'var', -1e9, 1e9, 1), ps('q_b', 0x040D, 'var', -1e9, 1e9, 1), ps('q_c', 0x040F, 'var', -1e9, 1e9, 1),
+      ps('s_a', 0x0411, 'VA', -1e9, 1e9, 1), ps('s_b', 0x0413, 'VA', -1e9, 1e9, 1), ps('s_c', 0x0415, 'VA', -1e9, 1e9, 1),
+      ps('pf_a', 0x0417, '', -1, 1, 1), ps('pf_b', 0x0419, '', -1, 1, 1), ps('pf_c', 0x041B, '', -1, 1, 1),
+      ps('energy_received', 0x05DB, 'Wh', -1e9, 1e9, 1, 'i32'), ps('energy_delivered', 0x05DD, 'Wh', -1e9, 1e9, 1, 'i32'),
+      ps('energy_net', 0x05DF, 'Wh', -1e9, 1e9, 1, 'i32'), ps('energy_total', 0x05E1, 'Wh', -1e9, 1e9, 1, 'i32'),
+      ps('varh_positive', 0x05E3, 'varh', -1e9, 1e9, 1, 'i32'), ps('varh_negative', 0x05E5, 'varh', -1e9, 1e9, 1, 'i32'),
+      ps('varh_net', 0x05E7, 'varh', -1e9, 1e9, 1, 'i32'), ps('varh_total', 0x05E9, 'varh', -1e9, 1e9, 1, 'i32'),
+      ps('vah_total', 0x05EB, 'VAh', -1e9, 1e9, 1, 'i32'),
+    ],
+  },
+  {
     id: 'carlo-gavazzi-em340', name: 'Carlo Gavazzi EM340 (three-phase DIN-rail meter)', link: 'rtu', func: 4, type: 'i32', word_order: 'cdab',
     note: 'From the official EM300 Series communication protocol CP (gavazziautomation.com, docs/devices/carlo-gavazzi-em340.md). Signed 32-bit integers with documented weights (V*10, mA, W*10, PF*1000) and LSW-first word order (cdab, per the protocol doc). Registers are the doc\'s physical addresses (Modicon 300001 = physical 0). Rows the doc marks "not available" on EM340 and the ET/EM330-only rows are excluded. Read-only; never run on a real meter.',
     points: [
