@@ -70,3 +70,26 @@ func TestSectionPageBreakValidate(t *testing.T) {
 		t.Fatalf("flagged section rejected: %v", err)
 	}
 }
+
+// Boundary: the data block ends exactly at the page bottom (18 + 34 = perPage 52 lines on
+// A4 portrait) when a flagged section arrives. The break must not insert a blank page: the
+// flagged report has exactly as many pages as the unflagged one, one more than the same
+// report without the section at all.
+func TestSectionPageBreakExactFullPage(t *testing.T) {
+	m := Metric{DeviceID: "d", PointID: "p"}
+	rows := cb(34, func(i int) float64 { return float64(i) })
+	series := map[Metric][]Bucket{m: rows}
+	pages := func(s string) int { return strings.Count(s, "/Type /Page /Parent") }
+	render := func(secs []Section) int {
+		d := Definition{Metrics: []Metric{m}, WindowHours: 24, GroupBy: "hour", Sections: secs}
+		if err := Validate(d); err != nil {
+			t.Fatal(err)
+		}
+		return pages(string(RenderPDF("T", d, series, time.Now())))
+	}
+	plain := render([]Section{{Title: "N", Body: "x"}})
+	flagged := render([]Section{{Title: "N", Body: "x", PageBreak: true}})
+	if flagged != plain {
+		t.Fatalf("page break at an exactly full page must not add a blank page: flagged=%d plain=%d", flagged, plain)
+	}
+}
