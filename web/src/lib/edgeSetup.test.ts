@@ -54,6 +54,23 @@ describe('edge setup', () => {
     expect(pt('pf1').type).toBe('i16');
     expect(pt('pf1').scale).toBe(0.001);
   });
+  it('siemens-pac3200 registers match manual A5E01168664B-04 table 3-6 (docs/devices/siemens-pac3200.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'siemens-pac3200')!;
+    expect(t.link).toBe('tcp'); // base unit Ethernet, Modbus TCP
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('va_n').register).toBe(1); // offset 1, Float, V
+    expect(pt('p_total').register).toBe(65); // offset 65, Float, W
+    expect(pt('freq').register).toBe(55); // offset 55, Float, Hz
+    expect(pt('work_hours').register).toBe(213); // offset 213, unsigned long
+    expect(pt('work_hours').type).toBe('u32');
+    expect(pt('energy_import_t1').register).toBe(801); // offset 801, Double, Wh
+    expect(pt('energy_import_t1').type).toBe('f64');
+    expect(pt('apparent_t2').register).toBe(837); // offset 837, Double, VAh
+    expect(pt('apparent_t2').type).toBe('f64');
+    // no gaps or overlaps across the f64 spans
+    const spans = t.points.map((x) => [x.register, x.register + ((x.type ?? t.type) === 'f64' ? 4 : 2) - 1]);
+    for (const [a] of spans) for (const [b] of spans) if (a !== b) expect(spans.filter((s) => s[0] === a).length).toBe(1);
+  });
   it('every template point has a validation range', () => {
     for (const t of EDGE_TEMPLATES) for (const p of t.points) expect(p.max).toBeGreaterThan(p.min);
   });
