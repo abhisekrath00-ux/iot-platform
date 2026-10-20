@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 )
 
 func TestIntegrationAssetHierarchy(t *testing.T) {
@@ -214,5 +217,94 @@ func TestIntegrationAssetDeviceCount(t *testing.T) {
 	}
 	if code, n := count("itest-ac1", "ac-ghost"); code != 200 || n != 0 {
 		t.Fatalf("unknown asset = %d (code %d), want 0", n, code)
+	}
+}
+
+// A rule scoped by asset_id plus relation covers devices attached to assets
+// the anchor reaches downstream via that relation (cycle-safe, depth 10) and
+// devices named directly as endpoints - never the anchor's own devices.
+func TestIntegrationRelationScopedRule(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-rs1")
+	seed(t, s, "itest-rs2")
+	ctx := context.Background()
+	pool := s.st.Pool
+	clean := func() {
+		for _, q := range []string{
+			`DELETE FROM alerts WHERE tenant_id IN ('itest-rs1','itest-rs2')`,
+			`DELETE FROM rules WHERE tenant_id IN ('itest-rs1','itest-rs2')`,
+			`DELETE FROM entity_relations WHERE tenant_id IN ('itest-rs1','itest-rs2')`,
+			`UPDATE devices SET asset_id=NULL WHERE tenant_id IN ('itest-rs1','itest-rs2')`,
+			`DELETE FROM devices WHERE tenant_id IN ('itest-rs1','itest-rs2') AND id LIKE 'itest-rs%-d%'`,
+			`DELETE FROM assets WHERE tenant_id IN ('itest-rs1','itest-rs2')`,
+		} {
+			pool.Exec(ctx, q)
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+	for _, q := range []string{
+		`INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('rs-user','itest-rs1','rs@x.local','rs','admin') ON CONFLICT DO NOTHING`,
+		`INSERT INTO assets(id,tenant_id,parent_id,name,kind) VALUES
+		 ('rs-line','itest-rs1',NULL,'Line','line'),
+		 ('rs-motor1','itest-rs1',NULL,'Motor one','machine'),
+		 ('rs-motor2','itest-rs1',NULL,'Motor two','machine')`,
+		// seed device -> motor1; d2 -> motor2; d3 -> the anchor itself; d4 unattached
+		`UPDATE devices SET asset_id='rs-motor1' WHERE id='itest-rs1-dev'`,
+		`INSERT INTO devices(id,tenant_id,gateway_id,profile,name,asset_id) VALUES
+		 ('itest-rs1-d2','itest-rs1','itest-rs1-gw','modbus-tcp','second','rs-motor2'),
+		 ('itest-rs1-d3','itest-rs1','itest-rs1-gw','modbus-tcp','anchor own','rs-line'),
+		 ('itest-rs1-d4','itest-rs1','itest-rs1-gw','modbus-tcp','loose',NULL)`,
+		// line feeds motor1 feeds motor2 (and a cycle back), line powers d4 directly
+		`INSERT INTO entity_relations(tenant_id,from_kind,from_id,relation,to_kind,to_id) VALUES
+		 ('itest-rs1','asset','rs-line','feeds','asset','rs-motor1'),
+		 ('itest-rs1','asset','rs-motor1','feeds','asset','rs-motor2'),
+		 ('itest-rs1','asset','rs-motor2','feeds','asset','rs-line'),
+		 ('itest-rs1','asset','rs-line','powers','device','itest-rs1-d4')`,
+		`INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES
+		 ('rs-feeds','itest-rs1','fed motors','{"point_id":"temp","op":">","threshold":1,"severity":"info","asset_id":"rs-line","relation":"feeds"}',true,'rs-user'),
+		 ('rs-powers','itest-rs1','powered','{"point_id":"temp","op":">","threshold":1,"severity":"info","asset_id":"rs-line","relation":"powers"}',true,'rs-user')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	fired := func(rule, device string) (n int) {
+		pool.QueryRow(ctx, `SELECT count(*) FROM alerts WHERE rule_id=$1 AND device_id=$2`, rule, device).Scan(&n)
+		return
+	}
+	for _, dev := range []string{"itest-rs1-dev", "itest-rs1-d2", "itest-rs1-d3", "itest-rs1-d4"} {
+		rules.Evaluate(ctx, pool, nil, "itest-rs1", dev, "temp", 5)
+	}
+	if fired("rs-feeds", "itest-rs1-dev") != 1 || fired("rs-feeds", "itest-rs1-d2") != 1 {
+		t.Fatal("feeds rule must fire for devices on reached assets (depth 1 and 2)")
+	}
+	if fired("rs-feeds", "itest-rs1-d3") != 0 {
+		t.Fatal("feeds rule must not fire for the anchor asset's own device")
+	}
+	if fired("rs-feeds", "itest-rs1-d4") != 0 || fired("rs-powers", "itest-rs1-d2") != 0 {
+		t.Fatal("rule must follow only its own relation")
+	}
+	if fired("rs-powers", "itest-rs1-d4") != 1 {
+		t.Fatal("powers rule must fire for a device named directly as an endpoint")
+	}
+	// cross-tenant: same point reading on the other tenant fires nothing
+	rules.Evaluate(ctx, pool, nil, "itest-rs2", "itest-rs2-dev", "temp", 5)
+	var n int
+	pool.QueryRow(ctx, `SELECT count(*) FROM alerts WHERE tenant_id='itest-rs2'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("cross-tenant evaluation")
+	}
+	// API validation: relation without asset_id, and a bad relation name
+	api := http.NewServeMux()
+	api.HandleFunc("POST /v1/rules", s.createRule)
+	if w := call(api, "itest-rs1", "admin", "POST", "/v1/rules", `{"name":"x","enabled":true,"definition":{"point_id":"temp","op":">","threshold":1,"severity":"info","relation":"feeds"}}`); w.Code != 400 {
+		t.Fatalf("relation without asset_id = %d, want 400", w.Code)
+	}
+	if w := call(api, "itest-rs1", "admin", "POST", "/v1/rules", `{"name":"x","enabled":true,"definition":{"point_id":"temp","op":">","threshold":1,"severity":"info","asset_id":"rs-line","relation":"Feeds"}}`); w.Code != 400 {
+		t.Fatalf("bad relation name = %d, want 400", w.Code)
+	}
+	if w := call(api, "itest-rs1", "admin", "POST", "/v1/rules", `{"name":"x","enabled":true,"definition":{"point_id":"temp","op":">","threshold":1,"severity":"info","asset_id":"rs-line","relation":"feeds"}}`); w.Code != 201 {
+		t.Fatalf("valid relation rule = %d, want 201", w.Code)
 	}
 }
