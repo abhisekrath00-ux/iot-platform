@@ -136,6 +136,26 @@ describe('edge setup', () => {
     const spans = t.points.map((x) => [x.register, x.register + ((x.type ?? t.type) === 'f64' ? 4 : 2) - 1]);
     for (const [a] of spans) for (const [b] of spans) if (a !== b) expect(spans.filter((s) => s[0] === a).length).toBe(1);
   });
+  it('siemens-pac4200 registers match manual A5E02316180B-03 tables A-1/A-14 (docs/devices/siemens-pac4200.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'siemens-pac4200')!;
+    expect(t.link).toBe('tcp'); // base unit Ethernet, Modbus TCP (same offsets over RTU via PAC RS485 module)
+    expect(t.func).toBe(4); // FC 03 and 04 both stated; template uses 04
+    expect(t.wordOrderUnverified).toBe(true); // word order is the ONE unstated convention
+    expect(t.pduBaseUnverified).toBeUndefined(); // addressing proven by Siemens frame examples
+    expect(t.funcUnverified).toBeUndefined();
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('va_n').register).toBe(1); // offset 1, Float, V
+    expect(pt('p_total').register).toBe(65); // offset 65, Float, W
+    expect(pt('freq').register).toBe(55); // offset 55, Float, Hz
+    expect(pt('thd_v_ab').register).toBe(43); // offset 43, THD Voltage a-b (line-to-line)
+    expect(pt('energy_import_t1').register).toBe(2801); // Float, Wh (float energy table A-14)
+    expect(pt('apparent_t2').register).toBe(2819); // Float, VAh
+    expect(t.points.every((p) => (p.type ?? t.type) === 'f32')).toBe(true); // all Float, 2 registers
+    // no duplicate or overlapping 2-register spans
+    const starts = t.points.map((x) => x.register);
+    expect(new Set(starts).size).toBe(starts.length);
+    for (const r of starts) expect(t.points.every((q) => q.register === r || q.register >= r + 2 || q.register + 1 < r)).toBe(true);
+  });
   it('carlo-gavazzi-em340 registers match EM300 series communication protocol CP (docs/devices/carlo-gavazzi-em340.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'carlo-gavazzi-em340')!;
     expect(t.word_order).toBe('cdab'); // LSW->MSW per the protocol doc
