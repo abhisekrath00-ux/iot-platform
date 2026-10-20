@@ -11,11 +11,12 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/tsstore"
 )
 
-// withReportContext fills what a render needs beyond the stored definition: rollup group labels and, for a
-// compare report, the buckets of the window just before the current one.
-func (s *server) withReportContext(ctx context.Context, tenant string, def report.Definition) (report.Definition, error) {
+// withReportContext fills what a render needs beyond the stored definition: rollup group labels, the logo
+// (customer logo for a shared report, else the tenant's), and, for a compare report, the buckets of the
+// window just before the current one. customerID is "" for unsaved previews and unshared reports.
+func (s *server) withReportContext(ctx context.Context, tenant, customerID string, def report.Definition) (report.Definition, error) {
 	def, err := s.withGroupLabels(ctx, tenant, def)
-	def.Logo = s.reportLogoImage(ctx, tenant)
+	def.Logo = s.reportLogoImageFor(ctx, tenant, customerID)
 	if err != nil {
 		return def, err
 	}
