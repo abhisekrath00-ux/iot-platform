@@ -31,7 +31,7 @@ export const GUIDES: Guide[] = [
     body: [
       { p: 'A Modbus device only answers "what is in register 4". It does not send names or units. A register map (a sensor profile) records, for each register: a name, the register number, the function code, the data type, the word order, a scale, a unit, and a valid range.' },
       { h: 'Where to get a map' },
-      { steps: ['Use a built-in template (Selec MX300/MFM383A, Eastron SDM630/SDM120, Socomec DIRIS A-40 load 1 and Siemens SENTRON PAC3200 are included).', 'Import a CSV or JSON file with the columns id, register, func, type, word_order, scale, unit, min, max.', 'Or type the points in by hand from the device manual (look for the "Modbus register map" table).'] },
+      { steps: ['Use a built-in template (Selec MX300/MFM383A, Eastron SDM630/SDM120, Socomec DIRIS A-40 load 1, Siemens SENTRON PAC3200 and Carlo Gavazzi EM340 are included).', 'Import a CSV or JSON file with the columns id, register, func, type, word_order, scale, unit, min, max.', 'Or type the points in by hand from the device manual (look for the "Modbus register map" table).'] },
       { p: 'Imports are checked before you can save: unique names, no overlapping registers, valid types and ranges. Nothing is saved until you press Create profile.' },
       { note: 'Auto-detect only ever suggests. It never names or saves anything for you.' },
       { link: ['Profiles', '/profiles'] },
