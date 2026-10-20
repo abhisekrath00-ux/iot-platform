@@ -2,7 +2,7 @@
 // Template numbers come from docs/devices/*.md (never run on real hardware).
 
 export interface TplPoint { id: string; register: number; unit: string; min: number; max: number; scale?: number; type?: string; }
-export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; func: number; type: string; word_order: string; points: TplPoint[]; note: string; }
+export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; func: number; type: string; word_order: string; points: TplPoint[]; note: string; provisional?: string; }
 
 const p = (id: string, register: number, unit: string, min: number, max: number): TplPoint => ({ id, register, unit, min, max });
 // ps adds an explicit scale and/or type for scaled-integer maps (e.g. Socomec U32 in V 10e-2);
@@ -75,7 +75,8 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   },
   {
     id: 'siemens-pac3200', name: 'Siemens SENTRON PAC3200 (three-phase power monitoring, Modbus TCP)', link: 'tcp', func: 4, type: 'f32', word_order: 'abcd',
-    note: 'From the official SENTRON PAC3200 manual A5E01168664B-04, table 3-6 (docs/devices/siemens-pac3200.md). Register numbers are the manual\'s 1-based offsets. Instantaneous values are Float; energy counters are Double (f64, 4 registers) - word order for doubles is not stated in the manual, standard big-endian assumed and flagged in the doc. Read-only: the writable counter resets and 50xxx config registers are excluded. Min/max history offsets 75-211 not in this template. Never run on a real meter.',
+    note: 'From the official SENTRON PAC3200 manual A5E01168664B-04, table 3-6 (docs/devices/siemens-pac3200.md). Register numbers are the manual\'s offsets; PDU addressing (address = offset) is verified against Siemens application example 40614428. Instantaneous values are Float; energy counters are Double (f64, 4 registers). Read-only: the writable counter resets and 50xxx config registers are excluded. Min/max history offsets 75-211 not in this template. Never run on a real meter.',
+    provisional: 'The manual does not state the word order of the 4-register Double energy counters; this template assumes most-significant-register-first (abcd). Instantaneous Float values are unaffected. Confirm against the meter (compare one known energy reading) before relying on the energy counters.',
     points: [
       p('va_n', 1, 'V', 0, 1000), p('vb_n', 3, 'V', 0, 1000), p('vc_n', 5, 'V', 0, 1000),
       p('va_b', 7, 'V', 0, 1000), p('vb_c', 9, 'V', 0, 1000), p('vc_a', 11, 'V', 0, 1000),
@@ -126,13 +127,15 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
 
 export interface DeviceInput {
   deviceId: string; templateId: string; link: 'rtu' | 'tcp';
-  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; host?: string; tcpPort?: number; address: number; intervalSec: number;
+  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; host?: string; tcpPort?: number; address: number; intervalSec: number; provisionalConfirmed?: boolean;
 }
 
 export function validateDevice(d: DeviceInput): string[] {
   const e: string[] = [];
   if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(d.deviceId)) e.push('Device id: lowercase letters, digits, - and _ only (max 40).');
-  if (!EDGE_TEMPLATES.some((t) => t.id === d.templateId)) e.push('Pick a template.');
+  const tpl = EDGE_TEMPLATES.find((t) => t.id === d.templateId);
+  if (!tpl) e.push('Pick a template.');
+  if (tpl?.provisional && !d.provisionalConfirmed) e.push(`Provisional template: ${tpl.provisional}`);
   if (!Number.isInteger(d.address) || d.address < 1 || d.address > 247) e.push('Modbus address must be 1-247.');
   if (!(d.intervalSec >= 1 && d.intervalSec <= 3600)) e.push('Read interval must be 1-3600 seconds.');
   if (d.link === 'rtu') {
