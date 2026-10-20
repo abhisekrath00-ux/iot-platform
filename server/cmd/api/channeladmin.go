@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -125,11 +127,55 @@ func join(a []string) string {
 	return out
 }
 
-var telegramChatsAt sync.Map // tenant -> time of the last chat lookup (one per 10 s, per process)
+var telegramChatsAt sync.Map // tenant -> time of the last pairing scan (one per 10 s, per process)
 
-// GET /v1/notifications/telegram/chats lists the chats the deployment's Telegram bot has seen,
-// so an admin can pick a destination instead of hunting for a numeric chat id. Admin only, never
-// through an API key or the assistant; rate limited like a channel test.
+// Telegram pairing. The bot token is operator-global, so seeing a chat in getUpdates or knowing its
+// id proves nothing about who owns it. A tenant proves ownership by sending its one-time code to the
+// bot inside its own chat; only paired chats can be listed, picked or manually entered as channels.
+// Codes live 10 minutes and are single use.
+
+const pairCodeTTL = 10 * time.Minute
+
+// POST /v1/notifications/telegram/pair-code -> {"code": "...", "expires_in_minutes": 10}
+func (s *server) telegramPairCode(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin") || auth.ViaKey(r) {
+		if auth.ViaKey(r) {
+			http.Error(w, "not available to API keys or the assistant", http.StatusForbidden)
+		}
+		return
+	}
+	if !notify.TelegramConfigured() {
+		http.Error(w, "Telegram is not configured on this deployment (the operator sets TELEGRAM_BOT_TOKEN)", 409)
+		return
+	}
+	code := newPairCode()
+	if _, err := s.st.Pool.Exec(r.Context(),
+		`INSERT INTO telegram_pair_codes(tenant_id,code) VALUES($1,$2)
+		 ON CONFLICT (tenant_id) DO UPDATE SET code=$2, created_at=now()`, auth.Tenant(r), code); err != nil {
+		http.Error(w, "unavailable", 503)
+		return
+	}
+	s.audit(r, "channel.telegram_pair_code", "", nil)
+	writeJSON(w, 200, map[string]any{"code": code, "expires_in_minutes": int(pairCodeTTL.Minutes())})
+}
+
+const pairAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789" // no easily confused characters
+
+func newPairCode() string {
+	b := make([]byte, 6)
+	raw := make([]byte, 6)
+	if _, err := rand.Read(raw); err != nil {
+		return "PAIRME"
+	}
+	for i := range raw {
+		b[i] = pairAlphabet[int(raw[i])%len(pairAlphabet)]
+	}
+	return string(b)
+}
+
+// GET /v1/notifications/telegram/chats scans the bot's recent inbound messages for this tenant's
+// pair code, records any chat that spoke it, and returns only this tenant's paired chats. Admin
+// only, never through an API key or the assistant; rate limited like a channel test.
 func (s *server) telegramChats(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin") || auth.ViaKey(r) {
 		if auth.ViaKey(r) {
@@ -148,20 +194,52 @@ func (s *server) telegramChats(w http.ResponseWriter, r *http.Request) {
 	}
 	telegramChatsAt.Store(t, time.Now())
 	tgr, ok2 := s.replier().(interface {
-		TelegramChats(context.Context) ([]notify.TelegramChat, error)
+		TelegramMessages(context.Context) ([]notify.TelegramMessage, error)
 	})
 	if !ok2 {
 		http.Error(w, "telegram not available", 503)
 		return
 	}
-	chats, err := tgr.TelegramChats(r.Context())
-	if err != nil {
-		e := err.Error()
-		if len(e) > 200 {
-			e = e[:200]
+	// A live code turns a spoken message into a pairing. No active code: just list what is paired.
+	var code string
+	var codeAt time.Time
+	_ = s.st.Pool.QueryRow(r.Context(), `SELECT code, created_at FROM telegram_pair_codes WHERE tenant_id=$1`, t).Scan(&code, &codeAt)
+	codeLive := code != "" && time.Since(codeAt) < pairCodeTTL
+	if codeLive {
+		msgs, err := tgr.TelegramMessages(r.Context())
+		if err != nil {
+			e := err.Error()
+			if len(e) > 200 {
+				e = e[:200]
+			}
+			writeJSON(w, 200, map[string]any{"chats": []any{}, "error": e})
+			return
 		}
-		writeJSON(w, 200, map[string]any{"chats": []any{}, "error": e})
+		for _, m := range msgs {
+			if !strings.Contains(m.Text, code) {
+				continue
+			}
+			if _, err := s.st.Pool.Exec(r.Context(),
+				`INSERT INTO telegram_chats(tenant_id,chat_id,title,chat_type) VALUES($1,$2,$3,$4)
+				 ON CONFLICT (tenant_id,chat_id) DO UPDATE SET title=$3, chat_type=$4, paired_at=now()`,
+				t, m.Chat.ID, m.Chat.Title, m.Chat.Type); err == nil {
+				s.st.Pool.Exec(r.Context(), `DELETE FROM telegram_pair_codes WHERE tenant_id=$1`, t)
+				s.audit(r, "channel.telegram_paired", m.Chat.ID, map[string]any{"title": m.Chat.Title})
+			}
+		}
+	}
+	rows, err := s.st.Pool.Query(r.Context(), `SELECT chat_id, chat_type, title FROM telegram_chats WHERE tenant_id=$1 ORDER BY paired_at DESC LIMIT 50`, t)
+	if err != nil {
+		http.Error(w, "unavailable", 503)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"chats": chats})
+	defer rows.Close()
+	chats := []notify.TelegramChat{}
+	for rows.Next() {
+		var c notify.TelegramChat
+		if rows.Scan(&c.ID, &c.Type, &c.Title) == nil {
+			chats = append(chats, c)
+		}
+	}
+	writeJSON(w, 200, map[string]any{"chats": chats, "pairing": codeLive})
 }
