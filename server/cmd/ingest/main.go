@@ -43,6 +43,7 @@ func main() {
 		log.Fatalf("store: %v", err)
 	}
 	defer st.Close()
+	pos := store.NewPositionTracker(st.Pool)
 
 	notifier := notify.FromEnv()
 	flow.HTTPClient = notifier
@@ -71,6 +72,9 @@ func main() {
 		if err != nil {
 			log.Printf("insert %s: %v", e.EventID, err)
 			return
+		}
+		if err := pos.Track(ctx, e.TenantID, e.DeviceID, e.PointID, e.Value); err != nil {
+			log.Printf("position track %s: %v", e.DeviceID, err)
 		}
 		rules.Evaluate(ctx, st.Pool, notifier, e.TenantID, e.DeviceID, e.PointID, e.Value)
 		flow.EvaluateWith(ctx, st.Pool, notifier, jsfn.New(4), e.TenantID, e.DeviceID, e.PointID, e.Value)
