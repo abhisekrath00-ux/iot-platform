@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	migratepkg "github.com/abhisekrath00-ux/iot-platform/server/internal/migrate"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 )
 
@@ -29,25 +30,11 @@ func dbServer(t *testing.T) *server {
 		t.Fatal(err)
 	}
 	t.Cleanup(st.Close)
-	// Same advisory lock as cmd/api migrate, so parallel test packages serialize.
-	conn, err := st.Pool.Acquire(ctx)
-	if err != nil {
+	// Same ledgered migrations as the API: files already applied to this
+	// database are skipped, so re-running setup per test takes no DDL locks
+	// and cannot deadlock against another package's in-flight queries.
+	if err := migratepkg.Apply(ctx, st.Pool, "../../migrations"); err != nil {
 		t.Fatal(err)
-	}
-	defer conn.Release()
-	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", int64(0x4845584D4F4E)); err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", int64(0x4845584D4F4E)) //nolint:errcheck
-	entries, _ := os.ReadDir("../../migrations")
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".sql") {
-			continue
-		}
-		b, _ := os.ReadFile("../../migrations/" + e.Name())
-		if _, err := conn.Exec(ctx, string(b)); err != nil {
-			t.Fatalf("migration %s: %v", e.Name(), err)
-		}
 	}
 	return &server{st: st}
 }
