@@ -193,6 +193,47 @@ describe('edge setup', () => {
     expect(pt('pf1').type).toBe('i16');
     expect(pt('pf1').scale).toBe(0.001);
   });
+
+  it('siemens-pac2200 offsets match the official manual L1V30415167B-06 table A-3 (docs/devices/siemens-pac2200.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'siemens-pac2200')!;
+    expect(t.func).toBe(4); // FC 03 and 04 both vendor-stated for all measured variables; family choice is FC 04
+    expect(t.type).toBe('f32');
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1n').register).toBe(1); // Voltage U_L1-N
+    expect(pt('v31').register).toBe(11); // Voltage U_L3-L1
+    expect(pt('i1').register).toBe(13); // Current L1
+    expect(pt('s1').register).toBe(19); // Apparent power L1
+    expect(pt('p1').register).toBe(25); // Active power L1
+    expect(pt('q3').register).toBe(35); // Reactive power L3
+    expect(pt('pf1').register).toBe(37); // PF L1, documented range 0...1
+    expect(pt('pf1').min).toBe(0); expect(pt('pf1').max).toBe(1);
+    expect(pt('freq').register).toBe(55); // Frequency, documented range 45...65
+    expect(pt('freq').min).toBe(45); expect(pt('freq').max).toBe(65);
+    expect(pt('p_total').register).toBe(65); // Total active power
+    expect(pt('q_total').register).toBe(67); // Total reactive power
+    expect(pt('i_n').register).toBe(71); // Neutral current
+    expect(pt('energy_import').register).toBe(801); // Active energy import tariff 1, Double
+    expect(pt('energy_import').type).toBe('f64'); // Double = 4 registers
+    expect(pt('energy_import').unit).toBe('Wh'); // as printed
+    expect(pt('energy_import').max).toBe(1e12); // documented overflow 1.0e+12
+    expect(pt('energy_export').register).toBe(809);
+    expect(pt('varh_import').register).toBe(817);
+    expect(t.points.find((p) => p.id === 'pf_total')).toBeUndefined(); // offset 69 excluded: manual leaves its range unstated
+    // word order is NOT documented anywhere in the manual: no YAML without an explicit choice
+    expect(t.wordOrderUnverified).toBe(true);
+    const base = { deviceId: 'pac22-1', templateId: 'siemens-pac2200', link: 'tcp' as const, host: '192.168.1.10', tcpPort: 502, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(base).join(' ')).toContain('Word order');
+    const yaml = deviceYaml({ ...base, wordOrder: 'abcd' });
+    expect(yaml).toContain('register: 55'); // frequency verbatim (listed offset = on-wire start address)
+    expect(yaml).toContain('register: 801'); // Double energy verbatim
+    expect(yaml).toContain('type: f64');
+    expect(yaml).toContain('word_order: abcd');
+    expect(yaml).toContain('func: 4');
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+  });
+
   it('siemens-pac3200 registers match manual A5E01168664B-04 table 3-6 (docs/devices/siemens-pac3200.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'siemens-pac3200')!;
     expect(t.link).toBe('tcp'); // base unit Ethernet, Modbus TCP
