@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import AssistantMemory from '../components/AssistantMemory';
+import { Opt, WIZARDS, Wizard } from '../components/ChatWizards';
 import { api } from '../lib/api';
 
 interface Msg { role: 'user' | 'assistant'; content: string; }
@@ -21,11 +22,64 @@ export default function Assistant() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [acts, setActs] = useState<Record<string, string>>({});
+  // Deterministic guided templates: they never call the model and work with no AI configured.
+  const [wiz, setWiz] = useState<Wizard | null>(null);
+  const [wStep, setWStep] = useState(0);
+  const [wAns, setWAns] = useState<Record<string, string>>({});
+  const [wOpts, setWOpts] = useState<Opt[] | null>(null);
+  const [wErr, setWErr] = useState('');
+  const [wConfirm, setWConfirm] = useState(false);
+  const [wBusy, setWBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
+
+  function startWizard(w: Wizard) {
+    setWiz(w); setWStep(0); setWAns({}); setWErr(''); setWConfirm(false); setWOpts(null);
+    loadStepOptions(w, 0, {});
+  }
+  function loadStepOptions(w: Wizard, idx: number, answers: Record<string, string>) {
+    const st = w.steps[idx];
+    if (st?.kind === 'select' && st.loadOptions) {
+      setWOpts(null);
+      st.loadOptions(answers).then(o => {
+        setWOpts(o);
+        if (o.length === 0) setWErr('Nothing to pick from yet. Cancel and add one first (or ask in the chat).');
+      }).catch(e => { setWOpts([]); setWErr(String(e)); });
+    } else { setWOpts(st?.options ?? null); }
+  }
+  function answerWizard(v: string) {
+    if (!wiz) return;
+    const st = wiz.steps[wStep];
+    const bad = st.validate?.(v);
+    if (bad) { setWErr(bad); return; }
+    if (st.kind === 'select') {
+      const pool = wOpts ?? st.options ?? [];
+      const hit = pool.find(o => o.value === v || o.label === v);
+      if (!hit) { setWErr('Pick one of the offered choices.'); return; }
+      v = hit.value;
+    }
+    setWErr('');
+    const next = { ...wAns, [st.key]: v };
+    setWAns(next);
+    if (wStep + 1 >= wiz.steps.length) { setWConfirm(true); return; }
+    setWStep(wStep + 1);
+    loadStepOptions(wiz, wStep + 1, next);
+  }
+  async function runWizard() {
+    if (!wiz) return;
+    setWBusy(true);
+    try {
+      const done = await wiz.run(wAns);
+      setMsgs(ms => [...ms, { role: 'assistant', content: done }]);
+      setWiz(null);
+    } catch (e) { setWErr(String(e)); }
+    setWBusy(false);
+  }
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }); }, [runs, msgs]);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
+    if (wiz && !wConfirm) { const t2 = text; setText(''); answerWizard(t2); return; }
+    if (wiz) return; // confirmation stage: use the buttons
     const next: Msg[] = [...msgs, { role: 'user', content: text }];
     setMsgs(next); setText(''); setBusy(true); setErr('');
     try {
@@ -81,9 +135,52 @@ export default function Assistant() {
         {busy && <p className="muted">Working...</p>}
         <div ref={end} />
       </div>
+      {!wiz && (
+        <div className="card" style={{ maxWidth: 900, marginTop: 12, padding: '10px 14px' }}>
+          <span className="muted" style={{ fontSize: 12 }}>Guided templates (work without the model): </span>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+            {WIZARDS.map(w => (
+              <button key={w.id} type="button" className="ghost" title={w.description} onClick={() => startWizard(w)}>{w.title}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      {wiz && (
+        <div className="card" style={{ maxWidth: 900, marginTop: 12, padding: '12px 16px' }} role="group" aria-label="Guided template">
+          <b>{wiz.title}</b> <span className="muted" style={{ fontSize: 12 }}>step {Math.min(wStep + 1, wiz.steps.length)} of {wiz.steps.length} - no AI involved, you confirm before anything is written</span>
+          {!wConfirm ? (
+            <div style={{ marginTop: 8 }}>
+              <div>{wiz.steps[wStep].prompt}</div>
+              {wOpts && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                  {wOpts.map(o => <button key={o.value} type="button" className="ghost" onClick={() => answerWizard(o.value)}>{o.label}</button>)}
+                </div>
+              )}
+              {wOpts === null && wiz.steps[wStep].kind === 'select' && !wErr && <p className="muted">Loading choices...</p>}
+              {(wiz.steps[wStep].kind !== 'select') && (
+                <form onSubmit={e => { e.preventDefault(); answerWizard(text); setText(''); }} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <input aria-label="Your answer" value={text} onChange={e => setText(e.target.value)} autoFocus />
+                  <button type="submit" disabled={!text.trim()}>Next</button>
+                </form>
+              )}
+              {wErr && <p role="alert" style={{ marginTop: 6 }}>{wErr}</p>}
+              <p style={{ marginTop: 8 }}><button type="button" className="ghost" onClick={() => setWiz(null)}>Cancel</button></p>
+            </div>
+          ) : (
+            <div style={{ marginTop: 8 }}>
+              <p>{wiz.summary(wAns)}</p>
+              {wErr && <p role="alert">{wErr}</p>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" disabled={wBusy} onClick={runWizard}>{wBusy ? 'Working...' : 'Confirm'}</button>
+                <button type="button" className="ghost" disabled={wBusy} onClick={() => setWiz(null)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <form onSubmit={send} style={{ display: 'flex', gap: 8, maxWidth: 900, marginTop: 12 }}>
-        <input aria-label="Message the assistant" placeholder="What should I do?" value={text} onChange={e => setText(e.target.value)} disabled={busy} />
-        <button type="submit" disabled={busy || !text.trim()}>Send</button>
+        <input aria-label="Message the assistant" placeholder={wiz ? 'Answer above, or cancel the template' : 'What should I do?'} value={text} onChange={e => setText(e.target.value)} disabled={busy || (!!wiz && wOpts !== null && wiz.steps[wStep]?.kind === 'select')} />
+        <button type="submit" disabled={busy || !!wiz || !text.trim()}>Send</button>
       </form>
       <p className="muted" style={{ fontSize: 12, maxWidth: 900 }}>Answers come from the model your admin connected and can be wrong. Check values before you confirm a change.</p>
     </>
