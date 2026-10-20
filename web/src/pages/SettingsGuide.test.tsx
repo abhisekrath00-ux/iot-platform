@@ -45,7 +45,7 @@ test('email guide names the operator env vars and one-address-per-channel', asyn
 
 test('teams and webhook guides require https webhook URLs', async () => {
   await render('teams');
-  expect(box.querySelector('[data-testid="guide-teams"]')!.textContent).toContain('Incoming Webhook');
+  expect(box.querySelector('[data-testid="guide-teams"]')!.textContent).toContain('Workflows');
   await render('webhook');
   expect(box.querySelector('[data-testid="guide-webhook"]')!.textContent).toContain('HTTPS');
 });
