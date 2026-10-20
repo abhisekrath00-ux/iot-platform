@@ -9,17 +9,22 @@ table 3-6 "Available measured variables". Nothing here has been run against a re
 Modbus TCP on the base unit's Ethernet port (the transmission protocol must be switched from
 SEAbus TCP to Modbus TCP on the device, manual section 3.9.2). All table 3-6 values are
 readable with function codes 0x03 and 0x04; this template uses FC 04. Register numbers below
-are the manual's 1-based "Offset" column, used verbatim. The manual does not say whether a
-master must subtract one to get the on-wire PDU address; if reads come back shifted by one
-register, subtract 1 from every register in this map. Not verified on hardware.
+are the manual's "Offset" column, used verbatim. Addressing IS verified: Siemens' own
+application example "Data Exchange between S7-1200 and SENTRON PAC via MODBUS TCP" (Entry ID
+40614428, table 3-12) reads total active power at MB_DATA_ADDR 40001+65 and the operating
+hours counter at 40001+213, so the on-wire PDU address equals the table 3-6 offset exactly.
 
 ## Value formats
 
 Instantaneous values (offsets 1-73) are IEEE-754 Float (2 registers), counters at 213/215 are
 unsigned long (2 registers), energy counters (offsets 801-837) are IEEE-754 Double (4
 registers). The manual does not state the register word order; standard big-endian, most
-significant register first (`abcd`), is assumed and flagged here as unverified. If values
-decode as nonsense on a real meter, try `cdab` first.
+significant register first (`abcd`), is assumed. For the 2-register Float values this matches
+the S7 example's 'Real' overlay. For the 4-register Double energy counters the order is NOT
+verified anywhere official, which is why this template is marked provisional in the UI: the
+platform refuses to generate a device config until the user confirms the assumed order
+against the meter (compare one known energy reading). If energy values decode as nonsense,
+try `cdab`.
 
 ## Measurements (read-only, FC 04)
 
