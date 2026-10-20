@@ -76,6 +76,7 @@ export default function Dashboards() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [assets, setAssets] = useState<{ id: string; name: string }[]>([]);
   const [assetFilter, setAssetFilter] = useState('');
+  const [dashRelation, setDashRelation] = useState('');
   const [assetDevices, setAssetDevices] = useState<{ for: string; ids: Set<string>; incomplete: number } | null>(null);
   const [assetErr, setAssetErr] = useState('');
   const assetSeq = useMemo(createSequencer, []);
@@ -212,20 +213,23 @@ export default function Dashboards() {
     if (!assetFilter) { setAssetDevices(null); setAssetErr(''); return; }
     const token = assetSeq.begin();
     setAssetErr('');
+    const rel = dashRelation.trim();
+    const relQ = rel ? `&relation=${encodeURIComponent(rel)}` : '';
+    const key = assetFilter + '\n' + rel;
     Promise.all([
-      api<Device[]>(`/v1/devices?asset_id=${encodeURIComponent(assetFilter)}`),
-      api<{ count: number }>(`/v1/assets/${encodeURIComponent(assetFilter)}/device-count`),
+      api<Device[]>(`/v1/devices?asset_id=${encodeURIComponent(assetFilter)}${relQ}`),
+      api<{ count: number }>(`/v1/assets/${encodeURIComponent(assetFilter)}/device-count${relQ ? '?' + relQ.slice(1) : ''}`),
     ])
-      .then(([d, c]) => { if (assetSeq.isCurrent(token)) setAssetDevices({ for: assetFilter, ids: new Set(d.map(x => x.id)), incomplete: Math.max(0, c.count - d.length) }); })
+      .then(([d, c]) => { if (assetSeq.isCurrent(token)) setAssetDevices({ for: key, ids: new Set(d.map(x => x.id)), incomplete: Math.max(0, c.count - d.length) }); })
       .catch(() => {
         if (!assetSeq.isCurrent(token)) return;
         // A failed load must look broken, not like a complete empty subtree.
         setAssetDevices(null);
         setAssetErr('The asset filter could not load its devices, so no filtering is applied right now. Everything below is unfiltered.');
       });
-  }, [assetFilter, assetSeq]);
+  }, [assetFilter, dashRelation, assetSeq]);
 
-  const filtering = assetDevices && assetDevices.for === assetFilter ? assetDevices : null;
+  const filtering = assetDevices && assetDevices.for === assetFilter + '\n' + dashRelation.trim() ? assetDevices : null;
   const widgets = sel?.layout.widgets ?? [];
   const visibleWidgets = filterWidgetsByAsset(widgets, filtering ? filtering.ids : null);
   const hiddenByAsset = widgets.length - visibleWidgets.length;
@@ -305,6 +309,9 @@ export default function Dashboards() {
               <option value="">All assets</option>
               {assets.map(a => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
             </select>
+            {assetFilter && (
+              <input aria-label="Filter by relation" value={dashRelation} onChange={e => setDashRelation(e.target.value)} placeholder="relation, e.g. feeds" title="Optional typed relation: filter to devices on assets this one reaches via the relation (up to 10 hops) and devices named directly, instead of its subtree" style={{ width: 130, fontSize: 12 }} />
+            )}
           </label>
         )}
       </div>}
@@ -373,7 +380,7 @@ export default function Dashboards() {
           {editing && widgets.length > 1 && <p className="muted" style={{ fontSize: 12 }}>Drag widgets to reorder. Use the size buttons to make a widget wider or narrower.</p>}
           {assetErr && <p className="muted" style={{ fontSize: 12 }} role="alert">{assetErr}</p>}
           {filtering && filtering.incomplete > 0 && <p className="muted" style={{ fontSize: 12 }} role="alert">This asset has {filtering.incomplete} more device{filtering.incomplete === 1 ? '' : 's'} than the filter could load (list limit), so widgets bound to {filtering.incomplete === 1 ? 'it' : 'them'} are hidden as well. Narrow the asset to see them.</p>}
-          {hiddenByAsset > 0 && <p className="muted" style={{ fontSize: 12 }}>The asset filter hides {hiddenByAsset} widget{hiddenByAsset === 1 ? '' : 's'} bound to {hiddenByAsset === 1 ? 'a device' : 'devices'} outside it.</p>}
+          {hiddenByAsset > 0 && <p className="muted" style={{ fontSize: 12 }}>The asset filter{dashRelation.trim() && filtering ? ` (via "${dashRelation.trim()}")` : ''} hides {hiddenByAsset} widget{hiddenByAsset === 1 ? '' : 's'} bound to {hiddenByAsset === 1 ? 'a device' : 'devices'} outside it.</p>}
           <div className={`cards board${wall ? ' wall-grid' : ''}`}>
             {visibleWidgets.map((w, i) => (
               <div key={w.id} className={`board-item${dragFrom === i ? ' dragging' : ''}`}
@@ -383,7 +390,7 @@ export default function Dashboards() {
                 onDragOver={e => { if (editing && dragFrom !== null) e.preventDefault(); }}
                 onDrop={e => { e.preventDefault(); if (dragFrom !== null) setWidgets(moveItem(widgets, dragFrom, i)); setDragFrom(null); }}
                 onDragEnd={() => setDragFrom(null)}>
-                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} assetId={filtering ? assetFilter : undefined} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
+                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} assetId={filtering ? assetFilter : undefined} relation={filtering ? dashRelation.trim() || undefined : undefined} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
                 {editing && (
                   <div className="board-tools">
                     <button className="ghost" aria-label="Narrower" onClick={() => resize(w.id, -1)}>-</button>
