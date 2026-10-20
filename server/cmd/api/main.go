@@ -546,7 +546,7 @@ const leaderKPIRules int64 = 0x4845584D4F52
 const leaderAutoCommands int64 = 0x4845584D4155
 
 // leaderIndexSink is the advisory lock key for the optional telemetry index sink.
-const leaderIndexSink int64 = 0x4845584D4F51
+const leaderIndexSink int64 = 0x4845584D4F53
 
 // leaderRetention is the advisory lock key for the rollup/retention job.
 const leaderRetention int64 = 0x4845584D4F50
