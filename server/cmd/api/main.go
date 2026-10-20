@@ -337,6 +337,7 @@ func main() {
 	api.HandleFunc("GET /v1/notifications/channels", s.listChannels)
 	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
 	api.HandleFunc("GET /v1/notifications/telegram/chats", s.telegramChats)
+	api.HandleFunc("POST /v1/notifications/telegram/pair-code", s.telegramPairCode)
 	api.HandleFunc("POST /v1/notifications/channels/{id}/test", s.testChannel)
 	api.HandleFunc("PATCH /v1/notifications/channels/{id}", s.patchChannel)
 	api.HandleFunc("DELETE /v1/notifications/channels/{id}", s.deleteChannel)
@@ -2363,6 +2364,12 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := notify.ValidateTelegramChatID(in.Target); err != nil {
 			http.Error(w, err.Error(), 400)
+			return
+		}
+		var paired bool
+		s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM telegram_chats WHERE tenant_id=$1 AND chat_id=$2)`, auth.Tenant(r), in.Target).Scan(&paired)
+		if !paired {
+			http.Error(w, "pair this chat first: get a code with 'Get pairing code', send it to the bot inside your chat, then Find chats", 400)
 			return
 		}
 	}
