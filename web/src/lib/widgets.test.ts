@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { thresholdState, fraction, freshness, optNum, spanOf, moveItem, summarize, indicatorOn, filterWidgetsByAsset, Widget } from './widgets';
+import { thresholdState, fraction, freshness, optNum, spanOf, moveItem, summarize, indicatorOn, filterWidgetsByAsset, createSequencer, Widget } from './widgets';
 
 describe('widget logic', () => {
   it('threshold state: crit beats warn, none when no value', () => {
@@ -79,5 +79,25 @@ describe('filterWidgetsByAsset', () => {
   });
   it('an empty subtree leaves only unbound widgets', () => {
     expect(filterWidgetsByAsset(widgets, new Set()).map(x => x.id)).toEqual(['note', 'alarms']);
+  });
+});
+
+describe('createSequencer', () => {
+  it('only the latest begin stays current', () => {
+    const seq = createSequencer();
+    const a = seq.begin();
+    const b = seq.begin();
+    // the slow earlier response resolves after the newer one was requested
+    expect(seq.isCurrent(a)).toBe(false);
+    expect(seq.isCurrent(b)).toBe(true);
+  });
+  it('a single request stays current', () => {
+    const seq = createSequencer();
+    expect(seq.isCurrent(seq.begin())).toBe(true);
+  });
+  it('out-of-order completion across three requests keeps only the last', () => {
+    const seq = createSequencer();
+    const t1 = seq.begin(), t2 = seq.begin(), t3 = seq.begin();
+    expect([seq.isCurrent(t1), seq.isCurrent(t2), seq.isCurrent(t3)]).toEqual([false, false, true]);
   });
 });
