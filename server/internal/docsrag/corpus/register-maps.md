@@ -3,7 +3,7 @@
 Modbus carries numbers at register addresses, nothing else. A register map (a sensor profile) says what each register means: id, register, function code, data type, word order, scale, unit, and a valid range.
 
 ## Where maps come from
-1. Built-in templates (Selec MX300 and MFM383A, Eastron SDM630 and SDM120, Socomec DIRIS A-40 load 1, Siemens SENTRON PAC3200, Carlo Gavazzi EM340 - each from the manufacturer's official protocol document, sources in docs/devices/). Profiles page: "Load a built-in template".
+1. Built-in templates (Selec MX300 and MFM383A, Eastron SDM630 and SDM120, Socomec DIRIS A-40 load 1, Siemens SENTRON PAC3200 (provisional: double word order unverified, explicit confirmation required in the UI), Carlo Gavazzi EM340 - each from the manufacturer's official protocol document, sources in docs/devices/). Profiles page: "Load a built-in template".
 2. Import: CSV (header row with `id,register,func,type,word_order,scale,unit,min,max`, any column order, `id` and `register` required) or JSON (array of points or an object with `points`). File upload or paste.
 3. Build by hand in the same form. Export CSV or JSON to share or back up a map.
 
