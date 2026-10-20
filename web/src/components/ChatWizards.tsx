@@ -144,7 +144,7 @@ export const WIZARDS: Wizard[] = [
   {
     id: 'meter-watch',
     title: 'Watch a power meter',
-    description: 'Create a standard set of alert rules for a meter in one go: voltage band, optional frequency band, optional overload.',
+    description: 'Create a standard set of alert rules for a meter in one go: voltage band, optional frequency band, optional overload. You choose the nominal system and every limit.',
     roles: ['admin', 'operator'],
     steps: [
       {
@@ -153,49 +153,73 @@ export const WIZARDS: Wizard[] = [
           .map(d => ({ value: d.id, label: d.name })),
       },
       {
-        key: 'voltage_point', prompt: 'Which point is the phase voltage? (our meter maps name it va_n or v1n)', kind: 'select',
-        loadOptions: async a => (await api<{ point_id: string }[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(a.device_id)}`))
-          .map(p2 => ({ value: p2.point_id, label: p2.point_id })),
+        key: 'nominal', prompt: 'What is the metered system\'s nominal voltage and frequency? This only frames the hint numbers below - you enter the actual limits yourself.', kind: 'select',
+        options: [
+          { value: '230ln-50', label: '230 V phase-to-neutral, 50 Hz (public LV grid: EU, India, ...)' },
+          { value: '400ll-50', label: '400 V line-to-line, 50 Hz' },
+          { value: '277ln-60', label: '277 V phase-to-neutral (480 V line-to-line), 60 Hz' },
+          { value: '120-60', label: '120 V, 60 Hz' },
+          { value: 'other', label: 'Other nominal or frequency' },
+        ],
       },
-      { key: 'v_high', prompt: 'Alert ABOVE what voltage (V)? The EN 50160 public-grid band is nominal 230 V +10% = 253 V; edit if your system differs.', kind: 'number', validate: isNumber },
-      { key: 'v_low', prompt: 'Alert BELOW what voltage (V)? EN 50160 band: 230 V -10% = 207 V; edit if your system differs.', kind: 'number', validate: isNumber },
-      { key: 'freq_watch', prompt: 'Watch frequency too? (EN 50160: 50 Hz +/-1%, i.e. 49.5-50.5 Hz, for 99.5% of the year)', kind: 'select', options: [{ value: 'no', label: 'No frequency watch' }, { value: 'yes', label: 'Yes - alert outside 49.5-50.5 Hz' }] },
-      { key: 'i_limit', prompt: 'Overload watch: alert when a current point goes above how many amps? Answer 0 to skip.', kind: 'number', validate: v => /^\d+(\.\d+)?$/.test(v.trim()) ? null : 'Answer with a number of amps, or 0 to skip' },
+      {
+        key: 'voltage_point', prompt: 'Which point is the voltage to watch? Only points the device reports in volts are listed - check the unit matches what you chose above (phase-to-neutral vs line-to-line).', kind: 'select',
+        loadOptions: async a => (await api<{ point_id: string; value: number; unit: string }[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(a.device_id)}`))
+          .filter(p2 => p2.unit === 'V')
+          .map(p2 => ({ value: p2.point_id, label: `${p2.point_id} (now ${p2.value} V)` })),
+      },
+      { key: 'v_high', prompt: 'Alert ABOVE what voltage (V)? Enter the value that fits your installation. A widely used public-grid variation band is nominal +10% (230 V nominal: 253; 400 V: 440; 277 V: 305; 120 V: 132) - that comes from the grid-quality standard EN 50160, it is a statistical grid band, NOT an equipment-protection or compliance limit.', kind: 'number', validate: isNumber },
+      { key: 'v_low', prompt: 'Alert BELOW what voltage (V)? The same public-grid band at nominal -10% (230 V: 207; 400 V: 360; 277 V: 249; 120 V: 108) - again informational, choose what fits your installation.', kind: 'number', validate: isNumber },
+      { key: 'freq_watch', prompt: 'Watch the frequency too? Only for 50 Hz systems: alerts outside 49.5-50.5 Hz (EN 50160 public-grid band, statistical, not a protection limit). For any other nominal frequency choose No and use the single alert rule template with your own limits.', kind: 'select', options: [{ value: 'no', label: 'No frequency watch' }, { value: 'yes', label: 'Yes, 50 Hz system - alert outside 49.5-50.5 Hz' }] },
+      { key: 'i_limit', prompt: 'Overload watch: alert when a current point goes above how many amps? Answer 0 to skip. One rule is created per current point the device reports in amps.', kind: 'number', validate: v => /^\d+(\.\d+)?$/.test(v.trim()) ? null : 'Answer with a number of amps, or 0 to skip' },
       { key: 'severity', prompt: 'Severity for these rules?', kind: 'select', options: [{ value: 'info', label: 'Info' }, { value: 'warning', label: 'Warning' }, { value: 'critical', label: 'Critical' }] },
     ],
     summary: a => {
-      const parts = [`${a.voltage_point_label} > ${a.v_high} V`, `${a.voltage_point_label} < ${a.v_low} V`];
+      const parts = [`${a.voltage_point} > ${a.v_high} V`, `${a.voltage_point} < ${a.v_low} V`];
       if (a.freq_watch === 'yes') parts.push('frequency outside 49.5-50.5 Hz');
-      if (Number(a.i_limit) > 0) parts.push(`current > ${a.i_limit} A`);
-      return `Create ${parts.length} ${a.severity} rules on ${a.device_id_label}: ${parts.join('; ')}. They are enabled once created and alert only through channels you have enabled.`;
+      if (Number(a.i_limit) > 0) parts.push(`every reported current point > ${a.i_limit} A`);
+      return `Nominal system: ${a.nominal_label}. Create ${a.severity} rules on ${a.device_id_label}: ${parts.join('; ')}. The rules are ENABLED the moment they are created - any channel already enabled in Settings can receive these alerts immediately.`;
     },
     run: async (a, ctx) => {
-      const mk = (suffix: string, name: string, def: Record<string, unknown>) =>
-        api('/v1/rules', { method: 'POST', headers: ctx?.idempotencyKey ? { 'Idempotency-Key': `${ctx.idempotencyKey}-${suffix}` } : {}, body: JSON.stringify({ name, enabled: true, definition: def }) });
+      if (!(Number(a.v_high) > Number(a.v_low))) throw new Error('400 The high limit must be above the low limit. Nothing was created.');
+      const key = (suffix: string): Record<string, string> => ctx?.idempotencyKey ? { 'Idempotency-Key': `${ctx.idempotencyKey}-${suffix}` } : {};
       const sev = a.severity, dev = a.device_id, base = { device_id: dev, severity: sev };
-      const made: string[] = [];
-      await mk('vhigh', `High voltage on ${a.device_id_label}`, { ...base, point_id: a.voltage_point, op: '>', threshold: Number(a.v_high), message: `Voltage above ${a.v_high} V` });
-      made.push(`voltage > ${a.v_high} V`);
-      await mk('vlow', `Low voltage on ${a.device_id_label}`, { ...base, point_id: a.voltage_point, op: '<', threshold: Number(a.v_low), message: `Voltage below ${a.v_low} V` });
-      made.push(`voltage < ${a.v_low} V`);
+      type Plan = { suffix: string; name: string; def: Record<string, unknown>; label: string };
+      const plan: Plan[] = [
+        { suffix: 'vhigh', name: `High voltage on ${a.device_id_label}`, label: `voltage > ${a.v_high} V`, def: { ...base, point_id: a.voltage_point, op: '>', threshold: Number(a.v_high), message: `Voltage above ${a.v_high} V` } },
+        { suffix: 'vlow', name: `Low voltage on ${a.device_id_label}`, label: `voltage < ${a.v_low} V`, def: { ...base, point_id: a.voltage_point, op: '<', threshold: Number(a.v_low), message: `Voltage below ${a.v_low} V` } },
+      ];
+      const skipped: string[] = [];
+      const latest = async () => (await api<{ point_id: string; unit: string }[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(dev)}`));
       if (a.freq_watch === 'yes') {
-        const freqPoint = (await api<{ point_id: string }[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(dev)}`))
-          .map(p2 => p2.point_id).find(id => /freq/i.test(id));
-        if (!freqPoint) return `Voltage rules created (${made.join('; ')}). Frequency watch SKIPPED: no point with "freq" in its name reports on this device - pick the point yourself with the single alert rule template.`;
-        await mk('fhi', `High frequency on ${a.device_id_label}`, { ...base, point_id: freqPoint, op: '>', threshold: 50.5, message: 'Frequency above 50.5 Hz' });
-        await mk('flo', `Low frequency on ${a.device_id_label}`, { ...base, point_id: freqPoint, op: '<', threshold: 49.5, message: 'Frequency below 49.5 Hz' });
-        made.push('frequency outside 49.5-50.5 Hz');
+        const fp = (await latest()).find(p2 => p2.unit === 'Hz');
+        if (!fp) skipped.push('frequency watch (no point the device reports in Hz)');
+        else {
+          plan.push(
+            { suffix: 'fhi', name: `High frequency on ${a.device_id_label}`, label: 'frequency > 50.5 Hz', def: { ...base, point_id: fp.point_id, op: '>', threshold: 50.5, message: 'Frequency above 50.5 Hz' } },
+            { suffix: 'flo', name: `Low frequency on ${a.device_id_label}`, label: 'frequency < 49.5 Hz', def: { ...base, point_id: fp.point_id, op: '<', threshold: 49.5, message: 'Frequency below 49.5 Hz' } },
+          );
+        }
       }
       if (Number(a.i_limit) > 0) {
-        const amps = (await api<{ point_id: string }[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(dev)}`))
-          .map(p2 => p2.point_id).filter(id => /^(i[abc123n_]|current)/i.test(id));
-        if (amps.length === 0) return `Rules created: ${made.join('; ')}. Overload watch SKIPPED: no current point (ia/ib/ic/i1/...) reports on this device - pick the point yourself with the single alert rule template.`;
-        for (const pt of amps) {
-          await mk(`i-${pt}`, `Overcurrent ${pt} on ${a.device_id_label}`, { ...base, point_id: pt, op: '>', threshold: Number(a.i_limit), message: `Current ${pt} above ${a.i_limit} A` });
-        }
-        made.push(`current > ${a.i_limit} A on ${amps.join(', ')}`);
+        const amps = (await latest()).filter(p2 => p2.unit === 'A');
+        if (amps.length === 0) skipped.push('overload watch (no point the device reports in A)');
+        else for (const p2 of amps) plan.push({ suffix: `i-${p2.point_id}`, name: `Overcurrent ${p2.point_id} on ${a.device_id_label}`, label: `${p2.point_id} > ${a.i_limit} A`, def: { ...base, point_id: p2.point_id, op: '>', threshold: Number(a.i_limit), message: `Current ${p2.point_id} above ${a.i_limit} A` } });
       }
-      return `Created and enabled: ${made.join('; ')}. They alert only through channels you have enabled in Settings.`;
+      const created: string[] = [], failed: string[] = [];
+      for (const r of plan) {
+        try {
+          await api('/v1/rules', { method: 'POST', headers: key(r.suffix), body: JSON.stringify({ name: r.name, enabled: true, definition: r.def }) });
+          created.push(r.label);
+        } catch (e) {
+          failed.push(`${r.label} (${String(e).slice(0, 80)})`);
+        }
+      }
+      const tally = `Created: ${created.length ? created.join('; ') : 'none'}.` + (skipped.length ? ` Skipped: ${skipped.join('; ')}.` : '') + (failed.length ? ` FAILED: ${failed.join('; ')}.` : '');
+      if (failed.length) {
+        throw new Error(`${tally} Press Confirm again to retry - already-created rules replay safely (idempotency), only the missing ones are written.`);
+      }
+      return `${tally} All enabled now; they alert only through channels you have enabled in Settings.`;
     },
   },
   {
