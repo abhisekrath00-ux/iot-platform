@@ -3,6 +3,14 @@ import { TOUR_STEPS, nextStep, prevStep, markTourDone } from '../lib/tour';
 
 // Spotlight tour anchored to the sidebar links. Esc or Skip ends it and it will
 // not reappear on its own; "Take the tour" in the sidebar restarts it.
+// Keep the card fully inside the viewport: it normally sits right of the highlighted
+// sidebar link, but on narrow screens that anchor would push it off the right edge.
+function tourCardLeft(box: DOMRect | null): number {
+  const anchor = (box?.right ?? 240) + 18;
+  const max = window.innerWidth - 344; // 320px card + 24px breathing room
+  return Math.max(12, Math.min(anchor, Math.max(12, max)));
+}
+
 export default function Tour({ onClose }: { onClose: () => void }) {
   const [i, setI] = useState(0);
   const [box, setBox] = useState<DOMRect | null>(null);
@@ -26,7 +34,7 @@ export default function Tour({ onClose }: { onClose: () => void }) {
     <div className="tour" role="dialog" aria-label="Product tour">
       <div className="tour-scrim" onClick={finish} />
       {box && <div className="tour-ring" style={{ top: box.top - 4, left: box.left - 4, width: box.width + 8, height: box.height + 8 }} />}
-      <div className="tour-card" style={{ top: Math.max(16, (box?.top ?? 120) - 8), left: (box?.right ?? 240) + 18 }}>
+      <div className="tour-card" style={{ top: Math.max(16, (box?.top ?? 120) - 8), left: tourCardLeft(box) }}>
         <div className="muted" style={{ fontSize: 12 }}>Step {i + 1} of {TOUR_STEPS.length}</div>
         <h3 style={{ margin: '4px 0 6px' }}>{step.title}</h3>
         <p style={{ margin: 0 }}>{step.body}</p>
