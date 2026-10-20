@@ -88,6 +88,18 @@ describe('edge setup', () => {
     expect(pt('kwh_export').register).toBe(0x004E);
     expect(pt('kvarh_export').register).toBe(0x0050);
   });
+  it('provisional templates block config until the assumption is confirmed', () => {
+    const d: DeviceInput = { ...base, templateId: 'siemens-pac3200', link: 'tcp', host: '192.168.1.60', tcpPort: 502 };
+    const errs = validateDevice(d);
+    expect(errs.some((e) => e.startsWith('Provisional template:'))).toBe(true);
+    expect(() => deviceYaml(d)).toThrow();
+    const ok = validateDevice({ ...d, provisionalConfirmed: true });
+    expect(ok).toEqual([]);
+    expect(deviceYaml({ ...d, provisionalConfirmed: true })).toContain('type: f64');
+  });
+  it('non-provisional templates need no confirmation', () => {
+    expect(validateDevice({ ...base, provisionalConfirmed: false })).toEqual([]);
+  });
   it('every template point has a validation range', () => {
     for (const t of EDGE_TEMPLATES) for (const p of t.points) expect(p.max).toBeGreaterThan(p.min);
   });
