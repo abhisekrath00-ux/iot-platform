@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,6 +38,11 @@ type Definition struct {
 	Sigma         float64 `json:"sigma,omitempty"`          // 2 to 10 standard deviations
 	WindowMinutes int     `json:"window_minutes,omitempty"` // history used as the baseline, 10 to 10080
 	Direction     string  `json:"direction,omitempty"`      // both (default) | above | below
+	// Method picks the deviation statistic for a sigma rule: "" or "mean"
+	// (mean and standard deviation, the default) or "robust" (median and
+	// MAD, so a few spikes in the baseline cannot mask a real outlier -
+	// the same statistic the device-page outlier card explains).
+	Method string `json:"method,omitempty"`
 	// seasonal: like sigma, but the baseline is the same hour of the day (or
 	// hour of the week) over the last WindowDays days, so a daily peak is not
 	// an anomaly. Uses Sigma and Direction. Statistical, not learned.
@@ -62,6 +68,12 @@ func (d Definition) Validate() error {
 	}
 	if len(d.Profile) > 64 || len(d.Message) > 500 {
 		return fmt.Errorf("profile or message too long")
+	}
+	if d.Method != "" && d.Method != "mean" && d.Method != "robust" {
+		return fmt.Errorf("method must be mean or robust")
+	}
+	if d.Method != "" && d.Kind != "sigma" {
+		return fmt.Errorf("method only applies to sigma rules")
 	}
 	switch d.Kind {
 	case "", "threshold":
@@ -139,6 +151,49 @@ func SigmaDeviation(baseline []float64, value float64) (z, mean, std float64, ok
 		return 0, mean, 0, false
 	}
 	return (value - mean) / std, mean, std, true
+}
+
+// RobustDeviation returns the signed robust z-score of value against the
+// baseline: distance from the median in MAD units, scaled so the result is
+// comparable to standard deviations on normal data (1.4826 x MAD, Iglewicz
+// and Hoaglin; the same convention as the anomaly package). A flat baseline
+// (MAD and mean absolute deviation both zero) cannot judge, so ok is false.
+func RobustDeviation(baseline []float64, value float64) (z, med, scale float64, ok bool) {
+	if len(baseline) < MinBaselineSamples {
+		return 0, 0, 0, false
+	}
+	med = medianf(baseline)
+	dev := make([]float64, len(baseline))
+	for i, v := range baseline {
+		dev[i] = math.Abs(v - med)
+	}
+	mad := medianf(dev)
+	if mad > 0 {
+		scale = 1.4826 * mad
+	} else {
+		var sum float64
+		for _, d := range dev {
+			sum += d
+		}
+		meanAD := sum / float64(len(dev))
+		if meanAD == 0 {
+			return 0, med, 0, false
+		}
+		scale = 1.2533 * meanAD
+	}
+	return (value - med) / scale, med, scale, true
+}
+
+// medianf is a local copy of the median helper (kept package-private in
+// anomaly); duplicated here so rules does not depend on anomaly.
+func medianf(v []float64) float64 {
+	c := append([]float64(nil), v...)
+	sort.Float64s(c)
+	n := len(c)
+	if n%2 == 1 {
+		return c[n/2]
+	}
+	return (c[n/2-1] + c[n/2]) / 2
 }
 
 // BandBreach reports whether v is outside the band and which side.
@@ -352,13 +407,28 @@ func sigmaHit(ctx context.Context, pool *pgxpool.Pool, tenantID string, d Defini
 			base = append(base, v)
 		}
 	}
-	z, mean, std, ok := SigmaDeviation(base, value)
-	if !ok {
-		return "", false
-	}
 	dir := d.Direction
 	if dir == "" {
 		dir = "both"
+	}
+	if d.Method == "robust" {
+		z, med, scale, ok := RobustDeviation(base, value)
+		if !ok {
+			return "", false
+		}
+		if !((dir != "below" && z >= d.Sigma) || (dir != "above" && z <= -d.Sigma)) {
+			return "", false
+		}
+		side := "above"
+		if z < 0 {
+			side = "below"
+		}
+		return fmt.Sprintf("%s/%s value %.4g is %.1f robust deviations %s its %d-minute median %.4g (scale %.3g, %d samples)",
+			deviceID, pointID, value, math.Abs(z), side, d.WindowMinutes, med, scale, len(base)), true
+	}
+	z, mean, std, ok := SigmaDeviation(base, value)
+	if !ok {
+		return "", false
 	}
 	if !((dir != "below" && z >= d.Sigma) || (dir != "above" && z <= -d.Sigma)) {
 		return "", false
