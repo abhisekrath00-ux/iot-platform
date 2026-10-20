@@ -29,6 +29,7 @@ export default function Settings() {
   const [tgMsg, setTgMsg] = useState('');
   const [tgCode, setTgCode] = useState('');
   const [slChannels, setSlChannels] = useState<{ id: string; name: string; is_member: boolean; is_private: boolean }[] | null>(null);
+  const [emailCfg, setEmailCfg] = useState<boolean | null>(null);
   const [slMsg, setSlMsg] = useState('');
   const [bName, setBName] = useState('');
   const [bAccent, setBAccent] = useState('');
@@ -99,6 +100,15 @@ export default function Settings() {
     } catch (e) { setSlMsg(friendlySlError(e)); }
   }
 
+  useEffect(() => {
+    if (type !== 'email') return;
+    let live = true;
+    api<{ configured: boolean }>('/v1/notifications/email/status')
+      .then(r => { if (live) setEmailCfg(r.configured); })
+      .catch(() => { if (live) setEmailCfg(null); });
+    return () => { live = false; };
+  }, [type]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMsg('');
@@ -125,6 +135,11 @@ export default function Settings() {
           <label>{({ email: 'Email address', slack: 'Slack channel ID', webhook: 'Webhook URL', teams: 'Teams incoming-webhook URL (https)', sms: 'Phone number (+country code)', whatsapp: 'WhatsApp number (+country code)', telegram: 'Telegram chat ID' } as Record<string, string>)[type]}</label>
           <input value={target} onChange={e => setTarget(e.target.value)} placeholder={({ email: 'ops@yourcompany.com', slack: 'C0123456789', webhook: 'https://example.com/hook', teams: 'https://prod-XX.westus.logic.azure.com/workflows/... (from the Workflows app)', sms: '+4915112345678', whatsapp: '+919812345678', telegram: '-1001234567890 (a group) or 123456789 (a person)' } as Record<string, string>)[type]} required />
           {targetHint(type, target) && <div className="muted" role="status" style={{ marginTop: 4 }}>{targetHint(type, target)}</div>}
+          {type === 'email' && emailCfg === false && (
+            <div className="muted" role="status" data-testid="email-smtp-off" style={{ marginTop: 4 }}>
+              Email sending (SMTP) is not configured on this deployment yet, so Send test cannot deliver. Your platform operator sets SMTP_HOST and ALERT_FROM_EMAIL (plus SMTP_PORT, SMTP_USER and SMTP_PASS if the mail server needs them) on the server. You can still add the channel now - press Send test once the operator confirms, then Enable.
+            </div>
+          )}
           {type !== 'telegram' && <ChannelGuide type={type} />}
           {type === 'slack' && (
             <div className="muted" style={{ marginTop: 6 }}>
