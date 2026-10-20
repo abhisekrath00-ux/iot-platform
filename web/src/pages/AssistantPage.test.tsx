@@ -80,3 +80,28 @@ test('failed identity lookup shows retry, never privileged actions', async () =>
   await act(async () => button('Try again')!.click());
   expect(button('Set up an energy meter')).toBeTruthy(); // recovered: viewer sees the read-only guide
 });
+
+test('add-channel wizard offers Slack channels as chips and still accepts typing', async () => {
+  vi.mocked(api).mockImplementation((path: string) => {
+    if (path === '/v1/me') return Promise.resolve({ role: 'admin' }) as any;
+    if (path === '/v1/assistant/memory') return Promise.resolve({ enabled: false, notes: [] }) as any;
+    if (path === '/v1/notifications/slack/channels') return Promise.resolve({ channels: [{ id: 'C01', name: 'alerts', is_member: true, is_private: false }] }) as any;
+    if (path === '/v1/notifications/channels') return Promise.resolve({}) as any;
+    return Promise.reject(new Error('unexpected ' + path));
+  });
+  await act(async () => root.render(<Assistant />));
+  await act(async () => button('Add a notification channel')!.click());
+  await act(async () => button('Slack channel')!.click());
+  await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+  const chip = button('#alerts');
+  expect(chip).toBeTruthy();
+  expect(box.querySelector('input[aria-label="Your answer"]')).toBeTruthy(); // typed fallback stays available
+  await act(async () => chip!.click());
+  expect(box.textContent).toContain('#alerts');
+  expect(box.textContent).toContain('Nothing is delivered');
+  await act(async () => button('Confirm')!.click());
+  const post = vi.mocked(api).mock.calls.find(c => c[0] === '/v1/notifications/channels');
+  expect(post).toBeTruthy();
+  expect((post![1] as { body: string }).body).toContain('C01');
+  expect(box.textContent).toContain('Channel added');
+});
