@@ -360,6 +360,7 @@ func TestIntegrationAssistantSelftest(t *testing.T) {
 		w := httptest.NewRecorder()
 		h := map[string]http.HandlerFunc{
 			"PUT /v1/assistant/channel-settings":   s.putChannelSettings,
+			"POST /v1/assistant/links":             s.createChannelLink,
 			"GET /v1/assistant/selftest/{kind}":    s.getChannelSelftest,
 			"POST /v1/assistant/inbound/slack/{t}": s.inboundSlack,
 			"POST /v1/assistant/inbound/email/{t}": s.inboundEmail,
@@ -413,6 +414,23 @@ func TestIntegrationAssistantSelftest(t *testing.T) {
 		return w.Code
 	}
 
+	// reserved self-test identities can never be linked through the API
+	for _, body := range []string{
+		`{"kind":"email","address":"selftest@example.invalid"}`,
+		`{"kind":"slack","address":"U0SELFTEST"}`,
+	} {
+		if w := call("admin", "POST", "/v1/assistant/links", body); w.Code != 400 {
+			t.Fatalf("link reserved identity %s: want 400, got %d", body, w.Code)
+		}
+	}
+	// even with a forged link row inserted directly, the self-test sender is ignored with zero effects
+	if _, err := pool.Exec(ctx, `INSERT INTO assistant_channel_links(id,tenant_id,user_id,kind,address,status,verified_at) VALUES
+		('itest-st-l1','itest-st','itest-st-admin','email','selftest@example.invalid','verified',now()),
+		('itest-st-l2','itest-st','itest-st-admin','slack','U0SELFTEST','verified',now())`); err != nil {
+		t.Fatalf("forge links: %v", err)
+	}
+	defer pool.Exec(ctx, `DELETE FROM assistant_channel_links WHERE tenant_id='itest-st'`)
+
 	for _, kind := range []string{"email", "slack"} {
 		w := call("admin", "GET", "/v1/assistant/selftest/"+kind, "")
 		if w.Code != 200 {
@@ -428,9 +446,24 @@ func TestIntegrationAssistantSelftest(t *testing.T) {
 		if !strings.Contains(out.CurlValid, "YOUR-SERVER") || !strings.Contains(out.CurlValid, "curl -i -X POST") {
 			t.Fatalf("%s curl shape wrong: %s", kind, out.CurlValid)
 		}
-		// the generated signature must pass the real handler, and the sender must be ignored (unlinked)
+		// the generated signature must pass the real handler, and the reserved sender must be ignored
+		// with zero assistant actions, writes, or outbound replies - even with a forged link row present
 		if code := fire(out.Sample, ""); code != 200 {
 			t.Fatalf("%s valid selftest signature: want 200, got %d", kind, code)
+		}
+		if n := s.notifier.(*recNotifier).count(); n != 0 {
+			t.Fatalf("%s selftest produced %d outbound replies, want 0", kind, n)
+		}
+		var acts int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM assistant_actions WHERE tenant_id='itest-st'`).Scan(&acts); err != nil || acts != 0 {
+			t.Fatalf("%s selftest left %d assistant actions (err %v), want 0", kind, acts, err)
+		}
+		// replaying the same valid sample must also be a 200 no-op
+		if code := fire(out.Sample, ""); code != 200 {
+			t.Fatalf("%s replayed selftest: want 200, got %d", kind, code)
+		}
+		if n := s.notifier.(*recNotifier).count(); n != 0 {
+			t.Fatalf("%s replayed selftest produced %d replies, want 0", kind, n)
 		}
 		// tampered body with the same signature must be refused
 		body, _ := out.Sample["body"].(string)
