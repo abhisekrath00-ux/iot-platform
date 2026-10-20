@@ -240,8 +240,8 @@ export default function Reports() {
               <div key={i} style={{ marginBottom: 6 }}>
                 <input placeholder="Section title" maxLength={80} aria-label={`Section title ${i + 1}`} value={x.title} onChange={ev => setSecs(secs.map((y, j) => j === i ? { ...y, title: ev.target.value } : y))} />
                 <textarea placeholder="Text" maxLength={2000} rows={3} aria-label={`Section text ${i + 1}`} value={x.body} onChange={ev => setSecs(secs.map((y, j) => j === i ? { ...y, body: ev.target.value } : y))} style={{ width: '100%' }} />
-                <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center', marginLeft: 8 }}>
-                  <input type="checkbox" aria-label={`Section ${i + 1} starts a new page`} checked={!!x.page_break} onChange={ev => setSecs(secs.map((y, j) => j === i ? { ...y, page_break: ev.target.checked } : y))} />
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', margin: '4px 0', fontWeight: 'normal' }}>
+                  <input type="checkbox" style={{ width: 'auto' }} aria-label={`Section ${i + 1} starts a new page`} checked={!!x.page_break} onChange={ev => setSecs(secs.map((y, j) => j === i ? { ...y, page_break: ev.target.checked } : y))} />
                   Start this section on a new page (PDF and print)
                 </label>
                 <button type="button" className="ghost" onClick={() => setSecs(secs.filter((_, j) => j !== i))}>Remove section</button>
@@ -372,4 +372,4 @@ export default function Reports() {
       {reports.length === 0 && <p className="muted">{scoped ? 'No reports have been shared with you yet.' : 'No reports yet.'}</p>}
     </>
   );
-                          }
+}
