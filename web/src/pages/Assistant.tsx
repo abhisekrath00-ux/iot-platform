@@ -68,9 +68,11 @@ export default function Assistant() {
     setWErr('');
     const next = { ...wAns, [st.key]: v, [st.key + '_label']: label || v };
     setWAns(next);
-    if (wStep + 1 >= wiz.steps.length) { setWConfirm(true); return; }
-    setWStep(wStep + 1);
-    loadStepOptions(wiz, wStep + 1, next);
+    let n = wStep + 1;
+    while (n < wiz.steps.length && wiz.steps[n].skipIf?.(next)) n++;
+    if (n >= wiz.steps.length) { setWConfirm(true); return; }
+    setWStep(n);
+    loadStepOptions(wiz, n, next);
   }
   async function runWizard() {
     if (!wiz || wBusy) return; // busy guard: a fast second click must not fire the write twice
