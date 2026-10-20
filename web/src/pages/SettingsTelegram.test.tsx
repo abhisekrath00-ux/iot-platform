@@ -49,8 +49,25 @@ test('find-chats review flags a group row before the admin presses Use', async (
   await act(async () => { findBtn.click(); });
   expect(box.textContent).toContain('Plant Ops');
   expect(box.textContent).toContain('All current and future members will see this site');
-  // the private chat row carries no such note
-  const rows = [...box.querySelectorAll('tr')];
-  const priv = rows.find(r => r.textContent?.includes('Rahul'));
+  // the private chat card carries no such note
+  const cards = [...box.querySelectorAll('[data-testid=tg-chat-card]')];
+  expect(cards.length).toBe(2);
+  const priv = cards.find(d => d.textContent?.includes('Rahul'));
   expect(priv?.textContent).not.toContain('future members');
+});
+
+test('pressing Use this chat fills the target id and closes the review', async () => {
+  mockApi([{ id: '-1001234567890', type: 'supergroup', title: 'Plant Ops' }, { id: '123456789', type: 'private', title: 'Rahul' }]);
+  await act(async () => root.render(<MemoryRouter><Settings /></MemoryRouter>));
+  await act(async () => {});
+  await pickTelegram();
+  const findBtn = [...box.querySelectorAll('button')].find(b => b.textContent === 'Find chats')!;
+  await act(async () => { findBtn.click(); });
+  const cards = [...box.querySelectorAll('[data-testid=tg-chat-card]')];
+  const groupCard = cards.find(d => d.textContent?.includes('Plant Ops'))!;
+  const useBtn = [...groupCard.querySelectorAll('button')].find(b => b.textContent === 'Use this chat')!;
+  await act(async () => { useBtn.click(); });
+  const tgt = [...box.querySelectorAll('input')].find(i => i.placeholder.includes('a group'))!;
+  expect(tgt.value).toBe('-1001234567890');
+  expect(box.querySelector('[data-testid=tg-chat-review]')).toBeNull();
 });
