@@ -7,6 +7,7 @@ import DirectDevices from '../components/DirectDevices';
 import EdgeRules from '../components/EdgeRules';
 import FeatureToggles from '../components/FeatureToggles';
 import Authenticator from '../components/Authenticator';
+import Sessions from '../components/Sessions';
 import AttributeDefs from '../components/AttributeDefs';
 import AISettings from '../components/AISettings';
 import ServerAddresses from '../components/ServerAddresses';
@@ -111,6 +112,7 @@ export default function Settings() {
       <DirectDevices />
       <FeatureToggles />
       <Authenticator />
+      <Sessions />
       <AttributeDefs />
       <ServerAddresses />
       <AIProfiles onChange={() => setAiRev(v => v + 1)} />
