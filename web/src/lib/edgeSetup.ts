@@ -268,6 +268,23 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'schneider-em6400ng', name: 'Schneider EasyLogic EM6400NG+ (RS-485 models NGRSCL1/RSCL5/RSCL2)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    wordOrderUnverified: true,
+    pduBaseUnverified: true,
+    funcUnverified: true,
+    note: 'Every register number, data type and size verified line-by-line against Schneider\'s official Public_EM6400_PM2xxx PMC Register List v1050 (se.com FAQ FA349907 attachment, EM6400 NG column = Y; docs/devices/schneider-em6400ng.md). Same PowerLogic map family as PM53xx. All points FLOAT32 holding registers. POCL1/POCL5 models have no RS-485 and are excluded. Factory serial 19200 8E1 (user manual NHA2768503). Read-only; never run on a real meter.',
+    provisional: 'Register numbers, types and sizes are verified against Schneider\'s official register list (Public_EM6400_PM2xxx PMC Register List v1050, EM6400 NG column). Three things Schneider\'s documents do NOT state: the multi-register word order, the register base (listed number vs listed minus 1 on the wire), and the read function code (FC 03 holding vs FC 04 input). Make all three choices yourself below, from your exact model\'s documentation. Then validate against the real meter: compare SEVERAL independent known readings (for example frequency, one voltage and one current) with the meter\'s own display - a single plausible value is only a smoke check, it does not prove the address, word order or function code, and says nothing about the other registers. Power factor total is Schneider\'s four-quadrant encoding (-2..2), not plain -1..1 - see the doc. Until that display comparison is done, every value from this template is hardware-untested.',
+    points: [
+      p('i1', 3000, 'A', 0, 10000), p('i2', 3002, 'A', 0, 10000), p('i3', 3004, 'A', 0, 10000), p('i_n', 3006, 'A', 0, 10000), p('i_avg', 3010, 'A', 0, 10000),
+      p('v12', 3020, 'V', 0, 1000), p('v23', 3022, 'V', 0, 1000), p('v31', 3024, 'V', 0, 1000), p('v_avg_ll', 3026, 'V', 0, 1000),
+      p('v1n', 3028, 'V', 0, 1000), p('v2n', 3030, 'V', 0, 1000), p('v3n', 3032, 'V', 0, 1000), p('v_avg_ln', 3036, 'V', 0, 1000),
+      p('p1', 3054, 'kW', -1e7, 1e7), p('p2', 3056, 'kW', -1e7, 1e7), p('p3', 3058, 'kW', -1e7, 1e7), p('p_total', 3060, 'kW', -1e7, 1e7),
+      p('q_total', 3068, 'kvar', -1e7, 1e7), p('s_total', 3076, 'kVA', 0, 1e7),
+      p('pf_total', 3084, '', -2, 2), p('freq', 3110, 'Hz', 40, 70),
+      p('kwh_import', 2700, 'kWh', 0, 1e12),
+    ],
+  },
+  {
     id: 'inepro-pro380', name: 'Inepro PRO380-Mod (three-phase MID meter)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
     note: 'Every register address, function code, length, unit and data type verified line-by-line against the official PRO380 user manual V2.18-8, Appendix A3.2, linked from ineprometering.com (docs/devices/inepro-pro380.md). All conventions are vendor-stated: FC 03, Float ABCD, and listed address = on-wire address (the manual\'s own frame example). Factory serial 9600 8E1, address 1. The starred aggregate rows (Voltage* 0x5000, Current* 0x500A) are excluded - the manual never defines them. Config (0x4xxx) and tariff/reset registers excluded. Read-only; never run on a real meter.',
     points: [
