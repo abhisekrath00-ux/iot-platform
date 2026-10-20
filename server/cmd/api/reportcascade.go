@@ -104,7 +104,7 @@ func (s *server) reportOptions(w http.ResponseWriter, r *http.Request) {
 	tenant := auth.Tenant(r)
 	devs, err := s.cascadeDevices(r.Context(), tenant)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	names := func(q string) map[string]string {
