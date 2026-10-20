@@ -376,6 +376,9 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 		put("", false)
 	}
 	for _, sc := range d.allSections() {
+		if sc.PageBreak {
+			flush()
+		}
 		put(strings.TrimSpace(sc.Title), true)
 		for _, p := range sectionParas(sc.Body) {
 			for len(p) > 88 {
