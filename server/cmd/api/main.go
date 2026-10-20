@@ -461,6 +461,10 @@ func main() {
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).
 	go leader.Run(ctx, st.Pool, leaderReportScheduler, "report-scheduler", 10*time.Second, s.reportScheduler)
+	// Inbound Telegram agent: off unless the operator sets TELEGRAM_INBOUND=1 with a bot token.
+	if telegramInboundEnabled() {
+		go leader.Run(ctx, st.Pool, leaderTelegramInbound, "telegram-inbound", 10*time.Second, s.telegramInbound)
+	}
 	// Timed flows (inject nodes): same single-replica rule, checked every 30s.
 	go leader.Run(ctx, st.Pool, leaderFlowScheduler, "flow-scheduler", 10*time.Second, func(c context.Context) {
 		fn := notify.FromEnv()
