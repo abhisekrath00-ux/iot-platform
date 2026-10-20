@@ -102,3 +102,54 @@ func TestIntegrationWhatsAppChannel(t *testing.T) {
 		t.Fatalf("delivery: %s %s", gotAuth, gotBody)
 	}
 }
+
+func TestIntegrationTelegramChannel(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-tg1")
+	pool := s.st.Pool
+	clean := func() {
+		pool.Exec(t.Context(), `DELETE FROM notification_channels WHERE tenant_id='itest-tg1'`)
+		pool.Exec(t.Context(), `DELETE FROM audit_log WHERE tenant_id='itest-tg1'`)
+	}
+	clean()
+	t.Cleanup(clean)
+	pool.Exec(t.Context(), `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('tg-admin','itest-tg1','tg@tg-test.example','A','admin') ON CONFLICT DO NOTHING`)
+	t.Cleanup(func() { pool.Exec(t.Context(), `DELETE FROM users WHERE id='tg-admin'`) })
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/notifications/channels", s.createChannel)
+	mux.HandleFunc("POST /v1/notifications/channels/{id}/test", s.testChannel)
+	do := func(path, body string) (int, string) {
+		w := callAs(s.activeUser(mux), "itest-tg1", "tg-admin", "admin", "POST", path, body)
+		return w.Code, w.Body.String()
+	}
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	if c, _ := do("/v1/notifications/channels", `{"type":"telegram","target":"123456789"}`); c != 409 {
+		t.Fatalf("telegram unconfigured = %d, want 409", c)
+	}
+	var gotBody string
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(200)
+		io.WriteString(w, `{"ok":true,"result":{"message_id":1}}`)
+	}))
+	defer fake.Close()
+	t.Setenv("TELEGRAM_BOT_TOKEN", "tok-tg")
+	t.Setenv("TELEGRAM_API_BASE", fake.URL)
+	t.Setenv("TELEGRAM_ALLOW_LOOPBACK", "1")
+	if c, _ := do("/v1/notifications/channels", `{"type":"telegram","target":"@somechannel"}`); c != 400 {
+		t.Fatalf("bad chat id = %d", c)
+	}
+	c, body := do("/v1/notifications/channels", `{"type":"telegram","target":"-1001234567890"}`)
+	if c != 201 {
+		t.Fatalf("create = %d %s", c, body)
+	}
+	var id string
+	pool.QueryRow(t.Context(), `SELECT id FROM notification_channels WHERE tenant_id='itest-tg1' AND type='telegram'`).Scan(&id)
+	if c, b := do("/v1/notifications/channels/"+id+"/test", ""); c != 200 {
+		t.Fatalf("test send = %d %s", c, b)
+	}
+	if !strings.Contains(gotBody, `"chat_id":"-1001234567890"`) || !strings.Contains(gotBody, "test message from HexThings") {
+		t.Fatalf("delivery: %s", gotBody)
+	}
+}
