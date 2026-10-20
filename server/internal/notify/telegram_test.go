@@ -69,17 +69,17 @@ func TestTelegramErrorNeverCarriesToken(t *testing.T) {
 	}
 }
 
-func TestTelegramChats(t *testing.T) {
+func TestTelegramMessages(t *testing.T) {
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/getUpdates") {
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
 		w.WriteHeader(200)
 		io.WriteString(w, `{"ok":true,"result":[
-			{"message":{"chat":{"id":123456789,"type":"private","first_name":"Asha","last_name":"Rao"}}},
-			{"message":{"chat":{"id":123456789,"type":"private","first_name":"Asha","last_name":"Rao"}}},
-			{"my_chat_member":{"chat":{"id":-1001234567890,"type":"supergroup","title":"Plant Ops"}}},
-			{"channel_post":{"chat":{"id":-1009876543210,"type":"channel","title":"Alarms"}}}
+			{"message":{"text":"/pair K7QX2M","chat":{"id":-1001234567890,"type":"supergroup","title":"Plant Ops"}}},
+			{"message":{"text":"hello","chat":{"id":123456789,"type":"private","first_name":"Asha","last_name":"Rao"}}},
+			{"my_chat_member":{"chat":{"id":-100999,"type":"channel","title":"no text, skipped"}}},
+			{"channel_post":{"text":"K7QX2M","chat":{"id":-1009876543210,"type":"channel","title":"Alarms"}}}
 		]}`)
 	}))
 	defer fake.Close()
@@ -87,18 +87,21 @@ func TestTelegramChats(t *testing.T) {
 	t.Setenv("TELEGRAM_API_BASE", fake.URL)
 	t.Setenv("TELEGRAM_ALLOW_LOOPBACK", "1")
 	n := &Notifier{allowLoopback: true}
-	chats, err := n.TelegramChats(context.Background())
+	msgs, err := n.TelegramMessages(context.Background())
 	if err != nil {
-		t.Fatalf("chats: %v", err)
+		t.Fatalf("messages: %v", err)
 	}
-	if len(chats) != 3 {
-		t.Fatalf("want 3 unique chats, got %+v", chats)
+	if len(msgs) != 3 {
+		t.Fatalf("want 3 text-bearing messages, got %+v", msgs)
 	}
-	if chats[0].ID != "123456789" || chats[0].Title != "Asha Rao" || chats[1].ID != "-1001234567890" || chats[1].Title != "Plant Ops" || chats[2].Title != "Alarms" {
-		t.Fatalf("bad parse: %+v", chats)
+	if msgs[0].Chat.ID != "-1001234567890" || msgs[0].Text != "/pair K7QX2M" || msgs[0].Chat.Title != "Plant Ops" {
+		t.Fatalf("bad first: %+v", msgs[0])
+	}
+	if msgs[2].Chat.ID != "-1009876543210" || msgs[2].Chat.Title != "Alarms" {
+		t.Fatalf("bad channel post: %+v", msgs[2])
 	}
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
-	if _, err := n.TelegramChats(context.Background()); err == nil {
+	if _, err := n.TelegramMessages(context.Background()); err == nil {
 		t.Fatal("unconfigured should fail")
 	}
 }
