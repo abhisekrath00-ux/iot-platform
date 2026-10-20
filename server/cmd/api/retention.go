@@ -51,7 +51,7 @@ func (s *server) putRetention(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO tenant_retention(tenant_id, raw_days, hourly_days, updated_by) VALUES($1,$2,$3,$4)
 		 ON CONFLICT (tenant_id) DO UPDATE SET raw_days=$2, hourly_days=$3, updated_at=now(), updated_by=$4`,
 		auth.Tenant(r), in.RawDays, in.HourlyDays, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "retention.update", auth.Tenant(r), map[string]any{
