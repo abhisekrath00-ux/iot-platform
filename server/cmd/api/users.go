@@ -347,11 +347,7 @@ func (s *server) localLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.st.Pool.Exec(r.Context(), `UPDATE users SET failed_logins=0, locked_until=NULL, last_login_at=now() WHERE id=$1`, id)
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
-		TenantID: tenant, Role: role,
-		RegisteredClaims: jwt.RegisteredClaims{Subject: id, IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(time.Now().Add(12 * time.Hour))},
-	})
-	signed, err := tok.SignedString(s.secret)
+	signed, err := s.sessionToken(tenant, role, id, s.startSession(r, tenant, id))
 	if err != nil {
 		http.Error(w, "token", 500)
 		return
@@ -393,6 +389,16 @@ func (s *server) activeUser(next http.Handler) http.Handler {
 			if iat, ok := auth.IssuedAt(r); ok && validAfter != nil && iat.Before(validAfter.Truncate(time.Second)) {
 				http.Error(w, "session revoked", http.StatusUnauthorized)
 				return
+			}
+			if sid := auth.SessionID(r); sid != "" {
+				// A tracked session must still be live; a revoked or unknown id fails closed.
+				var live bool
+				if s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM user_sessions WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND revoked_at IS NULL)`,
+					sid, auth.Tenant(r), auth.User(r)).Scan(&live) != nil || !live {
+					http.Error(w, "session revoked", http.StatusUnauthorized)
+					return
+				}
+				s.st.Pool.Exec(r.Context(), `UPDATE user_sessions SET last_seen_at=now() WHERE id=$1 AND last_seen_at < now() - interval '1 minute'`, sid)
 			}
 			// First-run default login: nothing works until the credentials are replaced (enforced here, not in the UI).
 			if mustChange && !(r.Method == http.MethodGet && r.URL.Path == "/v1/me") && !(r.Method == http.MethodPost && r.URL.Path == "/v1/me/credentials") {
@@ -444,6 +450,7 @@ func (s *server) revokeOwnSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unavailable", 503)
 		return
 	}
+	s.revokeSessionRows(r, auth.Tenant(r), auth.User(r))
 	s.audit(r, "auth.sessions_revoked", auth.User(r), nil)
 	w.WriteHeader(204)
 }
