@@ -238,3 +238,7 @@ nav .menu-toggle { display: none; }
   nav .menu-toggle { display: block; width: 100%; text-align: left; }
   nav:not(.open) > :not(.menu-toggle):not(.brand) { display: none; }
 }
+@media (max-width: 900px) {
+  /* keep the floating assistant launcher clear of actionable setup content */
+  .chat-fab { right: 10px !important; bottom: 10px !important; padding: 8px 12px !important; font-size: 12px !important; border-radius: 16px !important; opacity: .94; }
+}
