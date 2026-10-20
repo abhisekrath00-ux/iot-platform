@@ -1,18 +1,31 @@
 # ABB M4M 30 (three-phase network analyzer)
 
-Sources: ABB's official "MODBUS MANUAL M4M Network analyzers" (library.e.abb.com,
-"M4M Modbus communication.pdf", fetched 2026-10-20) and the full Modbus table mirrored at
-easymodbus.com/modbus-register-maps/abb/m4m-20-30 (fetched 2026-10-20), which documents
-ABB's separate official Modbus table file with its decimal and hex addresses. Nothing here
-has been run against a real meter.
+Sources and provenance, in two honestly separated classes:
+
+1. Directly supported by ABB's official "MODBUS MANUAL M4M Network analyzers"
+   (library.e.abb.com, "M4M Modbus communication.pdf", fetched 2026-10-20): measurements
+   are read with function code 03 (read holding registers) - NOT FC 04 - and the manual's
+   worked example reads phase voltage L1 from register 0x5B02 with 2 registers. The manual
+   also confirms the M4M family offers both Modbus RTU (RS-485) and Modbus TCP variants.
+2. From ABB's separate "M4M Modbus protocol map" workbook 9AKK107492A7627, map v1.3O
+   (rev. 2023-10-23), which covers the M4M 20 / M4M 30 family (all variants; tariff energy,
+   CT neutral ratio and unbalance exist only on M4M 30; some registers need firmware
+   P1.3.10.0 or later) - as re-typed by the third-party mirror
+   easymodbus.com/modbus-register-maps/abb/m4m-20-30 (fetched 2026-10-20), NOT re-verified
+   line-by-line against ABB's own file: every address other than 0x5B02, every scale
+   (x0.1 V; x0.01 A/W/var/VA/Hz; x0.001 PF) and the ABCD high-word-first word order.
+   The mirror's L1-voltage row (decimal 23298 = 0x5B02) agrees with the class-1 anchor.
+
+Nothing here has been run against a real meter. The template's installer confirmation is
+an acknowledgement of this split, not a verification: exclude or correct any point whose
+values disagree with the authoritative documentation for the exact model and firmware in
+front of you.
 
 ## Link
 
-Modbus RTU over RS-485 (M4M 30 also offers Modbus TCP over Ethernet; the map is the same).
-Measurements are read with function code 03 (read holding registers) - NOT FC 04.
-The official manual's worked example reads phase voltage L1 from register 0x5B02 with
-2 registers; the mirrored table gives the same address (decimal 23298). That anchor is the
-cross-check between the two sources.
+Modbus RTU over RS-485, or Modbus TCP on the Ethernet variants; the map is the same.
+Function code 03 (read holding registers) - NOT FC 04. Addresses are 0-based wire
+addresses, sent unchanged.
 
 ## Value formats
 
@@ -45,9 +58,10 @@ driver decodes up to 64-bit floats but has no u64/i64 integer type, so counters 
 the template. Historicals (Energy Snapshots/Trend header+data-block protocol at 0x8000+),
 alarms and I/O status are also out of scope.
 
-## Provisional
+## Decode fixtures
 
-The FC-03 function code and the L1-voltage address anchor are verified against the official
-ABB manual. The per-quantity scales (x0.1 V, x0.01 A/W/var/VA/Hz, x0.001 PF) come from the
-mirrored official table, not re-checked line-by-line against ABB's file. Confirm one live
-voltage and one live power reading against the meter display before relying on values.
+edge/internal/driver/modbus_m4m_test.go proves the edge decode path for the template's
+formats over FC 03: u32 x0.1, u32 x0.01, i32 x0.01 (including a negative export-power
+value), u16 x0.01, i16 x0.001 (including a negative PF), ABCD word order, and asserts the
+poller actually emits function code 0x03. Synthetic registers only - a decode-format proof,
+not a hardware claim.
