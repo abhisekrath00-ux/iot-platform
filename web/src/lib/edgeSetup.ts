@@ -121,6 +121,22 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('kwh_export', 0x004E, 'kWh', 0, 1e12, 0.1), ps('kvarh_export', 0x0050, 'kvarh', 0, 1e12, 0.1),
     ],
   },
+  {
+    id: 'abb-m4m', name: 'ABB M4M 30 (three-phase network analyzer)', link: 'rtu', func: 3, type: 'u32', word_order: 'abcd',
+    note: 'From the official ABB MODBUS MANUAL M4M plus ABB\'s official Modbus table (docs/devices/abb-m4m.md). FC 03 (holding registers), NOT FC 04. M4M 30 also speaks Modbus TCP with the same map. UINT64 energy counters excluded (driver has no u64/i64). Read-only; never run on a real meter.',
+    provisional: 'The FC-03 function code and the L1-voltage address are verified against the official ABB manual; the per-quantity scales (x0.1 V, x0.01 A/W/var/VA/Hz, x0.001 PF) come from ABB\'s table as mirrored, not re-checked line-by-line. Confirm one live voltage and one live power reading against the meter display before relying on values.',
+    points: [
+      ps('v_sys_ln', 23296, 'V', 0, 1000, 0.1),
+      ps('v1n', 23298, 'V', 0, 1000, 0.1), ps('v2n', 23300, 'V', 0, 1000, 0.1), ps('v3n', 23302, 'V', 0, 1000, 0.1),
+      ps('v12', 23304, 'V', 0, 1000, 0.1), ps('v23', 23306, 'V', 0, 1000, 0.1), ps('v31', 23308, 'V', 0, 1000, 0.1),
+      ps('i_sys', 23310, 'A', 0, 100000, 0.01), ps('i1', 23312, 'A', 0, 100000, 0.01), ps('i2', 23314, 'A', 0, 100000, 0.01), ps('i3', 23316, 'A', 0, 100000, 0.01), ps('i_n', 23318, 'A', 0, 100000, 0.01),
+      ps('p_total', 23322, 'W', -1e9, 1e9, 0.01, 'i32'), ps('p1', 23324, 'W', -1e9, 1e9, 0.01, 'i32'), ps('p2', 23326, 'W', -1e9, 1e9, 0.01, 'i32'), ps('p3', 23328, 'W', -1e9, 1e9, 0.01, 'i32'),
+      ps('q_total', 23330, 'var', -1e9, 1e9, 0.01, 'i32'), ps('q1', 23332, 'var', -1e9, 1e9, 0.01, 'i32'), ps('q2', 23334, 'var', -1e9, 1e9, 0.01, 'i32'), ps('q3', 23336, 'var', -1e9, 1e9, 0.01, 'i32'),
+      ps('s_total', 23338, 'VA', 0, 1e9, 0.01, 'i32'), ps('s1', 23340, 'VA', 0, 1e9, 0.01, 'i32'), ps('s2', 23342, 'VA', 0, 1e9, 0.01, 'i32'), ps('s3', 23344, 'VA', 0, 1e9, 0.01, 'i32'),
+      ps('freq', 23346, 'Hz', 40, 70, 0.01, 'u16'),
+      ps('pf_total', 23360, '', -1, 1, 0.001, 'i16'), ps('pf1', 23361, '', -1, 1, 0.001, 'i16'), ps('pf2', 23362, '', -1, 1, 0.001, 'i16'), ps('pf3', 23363, '', -1, 1, 0.001, 'i16'),
+    ],
+  },
 ];
 
 
