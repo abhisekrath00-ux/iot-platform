@@ -391,3 +391,40 @@ func TestThemeAndLogoAcrossFormats(t *testing.T) {
 		t.Fatalf("logo-less xlsx has %d parts", len(zr.File))
 	}
 }
+
+// TestXLSXColumnWidths: the sheet must ship explicit <cols> widths (before
+// <sheetData>, sized for the content) so long device IDs, headings, and
+// RFC3339 timestamps do not render truncated in spreadsheet clients.
+func TestXLSXColumnWidths(t *testing.T) {
+	d, s := sample()
+	long := Metric{DeviceID: "device-with-a-rather-long-identifier-01", PointID: "kw"}
+	s[long] = s[d.Metrics[0]]
+	delete(s, d.Metrics[0])
+	d.Metrics[0] = long
+	b, err := RenderXLSX(d, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sheet string
+	for _, f := range zr.File {
+		if f.Name == "xl/worksheets/sheet1.xml" {
+			rc, _ := f.Open()
+			x, _ := io.ReadAll(rc)
+			sheet = string(x)
+		}
+	}
+	ci, si := strings.Index(sheet, "<cols>"), strings.Index(sheet, "<sheetData>")
+	if ci < 0 || si < 0 || ci > si {
+		t.Fatalf("cols element missing or misplaced")
+	}
+	if want := fmt.Sprintf(`<col min="1" max="1" width="%d" customWidth="1"/>`, len("device-with-a-rather-long-identifier-01")+2); !strings.Contains(sheet, want) {
+		t.Fatalf("device_id column not sized for its content, want %s", want)
+	}
+	if !strings.Contains(sheet, `<col min="3" max="3" width="22" customWidth="1"/>`) {
+		t.Fatalf("timestamp column not sized for RFC3339 values")
+	}
+}
