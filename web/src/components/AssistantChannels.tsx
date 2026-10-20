@@ -16,6 +16,7 @@ export default function AssistantChannels() {
   const [kind, setKind] = useState('slack');
   const [addr, setAddr] = useState('');
   const [msg, setMsg] = useState('');
+  const [selftest, setSelftest] = useState<{ kind: string; curl_valid: string; curl_tampered: string; expect_ok: string; expect_tampered: string; expires: string; note: string } | null>(null);
   const loadLinks = () => api<Link[]>('/v1/assistant/links').then(setLinks).catch(() => undefined);
   const loadCs = () => { api<CS>('/v1/assistant/channel-settings').then(r => { setCs(r); setSlackOn(r.slack_enabled); setEmailOn(r.email_enabled); }).catch(() => undefined); };
   const admin = cs !== null; // only admins can read the channel settings
@@ -26,6 +27,11 @@ export default function AssistantChannels() {
       await api('/v1/assistant/channel-settings', { method: 'PUT', body: JSON.stringify({ slack_enabled: slackOn, email_enabled: emailOn, ...(slackSec ? { slack_signing_secret: slackSec } : {}), ...(mailSec ? { email_inbound_secret: mailSec } : {}) }) });
       setSlackSec(''); setMailSec(''); setMsg('Saved.'); loadCs();
     } catch (e) { setMsg(String(e)); }
+  }
+  async function runSelftest(k: string) {
+    setMsg('');
+    try { setSelftest(await api('/v1/assistant/selftest/' + k)); }
+    catch (e) { setSelftest(null); setMsg(String(e)); }
   }
   async function start(e: React.FormEvent) {
     e.preventDefault(); setMsg('');
@@ -66,12 +72,26 @@ export default function AssistantChannels() {
             <ol className="muted" style={{ margin: '6px 0 4px 18px', padding: 0 }}>
               <li>Your mail gateway receives the assistant's mail, checks DKIM and SPF, and POSTs each message as signed JSON to your server's address + <code>{cs.email_url}</code>. The gateway itself is not part of the install.</li>
               <li>Choose a shared secret with the gateway and paste it above, tick Email, Save.</li>
-              <li>Gateway contract: JSON with id, from, to, subject, text, dkim, spf, ts; headers X-Timestamp and X-Signature = hex HMAC-SHA256(secret, timestamp + "." + raw body). Messages are dropped unless the signature matches, the timestamp is fresh, the id is new, and both dkim and spf pass.</li>
+              <li>Gateway contract: JSON with message_id, from, subject, text, dkim, spf; headers X-Timestamp and X-Signature = hex HMAC-SHA256(secret, timestamp + "." + raw body). Messages are dropped unless the signature matches, the timestamp is fresh, the id is new, and both dkim and spf pass.</li>
               <li>Outbound replies use the server's SMTP settings, so those must work too.</li>
               <li>Each person: Link me below with their email address, then send the shown code FROM that mailbox within 15 minutes.</li>
             </ol>
             <p className="muted" style={{ margin: '0 0 6px' }}>The in-product assistant has the full setup guide - ask it about any step.</p>
           </details>
+          <div style={{ marginTop: 10 }}>
+            <span className="muted" style={{ fontSize: 12 }}>Check the signing path before calling Slack or your gateway: the server builds a signed sample request with your stored secret (the secret never leaves the server). Run it against your server address.</span>
+            <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+              {cs.has_slack_secret && <button type="button" onClick={() => runSelftest('slack')}>Check Slack signing</button>}
+              {cs.has_email_secret && <button type="button" onClick={() => runSelftest('email')}>Check email signing</button>}
+            </div>
+            {selftest && <div style={{ marginTop: 8 }}>
+              <p className="muted" style={{ margin: '0 0 4px', fontSize: 12 }}>{selftest.expect_ok}</p>
+              <pre aria-label="Valid signed self-test command" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 11, margin: 0 }}>{selftest.curl_valid}</pre>
+              <p className="muted" style={{ margin: '6px 0 4px', fontSize: 12 }}>{selftest.expect_tampered}</p>
+              <pre aria-label="Tampered self-test command" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 11, margin: 0 }}>{selftest.curl_tampered}</pre>
+              <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>{selftest.expires} {selftest.note}</p>
+            </div>}
+          </div>
         </div>
       )}
       <form onSubmit={start} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
