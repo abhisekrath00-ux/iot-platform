@@ -32,7 +32,7 @@ func (s *server) assignAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -44,7 +44,7 @@ func (s *server) assignAlert(w http.ResponseWriter, r *http.Request) {
 		`UPDATE alerts SET assigned_to=$1, assigned_at=CASE WHEN $1::text IS NULL THEN NULL ELSE now() END
 		 WHERE id=$2 AND tenant_id=$3 AND status IN ('open','acknowledged')`, assignee, id, tenant)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -56,11 +56,11 @@ func (s *server) assignAlert(w http.ResponseWriter, r *http.Request) {
 		note = "Assigned to " + name
 	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO alert_comments(tenant_id, alert_id, author, body) VALUES($1,$2,$3,$4)`, tenant, id, auth.User(r), note); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "alert.assign", id, map[string]any{"assigned_to": in.UserID})
@@ -74,7 +74,7 @@ func (s *server) listAssignees(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.st.Pool.Query(r.Context(), `SELECT id, display_name, role FROM users WHERE tenant_id=$1 AND role IN ('admin','operator') ORDER BY display_name LIMIT 500`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
