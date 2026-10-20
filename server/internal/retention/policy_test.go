@@ -29,7 +29,7 @@ func TestTenantPolicyAndDailyRollup(t *testing.T) {
 			t.Fatalf("%s: %v", f, err)
 		}
 	}
-	// 0022 must be idempotent (migrations re-run on every API start).
+	// 0022 must be idempotent (a file whose apply fails is not recorded in schema_migrations and runs again on the next boot).
 	ddl, _ := os.ReadFile("../../migrations/0022_retention_policy.sql")
 	if _, err := pool.Exec(ctx, string(ddl)); err != nil {
 		t.Fatalf("0022 second run: %v", err)
