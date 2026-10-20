@@ -11,7 +11,7 @@ const GUIDES: Record<string, { title: string; steps: string[]; note?: string }> 
       'Press "Install to Workspace" and copy the "Bot User OAuth Token" (usually starts with xoxb-).',
       'Give the token to your platform operator - they set SLACK_BOT_TOKEN on the server. Never paste the token into this page.',
       'Invite the bot to your channel: type /invite @YourBotName inside the channel. Slack does not let a bot post to a channel it has not joined.',
-      'Find the channel ID: open the channel, click its name at the top - the ID is at the bottom of the dialog (starts with C, or G for private channels). Paste it below.',
+      'Find the channel ID: open the channel, click its name at the top - the ID is at the bottom of the dialog (starts with C, or G for private channels). Paste it in the field above.',
       'Add the channel here, press Send test, and Enable it once the test message arrives.',
     ],
     note: 'By default the server talks to https://slack.com/api. The operator can point SLACK_API_BASE at any Slack-compatible API endpoint instead (for example an internal relay) if your deployment needs one.',
@@ -20,7 +20,7 @@ const GUIDES: Record<string, { title: string; steps: string[]; note?: string }> 
     title: 'Email setup',
     steps: [
       'Your platform operator configures the deployment\'s mail server once: SMTP_HOST, SMTP_PORT (default 587), SMTP_USER, SMTP_PASS and ALERT_FROM_EMAIL on the server.',
-      'Add one recipient address below. Want several recipients? Add the channel again for each address.',
+      'Add one recipient address in the field above. Want several recipients? Add the channel again for each address.',
       'Press Send test - the mail comes from ALERT_FROM_EMAIL, so check the spam folder the first time. Enable the channel once the test arrives.',
     ],
   },
@@ -29,7 +29,7 @@ const GUIDES: Record<string, { title: string; steps: string[]; note?: string }> 
     steps: [
       'In Teams, open the channel\'s menu (...) and choose "Workflows".',
       'Pick a webhook template such as "Send webhook alerts to a channel", name it (for example "Site alerts"), save it, and copy the webhook URL it shows (starts with https).',
-      'Paste the URL below, press Send test, and Enable once the test message arrives in the channel.',
+      'Paste the URL in the field above, press Send test, and Enable once the test message arrives in the channel.',
     ],
     note: 'Microsoft retired the classic "Connectors > Incoming Webhook" in 2026 - old connector URLs no longer deliver, so use the Workflows route above. Webhook posts appear under the Workflows (Flow) bot identity: Microsoft does not support a custom bot name or icon on these posts, and interactive buttons are not rendered. Our alerts send the MessageCard body that Workflows accepts.',
   },
@@ -37,7 +37,7 @@ const GUIDES: Record<string, { title: string; steps: string[]; note?: string }> 
     title: 'Webhook setup',
     steps: [
       'Point this at any HTTPS endpoint you control that accepts an HTTP POST with a JSON alert body.',
-      'Paste the URL below, press Send test, and Enable once your endpoint logs the test.',
+      'Paste the URL in the field above, press Send test, and Enable once your endpoint logs the test.',
     ],
   },
   sms: {
