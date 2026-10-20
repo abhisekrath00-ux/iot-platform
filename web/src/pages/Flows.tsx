@@ -123,7 +123,7 @@ export default function Flows() {
             <>
               <label>Relation (optional - instead of the asset tree, cover what this asset reaches via a typed relation)</label>
               <input aria-label="Rule relation" value={ruleRelation} onChange={e => setRuleRelation(e.target.value)} placeholder="feeds" pattern="[a-z][a-z0-9_]{0,31}" title="Lower-case letters, digits and underscores, starting with a letter" style={{ width: 'auto' }} />
-              {ruleRelation.trim() && <span className="muted"> Covers devices on assets this asset reaches downstream via "{ruleRelation.trim()}" (and devices named directly), not the anchor's own devices.</span>}
+              {ruleRelation.trim() && <span className="muted"> Covers devices on assets this asset reaches downstream via "{ruleRelation.trim()}", up to 10 hops (and devices named directly), not the anchor's own devices.</span>}
             </>
           )}
           <label>Condition</label>
