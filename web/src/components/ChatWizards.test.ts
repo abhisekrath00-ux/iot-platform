@@ -216,3 +216,50 @@ describe('wizard role gating metadata', () => {
     expect(byId('energy-meter').roles).toBeUndefined();
   });
 });
+
+describe('add-channel pick-or-text targets', () => {
+  beforeEach(() => apiMock.mockReset());
+  const targetStep = () => byId('add-channel').steps.find(s => s.key === 'target')!;
+  it('slack type loads workspace channels as labelled suggestions', async () => {
+    apiMock.mockResolvedValueOnce({ channels: [
+      { id: 'C01', name: 'alerts', is_member: true, is_private: false },
+      { id: 'C02', name: 'ops-private', is_member: false, is_private: true },
+    ] });
+    const opts = await targetStep().loadOptions!({ type: 'slack' });
+    expect(apiMock).toHaveBeenCalledWith('/v1/notifications/slack/channels');
+    expect(opts).toEqual([
+      { value: 'C01', label: '#alerts' },
+      { value: 'C02', label: '#ops-private (private) - bot not in channel' },
+    ]);
+  });
+  it('slack lookup failure falls back to typing instead of failing the wizard', async () => {
+    apiMock.mockRejectedValueOnce(new Error('500'));
+    expect(await targetStep().loadOptions!({ type: 'slack' })).toEqual([]);
+  });
+  it('telegram type lists paired chats', async () => {
+    apiMock.mockResolvedValueOnce({ chats: [{ id: '-1001', type: 'group', title: 'Plant floor' }] });
+    expect(await targetStep().loadOptions!({ type: 'telegram' })).toEqual([{ value: '-1001', label: 'Plant floor (group)' }]);
+  });
+  it('email and webhook answers are validated by type', () => {
+    const v = targetStep().validate!;
+    expect(v('not-an-email', { type: 'email' })).toBeTruthy();
+    expect(v('ops@example.com', { type: 'email' })).toBeNull();
+    expect(v('http://insecure.invalid/hook', { type: 'webhook' })).toBeTruthy();
+    expect(v('https://hooks.example.invalid/x', { type: 'webhook' })).toBeNull();
+    expect(v('C0123', { type: 'slack' })).toBeNull();
+  });
+  it('telegram run writes the channel only when the chat is already paired', async () => {
+    const w = byId('add-channel');
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/v1/notifications/telegram/chats') return { chats: [{ id: '-1001' }] };
+      return {};
+    });
+    const writes = () => apiMock.mock.calls.filter(c => c[0] === '/v1/notifications/channels');
+    const ok = await w.run({ type: 'telegram', target: '-1001' });
+    expect(ok).toContain('OFF');
+    expect(writes()).toHaveLength(1); // paired chat: the channel is written
+    const blocked = await w.run({ type: 'telegram', target: '-2002' });
+    expect(blocked).toContain('pairing');
+    expect(writes()).toHaveLength(1); // unpaired chat: no write
+  });
+});
