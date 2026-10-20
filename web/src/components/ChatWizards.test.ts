@@ -24,9 +24,15 @@ describe('guided chat templates', () => {
     const msg = await w.run({ type: 'telegram', target: '-1001234567890' });
     expect(msg).toContain('pairing');
   });
-  it('staged-off copy is visible in the channel summary', () => {
+  it('channel and invite summaries name destination and consequence', () => {
     const w = byId('add-channel');
-    expect(w.summary({ type: 'email', target: 'a@b.c' })).toContain('OFF');
+    const cs = w.summary({ type: 'email', target: 'a@b.c' });
+    expect(cs).toContain('a@b.c');
+    expect(cs).toContain('Nothing is delivered');
+    const inv = byId('invite-user');
+    const is = inv.summary({ email: 'a@b.c', role: 'viewer' });
+    expect(is).toContain('a@b.c');
+    expect(is).toContain('invitation email');
   });
   it('validates numbers and emails', () => {
     const rule = byId('alert-rule');
