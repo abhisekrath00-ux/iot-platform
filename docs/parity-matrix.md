@@ -1,6 +1,6 @@
 # Parity matrix per product
 
-One place to see, per product, what is built, partial or not built. No product is at parity. Every row is taken from `docs/competitive-gap.md` (rows marked from the code, not intent) or `docs/report-builder-parity.md`; follow the link for the evidence and test status. Siemens, ThingsBoard and Node-RED comparisons use their public documentation, not hands-on use. Last reviewed 2026-10-08.
+One place to see, per product, what is built, partial or not built. No product is at parity. Every row is taken from `docs/competitive-gap.md` (rows marked from the code, not intent) or `docs/report-builder-parity.md`; follow the link for the evidence and test status. Siemens, ThingsBoard and Node-RED comparisons use their public documentation, not hands-on use. Last reviewed 2026-10-08; three rows refreshed 2026-10-20 against docs/competitive-gap.md (groups/attributes built in migration 0043, logo upload in 0049, 10 widget types).
 
 Status words: Built (implemented and tested here), Partial (narrower version), Not built.
 
@@ -12,12 +12,12 @@ Status words: Built (implemented and tested here), Partial (narrower version), N
 | Device profiles, bulk provisioning, X.509 gateways | Built | Direct MCU devices only designed |
 | Alarm lifecycle (ack, assign, escalate) | Built | No SMS or Teams notifications |
 | Industrial protocols and gateway | Partial | Many protocols simulator-tested only; no real hardware runs |
-| Dashboards and widgets | Partial | 8 widget types against ThingsBoard's 300+ |
+| Dashboards and widgets | Partial | 10 widget types against ThingsBoard's 300+ |
 | Rule engine | Partial | Flows and threshold rules, no full node library |
-| Device groups, typed attributes | Partial | Tags only |
+| Device groups, typed attributes | Built | Named groups with fleet filter and editor; admin-defined typed attributes (text, number, yes/no, one-of, required). No nested groups, no group-wide rules or dashboards yet |
 | Maps and geofencing | Partial | Circular zones; no polygons, enter/exit alerts or live GPS |
 | OTA firmware for end devices | Partial | Edge agent releases only |
-| White-label | Partial | Name and accent colour; no logo upload |
+| White-label | Partial | Name, accent colour and logo upload (PNG/JPEG, also drawn into report PDFs). No custom domain, no email template branding |
 | Mobile app | Partial | Responsive web and PWA; no native app |
 | Microservice-style clustering | Partial | Scheduler leader election, per-replica caches; 3-node HA generator never run on real machines (docs/ha-multi-node.md) |
 
