@@ -15,7 +15,7 @@ describe('register map import', () => {
     expect(r.points[0]).toMatchObject({ id: 'voltage', register: 0, unit: 'V, rms', func: 4, scale: 1, word_order: 'abcd' });
   });
   it('flags duplicate ids, overlaps, bad types and ranges with row numbers', () => {
-    const r = parseCsv('id,register,type,min,max\na,0,f32,0,10\na,1,u16,0,10\nb,5,f64,0,10\nc,6,u16,5,5\n');
+    const r = parseCsv('id,register,type,min,max\na,0,f32,0,10\na,1,u16,0,10\nb,5,i64,0,10\nc,6,u16,5,5\n');
     const t = r.issues.map((i) => `${i.row}:${i.text}`).join('\n');
     expect(t).toContain('2:a: duplicate id');
     expect(t).toContain('overlap a');
