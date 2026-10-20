@@ -204,7 +204,8 @@ export default function Dashboards() {
   };
 
   // Asset filter: the server expands the subtree, widgets bound to a device
-  // outside it hide, and the open-alerts widget scopes its query the same way.
+  // outside it hide, and the open-alerts widget scopes its query only
+    // while that filter is actually active (never on a failed or stale load).
   // Rapid changes are race-proof (a stale fetch never applies) and a subtree
   // cut by the device-list limit is surfaced, never a silent partial match.
   useEffect(() => {
@@ -382,7 +383,7 @@ export default function Dashboards() {
                 onDragOver={e => { if (editing && dragFrom !== null) e.preventDefault(); }}
                 onDrop={e => { e.preventDefault(); if (dragFrom !== null) setWidgets(moveItem(widgets, dragFrom, i)); setDragFrom(null); }}
                 onDragEnd={() => setDragFrom(null)}>
-                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} assetId={assetFilter || undefined} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
+                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} assetId={filtering ? assetFilter : undefined} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
                 {editing && (
                   <div className="board-tools">
                     <button className="ghost" aria-label="Narrower" onClick={() => resize(w.id, -1)}>-</button>
@@ -400,4 +401,4 @@ export default function Dashboards() {
       )}
     </>
   );
-                           }
+}
