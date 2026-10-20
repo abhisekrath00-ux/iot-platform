@@ -45,13 +45,12 @@ func (s *server) putBrandingLogo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) getBrandingLogo(w http.ResponseWriter, r *http.Request) {
-	var b []byte
-	var ct *string
-	if s.st.Pool.QueryRow(r.Context(), `SELECT logo, logo_type FROM tenant_branding WHERE tenant_id=$1`, auth.Tenant(r)).Scan(&b, &ct) != nil || len(b) == 0 || ct == nil {
+	b, cts, rerr := s.resolveBrandingLogo(r)
+	if rerr != nil {
 		http.Error(w, "no logo", 404)
 		return
 	}
-	w.Header().Set("Content-Type", *ct)
+	w.Header().Set("Content-Type", cts)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	w.Write(b)
