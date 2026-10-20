@@ -64,7 +64,7 @@ func main() {
 			log.Printf("drop: %v", err)
 			return
 		}
-		err = st.InsertTelemetry(ctx, store.Telemetry{
+		stored, err := st.InsertTelemetry(ctx, store.Telemetry{
 			EventID: e.EventID, TenantID: e.TenantID, GatewayID: e.GatewayID,
 			DeviceID: e.DeviceID, PointID: e.PointID, ObservedAt: e.ObservedAt,
 			Value: e.Value, Unit: e.Unit, Quality: e.Quality, SchemaVersion: e.SchemaVersion,
@@ -73,7 +73,10 @@ func main() {
 			log.Printf("insert %s: %v", e.EventID, err)
 			return
 		}
-		if err := pos.Track(ctx, e.TenantID, e.DeviceID, e.PointID, e.Value); err != nil {
+		if !stored {
+			return // replayed duplicate: no derived work
+		}
+		if err := pos.Track(ctx, e.TenantID, e.DeviceID, e.PointID, e.Value, e.ObservedAt); err != nil {
 			log.Printf("position track %s: %v", e.DeviceID, err)
 		}
 		rules.Evaluate(ctx, st.Pool, notifier, e.TenantID, e.DeviceID, e.PointID, e.Value)
@@ -300,7 +303,7 @@ func main() {
 		log.Fatalf("cmd ack subscribe: %v", tok.Error())
 	}
 	if t := os.Getenv("SPARKPLUG_TENANT"); t != "" {
-		startSparkplug(ctx, c, st, t, notifier)
+		startSparkplug(ctx, c, st, t, notifier, pos)
 	}
 	log.Printf("ingest up")
 	<-ctx.Done()
