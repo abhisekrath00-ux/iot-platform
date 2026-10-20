@@ -340,6 +340,7 @@ func main() {
 	api.HandleFunc("POST /v1/notifications/channels", s.createChannel)
 	api.HandleFunc("GET /v1/notifications/telegram/chats", s.telegramChats)
 	api.HandleFunc("GET /v1/notifications/slack/channels", s.slackChannels)
+	api.HandleFunc("GET /v1/notifications/email/status", s.emailStatus)
 	api.HandleFunc("POST /v1/notifications/telegram/pair-code", s.telegramPairCode)
 	api.HandleFunc("POST /v1/notifications/channels/{id}/test", s.testChannel)
 	api.HandleFunc("PATCH /v1/notifications/channels/{id}", s.patchChannel)
