@@ -123,7 +123,7 @@ func (s *server) requestScan(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.st.Pool.Exec(r.Context(),
 		`INSERT INTO gateway_scans(id,tenant_id,gateway_id,kind,params,requested_by) VALUES($1,$2,$3,$4,$5,$6)`,
 		id, tenant, gw, in.Kind, pj, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	req := map[string]any{"scan_id": id, "kind": in.Kind}
@@ -207,7 +207,7 @@ func (s *server) listScans(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, gateway_id, kind, status, params, result, created_at, updated_at FROM gateway_scans
 		 WHERE tenant_id=$1 AND gateway_id=$2 ORDER BY created_at DESC LIMIT 10`, auth.Tenant(r), r.PathValue("id"))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -288,23 +288,23 @@ func (s *server) addScannedDevice(w http.ResponseWriter, r *http.Request) {
 	cfg, _ := json.Marshal(map[string]any{"device_profile_id": in.ProfileID, "connection": in.Connection, "added_from_scan": sid})
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
 	if _, err := tx.Exec(r.Context(), `INSERT INTO devices(id,tenant_id,gateway_id,profile,name,config) VALUES($1,$2,$3,$4,$5,$6)`,
 		devID, tenant, gw, driverProfile, in.DeviceName, cfg); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	for _, p := range pts {
 		if _, err := tx.Exec(r.Context(), `INSERT INTO points(id,device_id,unit,min_value,max_value) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, p.ID, devID, p.Unit, p.Min, p.Max); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "gateway.scan.add_device", devID, map[string]any{"scan_id": sid, "profile_id": in.ProfileID})
