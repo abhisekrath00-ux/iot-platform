@@ -606,21 +606,41 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 	tag := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("tag")))
 	gw := r.URL.Query().Get("gateway_id")
 	asset := r.URL.Query().Get("asset_id") // matches the asset and everything below it
+	rel := r.URL.Query().Get("relation")   // with asset_id: what the asset reaches via this relation instead
 	group := r.URL.Query().Get("group_id")
+	if rel != "" {
+		if !relationName.MatchString(rel) {
+			http.Error(w, "relation must be lower-case letters, digits and underscores, starting with a letter (32 characters at most)", 400)
+			return
+		}
+		if asset == "" {
+			http.Error(w, "relation requires asset_id", 400)
+			return
+		}
+	}
 	rows, err := s.st.Pool.Query(r.Context(),
 		`WITH RECURSIVE sub AS (
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($5,'')
 		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
+		 ),
+		 walk(kind, id, dist, path) AS (
+		   SELECT to_kind, to_id, 1, ARRAY[from_kind||':'||from_id, to_kind||':'||to_id]
+		     FROM entity_relations WHERE tenant_id=$1 AND relation=$8 AND from_kind='asset' AND from_id=NULLIF($5,'')
+		   UNION ALL
+		   SELECT e.to_kind, e.to_id, w.dist+1, w.path || (e.to_kind||':'||e.to_id)
+		     FROM entity_relations e JOIN walk w ON e.from_kind=w.kind AND e.from_id=w.id
+		    WHERE e.tenant_id=$1 AND e.relation=$8 AND w.dist < 10 AND NOT (e.to_kind||':'||e.to_id) = ANY(w.path)
 		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($7,'')", 1)+`
 		 SELECT id, profile, name, gateway_id, created_at, tags, asset_id, lat_point, lon_point FROM devices
 		 WHERE tenant_id=$1
-		   AND ($5='' OR asset_id IN (SELECT id FROM sub))
+		   AND ($5='' OR ($8='' AND asset_id IN (SELECT id FROM sub))
+		        OR ($8<>'' AND (asset_id IN (SELECT id FROM walk WHERE kind='asset') OR id IN (SELECT id FROM walk WHERE kind='device'))))
 		   AND ($2='' OR name ILIKE '%'||$2||'%' OR id ILIKE '%'||$2||'%' OR profile ILIKE '%'||$2||'%')
 		   AND ($3='' OR $3 = ANY(tags))
 		   AND ($4='' OR gateway_id=$4)
 		   AND ($6='' OR id IN (SELECT device_id FROM device_group_members WHERE group_id=$6 AND tenant_id=$1))
 		   AND ($7='' OR customer_id IN (SELECT id FROM csub))
-		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw, asset, group, scopeOf(r))
+		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw, asset, group, scopeOf(r), rel)
 	if err != nil {
 		dbErr(w, err)
 		return
@@ -937,18 +957,39 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	asset := r.URL.Query().Get("asset_id")    // alerts on devices under this asset
+	rel := r.URL.Query().Get("relation")      // with asset_id: devices the asset reaches via this relation instead
 	assigned := r.URL.Query().Get("assigned") // "none" or a user id
+	if rel != "" {
+		if !relationName.MatchString(rel) {
+			http.Error(w, "relation must be lower-case letters, digits and underscores, starting with a letter (32 characters at most)", 400)
+			return
+		}
+		if asset == "" {
+			http.Error(w, "relation requires asset_id", 400)
+			return
+		}
+	}
 	rows, err := s.st.Pool.Query(r.Context(),
 		`WITH RECURSIVE sub AS (
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($3,'')
 		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
+		 ),
+		 walk(kind, id, dist, path) AS (
+		   SELECT to_kind, to_id, 1, ARRAY[from_kind||':'||from_id, to_kind||':'||to_id]
+		     FROM entity_relations WHERE tenant_id=$1 AND relation=$6 AND from_kind='asset' AND from_id=NULLIF($3,'')
+		   UNION ALL
+		   SELECT e.to_kind, e.to_id, w.dist+1, w.path || (e.to_kind||':'||e.to_id)
+		     FROM entity_relations e JOIN walk w ON e.from_kind=w.kind AND e.from_id=w.id
+		    WHERE e.tenant_id=$1 AND e.relation=$6 AND w.dist < 10 AND NOT (e.to_kind||':'||e.to_id) = ANY(w.path)
 		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($5,'')", 1)+`
 		 SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by, assigned_to, shelved FROM alerts
 		 WHERE tenant_id=$1 AND ($2 = '' OR status=$2)
 		   AND ($4='' OR ($4='none' AND assigned_to IS NULL) OR assigned_to=$4)
-		   AND ($3='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub)))
+		   AND ($3='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND (
+		        ($6='' AND d.asset_id IN (SELECT id FROM sub))
+		        OR ($6<>'' AND (d.asset_id IN (SELECT id FROM walk WHERE kind='asset') OR d.id IN (SELECT id FROM walk WHERE kind='device'))))))
 		   AND ($5='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.customer_id IN (SELECT id FROM csub)))
-		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset, assigned, scopeOf(r))
+		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset, assigned, scopeOf(r), rel)
 	if err != nil {
 		dbErr(w, err)
 		return
