@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"regexp"
 	"sort"
 	"time"
 
@@ -29,7 +30,14 @@ type Definition struct {
 	// combined with DeviceID (one names a set, the other one device); applies
 	// to threshold, sigma and seasonal rules (kpi_band and forecast_limit
 	// already name their own target).
-	AssetID   string  `json:"asset_id,omitempty"`
+	AssetID string `json:"asset_id,omitempty"`
+	// Relation, together with AssetID, scopes the rule by a typed relation
+	// instead of the asset tree: it covers devices attached to any asset the
+	// anchor asset reaches downstream via this relation (cycle-safe, depth
+	// 10), plus devices named directly as relation endpoints. Requires
+	// AssetID; the anchor asset's own devices are not covered unless the
+	// relation walk reaches them.
+	Relation  string  `json:"relation,omitempty"`
 	PointID   string  `json:"point_id"`
 	Op        string  `json:"op"` // ">" or "<"
 	Threshold float64 `json:"threshold"`
@@ -64,6 +72,10 @@ type Definition struct {
 	Max   *float64 `json:"max,omitempty"`
 }
 
+// relationName mirrors the relations API: lower-case letters, digits and
+// underscores, starting with a letter, 32 characters at most.
+var relationName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+
 // MinBaselineSamples is the history a sigma rule needs before it may fire.
 const MinBaselineSamples = 30
 
@@ -83,6 +95,14 @@ func (d Definition) Validate() error {
 	}
 	if d.AssetID != "" && (d.Kind == "kpi_band" || d.Kind == "forecast_limit") {
 		return fmt.Errorf("asset_id does not apply to %s rules", d.Kind)
+	}
+	if d.Relation != "" {
+		if !relationName.MatchString(d.Relation) {
+			return fmt.Errorf("relation must be lower-case letters, digits and underscores, starting with a letter (32 characters at most)")
+		}
+		if d.AssetID == "" {
+			return fmt.Errorf("relation requires asset_id")
+		}
 	}
 	if d.Method != "" && d.Method != "mean" && d.Method != "robust" {
 		return fmt.Errorf("method must be mean or robust")
@@ -255,7 +275,7 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 				continue
 			}
 		}
-		if d.AssetID != "" {
+		if d.AssetID != "" && d.Relation == "" {
 			var in bool
 			if pool.QueryRow(ctx,
 				`WITH RECURSIVE sub AS (
@@ -264,6 +284,28 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 				 )
 				 SELECT EXISTS(SELECT 1 FROM devices d WHERE d.id=$1 AND d.tenant_id=$2 AND d.asset_id IN (SELECT id FROM sub))`,
 				deviceID, tenantID, d.AssetID).Scan(&in); !in {
+				continue
+			}
+		}
+		if d.Relation != "" {
+			// Relation scoping: the anchor asset's downstream walk for this
+			// relation (cycle-safe, depth 10) names the covered assets and
+			// devices; a device is covered when it is attached to a reached
+			// asset or is itself a reached endpoint.
+			var in bool
+			if pool.QueryRow(ctx,
+				`WITH RECURSIVE walk(kind, id, dist, path) AS (
+				   SELECT to_kind, to_id, 1, ARRAY[from_kind||':'||from_id, to_kind||':'||to_id]
+				     FROM entity_relations WHERE tenant_id=$2 AND relation=$4 AND from_kind='asset' AND from_id=$3
+				   UNION ALL
+				   SELECT e.to_kind, e.to_id, w.dist+1, w.path || (e.to_kind||':'||e.to_id)
+				     FROM entity_relations e JOIN walk w ON e.from_kind=w.kind AND e.from_id=w.id
+				    WHERE e.tenant_id=$2 AND e.relation=$4 AND w.dist < 10 AND NOT (e.to_kind||':'||e.to_id) = ANY(w.path)
+				 )
+				 SELECT EXISTS(SELECT 1 FROM devices d WHERE d.id=$1 AND d.tenant_id=$2 AND (
+				   d.asset_id IN (SELECT id FROM walk WHERE kind='asset')
+				   OR d.id IN (SELECT id FROM walk WHERE kind='device')))`,
+				deviceID, tenantID, d.AssetID, d.Relation).Scan(&in); !in {
 				continue
 			}
 		}
