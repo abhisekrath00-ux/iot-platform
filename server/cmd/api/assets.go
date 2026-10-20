@@ -44,16 +44,31 @@ func (s *server) listAssets(w http.ResponseWriter, r *http.Request) {
 // can tell a capped device list (the 1000-row list limit) from a complete
 // one instead of silently filtering against a partial subtree.
 func (s *server) getAssetDeviceCount(w http.ResponseWriter, r *http.Request) {
+	rel := r.URL.Query().Get("relation") // with the path asset: count what it reaches via this relation instead
+	if rel != "" && !relationName.MatchString(rel) {
+		http.Error(w, "relation must be lower-case letters, digits and underscores, starting with a letter (32 characters at most)", 400)
+		return
+	}
 	var n int
 	err := s.st.Pool.QueryRow(r.Context(),
 		`WITH RECURSIVE sub AS (
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=$2
 		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
+		 ),
+		 walk(kind, id, dist, path) AS (
+		   SELECT to_kind, to_id, 1, ARRAY[from_kind||':'||from_id, to_kind||':'||to_id]
+		     FROM entity_relations WHERE tenant_id=$1 AND relation=$4 AND from_kind='asset' AND from_id=$2
+		   UNION ALL
+		   SELECT e.to_kind, e.to_id, w.dist+1, w.path || (e.to_kind||':'||e.to_id)
+		     FROM entity_relations e JOIN walk w ON e.from_kind=w.kind AND e.from_id=w.id
+		    WHERE e.tenant_id=$1 AND e.relation=$4 AND w.dist < 10 AND NOT (e.to_kind||':'||e.to_id) = ANY(w.path)
 		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($3,'')", 1)+`
 		 SELECT count(*) FROM devices d
-		 WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub)
+		 WHERE d.tenant_id=$1
+		   AND (($4='' AND d.asset_id IN (SELECT id FROM sub))
+		        OR ($4<>'' AND (d.asset_id IN (SELECT id FROM walk WHERE kind='asset') OR d.id IN (SELECT id FROM walk WHERE kind='device'))))
 		   AND ($3='' OR d.customer_id IN (SELECT id FROM csub))`,
-		auth.Tenant(r), r.PathValue("id"), scopeOf(r)).Scan(&n)
+		auth.Tenant(r), r.PathValue("id"), scopeOf(r), rel).Scan(&n)
 	if err != nil {
 		dbErr(w, err)
 		return
