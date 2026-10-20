@@ -57,10 +57,13 @@ func (s *server) createGeofence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name   string  `json:"name"`
-		Lat    float64 `json:"lat"`
-		Lon    float64 `json:"lon"`
-		Radius float64 `json:"radius_m"`
+		Name     string  `json:"name"`
+		Lat      float64 `json:"lat"`
+		Lon      float64 `json:"lon"`
+		Radius   float64 `json:"radius_m"`
+		OnEnter  bool    `json:"alert_on_enter"`
+		OnExit   bool    `json:"alert_on_exit"`
+		Severity string  `json:"alert_severity"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil {
 		http.Error(w, "bad json", 400)
@@ -71,6 +74,13 @@ func (s *server) createGeofence(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name (up to 80), valid lat/lon and radius 1-100000 m required", 400)
 		return
 	}
+	if in.Severity == "" {
+		in.Severity = "warning"
+	}
+	if in.Severity != "info" && in.Severity != "warning" && in.Severity != "critical" {
+		http.Error(w, "alert_severity must be info, warning or critical", 400)
+		return
+	}
 	var n int
 	s.st.Pool.QueryRow(r.Context(), `SELECT count(*) FROM geofences WHERE tenant_id=$1`, auth.Tenant(r)).Scan(&n)
 	if n >= maxGeofences {
@@ -78,12 +88,50 @@ func (s *server) createGeofence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := uuid.NewString()
-	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO geofences(id,tenant_id,name,lat,lon,radius_m,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)`, id, auth.Tenant(r), in.Name, in.Lat, in.Lon, in.Radius, auth.User(r)); err != nil {
+	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO geofences(id,tenant_id,name,lat,lon,radius_m,created_by,alert_on_enter,alert_on_exit,alert_severity) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, id, auth.Tenant(r), in.Name, in.Lat, in.Lon, in.Radius, auth.User(r), in.OnEnter, in.OnExit, in.Severity); err != nil {
 		http.Error(w, "db", 500)
 		return
 	}
 	s.audit(r, "geofence.create", id, map[string]any{"name": in.Name})
 	writeJSON(w, 201, map[string]any{"id": id})
+}
+
+// PUT /v1/geofences/{id}: update a zone's geometry or its enter/exit alerts.
+func (s *server) updateGeofence(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		Name     string  `json:"name"`
+		Lat      float64 `json:"lat"`
+		Lon      float64 `json:"lon"`
+		Radius   float64 `json:"radius_m"`
+		OnEnter  bool    `json:"alert_on_enter"`
+		OnExit   bool    `json:"alert_on_exit"`
+		Severity string  `json:"alert_severity"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" || len(in.Name) > 80 || strings.ContainsAny(in.Name, "<>\x00") || !validLatLon(in.Lat, in.Lon) || !(in.Radius >= 1 && in.Radius <= 100000) {
+		http.Error(w, "name (up to 80), valid lat/lon and radius 1-100000 m required", 400)
+		return
+	}
+	if in.Severity != "info" && in.Severity != "warning" && in.Severity != "critical" {
+		http.Error(w, "alert_severity must be info, warning or critical", 400)
+		return
+	}
+	ct, err := s.st.Pool.Exec(r.Context(),
+		`UPDATE geofences SET name=$1, lat=$2, lon=$3, radius_m=$4, alert_on_enter=$5, alert_on_exit=$6, alert_severity=$7 WHERE id=$8 AND tenant_id=$9`,
+		in.Name, in.Lat, in.Lon, in.Radius, in.OnEnter, in.OnExit, in.Severity, r.PathValue("id"), auth.Tenant(r))
+	if err != nil || ct.RowsAffected() == 0 {
+		http.Error(w, "not found", 404)
+		return
+	}
+	s.audit(r, "geofence.update", r.PathValue("id"), map[string]any{"name": in.Name})
+	w.WriteHeader(204)
 }
 
 func (s *server) deleteGeofence(w http.ResponseWriter, r *http.Request) {
@@ -103,21 +151,24 @@ func (s *server) deleteGeofence(w http.ResponseWriter, r *http.Request) {
 func (s *server) getMap(w http.ResponseWriter, r *http.Request) {
 	tenant := auth.Tenant(r)
 	type fence struct {
-		ID     string  `json:"id"`
-		Name   string  `json:"name"`
-		Lat    float64 `json:"lat"`
-		Lon    float64 `json:"lon"`
-		Radius float64 `json:"radius_m"`
+		ID       string  `json:"id"`
+		Name     string  `json:"name"`
+		Lat      float64 `json:"lat"`
+		Lon      float64 `json:"lon"`
+		Radius   float64 `json:"radius_m"`
+		OnEnter  bool    `json:"alert_on_enter"`
+		OnExit   bool    `json:"alert_on_exit"`
+		Severity string  `json:"alert_severity"`
 	}
 	fences := []fence{}
-	fr, err := s.st.Pool.Query(r.Context(), `SELECT id,name,lat,lon,radius_m FROM geofences WHERE tenant_id=$1 ORDER BY name`, tenant)
+	fr, err := s.st.Pool.Query(r.Context(), `SELECT id,name,lat,lon,radius_m,alert_on_enter,alert_on_exit,alert_severity FROM geofences WHERE tenant_id=$1 ORDER BY name`, tenant)
 	if err != nil {
 		http.Error(w, "db", 500)
 		return
 	}
 	for fr.Next() {
 		var f fence
-		if fr.Scan(&f.ID, &f.Name, &f.Lat, &f.Lon, &f.Radius) == nil {
+		if fr.Scan(&f.ID, &f.Name, &f.Lat, &f.Lon, &f.Radius, &f.OnEnter, &f.OnExit, &f.Severity) == nil {
 			fences = append(fences, f)
 		}
 	}
@@ -144,5 +195,5 @@ func (s *server) getMap(w http.ResponseWriter, r *http.Request) {
 		devs = append(devs, map[string]any{"id": id, "name": name, "lat": lat, "lon": lon, "inside": inside})
 	}
 	writeJSON(w, 200, map[string]any{"devices": devs, "geofences": fences,
-		"note": "Positions are set by people, not read from telemetry. Zones are circles; membership is computed when you load the map, with no enter/exit alerts."})
+		"note": "Positions are set by people, not read from telemetry. Zones are circles; a zone can alert when a device enters or leaves it."})
 }
