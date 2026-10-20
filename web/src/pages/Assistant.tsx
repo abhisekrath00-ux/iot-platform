@@ -45,25 +45,25 @@ export default function Assistant() {
   }
   function loadStepOptions(w: Wizard, idx: number, answers: Record<string, string>) {
     const st = w.steps[idx];
-    if (st?.kind === 'select' && st.loadOptions) {
+    if ((st?.kind === 'select' || st?.kind === 'pick-or-text') && st.loadOptions) {
       setWOpts(null);
       st.loadOptions(answers).then(o => {
         setWOpts(o);
-        if (o.length === 0) setWErr('Nothing to pick from yet. Cancel and add one first (or ask in the chat).');
-      }).catch(e => { setWOpts([]); setWErr(String(e)); });
+        if (o.length === 0 && st.kind === 'select') setWErr('Nothing to pick from yet. Cancel and add one first (or ask in the chat).');
+      }).catch(e => { setWOpts([]); if (st.kind === 'select') setWErr(String(e)); });
     } else { setWOpts(st?.options ?? null); }
   }
   function answerWizard(v: string) {
     if (!wiz) return;
     const st = wiz.steps[wStep];
-    const bad = st.validate?.(v);
+    const bad = st.validate?.(v, wAns);
     if (bad) { setWErr(bad); return; }
     let label = '';
-    if (st.kind === 'select') {
+    if (st.kind === 'select' || st.kind === 'pick-or-text') {
       const pool = wOpts ?? st.options ?? [];
       const hit = pool.find(o => o.value === v || o.label === v);
-      if (!hit) { setWErr('Pick one of the offered choices.'); return; }
-      v = hit.value; label = hit.label;
+      if (!hit && st.kind === 'select') { setWErr('Pick one of the offered choices.'); return; }
+      if (hit) { v = hit.value; label = hit.label; }
     }
     setWErr('');
     const next = { ...wAns, [st.key]: v, [st.key + '_label']: label || v };
@@ -199,13 +199,13 @@ export default function Assistant() {
           <b>{wiz.title}</b> <span className="muted" style={{ fontSize: 12 }}>step {Math.min(wStep + 1, wiz.steps.length)} of {wiz.steps.length} - no AI involved, you confirm before anything is written</span>
           {!wConfirm ? (
             <div style={{ marginTop: 8 }}>
-              <div>{wiz.steps[wStep].prompt}</div>
+              <div>{(() => { const pr = wiz.steps[wStep].prompt; return typeof pr === 'function' ? pr(wAns) : pr; })()}</div>
               {wOpts && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                   {wOpts.map(o => <button key={o.value} type="button" className="ghost" onClick={() => answerWizard(o.value)}>{o.label}</button>)}
                 </div>
               )}
-              {wOpts === null && wiz.steps[wStep].kind === 'select' && !wErr && <p className="muted">Loading choices...</p>}
+              {wOpts === null && (wiz.steps[wStep].kind === 'select' || wiz.steps[wStep].kind === 'pick-or-text') && !wErr && <p className="muted">Loading choices...</p>}
               {(wiz.steps[wStep].kind !== 'select') && (
                 <form onSubmit={e => { e.preventDefault(); answerWizard(text); setText(''); }} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <input aria-label="Your answer" value={text} onChange={e => setText(e.target.value)} autoFocus />
