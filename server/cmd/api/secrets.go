@@ -29,7 +29,7 @@ func (s *server) listSecrets(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := st.List(r.Context(), auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	writeJSON(w, 200, out)
