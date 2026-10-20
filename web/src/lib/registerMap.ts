@@ -95,5 +95,5 @@ export function validateMap(points: MapPoint[]): Issue[] {
 export function templatePoints(templateId: string): MapPoint[] {
   const t = EDGE_TEMPLATES.find((x) => x.id === templateId);
   if (!t) return [];
-  return t.points.map((p) => ({ id: p.id, register: p.register, func: t.func, type: t.type, word_order: t.word_order, scale: 1, unit: p.unit, min: p.min, max: p.max }));
+  return t.points.map((p) => ({ id: p.id, register: p.register, func: t.func, type: p.type ?? t.type, word_order: t.word_order, scale: p.scale ?? 1, unit: p.unit, min: p.min, max: p.max }));
 }
