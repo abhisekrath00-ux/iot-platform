@@ -72,6 +72,31 @@ export default function MapPage() {
     };
   }, [data, cfg]);
 
+  // Zone labels sit above their circle; coincident or overlapping circles would
+  // print them on top of each other, so colliding labels stack upward with a
+  // small tick down to their own circle.
+  const zoneLabels = useMemo(() => {
+    if (!proj) return [] as { id: string; name: string; cx: number; top: number; y: number; w: number; h: number }[];
+    const items = data.geofences.map(f => {
+      const cx = proj.x(f.lon), r = f.radius_m / proj.mPerPx;
+      return { id: f.id, name: f.name, cx, top: proj.y(f.lat) - r - 18, y: 0, w: f.name.length * 7 + 8, h: 15 };
+    });
+    items.sort((a, b) => b.top - a.top || a.name.localeCompare(b.name));
+    const placed: typeof items = [];
+    items.forEach(it => {
+      let y = it.top;
+      for (;;) {
+        const clash = placed.find(p => Math.abs(p.cx - it.cx) < (p.w + it.w) / 2 && y < p.y + p.h && y + it.h > p.y);
+        if (!clash) break;
+        y = clash.y - it.h - 2;
+      }
+      it.y = Math.max(14, y);
+      placed.push(it);
+    });
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proj, data]);
+
   // Tiles are fetched through the API (it relays the deployer's tile server) and shown from blob URLs.
   useEffect(() => {
     if (!proj || proj.tiles.length === 0) return;
@@ -100,7 +125,12 @@ export default function MapPage() {
               {data.geofences.map(f => (
                 <g key={f.id}>
                   <circle cx={proj.x(f.lon)} cy={proj.y(f.lat)} r={f.radius_m / proj.mPerPx} fill="var(--accent, #4f8cff)" fillOpacity="0.1" stroke="var(--accent, #4f8cff)" strokeDasharray="5 4" />
-                  <text x={proj.x(f.lon)} y={proj.y(f.lat) - f.radius_m / proj.mPerPx - 6} textAnchor="middle" fontSize="12" fill="currentColor">{f.name}</text>
+                </g>
+              ))}
+              {zoneLabels.map(l => (
+                <g key={l.id}>
+                  {l.y < l.top - 1 && <line x1={l.cx} y1={l.y + l.h - 3} x2={l.cx} y2={l.top + 14} stroke="var(--muted, #6e6e73)" strokeWidth="1" strokeDasharray="2 2" />}
+                  <text x={l.cx} y={l.y + 12} textAnchor="middle" fontSize="12" fill="currentColor">{l.name}</text>
                 </g>
               ))}
               {data.devices.map(d => (
