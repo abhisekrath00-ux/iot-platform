@@ -64,3 +64,19 @@ test('a 403 on Confirm becomes a non-actionable explanation: no Confirm retry, n
   expect(button('Confirm')).toBeFalsy(); // retrying the same answers cannot help
   expect(button('Close')).toBeTruthy();
 });
+
+test('failed identity lookup shows retry, never privileged actions', async () => {
+  let calls = 0;
+  vi.mocked(api).mockImplementation((path: string) => {
+    if (path === '/v1/me') { calls++; return calls === 1 ? Promise.reject(new Error('503: unavailable')) : Promise.resolve({ role: 'viewer' }) as any; }
+    if (path === '/v1/assistant/memory') return Promise.resolve({ enabled: false, notes: [] }) as any;
+    return Promise.reject(new Error('unexpected ' + path));
+  });
+  await act(async () => root.render(<Assistant />));
+  expect(box.textContent).toContain('Could not check your account');
+  expect(button('Invite a user')).toBeFalsy();
+  expect(button('Set up an energy meter')).toBeFalsy();
+  expect(vi.mocked(api).mock.calls.map(c => c[0])).toEqual(['/v1/me']); // nothing fired on a guess
+  await act(async () => button('Try again')!.click());
+  expect(button('Set up an energy meter')).toBeTruthy(); // recovered: viewer sees the read-only guide
+});
