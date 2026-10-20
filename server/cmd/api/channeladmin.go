@@ -127,7 +127,6 @@ func join(a []string) string {
 	return out
 }
 
-
 // telegramPairMessages returns the messages a pairing scan should search: the poller's inbox
 // when inbound mode owns the feed (recent rows only - a code lives 10 minutes), else a live
 // getUpdates read.
