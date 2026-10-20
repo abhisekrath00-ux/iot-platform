@@ -85,8 +85,11 @@ last reset"); 30343/30345 are the lifetime totals.
 
 ## Notes and exclusions
 
-- The vendor limits each request to 30 parameters; the driver reads each point
-  individually, so this does not apply.
+- The vendor limits each request to 30 parameters (PART 3 intro). The driver issues
+  one request per point (modbusGeneric.Poll), so a full map poll is 38 separate
+  2-register requests and the limit is never approached. Constraint for the future:
+  if point reads are ever batched for efficiency, batches must stay within 30
+  parameters per request.
 - Holding registers (4xxx: parity, address, baud, password, CT ratio, etc.) are
   configuration; excluded. The platform never writes to the meter.
 - The document's request example mentions "Amps 1" at start address 0006, consistent
