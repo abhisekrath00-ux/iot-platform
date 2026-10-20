@@ -430,6 +430,14 @@ func SendOne(ctx context.Context, n Notifier, typ, target, severity, msg, event 
 		} else {
 			err = errUnsupported
 		}
+	case "telegram":
+		if b, ok := n.(interface {
+			Telegram(context.Context, string, string) error
+		}); ok {
+			err = b.Telegram(cctx, target, "["+severity+"] "+msg)
+		} else {
+			err = errUnsupported
+		}
 	case "whatsapp":
 		if b, ok := n.(interface {
 			WhatsApp(context.Context, string, string) error
