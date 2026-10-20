@@ -22,7 +22,9 @@ export interface Wizard {
   // per-handler role checks (the server still enforces; this only keeps unusable chips out of the UI).
   roles?: string[];
   summary: (a: Record<string, string>) => string;
-  run: (a: Record<string, string>) => Promise<string>;
+  // ctx.idempotencyKey identifies one wizard run: a retry after an uncertain response replays the
+  // first result server-side instead of writing twice.
+  run: (a: Record<string, string>, ctx?: { idempotencyKey?: string }) => Promise<string>;
 }
 
 const nonEmpty = (what: string) => (v: string) => v.trim() ? null : `${what} is required`;
@@ -58,8 +60,8 @@ export const WIZARDS: Wizard[] = [
       { key: 'name', prompt: 'What should the device be called?', kind: 'text', validate: nonEmpty('A name') },
     ],
     summary: a => `Create device "${a.name}" (profile ${a.profile}) on gateway ${a.gateway_id_label}.`,
-    run: async a => {
-      const r = await api<{ id: string }>('/v1/devices', { method: 'POST', body: JSON.stringify({ gateway_id: a.gateway_id, profile: a.profile, name: a.name, config: {} }) });
+    run: async (a, ctx) => {
+      const r = await api<{ id: string }>('/v1/devices', { method: 'POST', headers: ctx?.idempotencyKey ? { 'Idempotency-Key': ctx.idempotencyKey } : {}, body: JSON.stringify({ gateway_id: a.gateway_id, profile: a.profile, name: a.name, config: {} }) });
       return `Device "${a.name}" created (id ${r.id}). It shows up once the gateway polls it. See Devices.`;
     },
   },
@@ -109,11 +111,11 @@ export const WIZARDS: Wizard[] = [
       },
     ],
     summary: a => `Add a ${a.type} channel to ${a.target}. Nothing is delivered to it until you verify it with Send test and press Enable in Settings.`,
-    run: async a => {
+    run: async (a, ctx) => {
       if (a.type === 'telegram') {
         return 'Telegram needs a paired chat first: in Settings, pick Telegram, press Get pairing code and send it to the bot inside your chat. Then add the channel there with Find chats.';
       }
-      await api('/v1/notifications/channels', { method: 'POST', body: JSON.stringify({ type: a.type, target: a.target }) });
+      await api('/v1/notifications/channels', { method: 'POST', headers: ctx?.idempotencyKey ? { 'Idempotency-Key': ctx.idempotencyKey } : {}, body: JSON.stringify({ type: a.type, target: a.target }) });
       return `Channel added. It is OFF: verify it with Send test in Settings, then press Enable.`;
     },
   },
@@ -166,8 +168,8 @@ export const WIZARDS: Wizard[] = [
       { key: 'role', prompt: 'Role?', kind: 'select', options: [{ value: 'viewer', label: 'Viewer (read only)' }, { value: 'operator', label: 'Operator' }, { value: 'admin', label: 'Admin' }] },
     ],
     summary: a => `Invite ${a.email} as ${a.role}. Confirming sends an invitation email to that address.`,
-    run: async a => {
-      await api('/v1/users/invites', { method: 'POST', body: JSON.stringify({ email: a.email.trim(), role: a.role, send_email: true }) });
+    run: async (a, ctx) => {
+      await api('/v1/users/invites', { method: 'POST', headers: ctx?.idempotencyKey ? { 'Idempotency-Key': ctx.idempotencyKey } : {}, body: JSON.stringify({ email: a.email.trim(), role: a.role, send_email: true }) });
       return `Invite sent to ${a.email} (${a.role}).`;
     },
   },
