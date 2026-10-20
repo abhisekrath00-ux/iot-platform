@@ -41,7 +41,7 @@ func (s *server) createRelease(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO fleet_releases(id,tenant_id,version,artifact_sha256,notes,created_by) VALUES($1,$2,$3,$4,$5,$6)
 		 ON CONFLICT (tenant_id,version) DO NOTHING`,
 		id, auth.Tenant(r), in.Version, in.SHA256, in.Notes, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "fleet.release", id, map[string]any{"version": in.Version})
@@ -53,7 +53,7 @@ func (s *server) listReleases(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, version, COALESCE(artifact_sha256,''), COALESCE(notes,''), created_at
 		 FROM fleet_releases WHERE tenant_id=$1 ORDER BY created_at DESC`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -111,7 +111,7 @@ func (s *server) createCampaign(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO fleet_campaigns(id,tenant_id,release_id,name,stages,failure_threshold,serials,created_by)
 		 VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
 		id, auth.Tenant(r), in.ReleaseID, in.Name, stagesJSON, in.Threshold, serialsJSON, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "fleet.campaign", id, map[string]any{"name": in.Name, "stages": in.Stages})
@@ -145,7 +145,7 @@ func (s *server) enterStage(w http.ResponseWriter, r *http.Request, c *campaignR
 	cohort := fleet.CohortForStage(c.ID, c.Serials, c.Stages, idx)
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return false
 	}
 	defer tx.Rollback(r.Context())
@@ -155,17 +155,17 @@ func (s *server) enterStage(w http.ResponseWriter, r *http.Request, c *campaignR
 			 VALUES($1,$2,$3,$4,$5,'pending','awaiting broker delivery (edge slice)')
 			 ON CONFLICT (campaign_id,gateway_serial) DO NOTHING`,
 			uuid.NewString(), c.ID, auth.Tenant(r), serial, c.ReleaseID); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return false
 		}
 	}
 	if _, err := tx.Exec(r.Context(),
 		`UPDATE fleet_campaigns SET stage_index=$1 WHERE id=$2`, idx, c.ID); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return false
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return false
 	}
 	s.fanoutStage(r, c, cohort)
@@ -219,7 +219,7 @@ func (s *server) setCampaignState(w http.ResponseWriter, r *http.Request, c *cam
 	}
 	if _, err := s.st.Pool.Exec(r.Context(),
 		`UPDATE fleet_campaigns SET state=$1 WHERE id=$2`, to, c.ID); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return false
 	}
 	return true
@@ -353,7 +353,7 @@ func (s *server) rollbackCampaign(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT gateway_serial FROM fleet_assignments WHERE campaign_id=$1 AND state IN ('acked','failed','sent')`, c.ID)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	var serials []string
@@ -371,7 +371,7 @@ func (s *server) rollbackCampaign(w http.ResponseWriter, r *http.Request) {
 	rid := uuid.NewString()
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -379,7 +379,7 @@ func (s *server) rollbackCampaign(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO fleet_campaigns(id,tenant_id,release_id,name,stages,serials,state,stage_index,created_by)
 		 VALUES($1,$2,$3,$4,'[100]',$5,'running',0,$6)`,
 		rid, auth.Tenant(r), in.ToReleaseID, "rollback of "+c.Name, serialsJSON, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	for _, serial := range serials {
@@ -387,18 +387,18 @@ func (s *server) rollbackCampaign(w http.ResponseWriter, r *http.Request) {
 			`INSERT INTO fleet_assignments(id,campaign_id,tenant_id,gateway_serial,release_id,state,detail)
 			 VALUES($1,$2,$3,$4,$5,'pending','rollback target')`,
 			uuid.NewString(), rid, auth.Tenant(r), serial, in.ToReleaseID); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 		if _, err := tx.Exec(r.Context(),
 			`UPDATE fleet_assignments SET state='rolled_back', updated_at=now()
 			 WHERE campaign_id=$1 AND gateway_serial=$2`, c.ID, serial); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "fleet.rollback", c.ID, map[string]any{"to_release": in.ToReleaseID, "gateways": len(serials), "rollback_campaign": rid})
@@ -413,7 +413,7 @@ func (s *server) listCampaigns(w http.ResponseWriter, r *http.Request) {
 		  (SELECT count(*) FROM fleet_assignments a WHERE a.campaign_id=c.id AND a.state IN ('pending','sent')) open
 		 FROM fleet_campaigns c WHERE c.tenant_id=$1 ORDER BY c.created_at DESC`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -456,7 +456,7 @@ func (s *server) ackAssignment(w http.ResponseWriter, r *http.Request) {
 		 WHERE campaign_id=$3 AND gateway_serial=$4 AND tenant_id=$5 AND state IN ('pending','sent')`,
 		in.State, in.Detail, in.CampaignID, in.Serial, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if res.RowsAffected() == 0 {
