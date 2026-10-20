@@ -208,6 +208,7 @@ func main() {
 	api.HandleFunc("GET /v1/map/config", s.mapConfig)
 	api.HandleFunc("GET /v1/map/tiles/{z}/{x}/{y}", s.mapTile)
 	api.HandleFunc("POST /v1/geofences", s.createGeofence)
+	api.HandleFunc("PUT /v1/geofences/{id}", s.updateGeofence)
 	api.HandleFunc("DELETE /v1/geofences/{id}", s.deleteGeofence)
 	api.HandleFunc("GET /v1/assets", s.listAssets)
 	api.HandleFunc("GET /v1/direct-auth/policy", s.getDirectAuthPolicy)
@@ -484,6 +485,7 @@ func main() {
 				return
 			case <-t.C:
 				rules.EvaluateKPIs(c, st.Pool, fn)
+				rules.EvaluateGeofences(c, st.Pool, fn)
 				rules.ReleaseShelved(c, st.Pool, fn)
 				rules.EvaluateEscalations(c, st.Pool, fn)
 				if tick++; tick%15 == 0 {
