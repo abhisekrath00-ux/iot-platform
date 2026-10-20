@@ -165,6 +165,7 @@ describe('edge setup', () => {
     expect(t.pduBaseUnverified).toBeUndefined(); // operating manual prints the same values under a "Modbus address" column
     expect(t.funcUnverified).toBeUndefined();
     expect(t.provisional).toBeUndefined();
+    expect(t.stopBits).toBe(2); // vendor transfer parameters: 8 data bits, no parity, 2 stop bits (internal UART)
     const pt = (id: string) => t.points.find((p) => p.id === id)!;
     expect(pt('va_n').register).toBe(19000); // Voltage L1-N
     expect(pt('vc_a').register).toBe(19010); // Voltage L1-L3 (doc's L3-L1 naming)
@@ -185,6 +186,20 @@ describe('edge setup', () => {
     for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
     const y = deviceYaml({ deviceId: 'umg-1', templateId: 'janitza-umg96rm-e', link: 'tcp', host: '10.0.0.5', tcpPort: 502, address: 1, intervalSec: 5 });
     expect(y).toContain('register: 19000'); expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
+    const y2 = deviceYaml({ deviceId: 'umg-1', templateId: 'janitza-umg96rm-e', link: 'rtu', port: '/dev/ttyUSB0', baud: 9600, parity: 'none', stopBits: 2, address: 1, intervalSec: 5 });
+    expect(y2).toContain('stop_bits: 2'); // the operator's serial choice reaches the YAML verbatim
+    expect(y2).not.toContain('stop_bits: 0');
+  });
+  it('stop bits are modeled: template presets, operator choice emitted, invalid values rejected', () => {
+    const jan = EDGE_TEMPLATES.find((x) => x.id === 'janitza-umg96rm-e')!;
+    expect(jan.stopBits).toBe(2);
+    // a template without vendor-documented stop bits leaves the field undefined - the form defaults to 1
+    expect(EDGE_TEMPLATES.find((x) => x.id === 'eastron-sdm630')!.stopBits).toBeUndefined();
+    const base = { deviceId: 'm1', templateId: 'eastron-sdm630', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, parity: 'none' as const, address: 1, intervalSec: 10 };
+    expect(deviceYaml({ ...base, stopBits: 1 })).toContain('stop_bits: 1');
+    expect(deviceYaml({ ...base, stopBits: 2 })).toContain('stop_bits: 2');
+    expect(deviceYaml(base)).toContain('stop_bits: 0'); // legacy default = 1 stop bit in the agent
+    expect(validateDevice({ ...base, stopBits: 3 as 1 }).some((e) => e.includes('Stop bits'))).toBe(true);
   });
   it('carlo-gavazzi-em340 registers match EM300 series communication protocol CP (docs/devices/carlo-gavazzi-em340.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'carlo-gavazzi-em340')!;
