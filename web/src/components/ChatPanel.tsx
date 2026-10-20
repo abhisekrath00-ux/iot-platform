@@ -34,6 +34,8 @@ export default function ChatPanel() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [acts, setActs] = useState<Record<string, string>>({});
+  const [scoped, setScoped] = useState(false);
+  useEffect(() => { api<{ customer_id?: string }>('/v1/me').then(m => setScoped(!!m.customer_id)).catch(() => {}); }, []);
   const abort = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
 
@@ -93,6 +95,7 @@ export default function ChatPanel() {
   }
 
   const st = status?.state ?? 'unknown';
+  if (scoped) return null; // the assistant refuses customer-scoped users; offering it would 403 on use
   return (
     <>
       {!open && <button className="chat-fab" aria-label="Open the assistant" onClick={() => setOpen(true)} style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 40, borderRadius: 24, padding: '10px 16px', boxShadow: '0 4px 14px rgba(0,0,0,.3)' }}>Ask the assistant</button>}
