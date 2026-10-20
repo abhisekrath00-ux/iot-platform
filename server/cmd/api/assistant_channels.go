@@ -296,6 +296,64 @@ func (s *server) firstSeen(ctx context.Context, tenant, id string) bool {
 	return err == nil && tag.RowsAffected() == 1
 }
 
+// GET /v1/assistant/selftest/{kind} (admin): ready-to-run signed test commands that prove the
+// inbound verification path end to end without a real Slack workspace or mail gateway. The secret
+// never leaves the server. The sample sender matches no linked identity, so a 200 means signature,
+// freshness, and (for email) relay-checks passed, and nothing was acted on.
+func (s *server) getChannelSelftest(w http.ResponseWriter, r *http.Request) {
+	if auth.ViaKey(r) || !requireRole(w, r, "admin") {
+		return
+	}
+	tenant, kind := auth.Tenant(r), r.PathValue("kind")
+	secret, on := s.channelSecret(r.Context(), tenant, kind)
+	if !on {
+		http.Error(w, "save a "+kind+" signing secret first", http.StatusConflict)
+		return
+	}
+	id, ts := strings.ReplaceAll(uuid.NewString(), "-", "")[:16], strconv.FormatInt(time.Now().Unix(), 10)
+	base := "https://YOUR-SERVER"
+	var urlPath, body, sigHeader, sigValue string
+	switch kind {
+	case "email":
+		urlPath = "/v1/assistant/inbound/email/" + tenant
+		body = fmt.Sprintf(`{"message_id":"selftest-%s@hexthings.local","from":"selftest@example.invalid","subject":"setup check","text":"selftest - ignore","dkim":"pass","spf":"pass"}`, id)
+		sigHeader, sigValue = "X-Signature", hmacHex(secret, ts+"."+body)
+	case "slack":
+		urlPath = "/v1/assistant/inbound/slack/" + tenant
+		body = fmt.Sprintf(`{"type":"event_callback","event_id":"EvSelf%s","event":{"type":"message","user":"U0SELFTEST","channel":"D0SELFTEST","channel_type":"im","text":"selftest - ignore"}}`, id)
+		sigHeader, sigValue = "X-Slack-Signature", "v0="+hmacHex(secret, "v0:"+ts+":"+body)
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	// tampered negative control: same signature over an altered body must be refused
+	tampered := strings.Replace(body, "setup check", "tampered !!", 1)
+	if tampered == body {
+		tampered = strings.Replace(body, "selftest - ignore", "tampered", 1)
+	}
+	shell := func(b string) string {
+		return fmt.Sprintf("curl -i -X POST %q -H %q -H %q -H %q -d %q",
+			base+urlPath, "Content-Type: application/json", tsHeader(kind)+": "+ts, sigHeader+": "+sigValue, b)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"kind": kind, "expires": "the timestamp is accepted for 5 minutes; regenerate if it lapses",
+		"sample":          map[string]any{"url_path": urlPath, "body": body, "ts": ts, "sig_header": sigHeader, "sig_value": sigValue},
+		"expect_ok":       "HTTP 200 = the signature and freshness checks passed. The sender matches no linked identity, so it is then audited as inbound_refused and ignored - that is the expected result.",
+		"expect_tampered": "HTTP 401 = tampering was caught. If the server answers 200 to this one, the check is broken.",
+		"curl_valid":      shell(body),
+		"curl_tampered":   shell(tampered),
+		"note":            "Self-test only: synthetic sender (no linked identity, no workspace changes). Run against your server; replace YOUR-SERVER.",
+	})
+}
+
+// tsHeader names the timestamp header each gateway signs with.
+func tsHeader(kind string) string {
+	if kind == "slack" {
+		return "X-Slack-Request-Timestamp"
+	}
+	return "X-Timestamp"
+}
+
 // POST /v1/assistant/inbound/slack/{tenant}: Slack Events API. Public, but only acts on a valid signature.
 func (s *server) inboundSlack(w http.ResponseWriter, r *http.Request) {
 	tenant := r.PathValue("tenant")
