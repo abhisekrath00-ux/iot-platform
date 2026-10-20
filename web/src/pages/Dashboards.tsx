@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
-import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem } from '../lib/widgets';
+import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem, filterWidgetsByAsset } from '../lib/widgets';
 import { GaugeWidget, BarWidget, StatusWidget, TableWidget, StatWidget, IndicatorWidget, AlarmsWidget, NoteWidget } from '../components/Widgets';
 
 interface Dashboard { id: string; name: string; customer_id?: string | null; layout: { widgets?: Widget[] }; }
@@ -74,6 +74,9 @@ function SeriesWidget({ w }: { w: Widget }) {
 export default function Dashboards() {
   const [boards, setBoards] = useState<Dashboard[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
+  const [assets, setAssets] = useState<{ id: string; name: string }[]>([]);
+  const [assetFilter, setAssetFilter] = useState('');
+  const [assetDevices, setAssetDevices] = useState<Set<string> | null>(null);
   const [sel, setSel] = useState<Dashboard | null>(null);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState(false);
@@ -133,6 +136,7 @@ export default function Dashboards() {
   useEffect(() => {
     loadBoards();
     api<Device[]>('/v1/devices').then(d => { setDevices(d); if (d.length) { setTplDevice(d[0].id); setWDevice(d[0].id); } }).catch(() => {});
+    api<{ id: string; name: string }[]>('/v1/assets').then(setAssets).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -197,7 +201,18 @@ export default function Dashboards() {
     setSel({ ...sel, layout: { widgets: (sel.layout.widgets ?? []).filter(w => w.id !== id) } });
   };
 
+  // Asset filter: the server expands the subtree, widgets bound to a device
+  // outside it hide, and the open-alerts widget scopes its query the same way.
+  useEffect(() => {
+    if (!assetFilter) { setAssetDevices(null); return; }
+    api<Device[]>(`/v1/devices?asset_id=${encodeURIComponent(assetFilter)}`)
+      .then(d => setAssetDevices(new Set(d.map(x => x.id))))
+      .catch(() => setAssetDevices(null));
+  }, [assetFilter]);
+
   const widgets = sel?.layout.widgets ?? [];
+  const visibleWidgets = filterWidgetsByAsset(widgets, assetDevices);
+  const hiddenByAsset = widgets.length - visibleWidgets.length;
 
   const setWidgets = (ws: Widget[]) => sel && setSel({ ...sel, layout: { widgets: ws } });
   const resize = (id: string, delta: number) => setWidgets(widgets.map(w => w.id === id ? { ...w, span: Math.min(4, Math.max(1, spanOf(w) + delta)) } : w));
@@ -267,6 +282,15 @@ export default function Dashboards() {
           <button key={b.id} className={sel?.id === b.id ? '' : 'ghost'} onClick={() => { setSel(b); setName(b.name); setEditing(false); }}>{b.name}</button>
         ))}
         {boards.length === 0 && <span className="muted">{scoped ? 'No dashboards have been shared with you yet.' : 'No dashboards yet.'}</span>}
+        {assets.length > 0 && sel && (
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto' }}>
+            <span className="muted" style={{ fontSize: 12 }}>Asset</span>
+            <select aria-label="Filter widgets by asset" value={assetFilter} onChange={e => setAssetFilter(e.target.value)}>
+              <option value="">All assets</option>
+              {assets.map(a => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
+            </select>
+          </label>
+        )}
       </div>}
 
       {sel && (
@@ -331,16 +355,17 @@ export default function Dashboards() {
 
           {wall && <button className="ghost wall-exit" onClick={() => setWall(false)}>Exit wall mode (Esc)</button>}
           {editing && widgets.length > 1 && <p className="muted" style={{ fontSize: 12 }}>Drag widgets to reorder. Use the size buttons to make a widget wider or narrower.</p>}
+          {hiddenByAsset > 0 && <p className="muted" style={{ fontSize: 12 }}>The asset filter hides {hiddenByAsset} widget{hiddenByAsset === 1 ? '' : 's'} bound to {hiddenByAsset === 1 ? 'a device' : 'devices'} outside it.</p>}
           <div className={`cards board${wall ? ' wall-grid' : ''}`}>
-            {widgets.map((w, i) => (
+            {visibleWidgets.map((w, i) => (
               <div key={w.id} className={`board-item${dragFrom === i ? ' dragging' : ''}`}
                 style={{ position: 'relative', minWidth: 0, gridColumn: `span ${spanOf(w)}` }}
-                draggable={editing}
+                draggable={editing && !assetDevices}
                 onDragStart={() => setDragFrom(i)}
                 onDragOver={e => { if (editing && dragFrom !== null) e.preventDefault(); }}
                 onDrop={e => { e.preventDefault(); if (dragFrom !== null) setWidgets(moveItem(widgets, dragFrom, i)); setDragFrom(null); }}
                 onDragEnd={() => setDragFrom(null)}>
-                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
+                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} assetId={assetFilter || undefined} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
                 {editing && (
                   <div className="board-tools">
                     <button className="ghost" aria-label="Narrower" onClick={() => resize(w.id, -1)}>-</button>
