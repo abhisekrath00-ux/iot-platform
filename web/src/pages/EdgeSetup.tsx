@@ -111,7 +111,7 @@ export default function EdgeSetup() {
         <p><b>Windows (elevated PowerShell):</b></p><pre style={{ overflowX: 'auto' }}>{win}</pre>
         <p className="muted">Append the downloaded devices block to <code>/etc/hexmon/edge-agent.yaml</code>, run <code>edge-agent -check-config</code>, then start the service.</p>
         <p>{!minted ? 'Waiting for step 2.' : !gw ? 'Waiting for the edge box to check in…' : `Edge box ${gw.serial}: ${gw.status}.`}</p>
-        <p className="muted">Honest status: the generated settings and install commands are unit-tested for format only. The full path (install, claim, MX300 read, data in the dashboard) has not been run on a real edge box or real meter. The platform never writes to the meter.</p>
+        <p className="muted">Honest status: the generated settings and install commands are unit-tested for format only. The full path (install, claim, meter read, data in the dashboard) has not been run on a real edge box or real meter. The platform never writes to the meter.</p>
       </div>
     </div>
   );
