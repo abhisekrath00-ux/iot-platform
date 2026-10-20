@@ -192,3 +192,38 @@ func TestIntegrationCreateDeviceRoles(t *testing.T) {
 		}
 	}
 }
+
+// alert-rule creation takes the same key: replay does not duplicate the rule, a changed body is a 409.
+func TestIntegrationRuleIdempotency(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-ri1")
+	ctx := context.Background()
+	pool := s.st.Pool
+	clean := func() {
+		pool.Exec(ctx, `DELETE FROM idempotency_keys WHERE tenant_id='itest-ri1'`)
+		pool.Exec(ctx, `DELETE FROM rules WHERE tenant_id='itest-ri1' AND name LIKE 'IdemRule%'`)
+		pool.Exec(ctx, `DELETE FROM users WHERE id='ri-op'`)
+	}
+	clean()
+	t.Cleanup(clean)
+	pool.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('ri-op','itest-ri1','ri-op@ri.example','O','operator')`)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/rules", s.createRule)
+	h := s.activeUser(s.customerScope(mux))
+	body := `{"name":"IdemRule A","enabled":true,"definition":{"device_id":"itest-ri1-dev","point_id":"temp","op":">","threshold":80,"severity":"warning","message":"IdemRule A"}}`
+	asKey := func(key, b string) (int, string) {
+		w, r := keyRequest("itest-ri1", "ri-op", "operator", "/v1/rules", key, b)
+		h.ServeHTTP(w, r)
+		return w.Code, w.Body.String()
+	}
+	c1, b1 := asKey("k-rule-1", body)
+	c2, b2 := asKey("k-rule-1", body)
+	var n int
+	pool.QueryRow(ctx, `SELECT count(*) FROM rules WHERE tenant_id='itest-ri1' AND name='IdemRule A'`).Scan(&n)
+	if c1 != 201 || c2 != 201 || b1 != b2 || n != 1 {
+		t.Fatalf("rule create/replay = %d/%d rows=%d body-eq=%v", c1, c2, n, b1 == b2)
+	}
+	if c3, _ := asKey("k-rule-1", strings.Replace(body, "IdemRule A", "IdemRule B", 1)); c3 != 409 {
+		t.Fatalf("changed payload = %d, want 409", c3)
+	}
+}
