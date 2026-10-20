@@ -156,6 +156,36 @@ describe('edge setup', () => {
     expect(new Set(starts).size).toBe(starts.length);
     for (const r of starts) expect(t.points.every((q) => q.register === r || q.register >= r + 2 || q.register + 1 < r)).toBe(true);
   });
+  it('janitza-umg96rm-e registers match the official Modbus address list (docs/devices/janitza-umg96rm-e.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'janitza-umg96rm-e')!;
+    expect(t.link).toBe('tcp'); // base unit Ethernet, Modbus TCP (same addresses over RTU on RS485)
+    expect(t.func).toBe(4); // FC 03 and 04 both stated for the slave; template uses 04
+    expect(t.word_order).toBe('abcd'); // vendor-stated: listed addresses answer big-endian (+32768 for little-endian)
+    expect(t.wordOrderUnverified).toBeUndefined(); // byte order IS documented
+    expect(t.pduBaseUnverified).toBeUndefined(); // operating manual prints the same values under a "Modbus address" column
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.provisional).toBeUndefined();
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('va_n').register).toBe(19000); // Voltage L1-N
+    expect(pt('vc_a').register).toBe(19010); // Voltage L1-L3 (doc's L3-L1 naming)
+    expect(pt('ia').register).toBe(19012);
+    expect(pt('i_n_vec').register).toBe(19018); // "Vector sum; IN=I1+I2+I3" - named as a vector sum, not a neutral current
+    expect(pt('p_sum').register).toBe(19026); // "Sum; Psum3=P1+P2+P3" - named sum, not total/avg
+    expect(pt('freq').register).toBe(19050); // Measured frequency
+    expect(pt('rotation_field').register).toBe(19052);
+    expect(pt('energy_total').register).toBe(19060); // Real energy L1..L3
+    expect(pt('energy_consumed').register).toBe(19068);
+    expect(pt('energy_delivered').register).toBe(19076);
+    expect(pt('energy_reactive_cap').register).toBe(19108);
+    expect(pt('thd_v_a').register).toBe(19110); // THD U L1-N
+    expect(pt('thd_i_c').register).toBe(19120);
+    expect(t.points.every((p) => (p.type ?? t.type) === 'f32')).toBe(true); // all Float, 2 registers
+    // no duplicate or overlapping 2-register spans
+    const used = new Set<number>();
+    for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
+    const y = deviceYaml({ deviceId: 'umg-1', templateId: 'janitza-umg96rm-e', link: 'tcp', host: '10.0.0.5', tcpPort: 502, address: 1, intervalSec: 5 });
+    expect(y).toContain('register: 19000'); expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
+  });
   it('carlo-gavazzi-em340 registers match EM300 series communication protocol CP (docs/devices/carlo-gavazzi-em340.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'carlo-gavazzi-em340')!;
     expect(t.word_order).toBe('cdab'); // LSW->MSW per the protocol doc
