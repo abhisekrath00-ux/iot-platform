@@ -56,6 +56,7 @@ type server struct {
 	oidc           *auth.OIDCProvider
 	states         oidcstate.Store // memory single-replica, Redis when REDIS_URL set
 	cache          *respcache.Cache
+	pos            *store.PositionTracker
 	secrets        *secrets.Store // nil or empty key = disabled (503)
 	ts             tsstore.Store  // nil = Postgres; see internal/tsstore
 	notifier       replier        // nil = notify.FromEnv(); tests inject a fake
@@ -103,6 +104,7 @@ func main() {
 	}
 
 	s := &server{st: st, secret: []byte(mustEnv("JWT_SIGNING_SECRET")), es: search.New(os.Getenv("ELASTICSEARCH_URL"))}
+	s.pos = store.NewPositionTracker(st.Pool)
 	markInterruptedRuns(ctx, s)
 	if k, err := secrets.KeyFromEnv(os.Getenv("SECRETS_KEY")); err != nil {
 		log.Fatalf("%v", err)
@@ -206,6 +208,7 @@ func main() {
 	api.HandleFunc("PUT /v1/devices/{id}/tags", s.setDeviceTags)
 	api.HandleFunc("PUT /v1/devices/{id}/asset", s.setDeviceAsset)
 	api.HandleFunc("PUT /v1/devices/{id}/location", s.setDeviceLocation)
+	api.HandleFunc("PUT /v1/devices/{id}/location-source", s.setDeviceLocationSource)
 	api.HandleFunc("GET /v1/map", s.getMap)
 	api.HandleFunc("GET /v1/map/config", s.mapConfig)
 	api.HandleFunc("GET /v1/map/tiles/{z}/{x}/{y}", s.mapTile)
@@ -608,7 +611,7 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($5,'')
 		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
 		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($7,'')", 1)+`
-		 SELECT id, profile, name, gateway_id, created_at, tags, asset_id FROM devices
+		 SELECT id, profile, name, gateway_id, created_at, tags, asset_id, lat_point, lon_point FROM devices
 		 WHERE tenant_id=$1
 		   AND ($5='' OR asset_id IN (SELECT id FROM sub))
 		   AND ($2='' OR name ILIKE '%'||$2||'%' OR id ILIKE '%'||$2||'%' OR profile ILIKE '%'||$2||'%')
@@ -628,8 +631,9 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		var created time.Time
 		var tags []string
 		var assetID *string
-		rows.Scan(&id, &profile, &name, &gw, &created, &tags, &assetID)
-		out = append(out, map[string]any{"id": id, "profile": profile, "name": name, "gateway_id": gw, "created_at": created, "tags": tags, "asset_id": assetID})
+		var latPt, lonPt *string
+		rows.Scan(&id, &profile, &name, &gw, &created, &tags, &assetID, &latPt, &lonPt)
+		out = append(out, map[string]any{"id": id, "profile": profile, "name": name, "gateway_id": gw, "created_at": created, "tags": tags, "asset_id": assetID, "lat_point": latPt, "lon_point": lonPt})
 	}
 	writeJSON(w, 200, out)
 }
