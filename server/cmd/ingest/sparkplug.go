@@ -75,7 +75,7 @@ func sparkplugReadings(topic string, payload []byte, al *sparkplug.Aliases, now 
 	return dev, out, nil
 }
 
-func startSparkplug(ctx context.Context, c mqtt.Client, st *store.Store, tenant string, n *notify.Notifier) {
+func startSparkplug(ctx context.Context, c mqtt.Client, st *store.Store, tenant string, n *notify.Notifier, pos *store.PositionTracker) {
 	al := &sparkplug.Aliases{}
 	handler := func(_ mqtt.Client, m mqtt.Message) {
 		dev, rs, err := sparkplugReadings(m.Topic(), m.Payload(), al, time.Now())
@@ -101,10 +101,17 @@ func startSparkplug(ctx context.Context, c mqtt.Client, st *store.Store, tenant 
 				log.Printf("sparkplug drop: %s.%s=%v out of range", dev, r.PointID, r.Value)
 				continue
 			}
-			if err := st.InsertTelemetry(ctx, store.Telemetry{EventID: r.EventID, TenantID: tenant, GatewayID: gw, DeviceID: dev, PointID: r.PointID,
-				ObservedAt: r.At, Value: r.Value, Unit: unit, Quality: "measured", SchemaVersion: 1}); err != nil {
+			stored, err := st.InsertTelemetry(ctx, store.Telemetry{EventID: r.EventID, TenantID: tenant, GatewayID: gw, DeviceID: dev, PointID: r.PointID,
+				ObservedAt: r.At, Value: r.Value, Unit: unit, Quality: "measured", SchemaVersion: 1})
+			if err != nil {
 				log.Printf("sparkplug insert: %v", err)
 				continue
+			}
+			if !stored {
+				continue // replayed duplicate: no derived work
+			}
+			if err := pos.Track(ctx, tenant, dev, r.PointID, r.Value, r.At); err != nil {
+				log.Printf("position track %s: %v", dev, err)
 			}
 			rules.Evaluate(ctx, st.Pool, n, tenant, dev, r.PointID, r.Value)
 			flow.EvaluateWith(ctx, st.Pool, n, jsfn.New(4), tenant, dev, r.PointID, r.Value)
