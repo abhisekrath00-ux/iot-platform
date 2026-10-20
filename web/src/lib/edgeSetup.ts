@@ -285,6 +285,20 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'schneider-iem3000', name: 'Schneider Acti9 iEM3000 series (iEM3150/3155/3250/3255/3350/3355/3455/3555, Modbus RTU)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    wordOrderUnverified: true,
+    note: 'Every register number, data type, size and unit verified line-by-line against Schneider\'s official iEM3000 register list DOCA0005EN-07 (se.com FAQ FA370395 attachment; docs/devices/schneider-iem3000.md). Read function and address base are vendor-stated: the doc lists only FC 03 for reads and defines Register Address as the address encoded in the Modbus frame, so listed numbers go on the wire unmodified. All points FLOAT32. Reactive/apparent power (3068/3076), energy export, tariff and Int64 energy counters are excluded (not applicable on iEM3150/3250/3350, or no i64 in the driver - see the doc). Serial is configured on the meter display (9600/19200/38400 baud, even/odd/none parity, 1 stop bit, address 1-247); no factory default is stated, so match the form to your meter. Read-only; never run on a real meter.',
+    provisional: 'Register numbers, types, sizes, units, FC 03 and the address base are verified against Schneider\'s official register list DOCA0005EN-07. One thing the document does NOT state: the multi-register word order. Choose the word order yourself below, from your exact model\'s documentation or by comparing SEVERAL independent known readings (for example frequency, one voltage and one current) with the meter\'s own display - a single plausible value is only a smoke check, it does not prove the word order and says nothing about the other registers. Power factor total is Schneider\'s four-quadrant encoding (-2..2), not plain -1..1 - see the doc. Until that display comparison is done, every value from this template is hardware-untested.',
+    points: [
+      p('i1', 3000, 'A', 0, 10000), p('i2', 3002, 'A', 0, 10000), p('i3', 3004, 'A', 0, 10000), p('i_avg', 3010, 'A', 0, 10000),
+      p('v12', 3020, 'V', 0, 1000), p('v23', 3022, 'V', 0, 1000), p('v31', 3024, 'V', 0, 1000), p('v_avg_ll', 3026, 'V', 0, 1000),
+      p('v1n', 3028, 'V', 0, 1000), p('v2n', 3030, 'V', 0, 1000), p('v3n', 3032, 'V', 0, 1000), p('v_avg_ln', 3036, 'V', 0, 1000),
+      p('p1', 3054, 'kW', -1e7, 1e7), p('p2', 3056, 'kW', -1e7, 1e7), p('p3', 3058, 'kW', -1e7, 1e7), p('p_total', 3060, 'kW', -1e7, 1e7),
+      p('pf_total', 3084, '', -2, 2), p('freq', 3110, 'Hz', 40, 70),
+      p('energy_import', 45100, 'Wh', 0, 1e12),
+    ],
+  },
+  {
     id: 'inepro-pro380', name: 'Inepro PRO380-Mod (three-phase MID meter)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
     note: 'Every register address, function code, length, unit and data type verified line-by-line against the official PRO380 user manual V2.18-8, Appendix A3.2, linked from ineprometering.com (docs/devices/inepro-pro380.md). All conventions are vendor-stated: FC 03, Float ABCD, and listed address = on-wire address (the manual\'s own frame example). Factory serial 9600 8E1, address 1. The starred aggregate rows (Voltage* 0x5000, Current* 0x500A) are excluded - the manual never defines them. Config (0x4xxx) and tariff/reset registers excluded. Read-only; never run on a real meter.',
     points: [
