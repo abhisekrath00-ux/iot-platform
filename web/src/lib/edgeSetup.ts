@@ -13,7 +13,10 @@ export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; f
   pduBaseUnverified?: boolean;
   // funcUnverified: the vendor does not state the read function code (FC 03 holding vs FC 04
   // input). The UI must make the installer pick explicitly; the emitted YAML uses the choice.
-  funcUnverified?: boolean; }
+  funcUnverified?: boolean;
+  // stopBits: vendor-documented RTU stop bits (1 or 2). When set, the form presets this in the
+  // serial settings instead of the generic 1; the emitted YAML carries the operator's value.
+  stopBits?: 1 | 2; }
 
 const p = (id: string, register: number, unit: string, min: number, max: number): TplPoint => ({ id, register, unit, min, max });
 // ps adds an explicit scale and/or type for scaled-integer maps (e.g. Socomec U32 in V 10e-2);
@@ -137,7 +140,8 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   },
   {
     id: 'janitza-umg96rm-e', name: 'Janitza UMG 96RM-E (three-phase power analyser, Modbus TCP/RTU)', link: 'tcp', func: 4, type: 'f32', word_order: 'abcd',
-    note: 'From the official UMG 96RM-E Modbus address list and formulary (janitza.com, docs/devices/janitza-umg96rm-e.md), "Frequently required readings" table (addresses 19000-19120). Every convention is vendor-stated: the listed numbers ARE the Modbus addresses on the wire (the operating manual prints the same readings under a "Modbus address" column), the listed addresses answer big-endian and the doc says adding 32768 switches a reading to little-endian, and the slave supports both FC 03 and FC 04 (this template uses FC 04). All values are IEEE-754 Float (2 registers) and already include the configured transformer factors. Modbus TCP on the base unit\'s Ethernet, or RTU on the RS485 with the same addresses. Read-only; never run on a real meter.',
+    stopBits: 2,
+    note: 'From the official UMG 96RM-E Modbus address list and formulary (janitza.com, docs/devices/janitza-umg96rm-e.md), "Frequently required readings" table (addresses 19000-19120). Every convention is vendor-stated: the listed numbers ARE the Modbus addresses on the wire (the operating manual prints the same readings under a "Modbus address" column), the listed addresses answer big-endian and the doc says adding 32768 switches a reading to little-endian, and the slave supports both FC 03 and FC 04 (this template uses FC 04). All values are IEEE-754 Float (2 registers) and already include the configured transformer factors. Modbus TCP on the base unit\'s Ethernet, or RTU on the RS485 with the same addresses. RTU serial per the doc\'s transfer parameters: 8 data bits, no parity, 2 stop bits on the device\'s own UART (external 1 or 2) - the form presets 2 stop bits for this template. The address list applies from firmware 3.01 / hardware release 104. Read-only; never run on a real meter.',
     points: [
       p('va_n', 19000, 'V', 0, 1000), p('vb_n', 19002, 'V', 0, 1000), p('vc_n', 19004, 'V', 0, 1000),
       p('va_b', 19006, 'V', 0, 1000), p('vb_c', 19008, 'V', 0, 1000), p('vc_a', 19010, 'V', 0, 1000),
@@ -293,7 +297,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
 
 export interface DeviceInput {
   deviceId: string; templateId: string; link: 'rtu' | 'tcp';
-  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; host?: string; tcpPort?: number; address: number; intervalSec: number; provisionalConfirmed?: boolean; wordOrder?: string; pduBase?: 'listed' | 'minus1'; readFunc?: 3 | 4;
+  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; stopBits?: 1 | 2; host?: string; tcpPort?: number; address: number; intervalSec: number; provisionalConfirmed?: boolean; wordOrder?: string; pduBase?: 'listed' | 'minus1'; readFunc?: 3 | 4;
 }
 
 export function validateDevice(d: DeviceInput): string[] {
@@ -310,6 +314,7 @@ export function validateDevice(d: DeviceInput): string[] {
   if (d.link === 'rtu') {
     if (!d.port || !/^(COM\d{1,3}|\/dev\/[A-Za-z0-9._\/-]+)$/.test(d.port)) e.push('Serial port looks wrong (COM3 or /dev/ttyUSB0).');
     if (![1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].includes(d.baud ?? 0)) e.push('Pick a standard baud rate.');
+    if (d.stopBits !== undefined && d.stopBits !== 1 && d.stopBits !== 2) e.push('Stop bits must be 1 or 2.');
   } else {
     if (!d.host || !/^[A-Za-z0-9.-]+$/.test(d.host)) e.push('Host or IP looks wrong.');
     if (!d.tcpPort || d.tcpPort < 1 || d.tcpPort > 65535) e.push('TCP port must be 1-65535.');
@@ -324,7 +329,7 @@ export function deviceYaml(d: DeviceInput): string {
   const t = EDGE_TEMPLATES.find((x) => x.id === d.templateId)!;
   const L: string[] = ['devices:', `  - id: ${d.deviceId}`];
   if (d.link === 'rtu') {
-    L.push('    profile: modbus-generic', `    port: ${d.port}`, `    baud: ${d.baud}`, '    data_bits: 8', '    stop_bits: 0', `    parity: ${d.parity ?? 'none'}`);
+    L.push('    profile: modbus-generic', `    port: ${d.port}`, `    baud: ${d.baud}`, '    data_bits: 8', `    stop_bits: ${d.stopBits ?? 0}`, `    parity: ${d.parity ?? 'none'}`);
   } else {
     L.push('    profile: modbus-tcp', `    host: ${d.host}`);
   }
