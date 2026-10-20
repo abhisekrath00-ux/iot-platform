@@ -57,7 +57,7 @@ export default function EdgeSetup() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
           <label>Site<select value={site} onChange={(e) => setSite(e.target.value)}>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
           <label>Edge box serial or name<input value={serial} onChange={(e) => setSerial(e.target.value)} placeholder="e.g. HX-PLANT1-01" /></label>
-          <label>Sensor template<select value={dev.templateId} onChange={(e) => setDev({ ...dev, templateId: e.target.value })}>{EDGE_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+          <label>Sensor template<select value={dev.templateId} onChange={(e) => setDev({ ...dev, templateId: e.target.value, provisionalConfirmed: false })}>{EDGE_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name}{t.provisional ? ' (provisional)' : ''}</option>)}</select></label>
           <label>Device id<input value={dev.deviceId} onChange={(e) => setDev({ ...dev, deviceId: e.target.value })} /></label>
           <label>Connection<select value={dev.link} onChange={(e) => setDev({ ...dev, link: e.target.value as 'rtu' | 'tcp' })}><option value="rtu">RS-485 serial (Modbus RTU)</option><option value="tcp">Network (Modbus TCP)</option></select></label>
           {dev.link === 'rtu' ? <>
@@ -72,6 +72,15 @@ export default function EdgeSetup() {
           <label>Read every (s)<input type="number" value={dev.intervalSec} onChange={num('intervalSec')} /></label>
         </div>
         <p className="muted">{tpl.note}</p>
+        {tpl.provisional && (
+          <p className="muted" style={{ border: '1px solid var(--warn, #b58900)', padding: 8, borderRadius: 6 }}>
+            <b>Provisional map.</b> {tpl.provisional}{' '}
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
+              <input type="checkbox" checked={!!dev.provisionalConfirmed} onChange={(e) => setDev({ ...dev, provisionalConfirmed: e.target.checked })} />
+              I have checked this against the meter or its manual
+            </label>
+          </p>
+        )}
         <table><thead><tr><th>Point</th><th>Register</th><th>Unit</th><th>Valid range</th></tr></thead><tbody>
           {tpl.points.map((x) => <tr key={x.id}><td>{x.id}</td><td>{x.register}</td><td>{x.unit || '-'}</td><td>{x.min} to {x.max}</td></tr>)}
         </tbody></table>
