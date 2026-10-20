@@ -87,6 +87,7 @@ func TestDefinitionValidate(t *testing.T) {
 		{Kind: "sigma", PointID: "p", Sigma: 3, WindowMinutes: 60, Severity: "warning"},
 		{Kind: "kpi_band", KPIID: "k", Min: &lo, Severity: "critical"},
 		{Kind: "sigma", PointID: "p", Sigma: 3, WindowMinutes: 60, Method: "robust", Severity: "info"},
+		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "feeds"},
 	}
 	for _, d := range ok {
 		if err := d.Validate(); err != nil {
@@ -103,6 +104,10 @@ func TestDefinitionValidate(t *testing.T) {
 		{Kind: "kpi_band", KPIID: "k", Severity: "info"},
 		{Kind: "kpi_band", KPIID: "k", Min: &hi, Max: &lo, Severity: "info"},
 		{Kind: "magic", Severity: "info"},
+		{PointID: "p", Op: ">", Severity: "info", Relation: "feeds"},                  // relation without asset_id
+		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "Feeds"},    // upper-case
+		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "1feeds"},   // leading digit
+		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "has-dash"}, // bad character
 	}
 	for _, d := range bad {
 		if d.Validate() == nil {
