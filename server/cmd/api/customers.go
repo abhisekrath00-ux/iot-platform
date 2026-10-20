@@ -55,7 +55,7 @@ func scopedAllows(method, p string) bool {
 		return false
 	}
 	switch p {
-	case "/v1/devices", "/v1/alerts", "/v1/features", "/v1/map/config", "/v1/me", "/v1/dashboards", "/v1/reports":
+	case "/v1/devices", "/v1/alerts", "/v1/features", "/v1/map/config", "/v1/me", "/v1/me/sessions", "/v1/dashboards", "/v1/reports":
 		return true
 	}
 	if scopedReportDownload.MatchString(p) {
