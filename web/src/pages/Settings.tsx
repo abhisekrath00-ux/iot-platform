@@ -14,6 +14,7 @@ import ServerAddresses from '../components/ServerAddresses';
 import AIProfiles from '../components/AIProfiles';
 import AIActivity from '../components/AIActivity';
 import AssistantChannels from '../components/AssistantChannels';
+import { ChannelGuide, targetHint } from '../components/ChannelGuide';
 
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
 
@@ -98,6 +99,8 @@ export default function Settings() {
           </select>
           <label>{({ email: 'Email address', slack: 'Slack channel ID', webhook: 'Webhook URL', teams: 'Teams incoming-webhook URL (https)', sms: 'Phone number (+country code)', whatsapp: 'WhatsApp number (+country code)', telegram: 'Telegram chat ID' } as Record<string, string>)[type]}</label>
           <input value={target} onChange={e => setTarget(e.target.value)} placeholder={({ email: 'ops@yourcompany.com', slack: 'C0123456789', webhook: 'https://example.com/hook', teams: 'https://...webhook.office.com/...', sms: '+4915112345678', whatsapp: '+919812345678', telegram: '-1001234567890 (a group) or 123456789 (a person)' } as Record<string, string>)[type]} required />
+          {targetHint(type, target) && <div className="muted" role="status" style={{ marginTop: 4 }}>{targetHint(type, target)}</div>}
+          {type !== 'telegram' && <ChannelGuide type={type} />}
           {type === 'telegram' && (
             <div className="muted" style={{ marginTop: 6 }}>
               <p style={{ marginTop: 0 }}>
