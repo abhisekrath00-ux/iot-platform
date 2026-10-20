@@ -44,6 +44,6 @@ Admin session only (not API keys, not the assistant): create/delete customers, a
 - A scoped user may GET `/v1/dashboards`, GET `/v1/reports` and download a shared report. The download refuses any run-time parameter except `format` and `theme` (so no `device=` override), and the report list hides schedule and delivery channel. Preview, run, versions, edit and export stay denied.
 - Tested by `dashscope_test.go` and `reportscope_test.go` (cross-customer, cross-tenant, unshare, sabotage-checked).
 - Rows are not tagged by customer for alerts without a device, so those are hidden from scoped users.
-- No per-customer branding, quotas or billing. One scope per user.
+- Per-customer branding is built (migration 0078, `cmd/api/customerbranding.go`): an admin gives one customer its own product name, accent colour and logo (`PUT/GET /v1/customers/{id}/branding[/logo]`, same validation as tenant branding, audited). A user scoped to that customer sees the override in the sidebar, name and accent; every missing field falls back to the tenant branding (no walk up the customer tree: a sub-customer without its own row shows tenant branding). Scoped users may read `/v1/branding` and `/v1/branding/logo` (added to the scope allowlist) but cannot manage branding, matching the read-only model. No quotas or billing. One scope per user.
 - Real-time streams and exports are not on the allowlist.
 - Next: the multi-user SaaS layer (tenant signup, user management, roles per customer, per-tenant logs) builds on this model; see the roadmap in competitive-gap.md.
