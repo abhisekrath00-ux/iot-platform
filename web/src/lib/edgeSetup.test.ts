@@ -40,6 +40,24 @@ describe('edge setup', () => {
     const used = new Set<number>();
     for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
   });
+  it('abb-m4m registers match the official ABB manual + table (docs/devices/abb-m4m.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'abb-m4m')!;
+    expect(t.func).toBe(3); // holding registers, NOT FC 04
+    expect(t.word_order).toBe('abcd');
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1n').register).toBe(23298); // 0x5B02, the official manual's worked example
+    expect(pt('v1n').scale).toBe(0.1);
+    expect(pt('i1').register).toBe(23312); // 0x5B10, x0.01 A
+    expect(pt('p_total').register).toBe(23322); // 0x5B1A, INT32 x0.01 W
+    expect(pt('p_total').type).toBe('i32');
+    expect(pt('freq').register).toBe(23346); // 0x5B32, UINT16 x0.01 Hz
+    expect(pt('freq').type).toBe('u16');
+    expect(pt('pf_total').register).toBe(23360); // 0x5B40, INT16 x0.001
+    expect(t.points.every((p) => p.register < 20480 || p.register > 21800)).toBe(true); // UINT64 energy counter range excluded
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+  });
   it('socomec-diris-a40 registers match communication table CMT-1.7.4B (docs/devices/socomec-diris-a40.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'socomec-diris-a40')!;
     const pt = (id: string) => t.points.find((p) => p.id === id)!;
