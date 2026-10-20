@@ -1605,9 +1605,10 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 	var name string
 	var defBytes []byte
 	var channelID *string
+	var reportCustomer *string
 	err := s.st.Pool.QueryRow(ctx,
-		`SELECT name, definition, channel_id FROM reports WHERE id=$1 AND tenant_id=$2`, id, tenant).
-		Scan(&name, &defBytes, &channelID)
+		`SELECT name, definition, channel_id, customer_id FROM reports WHERE id=$1 AND tenant_id=$2`, id, tenant).
+		Scan(&name, &defBytes, &channelID, &reportCustomer)
 	if err != nil {
 		return fmt.Errorf("report lookup: %w", err)
 	}
@@ -1628,7 +1629,7 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 	if err != nil {
 		return fail(err)
 	}
-	if def, err = s.withReportContext(ctx, tenant, def); err != nil {
+	if def, err = s.withReportContext(ctx, tenant, deref(reportCustomer), def); err != nil {
 		return fail(err)
 	}
 	htmlDoc := report.Render(name, def, series, time.Now())
@@ -1793,7 +1794,7 @@ func (s *server) previewReport(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	series, total, err := s.buildSeries(r.Context(), auth.Tenant(r), in.Definition)
 	if err == nil {
-		in.Definition, err = s.withReportContext(r.Context(), auth.Tenant(r), in.Definition)
+		in.Definition, err = s.withReportContext(r.Context(), auth.Tenant(r), "", in.Definition)
 	}
 	if err != nil {
 		http.Error(w, err.Error(), reportErrStatus(err))
@@ -1806,7 +1807,7 @@ func (s *server) previewReport(w http.ResponseWriter, r *http.Request) {
 func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 	var name string
 	var defBytes []byte
-	q, args := `SELECT name, definition FROM reports WHERE id=$1 AND tenant_id=$2`, []any{r.PathValue("id"), auth.Tenant(r)}
+	q, args := `SELECT name, definition, customer_id FROM reports WHERE id=$1 AND tenant_id=$2`, []any{r.PathValue("id"), auth.Tenant(r)}
 	if cid := scopeOf(r); cid != "" {
 		// a customer-scoped user may download only a report shared with their subtree, and cannot override
 		// anything: run-time parameters (such as a different device) could reach outside the customer
@@ -1816,10 +1817,11 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		q = `WITH RECURSIVE ` + strings.Replace(customerSubtreeCTE, "%s", "$3", 1) + ` SELECT name, definition FROM reports WHERE id=$2 AND tenant_id=$1 AND customer_id IN (SELECT id FROM csub)`
+		q = `WITH RECURSIVE ` + strings.Replace(customerSubtreeCTE, "%s", "$3", 1) + ` SELECT name, definition, customer_id FROM reports WHERE id=$2 AND tenant_id=$1 AND customer_id IN (SELECT id FROM csub)`
 		args = []any{auth.Tenant(r), r.PathValue("id"), cid}
 	}
-	if err := s.st.Pool.QueryRow(r.Context(), q, args...).Scan(&name, &defBytes); err != nil {
+	var dlCustomer *string
+	if err := s.st.Pool.QueryRow(r.Context(), q, args...).Scan(&name, &defBytes, &dlCustomer); err != nil {
 		http.Error(w, "report not found", 404)
 		return
 	}
@@ -1861,7 +1863,7 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	series, _, err := s.buildSeries(r.Context(), auth.Tenant(r), def)
 	if err == nil {
-		def, err = s.withReportContext(r.Context(), auth.Tenant(r), def)
+		def, err = s.withReportContext(r.Context(), auth.Tenant(r), deref(dlCustomer), def)
 	}
 	if err != nil {
 		http.Error(w, err.Error(), reportErrStatus(err))
