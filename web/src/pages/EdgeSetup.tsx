@@ -73,13 +73,13 @@ export default function EdgeSetup() {
         </div>
         <p className="muted">{tpl.note}</p>
         {tpl.provisional && (
-          <p className="muted" style={{ border: '1px solid var(--warn, #b58900)', padding: 8, borderRadius: 6 }}>
-            <b>Provisional map.</b> {tpl.provisional}{' '}
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
-              <input type="checkbox" checked={!!dev.provisionalConfirmed} onChange={(e) => setDev({ ...dev, provisionalConfirmed: e.target.checked })} />
+          <div className="muted" style={{ border: '1px solid var(--warn, #b58900)', padding: 8, borderRadius: 6 }}>
+            <p style={{ margin: 0 }}><b>Provisional map.</b> {tpl.provisional}</p>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8, width: '100%' }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={!!dev.provisionalConfirmed} onChange={(e) => setDev({ ...dev, provisionalConfirmed: e.target.checked })} />
               I have checked this against the meter or its manual
             </label>
-          </p>
+          </div>
         )}
         <table><thead><tr><th>Point</th><th>Register</th><th>Unit</th><th>Valid range</th></tr></thead><tbody>
           {tpl.points.map((x) => <tr key={x.id}><td>{x.id}</td><td>{x.register}</td><td>{x.unit || '-'}</td><td>{x.min} to {x.max}</td></tr>)}
