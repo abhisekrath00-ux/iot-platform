@@ -41,14 +41,14 @@ func (s *server) createCommissionSession(w http.ResponseWriter, r *http.Request)
 	tenant := auth.Tenant(r)
 	code, err := enroll.NewCode()
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	sessionID, gwID := uuid.NewString(), uuid.NewString()
 	expires := time.Now().Add(72 * time.Hour)
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -57,7 +57,7 @@ func (s *server) createCommissionSession(w http.ResponseWriter, r *http.Request)
 		 SELECT $1,$2,$3,$4,'pending' WHERE EXISTS (SELECT 1 FROM sites WHERE id=$3 AND tenant_id=$2)`,
 		gwID, tenant, in.SiteID, in.Serial)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if res.RowsAffected() == 0 {
@@ -68,18 +68,18 @@ func (s *server) createCommissionSession(w http.ResponseWriter, r *http.Request)
 		`INSERT INTO enrollment_tokens(id,tenant_id,site_id,gateway_id,serial,code_hash,expires_at,created_by)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 		uuid.NewString(), tenant, in.SiteID, gwID, in.Serial, enroll.Hash(code), expires, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if _, err := tx.Exec(r.Context(),
 		`INSERT INTO commissioning_sessions(id,tenant_id,site_id,gateway_id,serial,created_by)
 		 VALUES ($1,$2,$3,$4,$5,$6)`,
 		sessionID, tenant, in.SiteID, gwID, in.Serial, auth.User(r)); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "commission.start", sessionID, map[string]any{"serial": in.Serial, "site_id": in.SiteID})
@@ -191,14 +191,14 @@ func (s *server) assignCommissionProfile(w http.ResponseWriter, r *http.Request)
 	cfg, _ := json.Marshal(map[string]any{"device_profile_id": in.ProfileID, "connection": in.Connection})
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
 	if _, err := tx.Exec(r.Context(),
 		`INSERT INTO devices(id,tenant_id,gateway_id,profile,name,config) VALUES($1,$2,$3,$4,$5,$6)`,
 		devID, tenant, gwID, driverProfile, in.DeviceName, cfg); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	// Points come from the profile template; each becomes a validated stream.
@@ -216,7 +216,7 @@ func (s *server) assignCommissionProfile(w http.ResponseWriter, r *http.Request)
 		if _, err := tx.Exec(r.Context(),
 			`INSERT INTO points(id,device_id,unit,min_value,max_value) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
 			p.ID, devID, p.Unit, p.Min, p.Max); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 	}
@@ -228,7 +228,7 @@ func (s *server) assignCommissionProfile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "commission.profile", id, map[string]any{"device_id": devID, "profile_id": in.ProfileID})
@@ -270,7 +270,7 @@ func (s *server) requestPortTest(w http.ResponseWriter, r *http.Request) {
 		`UPDATE commissioning_sessions
 		 SET port_test = jsonb_build_object('requested_at', now(), 'config', $1::jsonb), updated_at=now()
 		 WHERE id=$2`, cfgJSON, id); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	topic := fmt.Sprintf("t/%s/g/%s/diag", tenant, gwID)
@@ -302,7 +302,7 @@ func (s *server) commissionPreview(w http.ResponseWriter, r *http.Request) {
 		 FROM telemetry WHERE tenant_id=$1 AND device_id=$2
 		 ORDER BY point_id, observed_at DESC`, auth.Tenant(r), *deviceID)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -362,7 +362,7 @@ func (s *server) listSites(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT id, name FROM sites WHERE tenant_id=$1 ORDER BY name`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
