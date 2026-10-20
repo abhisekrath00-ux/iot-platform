@@ -6,6 +6,8 @@ Audit of 2026-10-04, written from the code and docs in this repo, not from memor
 
 2026-10-19 validation route (local): scripts/test-endpoint-readiness.sh EXECUTED against a real API booted on a fresh Postgres - 10/10 checks (349 ms to ready, /v1 closed without a token, first-run default login flagged must_change, all other routes 403 until credentials change, old token revoked, default login retired). scripts/validate-install.sh host preflight (read-only by default; opt-in --rehearse is the only mutating mode) tested with fake docker 9/9. scripts/validate-install.ps1 written for native Windows but never executed (no PowerShell here). Real Docker, systemd and native Windows runs remain OPEN gates - see docs/validation.md.
 
+2026-10-20 sigma rules gain a robust (median/MAD) deviation method: sigma alert rules accept method=robust, using the same statistic as the device-page outlier card, so spikes already in the baseline no longer mask a real outlier (the documented disagreement gap in competitive-gap.md). Validation rejects unknown methods and method on non-sigma rules. Unit tests plus a real-Postgres integration test (robust fires where mean/std is spike-masked; message cites the median); full server gate green on a fresh database.
+
 - **Built**: implemented, with automated tests that run against a real Postgres or in-process fakes.
 - **Partial**: a real but narrower version; the limit is stated.
 - **Simulator-only**: code exists and passes tests against a simulator or fake that I wrote from the spec. Never run against a real device, broker, model, Slack workspace or mail gateway.
