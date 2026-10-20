@@ -13,7 +13,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   {
     id: 'selec-mx300', name: 'Selec MX300-1-C-CE (single-phase meter)', link: 'rtu', func: 4, type: 'f32', word_order: 'abcd',
     note: 'From the manufacturer leaflet. Factory serial 9600 8N1, address 1. Power units unverified. Never run on a real meter.',
-    points: [p('voltage', 0, 'V', 0, 600000), p('current', 2, 'A', 0, 10000), p('active_power', 4, 'kW', -1e6, 1e6), ps('reactive_power', 6, 'kvar', -1e6, 1e6), ps('apparent_power', 8, 'kVA', 0, 1e6), p('power_factor', 10, '', -1, 1), p('frequency', 12, 'Hz', 0, 65)],
+    points: [p('voltage', 0, 'V', 0, 600000), p('current', 2, 'A', 0, 10000), p('active_power', 4, 'kW', -1e6, 1e6), p('reactive_power', 6, 'kvar', -1e6, 1e6), p('apparent_power', 8, 'kVA', 0, 1e6), p('power_factor', 10, '', -1, 1), p('frequency', 12, 'Hz', 0, 65)],
   },
   {
     id: 'selec-mfm383a', name: 'Selec MFM383A-C (three-phase meter)', link: 'rtu', func: 4, type: 'f32', word_order: 'abcd',
@@ -46,7 +46,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     note: 'From the official SDM120Modbus Protocol V2.4 PDF (docs/devices/eastron-sdm120.md). Factory serial 2400 8N1 (NOT 9600 like the SDM630), address 1, no broadcast. Units as printed. Read-only; never run on a real meter.',
     points: [
       p('voltage', 0, 'V', 0, 1000), p('current', 6, 'A', 0, 1000),
-      p('active_power', 12, 'W', -1e7, 1e7), ps('apparent_power', 18, 'VA', 0, 1e7), ps('reactive_power', 24, 'VAr', -1e7, 1e7),
+      p('active_power', 12, 'W', -1e7, 1e7), p('apparent_power', 18, 'VA', 0, 1e7), p('reactive_power', 24, 'VAr', -1e7, 1e7),
       p('power_factor', 30, '', -1, 1), p('frequency', 70, 'Hz', 0, 70),
       p('kwh_import', 72, 'kWh', 0, 1e12), p('kwh_export', 74, 'kWh', 0, 1e12),
       p('kvarh_import', 76, 'kvarh', 0, 1e12), p('kvarh_export', 78, 'kvarh', 0, 1e12),
@@ -98,7 +98,30 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('apparent_t1', 833, 'VAh', 0, 1e12, 1, 'f64'), ps('apparent_t2', 837, 'VAh', 0, 1e12, 1, 'f64'),
     ],
   },
+  {
+    id: 'carlo-gavazzi-em340', name: 'Carlo Gavazzi EM340 (three-phase DIN-rail meter)', link: 'rtu', func: 4, type: 'i32', word_order: 'cdab',
+    note: 'From the official EM300 Series communication protocol CP (gavazziautomation.com, docs/devices/carlo-gavazzi-em340.md). Signed 32-bit integers with documented weights (V*10, mA, W*10, PF*1000) and LSW-first word order (cdab, per the protocol doc). Registers are the doc\'s physical addresses (Modicon 300001 = physical 0). Rows the doc marks "not available" on EM340 and the ET/EM330-only rows are excluded. Read-only; never run on a real meter.',
+    points: [
+      ps('v1n', 0x0000, 'V', 0, 1000, 0.1), ps('v2n', 0x0002, 'V', 0, 1000, 0.1), ps('v3n', 0x0004, 'V', 0, 1000, 0.1),
+      ps('v12', 0x0006, 'V', 0, 1000, 0.1), ps('v23', 0x0008, 'V', 0, 1000, 0.1), ps('v31', 0x000A, 'V', 0, 1000, 0.1),
+      ps('i1', 0x000C, 'A', 0, 100000, 0.001), ps('i2', 0x000E, 'A', 0, 100000, 0.001), ps('i3', 0x0010, 'A', 0, 100000, 0.001),
+      ps('p1', 0x0012, 'W', -1e9, 1e9, 0.1), ps('p2', 0x0014, 'W', -1e9, 1e9, 0.1), ps('p3', 0x0016, 'W', -1e9, 1e9, 0.1),
+      ps('s1', 0x0018, 'VA', 0, 1e9, 0.1), ps('s2', 0x001A, 'VA', 0, 1e9, 0.1), ps('s3', 0x001C, 'VA', 0, 1e9, 0.1),
+      ps('q1', 0x001E, 'var', -1e9, 1e9, 0.1), ps('q2', 0x0020, 'var', -1e9, 1e9, 0.1), ps('q3', 0x0022, 'var', -1e9, 1e9, 0.1),
+      ps('v_sys_ln', 0x0024, 'V', 0, 1000, 0.1), ps('v_sys_ll', 0x0026, 'V', 0, 1000, 0.1),
+      ps('p_sys', 0x0028, 'W', -1e9, 1e9, 0.1), ps('s_sys', 0x002A, 'VA', 0, 1e9, 0.1), ps('q_sys', 0x002C, 'var', -1e9, 1e9, 0.1),
+      ps('pf1', 0x002E, '', -1, 1, 0.001, 'i16'), ps('pf2', 0x002F, '', -1, 1, 0.001, 'i16'), ps('pf3', 0x0030, '', -1, 1, 0.001, 'i16'), ps('pf_sys', 0x0031, '', -1, 1, 0.001, 'i16'),
+      ps('phase_seq', 0x0032, '', 0, 1, 1, 'i16'), ps('freq', 0x0033, 'Hz', 0, 70, 0.1, 'i16'),
+      ps('kwh_import', 0x0034, 'kWh', 0, 1e12, 0.1), ps('kvarh_import', 0x0036, 'kvarh', 0, 1e12, 0.1),
+      ps('kw_dmd', 0x0038, 'W', 0, 1e9, 0.1), ps('kw_dmd_peak', 0x003A, 'W', 0, 1e9, 0.1),
+      ps('kwh_partial', 0x003C, 'kWh', 0, 1e12, 0.1), ps('kvarh_partial', 0x003E, 'kvarh', 0, 1e12, 0.1),
+      ps('kwh_l1', 0x0040, 'kWh', 0, 1e12, 0.1), ps('kwh_l2', 0x0042, 'kWh', 0, 1e12, 0.1), ps('kwh_l3', 0x0044, 'kWh', 0, 1e12, 0.1),
+      ps('kwh_t1', 0x0046, 'kWh', 0, 1e12, 0.1), ps('kwh_t2', 0x0048, 'kWh', 0, 1e12, 0.1),
+      ps('kwh_export', 0x004E, 'kWh', 0, 1e12, 0.1), ps('kvarh_export', 0x0050, 'kvarh', 0, 1e12, 0.1),
+    ],
+  },
 ];
+
 
 
 export interface DeviceInput {
