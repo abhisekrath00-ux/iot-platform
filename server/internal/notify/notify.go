@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -84,30 +85,49 @@ type SlackChannel struct {
 
 // SlackChannels lists the workspace channels the bot token can see (conversations.list), so the
 // settings page can offer a picker instead of making the operator copy a channel ID by hand.
-// Slack answers application-level failures with HTTP 200 and ok:false, so check ok, not the status.
-func (n *Notifier) SlackChannels(ctx context.Context) ([]SlackChannel, error) {
+// Slack answers application-level failures with HTTP 200 and ok:false, so check ok, not the status,
+// and pages results via response_metadata.next_cursor - follow it or the list silently truncates at
+// one page. Pagination is capped at 10 pages of 200 (2000 channels); truncated is true when Slack
+// still had a next_cursor at the cap.
+func (n *Notifier) SlackChannels(ctx context.Context) (channels []SlackChannel, truncated bool, err error) {
 	if n.slackToken == "" {
-		return nil, fmt.Errorf("slack not configured")
+		return nil, false, fmt.Errorf("slack not configured")
 	}
-	req, _ := http.NewRequestWithContext(ctx, "GET", n.slackBase+"/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200", nil)
-	req.Header.Set("Authorization", "Bearer "+n.slackToken)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
+	cursor := ""
+	for page := 0; page < 10; page++ {
+		u := n.slackBase + "/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200"
+		if cursor != "" {
+			u += "&cursor=" + url.QueryEscape(cursor)
+		}
+		req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+		req.Header.Set("Authorization", "Bearer "+n.slackToken)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, false, err
+		}
+		var out struct {
+			OK       bool           `json:"ok"`
+			Error    string         `json:"error"`
+			Channels []SlackChannel `json:"channels"`
+			Meta     struct {
+				NextCursor string `json:"next_cursor"`
+			} `json:"response_metadata"`
+		}
+		derr := json.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+		if derr != nil {
+			return nil, false, derr
+		}
+		if !out.OK {
+			return nil, false, fmt.Errorf("slack: %s", out.Error)
+		}
+		channels = append(channels, out.Channels...)
+		if out.Meta.NextCursor == "" {
+			return channels, false, nil
+		}
+		cursor = out.Meta.NextCursor
 	}
-	defer resp.Body.Close()
-	var out struct {
-		OK       bool           `json:"ok"`
-		Error    string         `json:"error"`
-		Channels []SlackChannel `json:"channels"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-	if !out.OK {
-		return nil, fmt.Errorf("slack: %s", out.Error)
-	}
-	return out.Channels, nil
+	return channels, true, nil
 }
 
 // SlackConfigured reports whether a bot token is set (SLACK_BOT_TOKEN).
