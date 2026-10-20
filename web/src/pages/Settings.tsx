@@ -107,7 +107,7 @@ export default function Settings() {
               <ol style={{ margin: '4px 0 8px 18px' }}>
                 <li>Press Get pairing code below.</li>
                 <li>Send <b>/pair CODE</b> to the bot inside your chat (the code works for 10 minutes, once).</li>
-                <li>Press Find chats - your chat appears, and Use fills in its id. Only chats you paired this way can be used.</li>
+                <li>Press Find chats - your chat appears as a card; press Use this chat to fill in its id. Only chats you paired this way can be used.</li>
               </ol>
               <p style={{ margin: '0 0 8px' }}>
                 <b>Pairing a group is an audience decision:</b> everyone in the group - now and anyone who joins later -
@@ -122,14 +122,20 @@ export default function Settings() {
               <p><button type="button" className="ghost" onClick={findTgChats}>Find chats</button></p>
               {tgMsg && <p>{tgMsg}</p>}
               {tgChats && tgChats.length > 0 && (
-                <div style={{ overflowX: 'auto' }}><table style={{ marginTop: 4 }}>
-                  <tbody>
-                    {tgChats.map(c => (
-                      <tr key={c.id}><td style={{ minWidth: 140 }}>{c.title || '(no name)'}{(c.type === 'group' || c.type === 'supergroup' || c.type === 'channel') && <div className="muted" style={{ fontSize: 12 }}>All current and future members will see this site's alerts here.</div>}</td><td className="muted">{c.type}</td><td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.id}</td>
-                        <td><button type="button" className="ghost" onClick={() => { setTarget(c.id); setTgChats(null); setTgMsg(''); }}>Use</button></td></tr>
-                    ))}
-                  </tbody>
-                </table></div>
+                <div data-testid="tg-chat-review" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                  {tgChats.map(c => (
+                    <div key={c.id} data-testid="tg-chat-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: '10px 12px' }}>
+                      <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{c.title || '(no name)'}</div>
+                      <div className="muted" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{c.type} - id {c.id}</div>
+                      {(c.type === 'group' || c.type === 'supergroup' || c.type === 'channel') && (
+                        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>All current and future members will see this site's alerts here.</div>
+                      )}
+                      <div style={{ marginTop: 8 }}>
+                        <button type="button" className="ghost" onClick={() => { setTarget(c.id); setTgChats(null); setTgMsg(''); }}>Use this chat</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
