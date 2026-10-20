@@ -162,6 +162,8 @@ func main() {
 	api.HandleFunc("DELETE /v1/roles/{id}", s.deleteRole)
 	api.HandleFunc("GET /v1/me", s.me)
 	api.HandleFunc("POST /v1/me/sessions/revoke", s.revokeOwnSessions)
+	api.HandleFunc("GET /v1/me/sessions", s.listOwnSessions)
+	api.HandleFunc("DELETE /v1/me/sessions/{id}", s.revokeOwnSession)
 	api.HandleFunc("GET /v1/users", s.listUsers)
 	api.HandleFunc("GET /v1/users/invites", s.listInvites)
 	api.HandleFunc("POST /v1/users/invites", s.createInvite)
@@ -1383,11 +1385,7 @@ func (s *server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no platform user for this account", 403)
 		return
 	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
-		TenantID: tenantID, Role: role,
-		RegisteredClaims: jwt.RegisteredClaims{Subject: userID, IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(time.Now().Add(12 * time.Hour))},
-	})
-	signed, err := tok.SignedString(s.secret)
+	signed, err := s.sessionToken(tenantID, role, userID, s.startSession(r, tenantID, userID))
 	if err != nil {
 		dbErr(w, err)
 		return
