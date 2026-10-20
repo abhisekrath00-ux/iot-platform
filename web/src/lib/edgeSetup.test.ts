@@ -54,6 +54,12 @@ describe('edge setup', () => {
     expect(pt('freq').type).toBe('u16');
     expect(pt('pf_total').register).toBe(23360); // 0x5B40, INT16 x0.001
     expect(t.points.every((p) => p.register < 20480 || p.register > 21800)).toBe(true); // UINT64 energy counter range excluded
+    // word order is NOT documented by ABB: no YAML without an explicit installer choice
+    expect(t.wordOrderUnverified).toBe(true);
+    const base = { deviceId: 'm4m-1', templateId: 'abb-m4m', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(base).join(' ')).toContain('Word order');
+    expect(deviceYaml({ ...base, wordOrder: 'cdab' })).toContain('word_order: cdab');
+    expect(deviceYaml({ ...base, wordOrder: 'abcd' })).toContain('word_order: abcd');
     const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
     const used = new Set<number>();
     for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
