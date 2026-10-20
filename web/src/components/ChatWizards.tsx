@@ -18,6 +18,9 @@ export interface Wizard {
   title: string;
   description: string;
   steps: WizardStep[];
+  // Base roles that can finish this wizard; undefined means everyone signed in. Mirrors the server's
+  // per-handler role checks (the server still enforces; this only keeps unusable chips out of the UI).
+  roles?: string[];
   summary: (a: Record<string, string>) => string;
   run: (a: Record<string, string>) => Promise<string>;
 }
@@ -40,6 +43,7 @@ export const WIZARDS: Wizard[] = [
     id: 'add-device',
     title: 'Add a device',
     description: 'Register a device on a gateway with a profile.',
+    roles: ['admin', 'operator', 'installer'],
     steps: [
       {
         key: 'gateway_id', prompt: 'Which gateway is the device behind?', kind: 'select',
@@ -63,6 +67,7 @@ export const WIZARDS: Wizard[] = [
     id: 'alert-rule',
     title: 'Create an alert rule',
     description: 'Threshold alert on one device point.',
+    roles: ['admin', 'operator'],
     steps: [
       {
         key: 'device_id', prompt: 'Which device?', kind: 'select',
@@ -95,6 +100,7 @@ export const WIZARDS: Wizard[] = [
     id: 'add-channel',
     title: 'Add a notification channel',
     description: 'Where alerts go: email, Slack, Telegram and more.',
+    roles: ['admin'],
     steps: [
       { key: 'type', prompt: 'Which type of channel?', kind: 'select', options: CHANNEL_TYPES },
       {
@@ -136,6 +142,7 @@ export const WIZARDS: Wizard[] = [
     id: 'ack-alert',
     title: 'Acknowledge an alert',
     description: 'Mark an open alert as seen.',
+    roles: ['admin', 'operator'],
     steps: [
       {
         key: 'alert_id', prompt: 'Which open alert?', kind: 'select',
@@ -153,6 +160,7 @@ export const WIZARDS: Wizard[] = [
     id: 'invite-user',
     title: 'Invite a user',
     description: 'Send an invite to join this tenant.',
+    roles: ['admin'],
     steps: [
       { key: 'email', prompt: 'Email address?', kind: 'text', validate: v => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) ? null : 'Please answer with an email address' },
       { key: 'role', prompt: 'Role?', kind: 'select', options: [{ value: 'viewer', label: 'Viewer (read only)' }, { value: 'operator', label: 'Operator' }, { value: 'admin', label: 'Admin' }] },
