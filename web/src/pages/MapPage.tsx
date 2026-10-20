@@ -18,6 +18,14 @@ export default function MapPage() {
   const [fname, setFname] = useState(''); const [flat, setFlat] = useState(''); const [flon, setFlon] = useState(''); const [frad, setFrad] = useState('200');
   const [fenter, setFenter] = useState(false); const [fexit, setFexit] = useState(false); const [fsev, setFsev] = useState('warning');
   const [editId, setEditId] = useState('');
+  const [srcDev, setSrcDev] = useState(''); const [srcLat, setSrcLat] = useState(''); const [srcLon, setSrcLon] = useState('');
+  const [srcPts, setSrcPts] = useState<string[]>([]);
+  useEffect(() => {
+    if (!srcDev) { setSrcPts([]); setSrcLat(''); setSrcLon(''); return; }
+    api<{ device_id: string; point_id: string }[]>('/v1/points').then(rows => setSrcPts(rows.filter(r => r.device_id === srcDev).map(r => r.point_id))).catch(() => setSrcPts([]));
+    const d = devices.find(x => x.id === srcDev);
+    setSrcLat(d?.lat_point ?? ''); setSrcLon(d?.lon_point ?? '');
+  }, [srcDev]);
   const [msg, setMsg] = useState('');
   const [cfg, setCfg] = useState<{ tiles: boolean; attribution: string }>({ tiles: false, attribution: '' });
   const [imgs, setImgs] = useState<Record<string, string>>({});
@@ -81,7 +89,7 @@ export default function MapPage() {
   return (
     <>
       <h1>Map</h1>
-      <p className="muted">Where devices are and which zones they sit in. Positions are entered by people, not read from telemetry. {cfg.tiles ? 'Drawn over map tiles from your own tile server. ' : 'Plotted on a plain canvas (no map tiles), so it works with no internet. '}Zones are circles; a zone can raise an alert when a device enters or leaves it.</p>
+      <p className="muted">Where devices are and which zones they sit in. Positions are entered by hand below, or reported live when a device names the two points that carry its latitude and longitude. {cfg.tiles ? 'Drawn over map tiles from your own tile server. ' : 'Plotted on a plain canvas (no map tiles), so it works with no internet. '}Zones are circles; a zone can raise an alert when a device enters or leaves it.</p>
       {msg && <p className="muted" role="status">{msg}</p>}
       {!proj
         ? <Empty title="Nothing on the map yet" hint="Give a device a position below, and optionally add a zone." />
@@ -123,6 +131,20 @@ export default function MapPage() {
         </div>
       </div>
       <div className="card" style={{ maxWidth: 640, marginTop: 20 }}>
+        <b>Report position from telemetry</b>
+        <p className="muted" style={{ fontSize: 12 }}>Pick the two points that carry this device's latitude and longitude. Every accepted reading on them moves the device on the map (a config change takes up to about a minute to reach ingest). A device needs one reading on each point before it appears on the map.</p>
+        <label htmlFor="ms-dev">Device</label>
+        <select id="ms-dev" value={srcDev} onChange={e => setSrcDev(e.target.value)}><option value="">Select a device</option>{devices.map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}</select>
+        <label htmlFor="ms-lat">Latitude point</label>
+        <select id="ms-lat" value={srcLat} onChange={e => setSrcLat(e.target.value)} disabled={!srcDev}><option value="">Select a point</option>{srcPts.map(p => <option key={p} value={p}>{p}</option>)}</select>
+        <label htmlFor="ms-lon">Longitude point</label>
+        <select id="ms-lon" value={srcLon} onChange={e => setSrcLon(e.target.value)} disabled={!srcDev}><option value="">Select a point</option>{srcPts.map(p => <option key={p} value={p}>{p}</option>)}</select>
+        <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+          <button disabled={!srcDev || !srcLat || !srcLon || srcLat === srcLon} onClick={() => act(() => api(`/v1/devices/${srcDev}/location-source`, { method: 'PUT', body: JSON.stringify({ lat_point: srcLat, lon_point: srcLon }) }), 'Position source saved.')}>Save source</button>
+          <button className="ghost" disabled={!srcDev} onClick={() => act(() => api(`/v1/devices/${srcDev}/location-source`, { method: 'PUT', body: JSON.stringify({ lat_point: null, lon_point: null }) }), 'Position source cleared.').then(() => { setSrcLat(''); setSrcLon(''); })}>Clear</button>
+        </div>
+      </div>
+      <div className="card" style={{ maxWidth: 640, marginTop: 20 }}>
         <b>Zones</b>
         <ul style={{ padding: 0, listStyle: 'none' }}>
           {data.geofences.map(f => <li key={f.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0' }}><span>{f.name}</span><span className="muted">{f.radius_m} m at {f.lat.toFixed(4)}, {f.lon.toFixed(4)}</span><span className="muted">{f.alert_on_enter || f.alert_on_exit ? `alerts on ${[f.alert_on_enter && 'enter', f.alert_on_exit && 'exit'].filter(Boolean).join('+')} (${f.alert_severity})` : 'no alerts'}</span><span style={{ flex: 1 }} /><button className="ghost" aria-label={`Edit ${f.name}`} onClick={() => { setEditId(f.id); setFname(f.name); setFlat(String(f.lat)); setFlon(String(f.lon)); setFrad(String(f.radius_m)); setFenter(f.alert_on_enter); setFexit(f.alert_on_exit); setFsev(f.alert_severity); }}>Edit</button><button className="ghost" aria-label={`Delete ${f.name}`} onClick={() => act(() => api(`/v1/geofences/${f.id}`, { method: 'DELETE' }).catch(() => {}), 'Deleted.')}>Delete</button></li>)}
@@ -148,7 +170,7 @@ export default function MapPage() {
             <button type="submit">{editId ? 'Save zone' : 'Add zone'}</button>
             {editId && <button type="button" className="ghost" onClick={() => { setEditId(''); setFname(''); setFlat(''); setFlon(''); setFrad('200'); setFenter(false); setFexit(false); setFsev('warning'); }}>Cancel</button>}
           </div>
-          <p className="muted" style={{ fontSize: 12 }}>Positions are entered by hand, so a zone alert fires on the next check after a position is saved (within about a minute). Devices already inside a zone when its alerts are turned on do not raise an "entered" alert.</p>
+          <p className="muted" style={{ fontSize: 12 }}>A zone alert fires on the next check after a position changes, whether saved by hand or reported by telemetry (within about a minute). Devices already inside a zone when its alerts are turned on do not raise an "entered" alert.</p>
         </form>
       </div>
     </>
