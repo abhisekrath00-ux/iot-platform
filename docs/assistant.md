@@ -15,6 +15,9 @@ Two tools: `set_plan` (a visible list of steps) and `api_request`, which calls t
 
 Limits per run: 12 model calls, 25 tool calls, 12 KB per tool result, 3 minutes. 30 runs per hour per user. The rule-based question box (`/v1/ask`) stays as the fallback when no model is connected.
 
+## Guided templates (no model needed)
+The Assistant page offers one-click templates that run fully deterministically, with no model call: Add a device, Create an alert rule, Add a notification channel, Set up an energy meter, Acknowledge an alert, Invite a user. Each asks its questions one at a time (choices are loaded live, e.g. gateways, points, open alerts), shows an exact summary, and writes only after Confirm. Calls go through the normal /v1 API with the signed-in user's role, so the same checks apply as in the forms; server-side validation and staging (channels start disabled, Telegram needs a paired chat) are unchanged. They work on air-gapped installs with no AI configured. Tested: unit tests for validation/guidance text and a browser-driven smoke of the alert-rule path; each endpoint has its own server tests.
+
 ## Honest status
 Tested only against a scripted fake OpenAI-compatible server (`assistant_test.go`, `llm_test.go`): plan, read, propose, confirm, role and tenant checks, refusal of approve and secrets. No real model has been tried, so how well any model plans or picks endpoints is unproven. Models can be wrong; the confirm step is the safeguard. Deeper analysis and richer reports are not built yet.
 
