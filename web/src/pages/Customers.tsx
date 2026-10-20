@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
+import CustomerBranding from '../components/CustomerBranding';
 import { api, Device } from '../lib/api';
 
 interface Customer { id: string; parent_id: string | null; name: string; devices: number; users: string[]; }
@@ -24,6 +25,7 @@ export default function Customers() {
     try { await fn(); setMsg(ok); load(); } catch (e) { setMsg(String(e)); }
   };
   const kids = (p: string | null) => rows.filter(c => c.parent_id === p);
+  const [brandFor, setBrandFor] = useState('');
   const Node = ({ c, depth }: { c: Customer; depth: number }) => (
     <li style={{ marginLeft: depth ? 18 : 0, listStyle: 'none' }}>
       <div className="card" style={{ margin: '6px 0', padding: '10px 14px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -33,7 +35,9 @@ export default function Customers() {
           <span key={u} className="pill">{u} <button className="ghost" aria-label={`Remove ${u} from ${c.name}`} onClick={() => act(() => api(`/v1/customers/${c.id}/users/${encodeURIComponent(u)}`, { method: 'DELETE' }), 'User is tenant-wide again.')}>x</button></span>
         ))}
         <span style={{ flex: 1 }} />
+        <button className="ghost" aria-label={`Branding for ${c.name}`} onClick={() => setBrandFor(brandFor === c.id ? '' : c.id)}>Branding</button>{' '}
         <button className="ghost" aria-label={`Delete ${c.name}`} onClick={() => act(() => api(`/v1/customers/${c.id}`, { method: 'DELETE' }), 'Deleted.')}>Delete</button>
+        {brandFor === c.id && <CustomerBranding id={c.id} name={c.name} />}
       </div>
       <ul style={{ padding: 0, margin: 0 }}>{kids(c.id).map(k => <Node key={k.id} c={k} depth={depth + 1} />)}</ul>
     </li>
