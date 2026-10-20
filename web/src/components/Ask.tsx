@@ -7,6 +7,11 @@ interface Answer {
   value?: number; unit?: string; observed_at?: string; device?: { name: string };
 }
 
+// The API returns RFC3339 timestamps WITH an offset (e.g. +05:30); appending 'Z' to that makes an
+// invalid date. Parse offset-bearing strings as-is; only bare UTC strings get the 'Z'.
+export const fmtTime = (ts: string) => new Date(/Z$|[+-]\d{2}:?\d{2}$/.test(ts) ? ts : ts + 'Z').toLocaleString();
+export const fmtValue = (v?: number) => v === undefined ? '' : Math.round(v * 100) / 100;
+
 // A plain-English question box. It is phrase matching over a few fixed read-only queries, not a
 // language model, and it always shows how it read the question.
 export default function Ask() {
@@ -30,7 +35,7 @@ export default function Ask() {
         <div style={{ marginTop: 10 }} role="status">
           {a.interpreted_as && <p className="muted" style={{ margin: '0 0 6px' }}>Read as: {a.interpreted_as}. Rule-based, read-only.</p>}
           {a.error && <p>{a.error}{a.examples && <> Try: {a.examples.map(x => `"${x}"`).join(', ')}.</>}</p>}
-          {a.kind === 'value' && <p><b>{a.device?.name}</b>: {a.value} {a.unit} <span className="muted">at {a.observed_at && new Date(a.observed_at + 'Z').toLocaleString()}</span></p>}
+          {a.kind === 'value' && <p><b>{a.device?.name}</b>: {fmtValue(a.value)} {a.unit} <span className="muted">at {a.observed_at && fmtTime(a.observed_at)}</span></p>}
           {a.rows && a.rows.length === 0 && <p className="muted">Nothing found.</p>}
           {a.rows && a.rows.map(r => <div key={r.id}>{r.severity ? <><span className="pill">{r.severity}</span> {r.message}</> : r.name}</div>)}
         </div>
