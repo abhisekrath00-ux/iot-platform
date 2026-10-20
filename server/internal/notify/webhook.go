@@ -40,7 +40,9 @@ func blockedIP(ip net.IP) bool {
 
 // safeClient checks the resolved address at dial time, so a hostname cannot
 // pass validation and later rebind to a blocked address. Redirects are refused.
-func safeClient(allowLoopback bool) *http.Client { return safeClientTimeout(allowLoopback, 8*time.Second) }
+func safeClient(allowLoopback bool) *http.Client {
+	return safeClientTimeout(allowLoopback, 8*time.Second)
+}
 
 // safeClientTimeout is safeClient with a caller-chosen total timeout; the Telegram inbound
 // poller needs one longer than its long-poll window.
