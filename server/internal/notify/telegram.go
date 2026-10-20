@@ -91,9 +91,9 @@ type TelegramChat struct {
 // TelegramMessage is one inbound message the bot has seen, from its own getUpdates feed.
 // Used for pairing: a tenant proves it owns a chat by sending its one-time code there.
 type TelegramMessage struct {
-	Chat   TelegramChat
-	Text   string
-	Author string // sender username or display name, when Telegram provides one
+	Chat    TelegramChat
+	Text    string
+	Author  string // sender username or display name, when Telegram provides one
 	FromBot bool   // sender is another bot; the poller drops these (no loops, no spoofed commands)
 }
 
@@ -162,8 +162,8 @@ func (n *Notifier) telegramGetUpdates(ctx context.Context, offset int64, timeout
 	}
 	var out struct {
 		Result []struct {
-			UpdateID    int64 `json:"update_id"`
-			Message    *tgRawMsg `json:"message"`
+			UpdateID    int64     `json:"update_id"`
+			Message     *tgRawMsg `json:"message"`
 			ChannelPost *tgRawMsg `json:"channel_post"`
 		} `json:"result"`
 	}
@@ -191,9 +191,9 @@ func (n *Notifier) telegramGetUpdates(ctx context.Context, offset int64, timeout
 		ups = append(ups, TelegramUpdate{
 			UpdateID: u.UpdateID,
 			Message: TelegramMessage{
-				Chat:   TelegramChat{ID: strconv.FormatInt(c.ID, 10), Type: c.Type, Title: title},
-				Text:   m.Text,
-				Author: author,
+				Chat:    TelegramChat{ID: strconv.FormatInt(c.ID, 10), Type: c.Type, Title: title},
+				Text:    m.Text,
+				Author:  author,
 				FromBot: m.From.IsBot,
 			},
 		})
