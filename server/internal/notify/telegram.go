@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Telegram alert channel through a Bot API bot. Optional and off unless the operator sets
@@ -90,14 +91,43 @@ type TelegramChat struct {
 // TelegramMessage is one inbound message the bot has seen, from its own getUpdates feed.
 // Used for pairing: a tenant proves it owns a chat by sending its one-time code there.
 type TelegramMessage struct {
-	Chat TelegramChat
-	Text string
+	Chat   TelegramChat
+	Text   string
+	Author string // sender username or display name, when Telegram provides one
+	FromBot bool   // sender is another bot; the poller drops these (no loops, no spoofed commands)
+}
+
+// TelegramUpdate is one raw consumed update: the inbox stores it keyed by UpdateID so the
+// poller can advance its cursor exactly once per update.
+type TelegramUpdate struct {
+	UpdateID int64
+	Message  TelegramMessage
 }
 
 // TelegramMessages returns recent inbound messages (text + chat) from the bot's getUpdates feed.
 // NOTE: Telegram forbids getUpdates while a webhook is set. The planned inbound slice must consume
 // this same stream (shared poller) instead of setting a webhook, or pairing discovery stops working.
 func (n *Notifier) TelegramMessages(ctx context.Context) ([]TelegramMessage, error) {
+	ups, err := n.telegramGetUpdates(ctx, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	msgs := make([]TelegramMessage, 0, len(ups))
+	for _, u := range ups {
+		msgs = append(msgs, u.Message)
+	}
+	return msgs, nil
+}
+
+// TelegramGetUpdates long-polls the bot feed from offset (exclusive confirmation semantics:
+// passing the last seen update id + 1 confirms everything below it). timeoutSec is the Bot API
+// long-poll window; 0 means a plain short poll. Only the leader-elected inbound poller should
+// call this with a nonzero offset: confirming updates removes them from every other reader.
+func (n *Notifier) TelegramGetUpdates(ctx context.Context, offset int64, timeoutSec int) ([]TelegramUpdate, error) {
+	return n.telegramGetUpdates(ctx, offset, timeoutSec)
+}
+
+func (n *Notifier) telegramGetUpdates(ctx context.Context, offset int64, timeoutSec int) ([]TelegramUpdate, error) {
 	tok := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if tok == "" {
 		return nil, errors.New("telegram is not configured")
@@ -106,12 +136,23 @@ func (n *Notifier) TelegramMessages(ctx context.Context) ([]TelegramMessage, err
 	if err := ValidateWebhookURL(base); err != nil {
 		return nil, errors.New("TELEGRAM_API_BASE is not a valid http(s) URL")
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET", base+"/bot"+tok+"/getUpdates?limit=100", nil)
+	url := base + "/bot" + tok + "/getUpdates?limit=100"
+	if offset > 0 {
+		url += "&offset=" + strconv.FormatInt(offset, 10)
+	}
+	if timeoutSec > 0 {
+		url += "&timeout=" + strconv.Itoa(timeoutSec)
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "hexmon-iot-telegram/1")
-	resp, err := safeClient(n.allowLoopback || os.Getenv("TELEGRAM_ALLOW_LOOPBACK") == "1").Do(req)
+	client := safeClient(n.allowLoopback || os.Getenv("TELEGRAM_ALLOW_LOOPBACK") == "1")
+	if timeoutSec > 0 {
+		client = safeClientTimeout(n.allowLoopback || os.Getenv("TELEGRAM_ALLOW_LOOPBACK") == "1", time.Duration(timeoutSec+15)*time.Second)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, errors.New("telegram: request failed")
 	}
@@ -121,20 +162,15 @@ func (n *Notifier) TelegramMessages(ctx context.Context) ([]TelegramMessage, err
 	}
 	var out struct {
 		Result []struct {
-			Message *struct {
-				Text string    `json:"text"`
-				Chat tgRawChat `json:"chat"`
-			} `json:"message"`
-			ChannelPost *struct {
-				Text string    `json:"text"`
-				Chat tgRawChat `json:"chat"`
-			} `json:"channel_post"`
+			UpdateID    int64 `json:"update_id"`
+			Message    *tgRawMsg `json:"message"`
+			ChannelPost *tgRawMsg `json:"channel_post"`
 		} `json:"result"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
 		return nil, errors.New("telegram: unreadable reply")
 	}
-	var msgs []TelegramMessage
+	ups := make([]TelegramUpdate, 0, len(out.Result))
 	for _, u := range out.Result {
 		m := u.Message
 		if m == nil {
@@ -148,12 +184,21 @@ func (n *Notifier) TelegramMessages(ctx context.Context) ([]TelegramMessage, err
 		if title == "" {
 			title = strings.TrimSpace(c.FirstName + " " + c.LastName)
 		}
-		msgs = append(msgs, TelegramMessage{
-			Chat: TelegramChat{ID: strconv.FormatInt(c.ID, 10), Type: c.Type, Title: title},
-			Text: m.Text,
+		author := m.From.Username
+		if author == "" {
+			author = strings.TrimSpace(m.From.FirstName + " " + m.From.LastName)
+		}
+		ups = append(ups, TelegramUpdate{
+			UpdateID: u.UpdateID,
+			Message: TelegramMessage{
+				Chat:   TelegramChat{ID: strconv.FormatInt(c.ID, 10), Type: c.Type, Title: title},
+				Text:   m.Text,
+				Author: author,
+				FromBot: m.From.IsBot,
+			},
 		})
 	}
-	return msgs, nil
+	return ups, nil
 }
 
 type tgRawChat struct {
@@ -162,4 +207,17 @@ type tgRawChat struct {
 	Title     string `json:"title"`
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
+}
+
+type tgRawMsg struct {
+	Text string    `json:"text"`
+	Chat tgRawChat `json:"chat"`
+	From tgRawUser `json:"from"`
+}
+
+type tgRawUser struct {
+	Username  string `json:"username"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	IsBot     bool   `json:"is_bot"`
 }
