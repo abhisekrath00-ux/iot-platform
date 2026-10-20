@@ -26,8 +26,8 @@ a local gateway there instead.
    (`/v1/assistant/inbound/slack/<tenant>`). Slack verifies the URL with a signed challenge,
    which the server answers only when the signature matches the secret from step 2, so do
    step 2 first. Subscribe to the bot event **message.im**. Direct messages only: the
-   assistant never joins or answers in channels, so a tenant's answers cannot leak into a
-   shared channel.
+   server accepts only direct-message events (channel_type "im"); anything posted to a
+   channel is ignored without an answer.
 5. Install the app to the workspace and copy the **Bot User OAuth Token** (xoxb-...). Give
    it to the platform operator; they set SLACK_BOT_TOKEN on the server. Without it the
    assistant reads but cannot reply.
