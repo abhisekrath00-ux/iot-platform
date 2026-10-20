@@ -145,11 +145,54 @@ func TestIntegrationTelegramChannel(t *testing.T) {
 		t.Fatalf("create = %d %s", c, body)
 	}
 	var id string
-	pool.QueryRow(t.Context(), `SELECT id FROM notification_channels WHERE tenant_id='itest-tg1' AND type='telegram'`).Scan(&id)
+	var enabled bool
+	pool.QueryRow(t.Context(), `SELECT id, enabled FROM notification_channels WHERE tenant_id='itest-tg1' AND type='telegram'`).Scan(&id, &enabled)
+	if enabled {
+		t.Fatal("a new channel must be staged disabled until an admin enables it")
+	}
 	if c, b := do("/v1/notifications/channels/"+id+"/test", ""); c != 200 {
 		t.Fatalf("test send = %d %s", c, b)
 	}
 	if !strings.Contains(gotBody, `"chat_id":"-1001234567890"`) || !strings.Contains(gotBody, "test message from HexThings") {
 		t.Fatalf("delivery: %s", gotBody)
+	}
+}
+
+func TestIntegrationTelegramChatLookup(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-tg2")
+	pool := s.st.Pool
+	pool.Exec(t.Context(), `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('tg2-admin','itest-tg2','tg2@tg-test.example','A','admin') ON CONFLICT DO NOTHING`)
+	t.Cleanup(func() {
+		pool.Exec(t.Context(), `DELETE FROM users WHERE id='tg2-admin'`)
+		pool.Exec(t.Context(), `DELETE FROM audit_log WHERE tenant_id='itest-tg2'`)
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/notifications/telegram/chats", s.telegramChats)
+	get := func(user, role string) (int, string) {
+		w := callAs(s.activeUser(mux), "itest-tg2", user, role, "GET", "/v1/notifications/telegram/chats", "")
+		return w.Code, w.Body.String()
+	}
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	if c, _ := get("tg2-admin", "admin"); c != 409 {
+		t.Fatalf("unconfigured = %d, want 409", c)
+	}
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		io.WriteString(w, `{"ok":true,"result":[{"message":{"chat":{"id":-1001234567890,"type":"supergroup","title":"Plant Ops"}}}]}`)
+	}))
+	defer fake.Close()
+	t.Setenv("TELEGRAM_BOT_TOKEN", "tok-tg")
+	t.Setenv("TELEGRAM_API_BASE", fake.URL)
+	t.Setenv("TELEGRAM_ALLOW_LOOPBACK", "1")
+	if c, _ := get("tg2-viewer", "viewer"); c != 403 {
+		t.Fatalf("viewer lookup = %d, want 403", c)
+	}
+	c, body := get("tg2-admin", "admin")
+	if c != 200 || !strings.Contains(body, "Plant Ops") || !strings.Contains(body, "-1001234567890") {
+		t.Fatalf("lookup = %d %s", c, body)
+	}
+	if c, _ = get("tg2-admin", "admin"); c != 429 {
+		t.Fatalf("second lookup = %d, want 429", c)
 	}
 }
