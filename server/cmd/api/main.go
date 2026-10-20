@@ -1645,7 +1645,8 @@ func (s *server) executeReport(ctx context.Context, id, tenant string) error {
 		n := notify.FromEnv()
 		switch ctype {
 		case "email":
-			if err := n.Email(ctx, []string{target}, "Report: "+name, htmlDoc); err != nil {
+			plain := fmt.Sprintf("Report: %s (%d rows). This message has an HTML part with the full rendered report; your mail client shows this text because it does not render HTML.", name, total)
+			if err := n.EmailHTML(ctx, []string{target}, "Report: "+name, plain, htmlDoc); err != nil {
 				return fail(err)
 			}
 		case "slack":
