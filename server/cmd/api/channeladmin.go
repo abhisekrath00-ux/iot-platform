@@ -154,6 +154,7 @@ func (s *server) telegramPairMessages(ctx context.Context, tgr interface {
 }
 
 var telegramChatsAt sync.Map // tenant -> time of the last pairing scan (one per 10 s, per process)
+var slackChatsAt sync.Map    // tenant -> time of the last Slack channel lookup (one per 10 s, per process)
 
 // Telegram pairing. The bot token is operator-global, so seeing a chat in getUpdates or knowing its
 // id proves nothing about who owns it. A tenant proves ownership by sending its one-time code to the
@@ -161,6 +162,46 @@ var telegramChatsAt sync.Map // tenant -> time of the last pairing scan (one per
 // Codes live 10 minutes and are single use.
 
 const pairCodeTTL = 10 * time.Minute
+
+// GET /v1/notifications/slack/channels lists the workspace channels the bot token can see, so the
+// admin can pick the channel ID from a list instead of hunting it in the Slack UI. Admin only, never
+// through an API key or the assistant; rate limited like a channel test. Read-only against Slack.
+func (s *server) slackChannels(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin") || auth.ViaKey(r) {
+		if auth.ViaKey(r) {
+			http.Error(w, "not available to API keys or the assistant", http.StatusForbidden)
+		}
+		return
+	}
+	if !notify.SlackConfigured() {
+		http.Error(w, "Slack is not configured on this deployment (the operator sets SLACK_BOT_TOKEN)", 409)
+		return
+	}
+	t := auth.Tenant(r)
+	if prev, loaded := slackChatsAt.Load(t); loaded && time.Since(prev.(time.Time)) < 10*time.Second {
+		http.Error(w, "wait a few seconds between lookups", http.StatusTooManyRequests)
+		return
+	}
+	slackChatsAt.Store(t, time.Now())
+	sc, ok2 := s.replier().(interface {
+		SlackChannels(context.Context) ([]notify.SlackChannel, error)
+	})
+	if !ok2 {
+		http.Error(w, "slack channel listing not available", 503)
+		return
+	}
+	chs, err := sc.SlackChannels(r.Context())
+	if err != nil {
+		e := err.Error()
+		if len(e) > 200 {
+			e = e[:200]
+		}
+		writeJSON(w, 200, map[string]any{"channels": []any{}, "error": e})
+		return
+	}
+	s.audit(r, "channel.slack_list", "", map[string]any{"count": len(chs)})
+	writeJSON(w, 200, map[string]any{"channels": chs})
+}
 
 // POST /v1/notifications/telegram/pair-code -> {"code": "...", "expires_in_minutes": 10}
 func (s *server) telegramPairCode(w http.ResponseWriter, r *http.Request) {
