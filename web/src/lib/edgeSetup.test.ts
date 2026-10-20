@@ -138,6 +138,49 @@ describe('edge setup', () => {
     for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
   });
 
+
+  it('abb-b23-b24 registers match the official manual 2CMC485003M0201 Rev A chapter 9 (docs/devices/abb-b23-b24.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'abb-b23-b24')!;
+    expect(t.func).toBe(3); // FC 03 vendor-stated (chapter 9.1.1)
+    expect(t.type).toBe('u32');
+    expect(t.word_order).toBe('abcd'); // vendor-stated: MSB in the first (lowest) register
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1n').register).toBe(23296); // 5B00
+    expect(pt('v3n').register).toBe(23300); // 5B04
+    expect(pt('v12').register).toBe(23302); // 5B06 L1-L2
+    expect(pt('v23').register).toBe(23304); // 5B08 manual prints L3-L2 (see doc)
+    expect(pt('v31').register).toBe(23306); // 5B0A manual prints L1-L3 (see doc)
+    expect(pt('i1').register).toBe(23308); // 5B0C
+    expect(pt('i_n').register).toBe(23314); // 5B12
+    expect(pt('p_total').register).toBe(23316); // 5B14, signed 32-bit, 2 decimals
+    expect(pt('p_total').type).toBe('i32');
+    expect(pt('p_total').scale).toBe(0.01);
+    expect(pt('p_total').max).toBe(2.1e7); // documented ~+/-21 MW ceiling
+    expect(pt('q_total').register).toBe(23324); // 5B1C
+    expect(pt('s_total').register).toBe(23332); // 5B24
+    expect(pt('freq').register).toBe(23340); // 5B2C, 1 register
+    expect(pt('freq').type).toBe('u16');
+    expect(pt('pf_total').register).toBe(23354); // 5B3A, signed, 0.001
+    expect(pt('pf_total').type).toBe('i16');
+    expect(pt('pf3').register).toBe(23357); // 5B3D
+    // energy accumulators excluded: 4 registers = 64-bit unsigned, driver has no u64
+    expect(t.points.some((p) => p.register >= 0x5000 && p.register < 0x5B00)).toBe(false);
+    // all conventions vendor-stated: nothing gated
+    expect(t.wordOrderUnverified).toBeUndefined();
+    expect(t.pduBaseUnverified).toBeUndefined();
+    expect(t.funcUnverified).toBeUndefined();
+    const base = { deviceId: 'b24-1', templateId: 'abb-b23-b24', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(base)).toEqual([]);
+    const yaml = deviceYaml(base);
+    expect(yaml).toContain('register: 23340'); // frequency verbatim (listed hex = on-wire address)
+    expect(yaml).toContain('scale: 0.01');
+    expect(yaml).toContain('type: i32');
+    expect(yaml).toContain('func: 3');
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+  });
+
   it('schneider-pm53xx registers match the official register list v2011_v2021_R01 (docs/devices/schneider-pm53xx.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm53xx')!;
     expect(t.func).toBe(3); // holding registers (FC not stated by Schneider; FC 03 chosen, gated in the provisional text)
