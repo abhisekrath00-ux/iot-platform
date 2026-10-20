@@ -96,18 +96,64 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 	var sb strings.Builder
 	sb.WriteString(hdr + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData>`)
 	row := 0
+	// colW tracks the widest text seen per column so the sheet can ship explicit
+	// column widths; without <cols> every column falls back to ~8 characters and
+	// long device IDs, headings, and timestamps render truncated.
+	colW := map[int]int{}
+	col := 0
+	rowStart := func() {
+		fmt.Fprintf(&sb, `<row r="%d">`, row)
+		col = 0
+	}
 	str := func(s string) string {
+		if l := len([]rune(s)); l > colW[col] {
+			colW[col] = l
+		}
+		col++
 		var e bytes.Buffer
 		xml.EscapeText(&e, []byte(s))
 		return `<c t="inlineStr"><is><t>` + e.String() + `</t></is></c>`
 	}
-	num := func(f float64) string { return fmt.Sprintf(`<c><v>%.10g</v></c>`, f) }
+	num := func(f float64) string {
+		if colW[col] < 12 {
+			colW[col] = 12
+		}
+		col++
+		return fmt.Sprintf(`<c><v>%.10g</v></c>`, f)
+	}
+	// withCols inserts the <cols> element (must precede <sheetData>) sized from the
+	// tracked content, clamped so headings and paragraphs cannot stretch a column
+	// past readability.
+	withCols := func(sheet string) string {
+		max := 0
+		for i := range colW {
+			if i > max {
+				max = i
+			}
+		}
+		var c strings.Builder
+		c.WriteString(`<cols>`)
+		for i := 0; i <= max; i++ {
+			w := colW[i] + 2
+			if w < 10 {
+				w = 10
+			}
+			if w > 48 {
+				w = 48
+			}
+			fmt.Fprintf(&c, `<col min="%d" max="%d" width="%d" customWidth="1"/>`, i+1, i+1, w)
+		}
+		c.WriteString(`</cols>`)
+		return strings.Replace(sheet, `<sheetData>`, c.String()+`<sheetData>`, 1)
+	}
 	sectionRows := func() {
 		for _, sc := range d.allSections() {
 			row += 2
+			col = 0
 			sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str(strings.TrimSpace(sc.Title)) + `</row>`)
 			for _, p := range sectionParas(sc.Body) {
 				row++
+				col = 0
 				sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str(p) + `</row>`)
 			}
 		}
@@ -118,16 +164,17 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		}
 		er := BuildEmissions(d, series)
 		row += 2
+		col = 0
 		sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str("Emissions (Scope 1 and 2)") + `</row>`)
 		row++
-		fmt.Fprintf(&sb, `<row r="%d">`, row)
+		rowStart()
 		for _, h := range EmissionsHeader() {
 			sb.WriteString(str(h))
 		}
 		sb.WriteString(`</row>`)
 		for _, c := range EmissionsCells(er) {
 			row++
-			fmt.Fprintf(&sb, `<row r="%d">`, row)
+			rowStart()
 			for j, v := range c {
 				if j == 3 || j == 5 || j == 6 {
 					var f float64
@@ -147,6 +194,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		extra = append(extra, EmissionsNotice)
 		for _, l := range extra {
 			row++
+			col = 0
 			sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str(l) + `</row>`)
 		}
 	}
@@ -155,14 +203,14 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			return
 		}
 		row += 2 // blank row, then the section
-		fmt.Fprintf(&sb, `<row r="%d">`, row)
+		rowStart()
 		for _, h := range RollupHeader(d) {
 			sb.WriteString(str(h))
 		}
 		sb.WriteString(`</row>`)
 		for _, r := range BuildRollup(d, series) {
 			row++
-			fmt.Fprintf(&sb, `<row r="%d">`, row)
+			rowStart()
 			sb.WriteString(str(r.Group) + str(r.Point))
 			sb.WriteString(num(float64(r.Devices)) + num(float64(r.Samples)) + num(r.Avg) + num(r.Min) + num(r.Max) + num(r.Sum))
 			sb.WriteString(`</row>`)
@@ -172,7 +220,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		hdr, rows, total := Matrix(d, series)
 		emit := func(cells []string, numeric bool) {
 			row++
-			fmt.Fprintf(&sb, `<row r="%d">`, row)
+			rowStart()
 			for i, c := range cells {
 				var f float64
 				if _, err := fmt.Sscanf(c, "%g", &f); numeric && i > 0 && err == nil && c != "-" {
@@ -192,7 +240,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		emissionsRows()
 		rollupRows()
 		sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
-		if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
+		if err := add("xl/worksheets/sheet1.xml", withCols(sb.String())); err != nil {
 			return nil, err
 		}
 		if err := flush(); err != nil {
@@ -215,7 +263,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		}
 		for _, k := range series[m] {
 			row++
-			fmt.Fprintf(&sb, `<row r="%d">`, row)
+			rowStart()
 			sb.WriteString(str(m.DeviceID) + str(m.PointID) + str(k.Start.UTC().Format(time.RFC3339)))
 			sb.WriteString(num(k.Avg) + num(k.Min) + num(k.Max) + num(float64(k.Count)) + num(k.Sum))
 			sb.WriteString(`</row>`)
@@ -225,7 +273,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 	emissionsRows()
 	rollupRows()
 	sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
-	if err := add("xl/worksheets/sheet1.xml", sb.String()); err != nil {
+	if err := add("xl/worksheets/sheet1.xml", withCols(sb.String())); err != nil {
 		return nil, err
 	}
 	if err := flush(); err != nil {
