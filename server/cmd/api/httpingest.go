@@ -164,6 +164,11 @@ func (s *server) ingestBatch(w http.ResponseWriter, r *http.Request, tenant, dev
 			continue
 		}
 		accepted++
+		if s.pos != nil {
+			// Live position: a reading on a configured position point moves
+			// the device on the map. Metadata only, never an ingest error.
+			_ = s.pos.Track(ctx, tenant, in.DeviceID, g.t.PointID, g.t.Value)
+		}
 		rules.Evaluate(ctx, s.st.Pool, n, tenant, in.DeviceID, g.t.PointID, g.t.Value)
 		flow.EvaluateWith(ctx, s.st.Pool, n, fnRunner, tenant, in.DeviceID, g.t.PointID, g.t.Value)
 	}
