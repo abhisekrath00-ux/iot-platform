@@ -52,6 +52,50 @@ func (s *server) setDeviceLocation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
+// PUT /v1/devices/{id}/location-source  {"lat_point":"lat","lon_point":"lon"}
+// or both null to clear. Names the two telemetry points that carry the
+// device's reported position; ingest then keeps lat/lon current (up to about
+// a minute for the config to reach ingest). The manual position stays as-is
+// until the first matching reading arrives.
+func (s *server) setDeviceLocationSource(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		LatPoint *string `json:"lat_point"`
+		LonPoint *string `json:"lon_point"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil || (in.LatPoint == nil) != (in.LonPoint == nil) {
+		http.Error(w, "send lat_point and lon_point together, or both null to clear", 400)
+		return
+	}
+	if in.LatPoint != nil {
+		if *in.LatPoint == "" || *in.LonPoint == "" || len(*in.LatPoint) > 128 || len(*in.LonPoint) > 128 || *in.LatPoint == *in.LonPoint {
+			http.Error(w, "two different point ids, each 1-128 chars", 400)
+			return
+		}
+		var ok bool
+		if err := s.st.Pool.QueryRow(r.Context(),
+			`SELECT EXISTS(
+			   SELECT 1 FROM devices d
+			   JOIN points plat ON plat.device_id=d.id AND plat.id=$2
+			   JOIN points plon ON plon.device_id=d.id AND plon.id=$3
+			   WHERE d.id=$1 AND d.tenant_id=$4)`,
+			r.PathValue("id"), *in.LatPoint, *in.LonPoint, auth.Tenant(r)).Scan(&ok); err != nil || !ok {
+			http.Error(w, "device not found, or a named point does not belong to it", 404)
+			return
+		}
+	}
+	ct, err := s.st.Pool.Exec(r.Context(), `UPDATE devices SET lat_point=$1, lon_point=$2 WHERE id=$3 AND tenant_id=$4`,
+		in.LatPoint, in.LonPoint, r.PathValue("id"), auth.Tenant(r))
+	if err != nil || ct.RowsAffected() == 0 {
+		http.Error(w, "device not found", 404)
+		return
+	}
+	s.audit(r, "device.location_source", r.PathValue("id"), map[string]any{"lat_point": in.LatPoint, "lon_point": in.LonPoint})
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
 func (s *server) createGeofence(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin", "operator") {
 		return
@@ -195,5 +239,5 @@ func (s *server) getMap(w http.ResponseWriter, r *http.Request) {
 		devs = append(devs, map[string]any{"id": id, "name": name, "lat": lat, "lon": lon, "inside": inside})
 	}
 	writeJSON(w, 200, map[string]any{"devices": devs, "geofences": fences,
-		"note": "Positions are set by people, not read from telemetry. Zones are circles; a zone can alert when a device enters or leaves it."})
+		"note": "Positions are set by people, or reported live when a device names its latitude and longitude points. Zones are circles; a zone can alert when a device enters or leaves it."})
 }
