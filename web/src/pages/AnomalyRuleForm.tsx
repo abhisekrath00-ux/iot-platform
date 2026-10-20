@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 
 interface Kpi { id: string; name: string; unit: string }
+interface Asset { id: string; name: string }
 
 // Two rule kinds beyond a fixed threshold: a point drifting from its own
 // recent history (N standard deviations), and a KPI leaving a band you set.
@@ -16,6 +17,8 @@ export default function AnomalyRuleForm({ onCreated }: { onCreated: () => void }
   const [season, setSeason] = useState('hour_of_day');
   const [direction, setDirection] = useState('both');
   const [kpis, setKpis] = useState<Kpi[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [assetId, setAssetId] = useState('');
   const [kpiId, setKpiId] = useState('');
   const [min, setMin] = useState('');
   const [max, setMax] = useState('');
@@ -25,7 +28,7 @@ export default function AnomalyRuleForm({ onCreated }: { onCreated: () => void }
   const [severity, setSeverity] = useState('warning');
   const [msg, setMsg] = useState('');
 
-  useEffect(() => { api<Kpi[]>('/v1/kpis').then(setKpis).catch(() => {}); }, []);
+  useEffect(() => { api<Kpi[]>('/v1/kpis').then(setKpis).catch(() => {}); api<Asset[]>('/v1/assets').then(setAssets).catch(() => {}); }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,9 +36,9 @@ export default function AnomalyRuleForm({ onCreated }: { onCreated: () => void }
     const definition = kind === 'forecast_limit'
       ? { kind, device_id: deviceId, point_id: pointId, op, threshold: parseFloat(limit), horizon_hours: parseInt(horizon), severity }
       : kind === 'seasonal'
-      ? { kind, device_id: deviceId || undefined, point_id: pointId, sigma: parseFloat(sigma), window_days: parseInt(windowDays), season, direction, severity }
+      ? { kind, device_id: deviceId || undefined, asset_id: assetId || undefined, point_id: pointId, sigma: parseFloat(sigma), window_days: parseInt(windowDays), season, direction, severity }
       : kind === 'sigma'
-      ? { kind, device_id: deviceId || undefined, point_id: pointId, sigma: parseFloat(sigma), window_minutes: parseInt(windowMin), direction, severity }
+      ? { kind, device_id: deviceId || undefined, asset_id: assetId || undefined, point_id: pointId, sigma: parseFloat(sigma), window_minutes: parseInt(windowMin), direction, severity }
       : { kind, kpi_id: kpiId, min: min === '' ? undefined : parseFloat(min), max: max === '' ? undefined : parseFloat(max), severity };
     try {
       await api('/v1/rules', { method: 'POST', body: JSON.stringify({ name, enabled: true, definition }) });
@@ -74,6 +77,12 @@ export default function AnomalyRuleForm({ onCreated }: { onCreated: () => void }
         </> : kind === 'sigma' || kind === 'seasonal' ? <>
           <label htmlFor="ar-dev">Device id (blank for any device with the point)</label>
           <input id="ar-dev" value={deviceId} onChange={e => setDeviceId(e.target.value)} />
+          <label htmlFor="ar-asset">Asset (optional - every device attached to it or below it)</label>
+          <select id="ar-asset" value={assetId} onChange={e => setAssetId(e.target.value)} disabled={!!deviceId} style={{ width: 'auto' }}>
+            <option value="">No asset scope</option>
+            {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          {deviceId && <span className="muted"> An asset scope cannot be combined with a single device.</span>}
           <label htmlFor="ar-pt">Point</label>
           <input id="ar-pt" value={pointId} onChange={e => setPointId(e.target.value)} required />
           <label htmlFor="ar-sig">Standard deviations (2 to 10)</label>
