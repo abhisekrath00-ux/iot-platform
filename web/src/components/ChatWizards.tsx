@@ -53,7 +53,7 @@ export const WIZARDS: Wizard[] = [
       },
       { key: 'name', prompt: 'What should the device be called?', kind: 'text', validate: nonEmpty('A name') },
     ],
-    summary: a => `Create device "${a.name}" (profile ${a.profile}) on the selected gateway.`,
+    summary: a => `Create device "${a.name}" (profile ${a.profile}) on gateway ${a.gateway_id_label}.`,
     run: async a => {
       const r = await api<{ id: string }>('/v1/devices', { method: 'POST', body: JSON.stringify({ gateway_id: a.gateway_id, profile: a.profile, name: a.name, config: {} }) });
       return `Device "${a.name}" created (id ${r.id}). It shows up once the gateway polls it. See Devices.`;
@@ -79,7 +79,7 @@ export const WIZARDS: Wizard[] = [
       { key: 'severity', prompt: 'Severity?', kind: 'select', options: [{ value: 'info', label: 'Info' }, { value: 'warning', label: 'Warning' }, { value: 'critical', label: 'Critical' }] },
       { key: 'name', prompt: 'Name for the rule?', kind: 'text', validate: nonEmpty('A name') },
     ],
-    summary: a => `Create a ${a.severity} rule "${a.name}": point ${a.point_id} ${a.op} ${a.threshold}. It is enabled once created; it only notifies channels you have enabled.`,
+    summary: a => `Create a ${a.severity} rule "${a.name}": point ${a.point_id} on ${a.device_id_label} ${a.op} ${a.threshold}. It is enabled once created; it only notifies channels you have enabled.`,
     run: async a => {
       await api('/v1/rules', {
         method: 'POST',
@@ -102,7 +102,7 @@ export const WIZARDS: Wizard[] = [
         validate: nonEmpty('A destination'),
       },
     ],
-    summary: a => `Add a ${a.type} channel to ${a.target}. New channels stay OFF until you press Enable in Settings - no alert is delivered before that.`,
+    summary: a => `Add a ${a.type} channel to ${a.target}. Nothing is delivered to it until you verify it with Send test and press Enable in Settings.`,
     run: async a => {
       if (a.type === 'telegram') {
         return 'Telegram needs a paired chat first: in Settings, pick Telegram, press Get pairing code and send it to the bot inside your chat. Then add the channel there with Find chats.';
@@ -143,7 +143,7 @@ export const WIZARDS: Wizard[] = [
           .map(al => ({ value: al.id, label: `${al.severity ?? ''} ${al.message ?? al.name ?? al.id}`.trim() })),
       },
     ],
-    summary: a => `Acknowledge the selected alert.`,
+    summary: a => `Acknowledge "${a.alert_id_label}" - it is marked as seen by you.`,
     run: async a => {
       await api(`/v1/alerts/${encodeURIComponent(a.alert_id)}/ack`, { method: 'POST' });
       return 'Alert acknowledged.';
@@ -157,7 +157,7 @@ export const WIZARDS: Wizard[] = [
       { key: 'email', prompt: 'Email address?', kind: 'text', validate: v => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) ? null : 'Please answer with an email address' },
       { key: 'role', prompt: 'Role?', kind: 'select', options: [{ value: 'viewer', label: 'Viewer (read only)' }, { value: 'operator', label: 'Operator' }, { value: 'admin', label: 'Admin' }] },
     ],
-    summary: a => `Invite ${a.email} as ${a.role}.`,
+    summary: a => `Invite ${a.email} as ${a.role}. Confirming sends an invitation email to that address.`,
     run: async a => {
       await api('/v1/users/invites', { method: 'POST', body: JSON.stringify({ email: a.email.trim(), role: a.role, send_email: true }) });
       return `Invite sent to ${a.email} (${a.role}).`;
