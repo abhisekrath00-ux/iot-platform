@@ -5,6 +5,8 @@ Sources (both Janitza domains, fetched 2026-10-20):
   release 104), janitza.com/files/download/manuals/current/UMG96RM/E/janitza-mal-umg96rme-en.pdf
   - the "Frequently required readings" table (addresses 19000-19120) and the General chapter
   (Modbus functions, transfer parameters, byte sequence, number formats).
+  THE ADDRESS LIST APPLIES FROM FIRMWARE VERSION 3.01 / HARDWARE RELEASE 104 - check your
+  exact unit's firmware before relying on this map.
 - "UMG 96RM-E operating manual" (janitza-bhb-umg96rme-en.pdf), Table 2 "Modbus address list
   (frequently needed measured values)".
 Rendered pages of both tables (address list page 19, byte-sequence page 5) were inspected as
@@ -17,7 +19,9 @@ Modbus TCP on the base unit's Ethernet port, or Modbus RTU on the RS485 interfac
 same addresses. As a slave the device supports FC 03 (Read Holding Registers) and FC 04
 (Read Input Registers) - both stated in the "Modbus functions (slave)" section; this
 template uses FC 04. Transfer parameters per the doc: 9600-115200 baud, 8 data bits, no
-parity. Register contents update every 200 ms.
+parity. Stop bits: 2 on the device's own UART (the doc's transfer parameters say
+"Stop bits (UMG96RM): 2"), 1 or 2 on external ports - the Edge setup form presets 2 for this
+template and the operator can change it. Register contents update every 200 ms.
 
 ## Addressing (verified)
 
