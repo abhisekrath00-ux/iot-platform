@@ -325,3 +325,118 @@ func TestIntegrationAssistantChannels(t *testing.T) {
 	}
 	_ = m
 }
+
+// Self-test generator: the admin endpoint must produce a command whose signature actually passes
+// the real inbound handlers, and whose tampered variant is refused.
+func TestIntegrationAssistantSelftest(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-st")
+	ctx := t.Context()
+	pool := s.st.Pool
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 3)
+	}
+	s.secrets = &secrets.Store{Pool: pool, Key: key}
+	s.notifier = &recNotifier{}
+	clean := func() {
+		for _, q := range []string{
+			`DELETE FROM assistant_channel_settings WHERE tenant_id='itest-st'`,
+			`DELETE FROM assistant_inbound_seen WHERE tenant_id='itest-st'`,
+			`DELETE FROM audit_log WHERE tenant_id='itest-st'`,
+			`DELETE FROM secrets WHERE tenant_id='itest-st'`,
+		} {
+			pool.Exec(ctx, q)
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+	pool.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('itest-st-admin','itest-st','itest-st-admin@example.test','A','admin') ON CONFLICT DO NOTHING`)
+	call := func(role, method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		c := context.WithValue(r.Context(), auth.CtxTenant, "itest-st")
+		c = context.WithValue(c, auth.CtxUser, "itest-st-admin")
+		c = context.WithValue(c, auth.CtxRole, role)
+		w := httptest.NewRecorder()
+		h := map[string]http.HandlerFunc{
+			"PUT /v1/assistant/channel-settings":   s.putChannelSettings,
+			"GET /v1/assistant/selftest/{kind}":    s.getChannelSelftest,
+			"POST /v1/assistant/inbound/slack/{t}": s.inboundSlack,
+			"POST /v1/assistant/inbound/email/{t}": s.inboundEmail,
+		}
+		if h[method+" "+path] != nil {
+			h[method+" "+path](w, r.WithContext(c))
+			return w
+		}
+		mux := http.NewServeMux()
+		for pat, fn := range h {
+			mux.HandleFunc(pat, fn)
+		}
+		mux.ServeHTTP(w, r.WithContext(c))
+		return w
+	}
+
+	// no secret stored yet: the generator refuses instead of inventing one
+	if w := call("admin", "GET", "/v1/assistant/selftest/email", ""); w.Code != http.StatusConflict {
+		t.Fatalf("selftest without secret: want 409, got %d", w.Code)
+	}
+	if w := call("operator", "GET", "/v1/assistant/selftest/email", ""); w.Code != http.StatusForbidden {
+		t.Fatalf("selftest as operator: want 403, got %d", w.Code)
+	}
+	if w := call("admin", "PUT", "/v1/assistant/channel-settings",
+		`{"email_enabled":true,"slack_enabled":true,"email_inbound_secret":"selftest-email-secret","slack_signing_secret":"selftest-slack-secret"}`); w.Code != 200 {
+		t.Fatalf("save secrets: %d %s", w.Code, w.Body.String())
+	}
+
+	fire := func(sample map[string]any, bodyOverride string) int {
+		body, _ := sample["body"].(string)
+		if bodyOverride != "" {
+			body = bodyOverride
+		}
+		path, _ := sample["url_path"].(string)
+		sigH, _ := sample["sig_header"].(string)
+		sigV, _ := sample["sig_value"].(string)
+		ts, _ := sample["ts"].(string)
+		tsH := "X-Timestamp"
+		if sigH == "X-Slack-Signature" {
+			tsH = "X-Slack-Request-Timestamp"
+		}
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set(tsH, ts)
+		r.Header.Set(sigH, sigV)
+		w := httptest.NewRecorder()
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /v1/assistant/inbound/slack/{tenant}", s.inboundSlack)
+		mux.HandleFunc("POST /v1/assistant/inbound/email/{tenant}", s.inboundEmail)
+		mux.ServeHTTP(w, r)
+		return w.Code
+	}
+
+	for _, kind := range []string{"email", "slack"} {
+		w := call("admin", "GET", "/v1/assistant/selftest/"+kind, "")
+		if w.Code != 200 {
+			t.Fatalf("%s selftest: %d %s", kind, w.Code, w.Body.String())
+		}
+		var out struct {
+			Sample    map[string]any `json:"sample"`
+			CurlValid string         `json:"curl_valid"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatalf("%s decode: %v", kind, err)
+		}
+		if !strings.Contains(out.CurlValid, "YOUR-SERVER") || !strings.Contains(out.CurlValid, "curl -i -X POST") {
+			t.Fatalf("%s curl shape wrong: %s", kind, out.CurlValid)
+		}
+		// the generated signature must pass the real handler, and the sender must be ignored (unlinked)
+		if code := fire(out.Sample, ""); code != 200 {
+			t.Fatalf("%s valid selftest signature: want 200, got %d", kind, code)
+		}
+		// tampered body with the same signature must be refused
+		body, _ := out.Sample["body"].(string)
+		tampered := strings.Replace(body, "selftest - ignore", "tampered payload", 1)
+		if code := fire(out.Sample, tampered); code != http.StatusUnauthorized {
+			t.Fatalf("%s tampered selftest: want 401, got %d", kind, code)
+		}
+	}
+}
