@@ -201,6 +201,42 @@ describe('edge setup', () => {
     expect(deviceYaml(base)).toContain('stop_bits: 0'); // legacy default = 1 stop bit in the agent
     expect(validateDevice({ ...base, stopBits: 3 as 1 }).some((e) => e.includes('Stop bits'))).toBe(true);
   });
+  it('circutor-cvm-c10 registers match the official manual M001B01-03 tables 19/20 (docs/devices/circutor-cvm-c10.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'circutor-cvm-c10')!;
+    expect(t.link).toBe('rtu');
+    expect(t.func).toBe(4); // FC 03 and 04 both stated for these variables; template uses 04
+    expect(t.type).toBe('u32');
+    expect(t.word_order).toBe('abcd'); // proven by the manual's own frame example: 0000 084D = VL1 x10 = 212.5 V
+    expect(t.wordOrderUnverified).toBeUndefined();
+    expect(t.pduBaseUnverified).toBeUndefined(); // the example reads listed address 0x0000 unmodified
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.provisional).toBeUndefined();
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('va_n').register).toBe(0x00);
+    expect(pt('va_n').scale).toBe(0.1); // V x 10
+    expect(pt('ia').register).toBe(0x02);
+    expect(pt('ia').scale).toBe(0.001); // mA
+    expect(pt('sa').register).toBe(0x0A);
+    expect(pt('s_total').register).toBe(0x36); // apparent three-phase "kVA III"
+    expect(pt('freq').register).toBe(0x3C);
+    expect(pt('freq').scale).toBe(0.01); // Hz x 100
+    expect(pt('va_b').register).toBe(0x3E);
+    expect(pt('i_n').register).toBe(0x44); // measured neutral current, mA
+    expect(pt('thd_i_c').register).toBe(0x50);
+    expect(pt('energy_consumed').register).toBe(0xDE); // Wh, Total column
+    expect(pt('energy_generated').register).toBe(0xF2);
+    expect(pt('reactive_cap_generated').register).toBe(0xFA);
+    expect(pt('apparent_generated').register).toBe(0xFE);
+    // signed quantities are excluded: no W, var, PF or cosphi points (wire encoding of negatives unstated)
+    expect(t.points.some((p) => p.unit === 'W' || p.unit === 'var')).toBe(false);
+    expect(t.points.some((p) => p.id.startsWith('pf') || p.id.startsWith('cosphi'))).toBe(false);
+    // no duplicate or overlapping 2-register spans
+    const used = new Set<number>();
+    for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
+    const y = deviceYaml({ deviceId: 'cvm-1', templateId: 'circutor-cvm-c10', link: 'rtu', port: '/dev/ttyUSB0', baud: 9600, parity: 'none', address: 10, intervalSec: 5 });
+    expect(y).toContain('register: 62'); // 0x3E = 62 (L1-L2 voltage): hex addresses land as decimal in YAML
+    expect(y).toContain('scale: 0.1'); expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
+  });
   it('carlo-gavazzi-em340 registers match EM300 series communication protocol CP (docs/devices/carlo-gavazzi-em340.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'carlo-gavazzi-em340')!;
     expect(t.word_order).toBe('cdab'); // LSW->MSW per the protocol doc
