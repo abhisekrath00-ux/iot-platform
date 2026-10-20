@@ -25,6 +25,7 @@ export default function Settings() {
   const [msg, setMsg] = useState('');
   const [tgChats, setTgChats] = useState<{ id: string; type: string; title: string }[] | null>(null);
   const [tgMsg, setTgMsg] = useState('');
+  const [tgCode, setTgCode] = useState('');
   const [bName, setBName] = useState('');
   const [bAccent, setBAccent] = useState('');
   const [bMsg, setBMsg] = useState('');
@@ -47,14 +48,31 @@ export default function Settings() {
     try { await api(`/v1/notifications/channels/${c.id}`, { method: 'DELETE' }); setMsg('Channel deleted.'); load(); } catch (e) { setMsg(String(e)); }
   }
 
+  function friendlyTgError(e: unknown): string {
+    const m = String(e);
+    if (m.includes('429') || m.includes('wait a few seconds')) return 'One moment - wait about 10 seconds, then press Find chats again.';
+    if (m.includes('409') || m.includes('not configured')) return 'Telegram is not configured on this deployment yet. Your platform operator sets TELEGRAM_BOT_TOKEN on the server.';
+    return m;
+  }
+  async function getPairCode() {
+    setTgMsg(''); setTgCode('');
+    try {
+      const r = await api<{ code: string; expires_in_minutes: number }>('/v1/notifications/telegram/pair-code', { method: 'POST' });
+      setTgCode(r.code);
+    } catch (e) { setTgMsg(friendlyTgError(e)); }
+  }
   async function findTgChats() {
-    setTgMsg('Asking the bot what it has seen...'); setTgChats(null);
+    setTgMsg('Checking for your code...'); setTgChats(null);
     try {
       const r = await api<{ chats: { id: string; type: string; title: string }[]; error?: string }>('/v1/notifications/telegram/chats');
-      if (r.error) { setTgMsg(r.error); return; }
+      if (r.error) { setTgMsg(friendlyTgError(r.error)); return; }
       setTgChats(r.chats);
-      setTgMsg(r.chats.length === 0 ? 'The bot has not seen any chat yet. Add it to your group or send it a message, then try again.' : '');
-    } catch (e) { setTgMsg(String(e)); }
+      if (r.chats.length === 0) {
+        setTgMsg(tgCode
+          ? 'Nothing paired yet. Send /pair ' + tgCode + ' to the bot in your chat, wait a few seconds, then press Find chats again.'
+          : 'No chats paired yet. Press Get pairing code first, then send the code to the bot inside your chat.');
+      } else { setTgMsg(''); setTgCode(''); }
+    } catch (e) { setTgMsg(friendlyTgError(e)); }
   }
 
   async function submit(e: React.FormEvent) {
@@ -84,10 +102,18 @@ export default function Settings() {
             <div className="muted" style={{ marginTop: 6 }}>
               <p style={{ marginTop: 0 }}>
                 Setup: in Telegram, create a bot with @BotFather and give the token to your platform operator (they set TELEGRAM_BOT_TOKEN on the server; never paste it here).
-                Add the bot to your chat or group and send any message there. Then press Find chats - it lists every chat your bot has seen, and Use fills in the chat id for you.
-                Group and channel ids start with -100.
+                Add the bot to your chat or group. Then prove the chat is yours:
               </p>
-              <p><button type="button" className="ghost" onClick={findTgChats}>Find chats the bot can see</button></p>
+              <ol style={{ margin: '4px 0 8px 18px' }}>
+                <li>Press Get pairing code below.</li>
+                <li>Send <b>/pair CODE</b> to the bot inside your chat (the code works for 10 minutes, once).</li>
+                <li>Press Find chats - your chat appears, and Use fills in its id. Only chats you paired this way can be used.</li>
+              </ol>
+              <p style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button type="button" className="ghost" onClick={getPairCode}>Get pairing code</button>
+                {tgCode && <span>Your code: <b style={{ letterSpacing: 1 }}>{tgCode}</b> (10 minutes, single use)</span>}
+              </p>
+              <p><button type="button" className="ghost" onClick={findTgChats}>Find chats</button></p>
               {tgMsg && <p>{tgMsg}</p>}
               {tgChats && tgChats.length > 0 && (
                 <table style={{ marginTop: 4 }}>
