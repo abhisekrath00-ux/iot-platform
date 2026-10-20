@@ -196,6 +196,22 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'acrel-apm800', name: 'Acrel APM800/801/810 (three-phase network power meter, Modbus RTU/TCP)', link: 'rtu', func: 3, type: 'i32', word_order: 'abcd',
+    note: 'From Acrel\'s own APM series manual V2.4 (jsacrel.cn, the manufacturer) cross-checked against the Chinese original on acrel.cn - docs/devices/acrel-apm800.md. All conventions vendor-stated, not provisional: FC 03 holding registers (the only FC the TCP option supports); the table is 0-based and every worked example reads at the exact table numbers, so listed addresses go on the wire unmodified; Int32 is high-word-first ("the high bits are in the front", Val_t = first word x 65536 + second word) and floats are IEEE-754 with the sign/exponent in the first word (the Chinese 8.3.4 works 0x474B 0xAC00 = 52140 Wh) - ABCD throughout. Values are the PRIMARY side (through the programmed CT/PT ratios). Oddity the manual itself documents: primary power floats carry the scaled value (float 110000.0 = 1100 W), so power uses f32 with scale 0.01. Energies are Float Wh/varh at scale 1 (IMP/EXP/EQL/EQC at 3000-3007; the tariff block at 3050+ is excluded - the English manual\'s "IMP at 3050-3051" example is the tariff-total register, per the Chinese original\'s table). Serial is programmed on the meter (1200-38400 baud, default 9600; none+1 stop default, none+2 stop, odd, even): match the form to the meter. APM830 has a DIFFERENT layout - not covered. Read-only; never run on a real meter.',
+    points: [
+      ps('ia', 1100, 'A', 0, 1e6, 0.001), ps('ib', 1102, 'A', 0, 1e6, 0.001), ps('ic', 1104, 'A', 0, 1e6, 0.001), ps('i_n', 1106, 'A', 0, 1e6, 0.001),
+      ps('va_n', 1120, 'V', 0, 1.2e6, 0.1), ps('vb_n', 1122, 'V', 0, 1.2e6, 0.1), ps('vc_n', 1124, 'V', 0, 1.2e6, 0.1),
+      ps('va_b', 1128, 'V', 0, 1.2e6, 0.1), ps('vb_c', 1130, 'V', 0, 1.2e6, 0.1), ps('vc_a', 1132, 'V', 0, 1.2e6, 0.1),
+      ps('p_a', 1150, 'W', -1e9, 1e9, 0.01, 'f32'), ps('p_b', 1152, 'W', -1e9, 1e9, 0.01, 'f32'), ps('p_c', 1154, 'W', -1e9, 1e9, 0.01, 'f32'), ps('p_total', 1156, 'W', -1e9, 1e9, 0.01, 'f32'),
+      ps('q_a', 1158, 'var', -1e9, 1e9, 0.01, 'f32'), ps('q_b', 1160, 'var', -1e9, 1e9, 0.01, 'f32'), ps('q_c', 1162, 'var', -1e9, 1e9, 0.01, 'f32'), ps('q_total', 1164, 'var', -1e9, 1e9, 0.01, 'f32'),
+      ps('s_a', 1166, 'VA', -1e9, 1e9, 0.01, 'f32'), ps('s_b', 1168, 'VA', -1e9, 1e9, 0.01, 'f32'), ps('s_c', 1170, 'VA', -1e9, 1e9, 0.01, 'f32'), ps('s_total', 1172, 'VA', -1e9, 1e9, 0.01, 'f32'),
+      ps('freq', 1179, 'Hz', 0, 70, 0.01, 'i16'),
+      ps('pf_a', 1180, '', -1, 1, 0.001, 'i16'), ps('pf_b', 1181, '', -1, 1, 0.001, 'i16'), ps('pf_c', 1182, '', -1, 1, 0.001, 'i16'), ps('pf_total', 1183, '', -1, 1, 0.001, 'i16'),
+      ps('energy_imp', 3000, 'Wh', 0, 1e12, 1, 'f32'), ps('energy_exp', 3002, 'Wh', 0, 1e12, 1, 'f32'),
+      ps('varh_inductive', 3004, 'varh', 0, 1e12, 1, 'f32'), ps('varh_capacitive', 3006, 'varh', 0, 1e12, 1, 'f32'),
+    ],
+  },
+  {
     id: 'carlo-gavazzi-em340', name: 'Carlo Gavazzi EM340 (three-phase DIN-rail meter)', link: 'rtu', func: 4, type: 'i32', word_order: 'cdab',
     note: 'From the official EM300 Series communication protocol CP (gavazziautomation.com, docs/devices/carlo-gavazzi-em340.md). Signed 32-bit integers with documented weights (V*10, mA, W*10, PF*1000) and LSW-first word order (cdab, per the protocol doc). Registers are the doc\'s physical addresses (Modicon 300001 = physical 0). Rows the doc marks "not available" on EM340 and the ET/EM330-only rows are excluded. Read-only; never run on a real meter.',
     points: [
