@@ -79,7 +79,7 @@ export default function AssistantChannels() {
             <p className="muted" style={{ margin: '0 0 6px' }}>The in-product assistant has the full setup guide - ask it about any step.</p>
           </details>
           <div style={{ marginTop: 10 }}>
-            <span className="muted" style={{ fontSize: 12 }}>Check the signing path before calling Slack or your gateway: the server builds a signed sample request with your stored secret (the secret never leaves the server). Run it against your server address.</span>
+            <span className="muted" style={{ fontSize: 12 }}>Check the signing path before calling Slack or your gateway: the server builds a signed sample request with your stored secret (the secret never leaves the server). Run it against your server address. This proves the server checks signatures correctly; it does not prove Slack or your gateway can actually deliver messages.</span>
             <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
               {cs.has_slack_secret && <button type="button" onClick={() => runSelftest('slack')}>Check Slack signing</button>}
               {cs.has_email_secret && <button type="button" onClick={() => runSelftest('email')}>Check email signing</button>}
