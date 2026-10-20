@@ -87,10 +87,17 @@ type TelegramChat struct {
 	Title string `json:"title"` // group/channel title, or the person's name for private chats
 }
 
-// TelegramChats lists the chats the bot has seen recently, so an admin can pick a destination
-// instead of hunting for a numeric id. It is the bot's own getUpdates feed; only chats that
-// messaged the bot (or had it added) appear. The token never leaves the server.
-func (n *Notifier) TelegramChats(ctx context.Context) ([]TelegramChat, error) {
+// TelegramMessage is one inbound message the bot has seen, from its own getUpdates feed.
+// Used for pairing: a tenant proves it owns a chat by sending its one-time code there.
+type TelegramMessage struct {
+	Chat TelegramChat
+	Text string
+}
+
+// TelegramMessages returns recent inbound messages (text + chat) from the bot's getUpdates feed.
+// NOTE: Telegram forbids getUpdates while a webhook is set. The planned inbound slice must consume
+// this same stream (shared poller) instead of setting a webhook, or pairing discovery stops working.
+func (n *Notifier) TelegramMessages(ctx context.Context) ([]TelegramMessage, error) {
 	tok := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if tok == "" {
 		return nil, errors.New("telegram is not configured")
@@ -115,54 +122,38 @@ func (n *Notifier) TelegramChats(ctx context.Context) ([]TelegramChat, error) {
 	var out struct {
 		Result []struct {
 			Message *struct {
+				Text string    `json:"text"`
 				Chat tgRawChat `json:"chat"`
 			} `json:"message"`
-			EditedMessage *struct {
-				Chat tgRawChat `json:"chat"`
-			} `json:"edited_message"`
 			ChannelPost *struct {
+				Text string    `json:"text"`
 				Chat tgRawChat `json:"chat"`
 			} `json:"channel_post"`
-			MyChatMember *struct {
-				Chat tgRawChat `json:"chat"`
-			} `json:"my_chat_member"`
 		} `json:"result"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
 		return nil, errors.New("telegram: unreadable reply")
 	}
-	seen := map[string]bool{}
-	var chats []TelegramChat
-	add := func(c *tgRawChat) {
-		if c == nil {
-			return
+	var msgs []TelegramMessage
+	for _, u := range out.Result {
+		m := u.Message
+		if m == nil {
+			m = u.ChannelPost
 		}
-		id := strconv.FormatInt(c.ID, 10)
-		if seen[id] {
-			return
+		if m == nil {
+			continue
 		}
-		seen[id] = true
+		c := m.Chat
 		title := c.Title
 		if title == "" {
 			title = strings.TrimSpace(c.FirstName + " " + c.LastName)
 		}
-		chats = append(chats, TelegramChat{ID: id, Type: c.Type, Title: title})
+		msgs = append(msgs, TelegramMessage{
+			Chat: TelegramChat{ID: strconv.FormatInt(c.ID, 10), Type: c.Type, Title: title},
+			Text: m.Text,
+		})
 	}
-	for _, u := range out.Result {
-		if u.Message != nil {
-			add(&u.Message.Chat)
-		}
-		if u.EditedMessage != nil {
-			add(&u.EditedMessage.Chat)
-		}
-		if u.ChannelPost != nil {
-			add(&u.ChannelPost.Chat)
-		}
-		if u.MyChatMember != nil {
-			add(&u.MyChatMember.Chat)
-		}
-	}
-	return chats, nil
+	return msgs, nil
 }
 
 type tgRawChat struct {
