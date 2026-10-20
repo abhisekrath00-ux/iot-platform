@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -30,13 +31,26 @@ func (s *server) createInvite(w http.ResponseWriter, r *http.Request) {
 	if !s.quotaOK(w, r, "users", 1) {
 		return
 	}
+	payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
+	if err != nil {
+		http.Error(w, "body too large", 413)
+		return
+	}
+	s.withIdempotency(w, r, "invite.create", payload, func(w http.ResponseWriter) {
+		s.createInviteWithPayload(w, r, payload)
+	})
+}
+
+// createInviteWithPayload runs the invite write once; withIdempotency owns retries. The role, local-login
+// and quota checks stay in createInvite so a replayed response can never bypass a revoked permission.
+func (s *server) createInviteWithPayload(w http.ResponseWriter, r *http.Request, payload []byte) {
 	var raw struct {
 		Email      string  `json:"email"`
 		Role       string  `json:"role"`
 		CustomerID *string `json:"customer_id"`
 		SendEmail  bool    `json:"send_email"`
 	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&raw) != nil {
+	if json.Unmarshal(payload, &raw) != nil {
 		http.Error(w, "bad json", 400)
 		return
 	}
