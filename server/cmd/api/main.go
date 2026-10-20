@@ -291,6 +291,7 @@ func main() {
 	api.HandleFunc("GET /v1/diagnostics/investigate", s.investigate)
 	api.HandleFunc("GET /v1/ai/activity", s.aiActivity)
 	api.HandleFunc("GET /v1/assistant/channel-settings", s.getChannelSettings)
+	api.HandleFunc("GET /v1/assistant/selftest/{kind}", s.getChannelSelftest)
 	api.HandleFunc("PUT /v1/assistant/channel-settings", s.putChannelSettings)
 	api.HandleFunc("GET /v1/assistant/links", s.listChannelLinks)
 	api.HandleFunc("POST /v1/assistant/links", s.createChannelLink)
