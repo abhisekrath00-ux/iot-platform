@@ -54,7 +54,7 @@ func (s *server) setDeviceTags(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ct, err := s.st.Pool.Exec(r.Context(), `UPDATE devices SET tags=$1 WHERE id=$2 AND tenant_id=$3`, tags, id, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if ct.RowsAffected() == 0 {
