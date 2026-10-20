@@ -60,14 +60,21 @@ export default function Settings() {
       <h1>Settings</h1>
       <div className="card" style={{ maxWidth: 760, marginBottom: 20 }}>
         <b>Notification channels</b>
-        <p className="muted">Alerts from your rules go to these destinations. Email uses your SMTP server (deployment env), Slack uses a bot token.</p>
+        <p className="muted">Alerts from your rules go to these destinations. Email uses your SMTP server (deployment env), Slack uses a bot token, Telegram uses a bot token (deployment env, TELEGRAM_BOT_TOKEN).</p>
         <form onSubmit={submit}>
           <label>Type</label>
           <select value={type} onChange={e => setType(e.target.value)}>
-            <option value="email">Email</option><option value="slack">Slack channel</option><option value="webhook">Webhook (HTTPS URL)</option><option value="teams">Microsoft Teams (webhook URL)</option><option value="sms">SMS (needs a gateway)</option><option value="whatsapp">WhatsApp (needs a business account)</option>
+            <option value="email">Email</option><option value="slack">Slack channel</option><option value="webhook">Webhook (HTTPS URL)</option><option value="teams">Microsoft Teams (webhook URL)</option><option value="sms">SMS (needs a gateway)</option><option value="whatsapp">WhatsApp (needs a business account)</option><option value="telegram">Telegram (bot chat)</option>
           </select>
-          <label>{({ email: 'Email address', slack: 'Slack channel ID', webhook: 'Webhook URL', teams: 'Teams incoming-webhook URL (https)', sms: 'Phone number (+country code)', whatsapp: 'WhatsApp number (+country code)' } as Record<string, string>)[type]}</label>
-          <input value={target} onChange={e => setTarget(e.target.value)} placeholder={({ email: 'ops@yourcompany.com', slack: 'C0123456789', webhook: 'https://example.com/hook', teams: 'https://...webhook.office.com/...', sms: '+4915112345678', whatsapp: '+919812345678' } as Record<string, string>)[type]} required />
+          <label>{({ email: 'Email address', slack: 'Slack channel ID', webhook: 'Webhook URL', teams: 'Teams incoming-webhook URL (https)', sms: 'Phone number (+country code)', whatsapp: 'WhatsApp number (+country code)', telegram: 'Telegram chat ID' } as Record<string, string>)[type]}</label>
+          <input value={target} onChange={e => setTarget(e.target.value)} placeholder={({ email: 'ops@yourcompany.com', slack: 'C0123456789', webhook: 'https://example.com/hook', teams: 'https://...webhook.office.com/...', sms: '+4915112345678', whatsapp: '+919812345678', telegram: '-1001234567890 (a group) or 123456789 (a person)' } as Record<string, string>)[type]} required />
+          {type === 'telegram' && (
+            <p className="muted" style={{ marginTop: 6 }}>
+              Setup: in Telegram, create a bot with @BotFather and give the token to your platform operator (they set TELEGRAM_BOT_TOKEN on the server).
+              Add the bot to your chat or group, send any message there, then find the numeric chat id (for example via the bot's getUpdates or @userinfobot).
+              Group and channel ids start with -100. Press Add channel, then Send test on the row below - nothing is sent until you do.
+            </p>
+          )}
           <div style={{ marginTop: 14 }}><button type="submit">Add channel</button></div>
         </form>
         {msg && <p className="muted">{msg}</p>}
