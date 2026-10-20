@@ -50,7 +50,7 @@ func telegramInboundEnabled() bool {
 func telegramInboundEnv() bool { return os.Getenv("TELEGRAM_INBOUND") == "1" }
 
 const (
-	tgPollTimeoutSec  = 25            // Bot API long-poll window
+	tgPollTimeoutSec  = 25 // Bot API long-poll window
 	tgRecoverWindow   = 10 * time.Minute
 	tgInboxKeep       = 7 * 24 * time.Hour
 	tgReplyCooldown   = 5 * time.Second
