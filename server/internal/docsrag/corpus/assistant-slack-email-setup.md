@@ -15,8 +15,11 @@ stored. The server builds a signed sample request with the stored secret (the se
 the server) and shows two commands:
 
 - Run the first against your server: **HTTP 200** means signature, freshness, and (for email) the
-  relay checks all passed. The sample sender matches no linked identity, so it is then audited as
-  `inbound_refused` and ignored - nothing is acted on.
+  relay checks all passed. The sample sender is a reserved identity (selftest@example.invalid /
+  U0SELFTEST) that the inbound handlers always ignore and that cannot be linked to a user, so a
+  valid or replayed sample causes zero actions, replies, model calls, or writes. This proves the
+  server's verification logic; it does not prove Slack or your gateway can actually deliver
+  messages.
 - Run the second (same signature, altered body): **HTTP 401** proves tampering is caught. If this
   one returns 200, stop - the verification is broken.
 
