@@ -2188,15 +2188,19 @@ func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
 
 // --- rules CRUD (flow definitions; evaluator runs in ingest) ---
 func (s *server) listRules(w http.ResponseWriter, r *http.Request) {
-	asset := r.URL.Query().Get("asset_id") // rules that name a device under this asset
+	asset := r.URL.Query().Get("asset_id") // rules that apply to this asset: device rules for devices under it, asset rules on it or above it
 	rows, err := s.st.Pool.Query(r.Context(),
 		`WITH RECURSIVE sub AS (
 		   SELECT id FROM assets WHERE tenant_id=$1 AND id=NULLIF($2,'')
 		   UNION ALL SELECT a.id FROM assets a JOIN sub ON a.parent_id=sub.id WHERE a.tenant_id=$1
+		 ), up AS (
+		   SELECT id, parent_id FROM assets WHERE tenant_id=$1 AND id=NULLIF($2,'')
+		   UNION ALL SELECT a.id, a.parent_id FROM assets a JOIN up ON a.id=up.parent_id WHERE a.tenant_id=$1
 		 )
 		 SELECT id, name, definition, version, enabled FROM rules
 		 WHERE tenant_id=$1
-		   AND ($2='' OR definition->>'device_id' IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub)))
+		   AND ($2='' OR definition->>'device_id' IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.asset_id IN (SELECT id FROM sub))
+		        OR definition->>'asset_id' IN (SELECT id FROM up))
 		 ORDER BY created_at DESC`, auth.Tenant(r), asset)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -2242,6 +2246,13 @@ func (s *server) createRule(w http.ResponseWriter, r *http.Request) {
 		var one int
 		if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM kpis WHERE id=$1 AND tenant_id=$2`, def.KPIID, auth.Tenant(r)).Scan(&one) != nil {
 			http.Error(w, "unknown kpi", 404)
+			return
+		}
+	}
+	if def.AssetID != "" {
+		var one int
+		if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM assets WHERE id=$1 AND tenant_id=$2`, def.AssetID, auth.Tenant(r)).Scan(&one) != nil {
+			http.Error(w, "unknown asset", 404)
 			return
 		}
 	}
