@@ -88,11 +88,13 @@ export default function Settings() {
   async function findSlChannels() {
     setSlMsg('Looking up channels...'); setSlChannels(null);
     try {
-      const r = await api<{ channels: { id: string; name: string; is_member: boolean; is_private: boolean }[]; error?: string }>('/v1/notifications/slack/channels');
+      const r = await api<{ channels: { id: string; name: string; is_member: boolean; is_private: boolean }[]; truncated?: boolean; error?: string }>('/v1/notifications/slack/channels');
       if (r.error) { setSlMsg(friendlySlError(r.error)); return; }
       setSlChannels(r.channels);
       if (r.channels.length === 0) {
         setSlMsg('The bot cannot see any channels yet. Invite it to a channel in Slack (type /invite @YourBotName inside the channel), then press Find channels again.');
+      } else if (r.truncated) {
+        setSlMsg('Large workspace: showing the first 2000 channels the bot can see (Slack pagination cap). Type the ID by hand if yours is not listed.');
       } else { setSlMsg(''); }
     } catch (e) { setSlMsg(friendlySlError(e)); }
   }
