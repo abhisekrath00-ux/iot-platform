@@ -77,3 +77,12 @@ export function summarize(vals: number[]): { last: number; min: number; max: num
 export function indicatorOn(v: number, onAt = 1): boolean {
   return Number.isFinite(v) && v >= onAt;
 }
+
+/** Widgets visible under an asset filter. assetDeviceIds is the set of device
+ * ids under the chosen asset (null = no filter). Widgets not bound to a
+ * device (notes, the open-alerts list) always stay; the alerts list applies
+ * the same asset through its own query. */
+export function filterWidgetsByAsset(widgets: Widget[], assetDeviceIds: Set<string> | null): Widget[] {
+  if (!assetDeviceIds) return widgets;
+  return widgets.filter(w => !w.device_id || assetDeviceIds.has(w.device_id));
+}
