@@ -15,7 +15,7 @@ func (s *server) getEscalation(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT severity, step, after_minutes, COALESCE(channel_id,''), COALESCE(schedule_id,'') FROM escalation_steps WHERE tenant_id=$1 ORDER BY severity, step`, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
@@ -67,12 +67,12 @@ func (s *server) putEscalation(w http.ResponseWriter, r *http.Request) {
 	tenant := auth.Tenant(r)
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer tx.Rollback(r.Context())
 	if _, err := tx.Exec(r.Context(), `DELETE FROM escalation_steps WHERE tenant_id=$1`, tenant); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	for _, st := range in.Steps {
@@ -88,26 +88,26 @@ func (s *server) putEscalation(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := tx.Exec(r.Context(), `INSERT INTO escalation_steps(id,tenant_id,severity,step,after_minutes,channel_id,schedule_id) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''))`,
 			uuid.NewString(), tenant, st.Severity, st.Step, st.AfterMinutes, st.ChannelID, st.ScheduleID); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 	}
 	if in.Repeat != nil {
 		if _, err := tx.Exec(r.Context(), `INSERT INTO escalation_settings(tenant_id,repeat_every_minutes,repeat_max) VALUES($1,$2,$3)
 			ON CONFLICT (tenant_id) DO UPDATE SET repeat_every_minutes=EXCLUDED.repeat_every_minutes, repeat_max=EXCLUDED.repeat_max`, tenant, in.Repeat.EveryMinutes, in.Repeat.Max); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 	}
 	if in.Quiet != nil {
 		if _, err := tx.Exec(r.Context(), `INSERT INTO escalation_settings(tenant_id,quiet_start,quiet_end,quiet_tz) VALUES($1,$2,$3,$4)
 			ON CONFLICT (tenant_id) DO UPDATE SET quiet_start=EXCLUDED.quiet_start, quiet_end=EXCLUDED.quiet_end, quiet_tz=EXCLUDED.quiet_tz`, tenant, in.Quiet.Start, in.Quiet.End, in.Quiet.Timezone); err != nil {
-			http.Error(w, err.Error(), 500)
+			dbErr(w, err)
 			return
 		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	s.audit(r, "escalation.update", tenant, map[string]any{"steps": len(in.Steps)})
