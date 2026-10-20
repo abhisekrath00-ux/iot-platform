@@ -136,6 +136,25 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'janitza-umg96rm-e', name: 'Janitza UMG 96RM-E (three-phase power analyser, Modbus TCP/RTU)', link: 'tcp', func: 4, type: 'f32', word_order: 'abcd',
+    note: 'From the official UMG 96RM-E Modbus address list and formulary (janitza.com, docs/devices/janitza-umg96rm-e.md), "Frequently required readings" table (addresses 19000-19120). Every convention is vendor-stated: the listed numbers ARE the Modbus addresses on the wire (the operating manual prints the same readings under a "Modbus address" column), the listed addresses answer big-endian and the doc says adding 32768 switches a reading to little-endian, and the slave supports both FC 03 and FC 04 (this template uses FC 04). All values are IEEE-754 Float (2 registers) and already include the configured transformer factors. Modbus TCP on the base unit\'s Ethernet, or RTU on the RS485 with the same addresses. Read-only; never run on a real meter.',
+    points: [
+      p('va_n', 19000, 'V', 0, 1000), p('vb_n', 19002, 'V', 0, 1000), p('vc_n', 19004, 'V', 0, 1000),
+      p('va_b', 19006, 'V', 0, 1000), p('vb_c', 19008, 'V', 0, 1000), p('vc_a', 19010, 'V', 0, 1000),
+      p('ia', 19012, 'A', 0, 100000), p('ib', 19014, 'A', 0, 100000), p('ic', 19016, 'A', 0, 100000),
+      p('i_n_vec', 19018, 'A', 0, 100000),
+      p('pa', 19020, 'W', -1e9, 1e9), p('pb', 19022, 'W', -1e9, 1e9), p('pc', 19024, 'W', -1e9, 1e9), p('p_sum', 19026, 'W', -1e9, 1e9),
+      p('sa', 19028, 'VA', 0, 1e9), p('sb', 19030, 'VA', 0, 1e9), p('sc', 19032, 'VA', 0, 1e9), p('s_sum', 19034, 'VA', 0, 1e9),
+      p('qa', 19036, 'var', -1e9, 1e9), p('qb', 19038, 'var', -1e9, 1e9), p('qc', 19040, 'var', -1e9, 1e9), p('q_sum', 19042, 'var', -1e9, 1e9),
+      p('cosphi_a', 19044, '', -1, 1), p('cosphi_b', 19046, '', -1, 1), p('cosphi_c', 19048, '', -1, 1),
+      p('freq', 19050, 'Hz', 45, 65), p('rotation_field', 19052, '', -1, 1),
+      p('energy_total', 19060, 'Wh', 0, 1e12), p('energy_consumed', 19068, 'Wh', 0, 1e12), p('energy_delivered', 19076, 'Wh', 0, 1e12),
+      p('energy_apparent', 19084, 'VAh', 0, 1e12), p('energy_reactive_ind', 19100, 'varh', 0, 1e12), p('energy_reactive_cap', 19108, 'varh', 0, 1e12),
+      p('thd_v_a', 19110, '%', 0, 100), p('thd_v_b', 19112, '%', 0, 100), p('thd_v_c', 19114, '%', 0, 100),
+      p('thd_i_a', 19116, '%', 0, 100), p('thd_i_b', 19118, '%', 0, 100), p('thd_i_c', 19120, '%', 0, 100),
+    ],
+  },
+  {
     id: 'carlo-gavazzi-em340', name: 'Carlo Gavazzi EM340 (three-phase DIN-rail meter)', link: 'rtu', func: 4, type: 'i32', word_order: 'cdab',
     note: 'From the official EM300 Series communication protocol CP (gavazziautomation.com, docs/devices/carlo-gavazzi-em340.md). Signed 32-bit integers with documented weights (V*10, mA, W*10, PF*1000) and LSW-first word order (cdab, per the protocol doc). Registers are the doc\'s physical addresses (Modicon 300001 = physical 0). Rows the doc marks "not available" on EM340 and the ET/EM330-only rows are excluded. Read-only; never run on a real meter.',
     points: [
