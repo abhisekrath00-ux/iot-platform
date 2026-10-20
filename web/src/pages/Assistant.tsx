@@ -4,6 +4,7 @@ import { Opt, WIZARDS, Wizard } from '../components/ChatWizards';
 import { api } from '../lib/api';
 
 interface Msg { role: 'user' | 'assistant'; content: string; }
+interface Me { role?: string; customer_id?: string; customer_name?: string; }
 interface Pending { id: string; method: string; path: string; body?: string; summary: string; status?: string; }
 interface Trace { tool: string; detail: string; status: string; }
 export interface Reply { reply: string; plan: string[]; trace: Trace[]; pending: Pending[]; model?: string; error?: string; fallback?: string; }
@@ -30,10 +31,14 @@ export default function Assistant() {
   const [wErr, setWErr] = useState('');
   const [wConfirm, setWConfirm] = useState(false);
   const [wBusy, setWBusy] = useState(false);
+  const [wFinal, setWFinal] = useState(false); // a failure that retrying cannot fix (4xx): only Cancel makes sense
+  // Who is signed in, for gating sections the server will refuse anyway. null = still loading, false = lookup failed.
+  const [me, setMe] = useState<Me | null | false>(null);
+  useEffect(() => { api<Me>('/v1/me').then(setMe).catch(() => setMe(false)); }, []);
   const end = useRef<HTMLDivElement>(null);
 
   function startWizard(w: Wizard) {
-    setWiz(w); setWStep(0); setWAns({}); setWErr(''); setWConfirm(false); setWOpts(null);
+    setWiz(w); setWStep(0); setWAns({}); setWErr(''); setWConfirm(false); setWOpts(null); setWFinal(false);
     loadStepOptions(w, 0, {});
   }
   function loadStepOptions(w: Wizard, idx: number, answers: Record<string, string>) {
@@ -66,13 +71,19 @@ export default function Assistant() {
     loadStepOptions(wiz, wStep + 1, next);
   }
   async function runWizard() {
-    if (!wiz) return;
+    if (!wiz || wBusy) return; // busy guard: a fast second click must not fire the write twice
     setWBusy(true);
     try {
       const done = await wiz.run(wAns);
       setMsgs(ms => [...ms, { role: 'assistant', content: done }]);
       setWiz(null);
-    } catch (e) { setWErr(String(e)); }
+    } catch (e) {
+      const msg = String(e);
+      const code = /^Error: (\d{3})/.exec(msg)?.[1] ?? '';
+      if (code === '403') { setWErr("Your role does not allow this change. Nothing was written."); setWFinal(true); }
+      else if (code.startsWith('4')) { setWErr(msg); setWFinal(true); } // conflicts and bad input: retrying the same answers cannot help
+      else { setWErr(msg); } // network/5xx: Confirm stays available so you can retry
+    }
     setWBusy(false);
   }
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }); }, [runs, msgs]);
@@ -100,6 +111,25 @@ export default function Assistant() {
     } catch (e) { setActs(a => ({ ...a, [id]: String(e) })); }
   }
   let ri = -1;
+  // Wait for /v1/me before mounting anything that fires its own requests (memory, wizard options):
+  // a customer-scoped user must not trigger calls the server will refuse.
+  if (me === null) {
+    return (<><h1>Assistant</h1><p className="muted">Loading...</p></>);
+  }
+  // Customer-portal accounts cannot use the assistant at all (the server refuses every call it makes):
+  // explain that once instead of firing requests that fail.
+  if (me && me.customer_id) {
+    return (
+      <>
+        <h1>Assistant</h1>
+        <div className="card" style={{ maxWidth: 900, padding: '12px 16px' }}>
+          <p>The assistant is not available for customer portal accounts{me.customer_name ? ` (${me.customer_name})` : ''}.</p>
+          <p className="muted" style={{ marginBottom: 0 }}>Your dashboards, map, alerts and reports are in the menu. Ask your administrator if you need more access.</p>
+        </div>
+      </>
+    );
+  }
+  const wizards = WIZARDS.filter(w => !w.roles || me === false || (me && me.role != null && w.roles.includes(me.role))); // me lookup failed: show all, the server still enforces
   return (
     <>
       <h1>Assistant</h1>
@@ -140,10 +170,12 @@ export default function Assistant() {
         <div className="card" style={{ maxWidth: 900, marginTop: 12, padding: '10px 14px' }}>
           <span className="muted" style={{ fontSize: 12 }}>Guided templates (work without the model): </span>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
-            {WIZARDS.map(w => (
+            {(me === null ? [] : wizards).map(w => (
               <button key={w.id} type="button" className="ghost" title={w.description} onClick={() => startWizard(w)}>{w.title}</button>
             ))}
+            {me === null && <span className="muted">Loading...</span>}
           </div>
+          {me && wizards.length < WIZARDS.length && <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Some templates need a higher role than yours.</p>}
         </div>
       )}
       {wiz && (
@@ -172,8 +204,8 @@ export default function Assistant() {
               <p>{wiz.summary(wAns)}</p>
               {wErr && <p role="alert">{wErr}</p>}
               <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" disabled={wBusy} onClick={runWizard}>{wBusy ? 'Working...' : 'Confirm'}</button>
-                <button type="button" className="ghost" disabled={wBusy} onClick={() => setWiz(null)}>Cancel</button>
+                {!wFinal && <button type="button" disabled={wBusy} onClick={runWizard}>{wBusy ? 'Working...' : 'Confirm'}</button>}
+                <button type="button" className="ghost" disabled={wBusy} onClick={() => setWiz(null)}>{wFinal ? 'Close' : 'Cancel'}</button>
               </div>
             </div>
           )}
