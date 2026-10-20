@@ -127,6 +127,33 @@ func join(a []string) string {
 	return out
 }
 
+
+// telegramPairMessages returns the messages a pairing scan should search: the poller's inbox
+// when inbound mode owns the feed (recent rows only - a code lives 10 minutes), else a live
+// getUpdates read.
+func (s *server) telegramPairMessages(ctx context.Context, tgr interface {
+	TelegramMessages(context.Context) ([]notify.TelegramMessage, error)
+}) ([]notify.TelegramMessage, error) {
+	if !telegramInboundEnabled() {
+		return tgr.TelegramMessages(ctx)
+	}
+	rows, err := s.st.Pool.Query(ctx,
+		`SELECT chat_id, chat_type, title, author, text FROM telegram_inbox
+		 WHERE received_at > now() - interval '15 minutes' ORDER BY update_id DESC LIMIT 200`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var msgs []notify.TelegramMessage
+	for rows.Next() {
+		var m notify.TelegramMessage
+		if rows.Scan(&m.Chat.ID, &m.Chat.Type, &m.Chat.Title, &m.Author, &m.Text) == nil {
+			msgs = append(msgs, m)
+		}
+	}
+	return msgs, nil
+}
+
 var telegramChatsAt sync.Map // tenant -> time of the last pairing scan (one per 10 s, per process)
 
 // Telegram pairing. The bot token is operator-global, so seeing a chat in getUpdates or knowing its
@@ -196,7 +223,7 @@ func (s *server) telegramChats(w http.ResponseWriter, r *http.Request) {
 	tgr, ok2 := s.replier().(interface {
 		TelegramMessages(context.Context) ([]notify.TelegramMessage, error)
 	})
-	if !ok2 {
+	if !ok2 && !telegramInboundEnabled() {
 		http.Error(w, "telegram not available", 503)
 		return
 	}
@@ -206,7 +233,9 @@ func (s *server) telegramChats(w http.ResponseWriter, r *http.Request) {
 	_ = s.st.Pool.QueryRow(r.Context(), `SELECT code, created_at FROM telegram_pair_codes WHERE tenant_id=$1`, t).Scan(&code, &codeAt)
 	codeLive := code != "" && time.Since(codeAt) < pairCodeTTL
 	if codeLive {
-		msgs, err := tgr.TelegramMessages(r.Context())
+		// With the inbound poller on, it owns the getUpdates stream and an ad-hoc read here
+		// would race its confirmed offsets, so pair from the inbox the poller fills instead.
+		msgs, err := s.telegramPairMessages(r.Context(), tgr)
 		if err != nil {
 			e := err.Error()
 			if len(e) > 200 {
@@ -217,6 +246,15 @@ func (s *server) telegramChats(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, m := range msgs {
 			if !strings.Contains(m.Text, code) {
+				continue
+			}
+			// One chat serves one tenant: a chat already paired elsewhere cannot be claimed by
+			// speaking this tenant's code into it, or the poller could not tell whose alerts
+			// the chat may read.
+			var other string
+			if err := s.st.Pool.QueryRow(r.Context(),
+				`SELECT tenant_id FROM telegram_chats WHERE chat_id=$1 AND tenant_id<>$2 LIMIT 1`, m.Chat.ID, t).Scan(&other); err == nil {
+				s.audit(r, "channel.telegram_pair_refused", m.Chat.ID, map[string]any{"reason": "chat already paired to another tenant"})
 				continue
 			}
 			if _, err := s.st.Pool.Exec(r.Context(),
