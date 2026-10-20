@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 )
 
@@ -121,4 +123,45 @@ func join(a []string) string {
 		out += x
 	}
 	return out
+}
+
+var telegramChatsAt sync.Map // tenant -> time of the last chat lookup (one per 10 s, per process)
+
+// GET /v1/notifications/telegram/chats lists the chats the deployment's Telegram bot has seen,
+// so an admin can pick a destination instead of hunting for a numeric chat id. Admin only, never
+// through an API key or the assistant; rate limited like a channel test.
+func (s *server) telegramChats(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin") || auth.ViaKey(r) {
+		if auth.ViaKey(r) {
+			http.Error(w, "not available to API keys or the assistant", http.StatusForbidden)
+		}
+		return
+	}
+	if !notify.TelegramConfigured() {
+		http.Error(w, "Telegram is not configured on this deployment (the operator sets TELEGRAM_BOT_TOKEN)", 409)
+		return
+	}
+	t := auth.Tenant(r)
+	if prev, loaded := telegramChatsAt.Load(t); loaded && time.Since(prev.(time.Time)) < 10*time.Second {
+		http.Error(w, "wait a few seconds between lookups", http.StatusTooManyRequests)
+		return
+	}
+	telegramChatsAt.Store(t, time.Now())
+	tgr, ok2 := s.replier().(interface {
+		TelegramChats(context.Context) ([]notify.TelegramChat, error)
+	})
+	if !ok2 {
+		http.Error(w, "telegram not available", 503)
+		return
+	}
+	chats, err := tgr.TelegramChats(r.Context())
+	if err != nil {
+		e := err.Error()
+		if len(e) > 200 {
+			e = e[:200]
+		}
+		writeJSON(w, 200, map[string]any{"chats": []any{}, "error": e})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"chats": chats})
 }
