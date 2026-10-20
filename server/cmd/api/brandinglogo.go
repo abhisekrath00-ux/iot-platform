@@ -81,6 +81,22 @@ func (s *server) tenantLogoImage(ctx context.Context, tenant string) image.Image
 //go:embed reportlogo-default.png
 var defaultReportLogoPNG []byte
 
+// reportLogoImageFor is reportLogoImage with per-customer resolution: a report shared with a customer
+// prints that customer's logo when it has one, then falls through to the tenant logo, then the built-in
+// mark - the same order /v1/branding resolves. No walk up the customer tree; a customer id from another
+// tenant matches nothing and falls through.
+func (s *server) reportLogoImageFor(ctx context.Context, tenant, customerID string) image.Image {
+	if customerID != "" {
+		var b []byte
+		if err := s.st.Pool.QueryRow(ctx, `SELECT logo FROM customer_branding WHERE customer_id=$1 AND tenant_id=$2`, customerID, tenant).Scan(&b); err == nil && len(b) > 0 {
+			if img, _, err := image.Decode(bytes.NewReader(b)); err == nil {
+				return img
+			}
+		}
+	}
+	return s.reportLogoImage(ctx, tenant)
+}
+
 // reportLogoImage is the logo printed on reports: the tenant's own logo when it uploaded one, otherwise the
 // built-in HexThings mark. Tenant white-label branding always wins.
 func (s *server) reportLogoImage(ctx context.Context, tenant string) image.Image {
@@ -92,4 +108,12 @@ func (s *server) reportLogoImage(ctx context.Context, tenant string) image.Image
 		return nil
 	}
 	return img
+}
+
+// deref flattens a nullable string column to "" for resolution calls.
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
