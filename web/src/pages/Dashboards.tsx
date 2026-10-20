@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
-import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem, filterWidgetsByAsset } from '../lib/widgets';
+import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem, filterWidgetsByAsset, createSequencer } from '../lib/widgets';
 import { GaugeWidget, BarWidget, StatusWidget, TableWidget, StatWidget, IndicatorWidget, AlarmsWidget, NoteWidget } from '../components/Widgets';
 
 interface Dashboard { id: string; name: string; customer_id?: string | null; layout: { widgets?: Widget[] }; }
@@ -77,6 +77,8 @@ export default function Dashboards() {
   const [assets, setAssets] = useState<{ id: string; name: string }[]>([]);
   const [assetFilter, setAssetFilter] = useState('');
   const [assetDevices, setAssetDevices] = useState<{ for: string; ids: Set<string>; incomplete: number } | null>(null);
+  const [assetErr, setAssetErr] = useState('');
+  const assetSeq = useMemo(createSequencer, []);
   const [sel, setSel] = useState<Dashboard | null>(null);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState(false);
@@ -206,16 +208,21 @@ export default function Dashboards() {
   // Rapid changes are race-proof (a stale fetch never applies) and a subtree
   // cut by the device-list limit is surfaced, never a silent partial match.
   useEffect(() => {
-    if (!assetFilter) { setAssetDevices(null); return; }
-    let dead = false;
+    if (!assetFilter) { setAssetDevices(null); setAssetErr(''); return; }
+    const token = assetSeq.begin();
+    setAssetErr('');
     Promise.all([
       api<Device[]>(`/v1/devices?asset_id=${encodeURIComponent(assetFilter)}`),
       api<{ count: number }>(`/v1/assets/${encodeURIComponent(assetFilter)}/device-count`),
     ])
-      .then(([d, c]) => { if (!dead) setAssetDevices({ for: assetFilter, ids: new Set(d.map(x => x.id)), incomplete: Math.max(0, c.count - d.length) }); })
-      .catch(() => { if (!dead) setAssetDevices(null); });
-    return () => { dead = true; };
-  }, [assetFilter]);
+      .then(([d, c]) => { if (assetSeq.isCurrent(token)) setAssetDevices({ for: assetFilter, ids: new Set(d.map(x => x.id)), incomplete: Math.max(0, c.count - d.length) }); })
+      .catch(() => {
+        if (!assetSeq.isCurrent(token)) return;
+        // A failed load must look broken, not like a complete empty subtree.
+        setAssetDevices(null);
+        setAssetErr('The asset filter could not load its devices, so no filtering is applied right now. Everything below is unfiltered.');
+      });
+  }, [assetFilter, assetSeq]);
 
   const filtering = assetDevices && assetDevices.for === assetFilter ? assetDevices : null;
   const widgets = sel?.layout.widgets ?? [];
@@ -363,6 +370,7 @@ export default function Dashboards() {
 
           {wall && <button className="ghost wall-exit" onClick={() => setWall(false)}>Exit wall mode (Esc)</button>}
           {editing && widgets.length > 1 && <p className="muted" style={{ fontSize: 12 }}>Drag widgets to reorder. Use the size buttons to make a widget wider or narrower.</p>}
+          {assetErr && <p className="muted" style={{ fontSize: 12 }} role="alert">{assetErr}</p>}
           {filtering && filtering.incomplete > 0 && <p className="muted" style={{ fontSize: 12 }} role="alert">This asset has {filtering.incomplete} more device{filtering.incomplete === 1 ? '' : 's'} than the filter could load (list limit), so widgets bound to {filtering.incomplete === 1 ? 'it' : 'them'} are hidden as well. Narrow the asset to see them.</p>}
           {hiddenByAsset > 0 && <p className="muted" style={{ fontSize: 12 }}>The asset filter hides {hiddenByAsset} widget{hiddenByAsset === 1 ? '' : 's'} bound to {hiddenByAsset === 1 ? 'a device' : 'devices'} outside it.</p>}
           <div className={`cards board${wall ? ' wall-grid' : ''}`}>
@@ -392,4 +400,4 @@ export default function Dashboards() {
       )}
     </>
   );
-}
+                           }
