@@ -272,6 +272,50 @@ describe('edge setup', () => {
     expect(y).toContain('register: 999'); // 0x03E7 = 999 (Volts A-N): hex wire addresses land as decimal in YAML
     expect(y).toContain('func: 3'); expect(y).toContain('type: f32'); expect(y).toContain('type: i32'); expect(y).toContain('word_order: abcd');
   });
+  it('acrel-apm800 registers match the APM series manual V2.4 (docs/devices/acrel-apm800.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'acrel-apm800')!;
+    expect(t.link).toBe('rtu');
+    expect(t.func).toBe(3); // the only FC the second RS485/TCP paths support
+    expect(t.type).toBe('i32');
+    expect(t.word_order).toBe('abcd'); // "high bits are in the front"; CN 8.3.4 IEEE-754 example 0x474B 0xAC00 = 52140 Wh
+    expect(t.wordOrderUnverified).toBeUndefined();
+    expect(t.pduBaseUnverified).toBeUndefined(); // 0-based table (register 0 = meter address); examples read at table numbers
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.provisional).toBeUndefined();
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('ia').register).toBe(1100);
+    expect(pt('ia').scale).toBe(0.001);
+    expect(pt('va_n').register).toBe(1120);
+    expect(pt('va_n').scale).toBe(0.1);
+    expect(pt('vc_a').register).toBe(1132);
+    // primary power floats carry the scaled value: f32 with scale 0.01 (110000.0 -> 1100 W)
+    expect(pt('p_total').register).toBe(1156);
+    expect(pt('p_total').type).toBe('f32');
+    expect(pt('p_total').scale).toBe(0.01);
+    expect(pt('s_total').register).toBe(1172);
+    expect(pt('freq').register).toBe(1179);
+    expect(pt('freq').type).toBe('i16');
+    expect(pt('pf_total').register).toBe(1183);
+    expect(pt('pf_total').scale).toBe(0.001);
+    // energies come from the table rows 3000-3007 (the 3050+ tariff block stays excluded)
+    expect(pt('energy_imp').register).toBe(3000);
+    expect(pt('energy_imp').type).toBe('f32');
+    expect(pt('varh_capacitive').register).toBe(3006);
+    expect(t.points.some((p) => p.register >= 3050)).toBe(false);
+    // voltage/current are Int32 (fall back to template type)
+    expect(pt('va_n').type).toBeUndefined();
+    // no duplicate or overlapping 2-register spans (i16 points occupy 1 register - check pairs only for 32-bit points)
+    const used = new Set<number>();
+    for (const p of t.points) {
+      const two = (p.type ?? t.type) !== 'i16';
+      expect(used.has(p.register)).toBe(false);
+      if (two) expect(used.has(p.register + 1)).toBe(false);
+      used.add(p.register); if (two) used.add(p.register + 1);
+    }
+    const y = deviceYaml({ deviceId: 'apm-1', templateId: 'acrel-apm800', link: 'rtu', port: '/dev/ttyUSB0', baud: 9600, parity: 'none', address: 1, intervalSec: 5 });
+    expect(y).toContain('register: 1120'); // table numbers land unmodified
+    expect(y).toContain('func: 3'); expect(y).toContain('type: i32'); expect(y).toContain('type: f32'); expect(y).toContain('scale: 0.01');
+  });
   it('carlo-gavazzi-em340 registers match EM300 series communication protocol CP (docs/devices/carlo-gavazzi-em340.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'carlo-gavazzi-em340')!;
     expect(t.word_order).toBe('cdab'); // LSW->MSW per the protocol doc
