@@ -20,7 +20,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-export interface Device { id: string; profile: string; name: string; gateway_id: string; created_at: string; tags?: string[]; }
+export interface Device { id: string; profile: string; name: string; gateway_id: string; created_at: string; tags?: string[]; lat_point?: string | null; lon_point?: string | null; }
 export interface LatestPoint { point_id: string; value: number; unit: string; quality: string; observed_at: string; }
 export interface CommandRow { request_id: string; device_id: string; action: string; status: string; requested_by: string; approved_by: string | null; created_at: string; reason?: string | null; parameters?: Record<string, unknown>; }
 export interface AlertRow { id: string; severity: string; message: string; status: string; created_at: string; acknowledged_by?: string | null; resolved_by?: string | null; assigned_to?: string | null; shelved?: boolean; }
