@@ -76,7 +76,7 @@ export default function Profiles() {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <select style={{ width: 'auto' }} aria-label="Template" defaultValue="" onChange={e => { const t = EDGE_TEMPLATES.find(x => x.id === e.target.value); if (t) { loadMap(templatePoints(t.id), []); if (!name) setName(t.name); } e.target.value = ''; }}>
                   <option value="">Load a built-in template…</option>
-                  {EDGE_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {EDGE_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}{t.provisional ? ' (provisional)' : ''}</option>)}
                 </select>
                 <input type="file" accept=".csv,.json,.txt" aria-label="Import file" style={{ width: 'auto' }} onChange={async e => { const f = e.target.files?.[0]; if (f) { const r = parseAny(await f.text()); loadMap(r.points, r.issues); } e.target.value = ''; }} />
                 <button type="button" className="ghost" onClick={() => save('register-map.csv', toCsv(points.filter(p => p.id) as MapPoint[]))}>Export CSV</button>
