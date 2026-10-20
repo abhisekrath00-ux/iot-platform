@@ -38,7 +38,7 @@ func (s *server) transitionAlert(w http.ResponseWriter, r *http.Request, action 
 	}
 	tag, err := s.st.Pool.Exec(r.Context(), q, auth.User(r), id, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -71,7 +71,7 @@ func (s *server) commentAlert(w http.ResponseWriter, r *http.Request) {
 		 SELECT tenant_id, id, $1, $2 FROM alerts WHERE id=$3 AND tenant_id=$4`,
 		auth.User(r), in.Body, id, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -100,7 +100,7 @@ func (s *server) getAlert(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT author, body, created_at FROM alert_comments WHERE alert_id=$1 AND tenant_id=$2 ORDER BY created_at, id`, id, auth.Tenant(r))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		dbErr(w, err)
 		return
 	}
 	defer rows.Close()
