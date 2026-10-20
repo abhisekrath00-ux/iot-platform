@@ -270,6 +270,20 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'abb-b23-b24', name: 'ABB B23/B24 (three-phase DIN-rail meter, Modbus RTU on RS-485)', link: 'rtu', func: 3, type: 'u32', word_order: 'abcd',
+    note: 'Every address, register count, scale, signed/unsigned type and unit verified line-by-line against ABB\'s official B23/B24 User Manual 2CMC485003M0201 Revision A, chapter 9 (library.e.abb.com; docs/devices/abb-b23-b24.md). ALL conventions are vendor-stated: FC 03 holding registers; the listed hex start register "is expressed exactly as it is sent on the bus" (no 40001 offset, no minus 1); multi-register values are most-significant-byte first in the lowest register (ABCD). Powers are documented 32-bit signed with 2 decimals (max about +/-21 MW). Energy accumulators (5000+, 4 registers = 64-bit unsigned) are EXCLUDED - the driver has no u64; read energy via a pulse output or a 32-bit partial counter instead. Missing quantities read as FFFF... (unsigned) or max value (signed) per the manual, so out-of-range values mean "not available on this meter variant". Serial is set on the meter\'s RS485 menu - match the form to it. Read-only; never run on a real meter.',
+    points: [
+      ps('v1n', 23296, 'V', 0, 1000, 0.1), ps('v2n', 23298, 'V', 0, 1000, 0.1), ps('v3n', 23300, 'V', 0, 1000, 0.1),
+      ps('v12', 23302, 'V', 0, 1000, 0.1), ps('v23', 23304, 'V', 0, 1000, 0.1), ps('v31', 23306, 'V', 0, 1000, 0.1),
+      ps('i1', 23308, 'A', 0, 100000, 0.01), ps('i2', 23310, 'A', 0, 100000, 0.01), ps('i3', 23312, 'A', 0, 100000, 0.01), ps('i_n', 23314, 'A', 0, 100000, 0.01),
+      ps('p_total', 23316, 'W', -2.1e7, 2.1e7, 0.01, 'i32'), ps('p1', 23318, 'W', -2.1e7, 2.1e7, 0.01, 'i32'), ps('p2', 23320, 'W', -2.1e7, 2.1e7, 0.01, 'i32'), ps('p3', 23322, 'W', -2.1e7, 2.1e7, 0.01, 'i32'),
+      ps('q_total', 23324, 'var', -2.1e7, 2.1e7, 0.01, 'i32'), ps('q1', 23326, 'var', -2.1e7, 2.1e7, 0.01, 'i32'), ps('q2', 23328, 'var', -2.1e7, 2.1e7, 0.01, 'i32'), ps('q3', 23330, 'var', -2.1e7, 2.1e7, 0.01, 'i32'),
+      ps('s_total', 23332, 'VA', 0, 2.1e7, 0.01, 'i32'), ps('s1', 23334, 'VA', 0, 2.1e7, 0.01, 'i32'), ps('s2', 23336, 'VA', 0, 2.1e7, 0.01, 'i32'), ps('s3', 23338, 'VA', 0, 2.1e7, 0.01, 'i32'),
+      ps('freq', 23340, 'Hz', 40, 70, 0.01, 'u16'),
+      ps('pf_total', 23354, '', -1, 1, 0.001, 'i16'), ps('pf1', 23355, '', -1, 1, 0.001, 'i16'), ps('pf2', 23356, '', -1, 1, 0.001, 'i16'), ps('pf3', 23357, '', -1, 1, 0.001, 'i16'),
+    ],
+  },
+  {
     id: 'schneider-pm53xx', name: 'Schneider PowerLogic PM53xx (PM5310/20/30/31/40/41)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
     wordOrderUnverified: true,
     pduBaseUnverified: true,
