@@ -42,11 +42,36 @@ export default function AssistantChannels() {
       <p className="muted">Message the assistant and it does the task, with your permissions. Changes wait for you to reply YES. It cannot approve control commands from chat. Slack works in direct messages only. Email needs a mail gateway that signs each message and reports DKIM and SPF, so a forged From line is ignored.</p>
       {admin && cs && (
         <div style={{ marginBottom: 14 }}>
-          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 'auto', flex: 'none' }} checked={slackOn} onChange={e => setSlackOn(e.target.checked)} /> Slack (Events API URL: <code>{cs.slack_url}</code>)</label>
+          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 'auto', flex: 'none' }} checked={slackOn} onChange={e => setSlackOn(e.target.checked)} /> Slack</label>
+          <div className="muted" style={{ fontSize: 12, margin: '2px 0 6px 26px', overflowWrap: 'anywhere' }}>Events API URL: <code>{cs.slack_url}</code></div>
           <input type="password" autoComplete="off" aria-label="Slack signing secret" placeholder={cs.has_slack_secret ? 'Slack signing secret stored; leave empty to keep' : 'Slack app signing secret'} value={slackSec} onChange={e => setSlackSec(e.target.value)} disabled={!cs.secrets_available} />
-          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 'auto', flex: 'none' }} checked={emailOn} onChange={e => setEmailOn(e.target.checked)} /> Email (gateway posts to <code>{cs.email_url}</code>)</label>
+          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 'auto', flex: 'none' }} checked={emailOn} onChange={e => setEmailOn(e.target.checked)} /> Email</label>
+          <div className="muted" style={{ fontSize: 12, margin: '2px 0 6px 26px', overflowWrap: 'anywhere' }}>Gateway posts to: <code>{cs.email_url}</code></div>
           <input type="password" autoComplete="off" aria-label="Email gateway secret" placeholder={cs.has_email_secret ? 'Gateway secret stored; leave empty to keep' : 'Shared secret for the gateway HMAC'} value={mailSec} onChange={e => setMailSec(e.target.value)} disabled={!cs.secrets_available} />
           <button onClick={saveCs} style={{ marginTop: 8 }}>Save channels</button>
+          <details style={{ marginTop: 10 }}>
+            <summary>Slack setup steps (needs internet; about 10 minutes)</summary>
+            <ol className="muted" style={{ margin: '6px 0 4px 18px', padding: 0 }}>
+              <li>Create the app at api.slack.com/apps (from scratch, your workspace).</li>
+              <li>Copy its Signing Secret (Basic Information) into the field above and Save.</li>
+              <li>Add bot scopes chat:write, im:history, im:read, im:write (OAuth & Permissions).</li>
+              <li>Event Subscriptions: Request URL = your server's public address + <code>{cs.slack_url}</code>; subscribe to the bot event message.im. Do step 2 first - Slack's URL check is only answered when the signature matches.</li>
+              <li>Install the app, copy the Bot User OAuth Token (xoxb-...) to your platform operator for SLACK_BOT_TOKEN on the server. Without it the assistant reads but cannot reply.</li>
+              <li>Each person: Link me below with their Slack member id (Slack profile, ..., Copy member ID), then DM the shown code to the bot within 15 minutes.</li>
+            </ol>
+            <p className="muted" style={{ margin: '0 0 6px' }}>Direct messages only, by design: answers can never leak into a shared channel. Full guide: docs/assistant-slack-email-setup.md, or ask the assistant below.</p>
+          </details>
+          <details style={{ marginTop: 6 }}>
+            <summary>Email setup steps (works on a LAN with your own mail gateway)</summary>
+            <ol className="muted" style={{ margin: '6px 0 4px 18px', padding: 0 }}>
+              <li>Your mail gateway receives the assistant's mail, checks DKIM and SPF, and POSTs each message as signed JSON to your server's address + <code>{cs.email_url}</code>. The gateway itself is not part of the install.</li>
+              <li>Choose a shared secret with the gateway and paste it above, tick Email, Save.</li>
+              <li>Gateway contract: JSON with id, from, to, subject, text, dkim, spf, ts; headers X-Timestamp and X-Signature = hex HMAC-SHA256(secret, timestamp + "." + raw body). Messages are dropped unless the signature matches, the timestamp is fresh, the id is new, and both dkim and spf pass.</li>
+              <li>Outbound replies use the server's SMTP settings, so those must work too.</li>
+              <li>Each person: Link me below with their email address, then send the shown code FROM that mailbox within 15 minutes.</li>
+            </ol>
+            <p className="muted" style={{ margin: '0 0 6px' }}>Full guide: docs/assistant-slack-email-setup.md, or ask the assistant below.</p>
+          </details>
         </div>
       )}
       <form onSubmit={start} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
