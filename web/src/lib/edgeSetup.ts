@@ -159,6 +159,23 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'circutor-cvm-c10', name: 'Circutor CVM-C10 (three-phase analyzer, Modbus RTU, unsigned values only)', link: 'rtu', func: 4, type: 'u32', word_order: 'abcd',
+    note: 'From the official CVM-C10 instruction manual M001B01-03 (docs.circutor.com, docs/devices/circutor-cvm-c10.md), memory maps (tables 19/20, addresses in hex). Addressing and format ARE verified by the manual\'s own FC 04 frame example: it reads listed address 0x0000 and returns registers 0000 084D = VL1 x10 = 212.5 V, so listed addresses go on the wire unmodified and the high word comes first (ABCD). FC 03 and 04 both stated for these variables; this template uses FC 04. All included values are unsigned 32-bit over 2 registers with documented scales (V x10, mA, Hz x100, THD % x10). SIGNED quantities are EXCLUDED: the manual does not state the wire encoding of negative values, so active/reactive power, PF and cos phi are left out until confirmed on a real unit - apparent power and the separate consumed/generated energy counters are included meanwhile. Serial parameters are programmed on the device (9600/19200 baud, parity none/even/odd, 1-2 stop bits, address 0-255): match the form to your device\'s settings and keep the device at 8 data bits. A frame is limited to 20 variables (40 registers). Read-only; never run on a real meter.',
+    points: [
+      ps('va_n', 0x00, 'V', 0, 1000, 0.1), ps('vb_n', 0x10, 'V', 0, 1000, 0.1), ps('vc_n', 0x20, 'V', 0, 1000, 0.1),
+      ps('va_b', 0x3E, 'V', 0, 1000, 0.1), ps('vb_c', 0x40, 'V', 0, 1000, 0.1), ps('vc_a', 0x42, 'V', 0, 1000, 0.1),
+      ps('ia', 0x02, 'A', 0, 100000, 0.001), ps('ib', 0x12, 'A', 0, 100000, 0.001), ps('ic', 0x22, 'A', 0, 100000, 0.001), ps('i_n', 0x44, 'A', 0, 100000, 0.001),
+      ps('sa', 0x0A, 'VA', 0, 1e9, 1), ps('sb', 0x1A, 'VA', 0, 1e9, 1), ps('sc', 0x2A, 'VA', 0, 1e9, 1), ps('s_total', 0x36, 'VA', 0, 1e9, 1),
+      ps('freq', 0x3C, 'Hz', 0, 70, 0.01),
+      ps('thd_v_a', 0x46, '%', 0, 100, 0.1), ps('thd_v_b', 0x48, '%', 0, 100, 0.1), ps('thd_v_c', 0x4A, '%', 0, 100, 0.1),
+      ps('thd_i_a', 0x4C, '%', 0, 100, 0.1), ps('thd_i_b', 0x4E, '%', 0, 100, 0.1), ps('thd_i_c', 0x50, '%', 0, 100, 0.1),
+      ps('energy_consumed', 0xDE, 'Wh', 0, 1e12, 1), ps('energy_generated', 0xF2, 'Wh', 0, 1e12, 1),
+      ps('reactive_ind_consumed', 0xE2, 'varh', 0, 1e12, 1), ps('reactive_cap_consumed', 0xE6, 'varh', 0, 1e12, 1),
+      ps('reactive_ind_generated', 0xF6, 'varh', 0, 1e12, 1), ps('reactive_cap_generated', 0xFA, 'varh', 0, 1e12, 1),
+      ps('apparent_consumed', 0xEA, 'VAh', 0, 1e12, 1), ps('apparent_generated', 0xFE, 'VAh', 0, 1e12, 1),
+    ],
+  },
+  {
     id: 'carlo-gavazzi-em340', name: 'Carlo Gavazzi EM340 (three-phase DIN-rail meter)', link: 'rtu', func: 4, type: 'i32', word_order: 'cdab',
     note: 'From the official EM300 Series communication protocol CP (gavazziautomation.com, docs/devices/carlo-gavazzi-em340.md). Signed 32-bit integers with documented weights (V*10, mA, W*10, PF*1000) and LSW-first word order (cdab, per the protocol doc). Registers are the doc\'s physical addresses (Modicon 300001 = physical 0). Rows the doc marks "not available" on EM340 and the ET/EM330-only rows are excluded. Read-only; never run on a real meter.',
     points: [
