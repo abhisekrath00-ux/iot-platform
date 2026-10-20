@@ -166,6 +166,43 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       p('kwh_import', 2700, 'kWh', 0, 1e12),
     ],
   },
+  {
+    id: 'inepro-pro380', name: 'Inepro PRO380-Mod (three-phase MID meter)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    note: 'Every register address, function code, length, unit and data type verified line-by-line against the official PRO380 user manual V2.18-8, Appendix A3.2, linked from ineprometering.com (docs/devices/inepro-pro380.md). All conventions are vendor-stated: FC 03, Float ABCD, and listed address = on-wire address (the manual\'s own frame example). Factory serial 9600 8E1, address 1. The starred aggregate rows (Voltage* 0x5000, Current* 0x500A) are excluded - the manual never defines them. Config (0x4xxx) and tariff/reset registers excluded. Read-only; never run on a real meter.',
+    points: [
+      p('v1n', 20482, 'V', 0, 500), p('v2n', 20484, 'V', 0, 500), p('v3n', 20486, 'V', 0, 500), p('freq', 20488, 'Hz', 40, 70),
+      p('i1', 20492, 'A', 0, 10000), p('i2', 20494, 'A', 0, 10000), p('i3', 20496, 'A', 0, 10000),
+      p('p_total', 20498, 'kW', -1e7, 1e7), p('p1', 20500, 'kW', -1e7, 1e7), p('p2', 20502, 'kW', -1e7, 1e7), p('p3', 20504, 'kW', -1e7, 1e7),
+      p('q_total', 20506, 'kvar', -1e7, 1e7), p('s_total', 20514, 'kVA', 0, 1e7), p('pf_total', 20522, '', -1, 1),
+      p('kwh_total', 24576, 'kWh', 0, 1e12), p('kwh_import', 24588, 'kWh', 0, 1e12), p('kwh_export', 24600, 'kWh', 0, 1e12),
+    ],
+  },
+  {
+    id: 'eastron-sdm72d-m', name: 'Eastron SDM72D-M (three-phase MID DIN-rail meter, kWh and W only)', link: 'rtu', func: 4, type: 'f32', word_order: 'abcd',
+    wordOrderUnverified: true,
+    note: 'Every address verified line-by-line against the manufacturer\'s SDM72D-M-1 User Manual V1.4, Part 3 (eastrongroup.com; docs/devices/eastron-sdm72d-m.md). FC 04 and the on-wire addresses are vendor-stated (the table prints the Modbus Protocol Start Address Hex next to each 3X number). This model measures only active kWh and W - there are no voltage, current or frequency registers. Read-only; never run on a real meter.',
+    provisional: 'Register addresses and FC 04 are verified against Eastron\'s own manual V1.4. One thing the manual does NOT pin down: it says the Hi/Lo byte order "is set automatically to normal or reverse" and cannot be configured - so word order genuinely varies per unit and no default is trusted. Choose the word order yourself below, from your unit\'s documentation or by comparing one 32-bit reading (for example total power) against the meter\'s own display. Until that display comparison is done, every value from this template is hardware-untested.',
+    points: [
+      p('p1', 12, 'W', -1e8, 1e8), p('p2', 14, 'W', -1e8, 1e8), p('p3', 16, 'W', -1e8, 1e8), p('p_total', 52, 'W', -1e8, 1e8),
+      p('kwh_import', 72, 'kWh', 0, 1e12), p('kwh_export', 74, 'kWh', 0, 1e12), p('kwh_total', 342, 'kWh', 0, 1e12),
+      p('p_import', 1280, 'W', 0, 1e8), p('p_export', 1282, 'W', 0, 1e8),
+    ],
+  },
+  {
+    id: 'accuenergy-acuvim2', name: 'Accuenergy Acuvim II (three-phase power and energy meter)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    wordOrderUnverified: true,
+    note: 'Every address, data type, unit and the energy scaling verified line-by-line against Accuenergy\'s official Acuvim-II-V3-Modbus-map-v1.10.xlsx (accuenergy.com/support/modbus-map; docs/devices/accuenergy-acuvim2.md). FC 03 is vendor-stated per sheet header ("03H Read"); addresses are protocol addresses used verbatim. Import energy is UINT32 with Ep=Rx/10 (scale 0.1), not float. Primary-mode relationships only. Read-only; never run on a real meter.',
+    provisional: 'Addresses, FC 03, types and scaling are verified against Accuenergy\'s official workbook v1.10. One thing Accuenergy\'s documents do NOT state: the word order for FLOAT values. The manual does state the uint32 layout explicitly (high word first), a strong indication of abcd, but it is not adopted as proven for floats - choose the word order yourself below, from your model\'s documentation or by comparing one float reading (for example frequency) against the meter\'s own display. Until that display comparison is done, every value from this template is hardware-untested.',
+    points: [
+      p('freq', 16384, 'Hz', 40, 70),
+      p('v1n', 16386, 'V', 0, 1000), p('v2n', 16388, 'V', 0, 1000), p('v3n', 16390, 'V', 0, 1000), p('v_avg_ln', 16392, 'V', 0, 1000),
+      p('v12', 16394, 'V', 0, 1000), p('v23', 16396, 'V', 0, 1000), p('v31', 16398, 'V', 0, 1000), p('v_avg_ll', 16400, 'V', 0, 1000),
+      p('i1', 16402, 'A', 0, 10000), p('i2', 16404, 'A', 0, 10000), p('i3', 16406, 'A', 0, 10000), p('i_avg', 16408, 'A', 0, 10000), p('i_n', 16410, 'A', 0, 10000),
+      p('p1', 16412, 'kW', -1e7, 1e7), p('p2', 16414, 'kW', -1e7, 1e7), p('p3', 16416, 'kW', -1e7, 1e7), p('p_total', 16418, 'kW', -1e7, 1e7),
+      p('q_total', 16426, 'kvar', -1e7, 1e7), p('s_total', 16434, 'kVA', 0, 1e7), p('pf_total', 16442, '', -1, 1),
+      ps('kwh_import', 16456, 'kWh', 0, 99999999.9, 0.1, 'u32'),
+    ],
+  },
 ];
 
 
