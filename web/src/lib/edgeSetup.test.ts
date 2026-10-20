@@ -23,6 +23,37 @@ describe('edge setup', () => {
     expect(validateDevice({ ...base, baud: 1234 })).not.toEqual([]);
     expect(() => deviceYaml({ ...base, intervalSec: 0 })).toThrow();
   });
+  it('eastron-sdm630 registers match the official protocol PDF (docs/devices/eastron-sdm630.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'eastron-sdm630')!;
+    expect(t.func).toBe(4);
+    expect(t.word_order).toBe('abcd');
+    const reg = (id: string) => t.points.find((p) => p.id === id)?.register;
+    expect(reg('v1n')).toBe(0); // 30001
+    expect(reg('i1')).toBe(6); // 30007
+    expect(reg('w_total')).toBe(52); // 30053
+    expect(reg('freq')).toBe(70); // 30071
+    expect(reg('kwh_import')).toBe(72); // 30073
+    expect(reg('v12')).toBe(200); // 30201
+    expect(reg('i_neutral')).toBe(224); // 30225
+    expect(reg('thd_i1')).toBe(240); // 30241
+    // no overlapping registers (each f32 point spans 2)
+    const used = new Set<number>();
+    for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
+  });
+  it('socomec-diris-a40 registers match communication table CMT-1.7.4B (docs/devices/socomec-diris-a40.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'socomec-diris-a40')!;
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1n').register).toBe(18444); // 0x480C, U32, V 10e-2
+    expect(pt('v1n').scale).toBe(0.01);
+    expect(pt('i1').register).toBe(18458); // 0x481A, mA
+    expect(pt('i1').scale).toBe(0.001);
+    expect(pt('freq').register).toBe(18442); // 0x480A, mHz
+    expect(pt('p_total').register).toBe(18476); // 0x482C, S32 W
+    expect(pt('p_total').type).toBe('i32');
+    expect(pt('pf1').register).toBe(18518); // 0x4856, S16 /1000
+    expect(pt('pf1').type).toBe('i16');
+    expect(pt('pf1').scale).toBe(0.001);
+  });
   it('every template point has a validation range', () => {
     for (const t of EDGE_TEMPLATES) for (const p of t.points) expect(p.max).toBeGreaterThan(p.min);
   });
