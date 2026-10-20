@@ -209,6 +209,51 @@ describe('edge setup', () => {
     const y = deviceYaml({ ...baseA, wordOrder: 'abcd' });
     expect(y).toContain('func: 3'); expect(y).toContain('register: 16384'); expect(y).toContain('type: u32'); expect(y).toContain('scale: 0.1');
   });
+  it('eastron-sdm72ct-m registers match the vendor protocol V1.1 (docs/devices/eastron-sdm72ct-m.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'eastron-sdm72ct-m')!;
+    expect(t.func).toBe(4); // vendor-stated for all input registers
+    expect(t.wordOrderUnverified).toBe(true); // protocol doc silent; sibling manual: order varies per unit
+    const reg = (id: string) => t.points.find((p) => p.id === id)?.register;
+    expect(reg('v1n')).toBe(0); // 30001
+    expect(reg('i1')).toBe(6); // 30007
+    expect(reg('p1')).toBe(12); // 30013
+    expect(reg('pf1')).toBe(30); // 30031
+    expect(reg('p_total')).toBe(52); // 30053
+    expect(reg('pf_total')).toBe(62); // 30063
+    expect(reg('freq')).toBe(70); // 30071
+    expect(reg('kwh_import')).toBe(72); // 30073
+    expect(reg('v12')).toBe(200); // 30201
+    expect(reg('i_neutral')).toBe(224); // 30225
+    expect(reg('kwh_total')).toBe(342); // 30343
+    const used = new Set<number>();
+    for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
+    const b = { deviceId: 'ct-1', templateId: 'eastron-sdm72ct-m', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(b).join(' ')).toContain('Word order');
+    expect(deviceYaml({ ...b, wordOrder: 'abcd' })).toContain('func: 4');
+  });
+  it('carlo-gavazzi-em24-e1 registers match EM24_E1_CP (docs/devices/carlo-gavazzi-em24-e1.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'carlo-gavazzi-em24-e1')!;
+    expect(t.func).toBe(4); // 03/04 vendor-stated as equivalent
+    expect(t.word_order).toBe('cdab'); // vendor: 32-bit word order LSW->MSW
+    expect(t.wordOrderUnverified).toBeUndefined(); // all conventions vendor-stated
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1n').register).toBe(0x0000); expect(pt('v31').register).toBe(0x000A);
+    expect(pt('i1').register).toBe(0x000C); expect(pt('i1').scale).toBe(0.001);
+    expect(pt('p1').register).toBe(0x0012); expect(pt('p1').scale).toBe(0.1);
+    expect(pt('q_total').register).toBe(0x002C);
+    expect(pt('pf1').register).toBe(0x002E); expect(pt('pf1').type).toBe('i16'); expect(pt('pf_total').register).toBe(0x0031);
+    expect(pt('freq').register).toBe(0x0033); expect(pt('freq').type).toBe('u16');
+    expect(pt('kwh_import').register).toBe(0x0034); expect(pt('kwh_import').scale).toBe(0.1);
+    expect(pt('kwh_export').register).toBe(0x004E); expect(pt('kvarh_export').register).toBe(0x0050);
+    // i32 points span 2 registers without overlap; i16/u16 span 1
+    const used = new Set<number>();
+    for (const p of t.points) {
+      const n = (p.type ?? t.type) === 'i32' ? 2 : 1;
+      for (let k = 0; k < n; k++) { expect(used.has(p.register + k)).toBe(false); used.add(p.register + k); }
+    }
+    const y = deviceYaml({ deviceId: 'em24-1', templateId: 'carlo-gavazzi-em24-e1', link: 'tcp', host: '192.168.1.70', tcpPort: 502, address: 1, intervalSec: 5 });
+    expect(y).toContain('func: 4'); expect(y).toContain('word_order: cdab'); expect(y).toContain('register: 51'); expect(y).toContain('type: u16'); expect(y).toContain('scale: 0.001');
+  });
   it('provisional templates block config until the assumption is confirmed', () => {
     const d: DeviceInput = { ...base, templateId: 'siemens-pac3200', link: 'tcp', host: '192.168.1.60', tcpPort: 502 };
     const errs = validateDevice(d);
