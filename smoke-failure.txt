@@ -1,0 +1,131 @@
+run: 39396567214 attempt 1
+sha: 05af1059763276ded6649b269c7057b9ceff18f3
+date: Tue Oct 20 08:55:02 UTC 2026
+=== compose up output ===
+#1 [internal] load local bake definitions
+#1 reading from stdin 1.34kB done
+#1 DONE 0.0s
+
+#2 [web internal] load build definition from Dockerfile
+#2 transferring dockerfile: 279B done
+#2 DONE 0.0s
+
+#3 [mcp internal] load build definition from Dockerfile
+#3 transferring dockerfile: 583B done
+#3 DONE 0.0s
+
+#4 [mcp internal] load metadata for docker.io/library/golang:1.26-alpine
+#4 DONE 0.2s
+
+#5 [web internal] load metadata for docker.io/library/nginx:1.27-alpine
+#5 DONE 0.3s
+
+#6 [mcp internal] load metadata for docker.io/library/alpine:3.20
+#6 DONE 0.3s
+
+#7 [ingest internal] load .dockerignore
+#7 transferring context: 2B done
+#7 DONE 0.0s
+
+#8 [mcp build 1/6] FROM docker.io/library/golang:1.26-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca
+#8 DONE 0.0s
+
+#9 [web internal] load metadata for docker.io/library/node:22-alpine
+#9 DONE 0.3s
+
+#10 [mcp stage-1 1/5] FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+#10 DONE 0.0s
+
+#11 [mcp stage-1 2/5] RUN adduser -D app
+#11 CACHED
+
+#12 [web internal] load .dockerignore
+#12 transferring context: 2B done
+#12 DONE 0.0s
+
+#13 [web build 1/6] FROM docker.io/library/node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
+#13 DONE 0.0s
+
+#14 [web stage-1 1/3] FROM docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+#14 CACHED
+
+#15 [ingest internal] load build context
+#15 transferring context: 27.32kB 0.0s done
+#15 DONE 0.0s
+
+#16 [mcp build 2/6] WORKDIR /src
+#16 CACHED
+
+#17 [mcp build 3/6] COPY go.mod go.sum ./
+#17 CACHED
+
+#18 [mcp build 4/6] RUN go mod download
+#18 CACHED
+
+#19 [mcp build 5/6] COPY . .
+#19 CACHED
+
+#20 [web internal] load build context
+#20 transferring context: 6.08kB done
+#20 DONE 0.0s
+
+#21 [web build 4/6] RUN npm ci
+#21 CACHED
+
+#22 [web build 2/6] WORKDIR /app
+#22 CACHED
+
+#23 [web build 3/6] COPY package.json package-lock.json ./
+#23 CACHED
+
+#24 [web build 5/6] COPY . .
+#24 CACHED
+
+#25 [mcp build 6/6] RUN CGO_ENABLED=0 go build -o /bin/api ./cmd/api && CGO_ENABLED=0 go build -o /bin/ingest ./cmd/ingest && CGO_ENABLED=0 go build -o /bin/mcp ./cmd/mcp && CGO_ENABLED=0 go build -o /bin/tenantctl ./cmd/tenantctl
+#25 ...
+
+#26 [web build 6/6] RUN npm run build
+#26 0.368 
+#26 0.368 > iot-platform-web@0.1.0 build
+#26 0.368 > tsc -b && vite build
+#26 0.368 
+#26 17.46 src/lib/edgeSetup.ts(16,118): error TS2554: Expected 6-7 arguments, but got 5.
+#26 17.46 src/lib/edgeSetup.ts(16,162): error TS2554: Expected 6-7 arguments, but got 5.
+#26 17.46 src/lib/edgeSetup.ts(49,46): error TS2554: Expected 6-7 arguments, but got 5.
+#26 17.46 src/lib/edgeSetup.ts(49,86): error TS2554: Expected 6-7 arguments, but got 5.
+#26 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1
+
+#25 [mcp build 6/6] RUN CGO_ENABLED=0 go build -o /bin/api ./cmd/api && CGO_ENABLED=0 go build -o /bin/ingest ./cmd/ingest && CGO_ENABLED=0 go build -o /bin/mcp ./cmd/mcp && CGO_ENABLED=0 go build -o /bin/tenantctl ./cmd/tenantctl
+#25 CANCELED
+------
+ > [web build 6/6] RUN npm run build:
+0.368 
+0.368 > iot-platform-web@0.1.0 build
+0.368 > tsc -b && vite build
+0.368 
+17.46 src/lib/edgeSetup.ts(16,118): error TS2554: Expected 6-7 arguments, but got 5.
+17.46 src/lib/edgeSetup.ts(16,162): error TS2554: Expected 6-7 arguments, but got 5.
+17.46 src/lib/edgeSetup.ts(49,46): error TS2554: Expected 6-7 arguments, but got 5.
+17.46 src/lib/edgeSetup.ts(49,86): error TS2554: Expected 6-7 arguments, but got 5.
+------
+Dockerfile:6
+
+--------------------
+
+   4 |     RUN npm ci
+
+   5 |     COPY . .
+
+   6 | >>> RUN npm run build
+
+   7 |     
+
+   8 |     FROM nginx:1.27-alpine
+
+--------------------
+
+target web: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1
+
+=== docker compose ps ===
+NAME      IMAGE     COMMAND   SERVICE   CREATED   STATUS    PORTS
+=== docker compose logs (all services, tail 400) ===
