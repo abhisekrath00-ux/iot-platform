@@ -2335,8 +2335,8 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		Target string `json:"target"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Target == "" ||
-		(in.Type != "email" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp" && in.Type != "teams" && in.Type != "sms" && in.Type != "whatsapp") {
-		http.Error(w, "type (email|slack|webhook|teams|sms|whatsapp|kafka|amqp) and target required", 400)
+		(in.Type != "email" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp" && in.Type != "teams" && in.Type != "sms" && in.Type != "whatsapp" && in.Type != "telegram") {
+		http.Error(w, "type (email|slack|webhook|teams|sms|whatsapp|telegram|kafka|amqp) and target required", 400)
 		return
 	}
 	if in.Type == "teams" {
@@ -2351,6 +2351,16 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := notify.ValidatePhone(in.Target); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
+	if in.Type == "telegram" {
+		if !notify.TelegramConfigured() {
+			http.Error(w, "Telegram is not configured on this deployment (the operator sets TELEGRAM_BOT_TOKEN)", 409)
+			return
+		}
+		if err := notify.ValidateTelegramChatID(in.Target); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
