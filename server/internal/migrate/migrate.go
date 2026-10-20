@@ -8,9 +8,15 @@
 // (observed in CI: migration 0011 holding alerts and wanting alert_comments
 // vs a comment INSERT holding alert_comments and wanting alerts).
 //
-// Each file still runs as one implicit transaction and must stay idempotent:
-// a file whose apply or ledger write fails is not recorded and will run
+// Each file runs as one implicit transaction (no file uses explicit
+// transaction control), with its schema_migrations row appended to the same
+// call, so a file and its ledger entry commit or roll back together. Files
+// must stay idempotent anyway: a file that fails is not recorded and runs
 // again on the next boot.
+//
+// Files are keyed by NAME. A renamed file is treated as new and its content
+// runs again; a changed file whose name was already recorded does NOT run
+// again. Never edit an applied migration - add a new file.
 package migrate
 
 import (
@@ -88,11 +94,13 @@ func applyOne(ctx context.Context, conn *pgxpool.Conn, dir, name string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := conn.Exec(ctx, string(b)); err != nil {
+	// The ledger row rides in the same multi-statement call: pgx sends it via
+	// the simple protocol, so the file and its record share one implicit
+	// transaction. A literal, quote-escaped name keeps the call arg-free -
+	// the simple protocol is what allows multiple statements at all.
+	stmt := string(b) + "\nINSERT INTO schema_migrations(filename) VALUES ('" + strings.ReplaceAll(name, "'", "''") + "') ON CONFLICT DO NOTHING;"
+	if _, err := conn.Exec(ctx, stmt); err != nil {
 		return fmt.Errorf("migration %s: %w", name, err)
-	}
-	if _, err := conn.Exec(ctx, `INSERT INTO schema_migrations(filename) VALUES($1) ON CONFLICT DO NOTHING`, name); err != nil {
-		return fmt.Errorf("record migration %s: %w", name, err)
 	}
 	log.Printf("migration applied: %s", name)
 	return nil
