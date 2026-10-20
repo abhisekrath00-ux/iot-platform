@@ -51,14 +51,15 @@ export default function Assistant() {
     const st = wiz.steps[wStep];
     const bad = st.validate?.(v);
     if (bad) { setWErr(bad); return; }
+    let label = '';
     if (st.kind === 'select') {
       const pool = wOpts ?? st.options ?? [];
       const hit = pool.find(o => o.value === v || o.label === v);
       if (!hit) { setWErr('Pick one of the offered choices.'); return; }
-      v = hit.value;
+      v = hit.value; label = hit.label;
     }
     setWErr('');
-    const next = { ...wAns, [st.key]: v };
+    const next = { ...wAns, [st.key]: v, [st.key + '_label']: label || v };
     setWAns(next);
     if (wStep + 1 >= wiz.steps.length) { setWConfirm(true); return; }
     setWStep(wStep + 1);
