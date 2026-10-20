@@ -4,7 +4,7 @@ import { api, Device } from '../lib/api';
 import { fitZoom, metresPerPx, TILE, tilesFor, worldPx } from '../lib/mercator';
 
 interface MDev { id: string; name: string; lat: number; lon: number; inside: string[]; }
-interface Fence { id: string; name: string; lat: number; lon: number; radius_m: number; }
+interface Fence { id: string; name: string; lat: number; lon: number; radius_m: number; alert_on_enter: boolean; alert_on_exit: boolean; alert_severity: string; }
 interface MapData { devices: MDev[]; geofences: Fence[]; note: string; }
 
 const W = 760, H = 460, PAD = 40;
@@ -16,6 +16,8 @@ export default function MapPage() {
   const [devId, setDevId] = useState('');
   const [lat, setLat] = useState(''); const [lon, setLon] = useState('');
   const [fname, setFname] = useState(''); const [flat, setFlat] = useState(''); const [flon, setFlon] = useState(''); const [frad, setFrad] = useState('200');
+  const [fenter, setFenter] = useState(false); const [fexit, setFexit] = useState(false); const [fsev, setFsev] = useState('warning');
+  const [editId, setEditId] = useState('');
   const [msg, setMsg] = useState('');
   const [cfg, setCfg] = useState<{ tiles: boolean; attribution: string }>({ tiles: false, attribution: '' });
   const [imgs, setImgs] = useState<Record<string, string>>({});
@@ -79,7 +81,7 @@ export default function MapPage() {
   return (
     <>
       <h1>Map</h1>
-      <p className="muted">Where devices are and which zones they sit in. Positions are entered by people, not read from telemetry. {cfg.tiles ? 'Drawn over map tiles from your own tile server. ' : 'Plotted on a plain canvas (no map tiles), so it works with no internet. '}Zones are circles; there are no enter or exit alerts.</p>
+      <p className="muted">Where devices are and which zones they sit in. Positions are entered by people, not read from telemetry. {cfg.tiles ? 'Drawn over map tiles from your own tile server. ' : 'Plotted on a plain canvas (no map tiles), so it works with no internet. '}Zones are circles; a zone can raise an alert when a device enters or leaves it.</p>
       {msg && <p className="muted" role="status">{msg}</p>}
       {!proj
         ? <Empty title="Nothing on the map yet" hint="Give a device a position below, and optionally add a zone." />
@@ -123,15 +125,30 @@ export default function MapPage() {
       <div className="card" style={{ maxWidth: 640, marginTop: 20 }}>
         <b>Zones</b>
         <ul style={{ padding: 0, listStyle: 'none' }}>
-          {data.geofences.map(f => <li key={f.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0' }}><span>{f.name}</span><span className="muted">{f.radius_m} m at {f.lat.toFixed(4)}, {f.lon.toFixed(4)}</span><span style={{ flex: 1 }} /><button className="ghost" aria-label={`Delete ${f.name}`} onClick={() => act(() => api(`/v1/geofences/${f.id}`, { method: 'DELETE' }).catch(() => {}), 'Deleted.')}>Delete</button></li>)}
+          {data.geofences.map(f => <li key={f.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0' }}><span>{f.name}</span><span className="muted">{f.radius_m} m at {f.lat.toFixed(4)}, {f.lon.toFixed(4)}</span><span className="muted">{f.alert_on_enter || f.alert_on_exit ? `alerts on ${[f.alert_on_enter && 'enter', f.alert_on_exit && 'exit'].filter(Boolean).join('+')} (${f.alert_severity})` : 'no alerts'}</span><span style={{ flex: 1 }} /><button className="ghost" aria-label={`Edit ${f.name}`} onClick={() => { setEditId(f.id); setFname(f.name); setFlat(String(f.lat)); setFlon(String(f.lon)); setFrad(String(f.radius_m)); setFenter(f.alert_on_enter); setFexit(f.alert_on_exit); setFsev(f.alert_severity); }}>Edit</button><button className="ghost" aria-label={`Delete ${f.name}`} onClick={() => act(() => api(`/v1/geofences/${f.id}`, { method: 'DELETE' }).catch(() => {}), 'Deleted.')}>Delete</button></li>)}
           {data.geofences.length === 0 && <li className="muted">No zones yet.</li>}
         </ul>
-        <form onSubmit={e => { e.preventDefault(); act(() => api('/v1/geofences', { method: 'POST', body: JSON.stringify({ name: fname, lat: Number(flat), lon: Number(flon), radius_m: Number(frad) }) }), 'Zone added.').then(() => setFname('')); }}>
+        <form onSubmit={e => {
+          e.preventDefault();
+          const body = JSON.stringify({ name: fname, lat: Number(flat), lon: Number(flon), radius_m: Number(frad), alert_on_enter: fenter, alert_on_exit: fexit, alert_severity: fsev });
+          if (editId) {
+            act(() => api(`/v1/geofences/${editId}`, { method: 'PUT', body }), 'Zone saved.').then(() => { setEditId(''); setFname(''); setFlat(''); setFlon(''); setFrad('200'); setFenter(false); setFexit(false); setFsev('warning'); });
+          } else {
+            act(() => api('/v1/geofences', { method: 'POST', body }), 'Zone added.').then(() => { setFname(''); setFenter(false); setFexit(false); });
+          }
+        }}>
           <label htmlFor="mz-name">Name</label><input id="mz-name" value={fname} onChange={e => setFname(e.target.value)} required maxLength={80} />
           <label htmlFor="mz-lat">Centre latitude</label><input id="mz-lat" inputMode="decimal" value={flat} onChange={e => setFlat(e.target.value)} required />
           <label htmlFor="mz-lon">Centre longitude</label><input id="mz-lon" inputMode="decimal" value={flon} onChange={e => setFlon(e.target.value)} required />
           <label htmlFor="mz-rad">Radius (metres)</label><input id="mz-rad" inputMode="decimal" value={frad} onChange={e => setFrad(e.target.value)} required />
-          <div style={{ marginTop: 14 }}><button type="submit">Add zone</button></div>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={fenter} onChange={e => setFenter(e.target.checked)} style={{ width: 'auto' }} /> Alert when a device enters</label>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={fexit} onChange={e => setFexit(e.target.checked)} style={{ width: 'auto' }} /> Alert when a device leaves</label>
+          {(fenter || fexit) && (<><label htmlFor="mz-sev">Alert severity</label><select id="mz-sev" value={fsev} onChange={e => setFsev(e.target.value)}><option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option></select></>)}
+          <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+            <button type="submit">{editId ? 'Save zone' : 'Add zone'}</button>
+            {editId && <button type="button" className="ghost" onClick={() => { setEditId(''); setFname(''); setFlat(''); setFlon(''); setFrad('200'); setFenter(false); setFexit(false); setFsev('warning'); }}>Cancel</button>}
+          </div>
+          <p className="muted" style={{ fontSize: 12 }}>Positions are entered by hand, so a zone alert fires on the next check after a position is saved (within about a minute). Devices already inside a zone when its alerts are turned on do not raise an "entered" alert.</p>
         </form>
       </div>
     </>
