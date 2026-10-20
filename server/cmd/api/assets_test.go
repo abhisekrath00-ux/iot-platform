@@ -308,3 +308,124 @@ func TestIntegrationRelationScopedRule(t *testing.T) {
 		t.Fatalf("valid relation rule = %d, want 201", w.Code)
 	}
 }
+
+// ?asset_id plus ?relation on the device list and the device-count endpoint:
+// the same relation walk the rules use, so the dashboard filter can cover
+// what an asset reaches via a typed relation instead of its subtree.
+func TestIntegrationRelationDeviceQuery(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-rq1")
+	seed(t, s, "itest-rq2")
+	ctx := context.Background()
+	pool := s.st.Pool
+	clean := func() {
+		for _, q := range []string{
+			`DELETE FROM entity_relations WHERE tenant_id IN ('itest-rq1','itest-rq2')`,
+			`UPDATE devices SET asset_id=NULL WHERE tenant_id IN ('itest-rq1','itest-rq2')`,
+			`DELETE FROM devices WHERE tenant_id IN ('itest-rq1','itest-rq2') AND id LIKE 'itest-rq%-d%'`,
+			`DELETE FROM assets WHERE tenant_id IN ('itest-rq1','itest-rq2')`,
+		} {
+			pool.Exec(ctx, q)
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+	for _, q := range []string{
+		`INSERT INTO assets(id,tenant_id,parent_id,name,kind) VALUES
+		 ('rq-line','itest-rq1',NULL,'Line','line'),
+		 ('rq-motor1','itest-rq1',NULL,'Motor one','machine'),
+		 ('rq-motor2','itest-rq1',NULL,'Motor two','machine')`,
+		`UPDATE devices SET asset_id='rq-motor1' WHERE id='itest-rq1-dev'`,
+		`INSERT INTO devices(id,tenant_id,gateway_id,profile,name,asset_id) VALUES
+		 ('itest-rq1-d2','itest-rq1','itest-rq1-gw','modbus-tcp','second','rq-motor2'),
+		 ('itest-rq1-d3','itest-rq1','itest-rq1-gw','modbus-tcp','anchor own','rq-line'),
+		 ('itest-rq1-d4','itest-rq1','itest-rq1-gw','modbus-tcp','loose',NULL)`,
+		`INSERT INTO entity_relations(tenant_id,from_kind,from_id,relation,to_kind,to_id) VALUES
+		 ('itest-rq1','asset','rq-line','feeds','asset','rq-motor1'),
+		 ('itest-rq1','asset','rq-motor1','feeds','asset','rq-motor2'),
+		 ('itest-rq1','asset','rq-motor2','feeds','asset','rq-line'),
+		 ('itest-rq1','asset','rq-line','powers','device','itest-rq1-d4')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	api := http.NewServeMux()
+	api.HandleFunc("GET /v1/devices", s.listDevices)
+	api.HandleFunc("GET /v1/assets/{id}/device-count", s.getAssetDeviceCount)
+	ids := func(tenant, q string) []string {
+		w := call(api, tenant, "viewer", "GET", "/v1/devices"+q, "")
+		var l []map[string]any
+		json.Unmarshal(w.Body.Bytes(), &l)
+		out := []string{}
+		for _, d := range l {
+			out = append(out, d["id"].(string))
+		}
+		return out
+	}
+	count := func(tenant, asset, q string) int {
+		w := call(api, tenant, "viewer", "GET", "/v1/assets/"+asset+"/device-count"+q, "")
+		var o map[string]any
+		json.Unmarshal(w.Body.Bytes(), &o)
+		n, _ := o["count"].(float64)
+		return int(n)
+	}
+	// subtree (no relation): the anchor's own device, nothing else
+	if got := ids("itest-rq1", "?asset_id=rq-line"); len(got) != 1 || got[0] != "itest-rq1-d3" {
+		t.Fatalf("subtree: %v", got)
+	}
+	// feeds walk: motor1 + motor2 devices (cycle back to the anchor must not re-add d3)
+	got := ids("itest-rq1", "?asset_id=rq-line&relation=feeds")
+	if len(got) != 2 {
+		t.Fatalf("feeds devices: %v", got)
+	}
+	if count("itest-rq1", "rq-line", "?relation=feeds") != 2 || count("itest-rq1", "rq-line", "") != 1 {
+		t.Fatal("feeds count = 2, subtree count = 1")
+	}
+	// powers walk: the directly related device, no assets
+	if got := ids("itest-rq1", "?asset_id=rq-line&relation=powers"); len(got) != 1 || got[0] != "itest-rq1-d4" {
+		t.Fatalf("powers devices: %v", got)
+	}
+	if count("itest-rq1", "rq-line", "?relation=powers") != 1 {
+		t.Fatal("powers count = 1")
+	}
+	// validation: relation without asset, bad name; cross-tenant empty
+	if w := call(api, "itest-rq1", "viewer", "GET", "/v1/devices?relation=feeds", ""); w.Code != 400 {
+		t.Fatalf("relation without asset_id = %d, want 400", w.Code)
+	}
+	if w := call(api, "itest-rq1", "viewer", "GET", "/v1/devices?asset_id=rq-line&relation=Feeds", ""); w.Code != 400 {
+		t.Fatalf("bad relation name = %d, want 400", w.Code)
+	}
+	if w := call(api, "itest-rq1", "viewer", "GET", "/v1/assets/rq-line/device-count?relation=Bad", ""); w.Code != 400 {
+		t.Fatalf("count bad relation = %d, want 400", w.Code)
+	}
+	if got := ids("itest-rq2", "?asset_id=rq-line&relation=feeds"); len(got) != 0 {
+		t.Fatalf("cross-tenant: %v", got)
+	}
+	// alerts follow the same walk, so a relation-driven dashboard never mixes scopes
+	pool.Exec(ctx, `DELETE FROM alerts WHERE tenant_id='itest-rq1' AND id LIKE 'rq-al%'`)
+	pool.Exec(ctx, `INSERT INTO alerts(id,tenant_id,severity,message,device_id) VALUES
+	  ('rq-al1','itest-rq1','warning','boiler','itest-rq1-d2'),
+	  ('rq-al2','itest-rq1','warning','anchor','itest-rq1-d3'),
+	  ('rq-al3','itest-rq1','warning','loose','itest-rq1-d4')`)
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM alerts WHERE tenant_id='itest-rq1' AND id LIKE 'rq-al%'`) })
+	api.HandleFunc("GET /v1/alerts", s.listAlerts)
+	alertIDs := func(q string) int {
+		w := call(api, "itest-rq1", "viewer", "GET", "/v1/alerts"+q, "")
+		var l []map[string]any
+		json.Unmarshal(w.Body.Bytes(), &l)
+		return len(l)
+	}
+	if n := alertIDs("?asset_id=rq-line&relation=feeds"); n != 1 {
+		t.Fatalf("feeds alerts = %d, want 1 (motor2 only)", n)
+	}
+	if n := alertIDs("?asset_id=rq-line&relation=powers"); n != 1 {
+		t.Fatalf("powers alerts = %d, want 1 (direct device)", n)
+	}
+	if n := alertIDs("?asset_id=rq-line"); n != 1 {
+		t.Fatalf("subtree alerts = %d, want 1 (anchor)", n)
+	}
+	if w := call(api, "itest-rq1", "viewer", "GET", "/v1/alerts?relation=feeds", ""); w.Code != 400 {
+		t.Fatalf("alerts relation without asset_id = %d, want 400", w.Code)
+	}
+}
