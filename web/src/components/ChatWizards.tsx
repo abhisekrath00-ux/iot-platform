@@ -87,9 +87,10 @@ export const WIZARDS: Wizard[] = [
       { key: 'name', prompt: 'Name for the rule?', kind: 'text', validate: nonEmpty('A name') },
     ],
     summary: a => `Create a ${a.severity} rule "${a.name}": point ${a.point_id} on ${a.device_id_label} ${a.op} ${a.threshold}. It is enabled once created; it only notifies channels you have enabled.`,
-    run: async a => {
+    run: async (a, ctx) => {
       await api('/v1/rules', {
         method: 'POST',
+        headers: ctx?.idempotencyKey ? { 'Idempotency-Key': ctx.idempotencyKey } : {},
         body: JSON.stringify({
           name: a.name, enabled: true,
           definition: { device_id: a.device_id, point_id: a.point_id, op: a.op, threshold: Number(a.threshold), severity: a.severity, message: a.name },
