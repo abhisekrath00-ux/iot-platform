@@ -32,6 +32,7 @@ export default function Assistant() {
   const [wConfirm, setWConfirm] = useState(false);
   const [wBusy, setWBusy] = useState(false);
   const [wFinal, setWFinal] = useState(false); // a failure that retrying cannot fix (4xx): only Cancel makes sense
+  const [wKey, setWKey] = useState(''); // one idempotency key per wizard run: a retried Confirm replays, never double-writes
   // Who is signed in, for gating sections the server will refuse anyway. null = still loading, false = lookup failed.
   const [me, setMe] = useState<Me | null | false>(null);
   useEffect(() => { api<Me>('/v1/me').then(setMe).catch(() => setMe(false)); }, []);
@@ -39,6 +40,7 @@ export default function Assistant() {
 
   function startWizard(w: Wizard) {
     setWiz(w); setWStep(0); setWAns({}); setWErr(''); setWConfirm(false); setWOpts(null); setWFinal(false);
+    setWKey(crypto.randomUUID());
     loadStepOptions(w, 0, {});
   }
   function loadStepOptions(w: Wizard, idx: number, answers: Record<string, string>) {
@@ -74,7 +76,7 @@ export default function Assistant() {
     if (!wiz || wBusy) return; // busy guard: a fast second click must not fire the write twice
     setWBusy(true);
     try {
-      const done = await wiz.run(wAns);
+      const done = await wiz.run(wAns, { idempotencyKey: wKey });
       setMsgs(ms => [...ms, { role: 'assistant', content: done }]);
       setWiz(null);
     } catch (e) {
@@ -116,6 +118,18 @@ export default function Assistant() {
   if (me === null) {
     return (<><h1>Assistant</h1><p className="muted">Loading...</p></>);
   }
+  // Identity unknown: never show actions on a guess. Offer a retry instead.
+  if (me === false) {
+    return (
+      <>
+        <h1>Assistant</h1>
+        <div className="card" style={{ maxWidth: 900, padding: '12px 16px' }}>
+          <p role="alert">Could not check your account, so the assistant is unavailable right now.</p>
+          <button type="button" onClick={() => { setMe(null); api<Me>('/v1/me').then(setMe).catch(() => setMe(false)); }}>Try again</button>
+        </div>
+      </>
+    );
+  }
   // Customer-portal accounts cannot use the assistant at all (the server refuses every call it makes):
   // explain that once instead of firing requests that fail.
   if (me && me.customer_id) {
@@ -129,7 +143,7 @@ export default function Assistant() {
       </>
     );
   }
-  const wizards = WIZARDS.filter(w => !w.roles || me === false || (me && me.role != null && w.roles.includes(me.role))); // me lookup failed: show all, the server still enforces
+  const wizards = WIZARDS.filter(w => !w.roles || (me.role != null && w.roles.includes(me.role)));
   return (
     <>
       <h1>Assistant</h1>
