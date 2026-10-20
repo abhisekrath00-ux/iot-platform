@@ -184,13 +184,13 @@ func (s *server) slackChannels(w http.ResponseWriter, r *http.Request) {
 	}
 	slackChatsAt.Store(t, time.Now())
 	sc, ok2 := s.replier().(interface {
-		SlackChannels(context.Context) ([]notify.SlackChannel, error)
+		SlackChannels(context.Context) ([]notify.SlackChannel, bool, error)
 	})
 	if !ok2 {
 		http.Error(w, "slack channel listing not available", 503)
 		return
 	}
-	chs, err := sc.SlackChannels(r.Context())
+	chs, truncated, err := sc.SlackChannels(r.Context())
 	if err != nil {
 		e := err.Error()
 		if len(e) > 200 {
@@ -199,8 +199,8 @@ func (s *server) slackChannels(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"channels": []any{}, "error": e})
 		return
 	}
-	s.audit(r, "channel.slack_list", "", map[string]any{"count": len(chs)})
-	writeJSON(w, 200, map[string]any{"channels": chs})
+	s.audit(r, "channel.slack_list", "", map[string]any{"count": len(chs), "truncated": truncated})
+	writeJSON(w, 200, map[string]any{"channels": chs, "truncated": truncated})
 }
 
 // POST /v1/notifications/telegram/pair-code -> {"code": "...", "expires_in_minutes": 10}
