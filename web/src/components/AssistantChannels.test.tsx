@@ -53,3 +53,19 @@ test('non-admin sees no setup steps or settings', async () => {
   expect(box.textContent).not.toContain('Slack setup steps');
   expect(box.textContent).not.toContain('Save channels');
 });
+
+test('admin can generate a signed self-test command from the stored secret', async () => {
+  vi.mocked(api).mockImplementation((url: string) => {
+    if (url === '/v1/assistant/channel-settings') return Promise.resolve({ slack_enabled: true, email_enabled: true, has_slack_secret: true, has_email_secret: true, secrets_available: true, slack_url: '/v1/assistant/inbound/slack/t1', email_url: '/v1/assistant/inbound/email/t1' }) as any;
+    if (url === '/v1/assistant/links') return Promise.resolve([]) as any;
+    if (url === '/v1/assistant/selftest/email') return Promise.resolve({ kind: 'email', curl_valid: 'curl -i -X POST ... -H "X-Signature: ab12"', curl_tampered: 'curl -i -X POST ... tampered', expect_ok: 'HTTP 200 expected', expect_tampered: 'HTTP 401 expected', expires: 'valid 5 minutes', note: 'Self-test only.' }) as any;
+    return Promise.reject(new Error('not mocked')) as any;
+  });
+  await act(async () => root.render(<AssistantChannels />));
+  const btn = Array.from(box.querySelectorAll('button')).find(b => b.textContent === 'Check email signing')!;
+  expect(btn).toBeTruthy();
+  await act(async () => btn.click());
+  expect(box.textContent).toContain('HTTP 200 expected');
+  expect(box.querySelector('pre[aria-label="Valid signed self-test command"]')!.textContent).toContain('X-Signature');
+  expect(box.querySelector('pre[aria-label="Tampered self-test command"]')!.textContent).toContain('tampered');
+});
