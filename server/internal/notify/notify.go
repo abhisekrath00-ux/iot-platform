@@ -133,6 +133,12 @@ func (n *Notifier) SlackChannels(ctx context.Context) (channels []SlackChannel, 
 // SlackConfigured reports whether a bot token is set (SLACK_BOT_TOKEN).
 func SlackConfigured() bool { return os.Getenv("SLACK_BOT_TOKEN") != "" }
 
+// SMTPConfigured reports whether alert email can be sent: SMTP_HOST and the
+// ALERT_FROM_EMAIL sender are both set (SMTP_PORT defaults to 587; user/pass are optional).
+func SMTPConfigured() bool {
+	return os.Getenv("SMTP_HOST") != "" && os.Getenv("ALERT_FROM_EMAIL") != ""
+}
+
 // Configured reports whether outgoing mail is set up (SMTP_HOST and ALERT_FROM_EMAIL). Mail is optional and
 // off by default: an air-gapped deployment with no relay simply has no email features.
 func (n *Notifier) Configured() bool { return n.smtpHost != "" && n.from != "" }
