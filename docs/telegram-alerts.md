@@ -5,7 +5,7 @@ An optional notification channel next to email, Slack, Teams, SMS, WhatsApp and 
 ## What you need (from your side, not from us)
 
 - A Telegram bot, created with @BotFather inside Telegram. The bot token is given to the platform operator; never paste it into chat or a ticket.
-- The numeric chat id of the destination: a person (such as `123456789`), a group or a channel (negative ids, usually starting with `-100`). The bot must be a member of that chat or Telegram refuses the send. Press Find chats in Settings after sending any message to the bot or group: it lists every chat the bot has seen (from the bot's own getUpdates feed, server-side) and fills the id in for you. No third-party bots involved.
+- A chat paired to your tenant. The bot token is shared by the whole deployment, so seeing a chat or knowing its id proves nothing: in Settings press Get pairing code, send `/pair CODE` to the bot inside your chat (10 minutes, single use), then press Find chats. Only chats paired this way can be listed, picked or typed in as a channel - another tenant cannot see or claim your chats, and you cannot claim theirs. The bot must be a member of the chat or Telegram refuses the send.
 - Internet access from the API server to `api.telegram.org`. An air-gapped site leaves this unset and nothing is ever sent out; `TELEGRAM_API_BASE` can point at a compatible relay if one exists on the site network.
 
 ## Turn it on
@@ -17,7 +17,9 @@ The operator sets these in the API environment (`.env`):
 | `TELEGRAM_BOT_TOKEN` | the bot token from BotFather (kept out of every error message and log line; even API error replies are scrubbed of it) |
 | `TELEGRAM_API_BASE` | optional, default `https://api.telegram.org`; for a compatible Bot API relay |
 
-Until the token is set, creating a Telegram channel returns 409. Then an admin adds a channel in Settings: type Telegram, target the numeric chat id (or pick it with Find chats). New channels of every type are staged disabled: no rule or escalation delivers to a channel until an admin presses Enable on its row. Send test works while a channel is off, so the destination can be verified before anything real flows.
+Until the token is set, creating a Telegram channel returns 409. Then an admin adds a channel in Settings: type Telegram, target the paired chat (picked with Find chats). New channels of every type are staged disabled: no rule or escalation delivers to a channel until an admin presses Enable on its row. Send test works while a channel is off, so the destination can be verified before anything real flows.
+
+Note for the operator: pairing reads the bot's getUpdates feed. Telegram forbids getUpdates while a webhook is set, so the planned Telegram inbound agent will share this same stream (poller), never a webhook.
 
 ## Honest status
 
