@@ -69,7 +69,7 @@ func RunProbe(ctx context.Context, open PortOpener, req ProbeRequest) ProbeResul
 
 	step := 1
 	switch req.Type {
-	case "u32", "i32", "f32":
+	case "u32", "i32", "f32", "t5", "t6":
 		step = 2
 	}
 	pts := []config.Point{}
