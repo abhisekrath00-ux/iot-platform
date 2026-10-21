@@ -218,6 +218,35 @@ describe('edge setup', () => {
     for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
   });
 
+
+  it('kamstrup-multical-x03 registers match the official data sheet FILE100004479_C_EN_03.2025 (docs/devices/kamstrup-multical-x03.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'kamstrup-multical-x03')!;
+    expect(t.type).toBe('f32');
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('flow_m3h').register).toBe(1); // printed register 1 = hex address 0000
+    expect(pt('power_kw').register).toBe(5); // 0004
+    expect(pt('t_flow_c').register).toBe(7); // 0006
+    expect(pt('t_return_c').register).toBe(9); // 0008
+    expect(pt('t_diff_k').register).toBe(15); // 000E
+    expect(pt('heat_kwh').register).toBe(21); // 0014
+    expect(pt('cooling_kwh').register).toBe(25); // 0018
+    expect(pt('volume_m3').register).toBe(53); // 0034
+    // word order, read FC and base are NOT stated in the data sheet: all three stay gated
+    expect(t.wordOrderUnverified).toBe(true);
+    expect(t.funcUnverified).toBe(true);
+    expect(t.pduBaseUnverified).toBe(true);
+    const missing = validateDevice({ deviceId: 'mc-1', templateId: 'kamstrup-multical-x03', link: 'rtu', port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, provisionalConfirmed: true });
+    expect(missing.length).toBeGreaterThan(0);
+    const base = { deviceId: 'mc-1', templateId: 'kamstrup-multical-x03', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, wordOrder: 'abcd' as const, readFunc: 3 as const, pduBase: 'listed' as const, provisionalConfirmed: true };
+    expect(validateDevice(base)).toEqual([]);
+    expect(deviceYaml(base)).toContain('register: 21'); // heat energy verbatim (listed register)
+    const minus1 = deviceYaml({ ...base, pduBase: 'minus1' as const });
+    expect(minus1).toContain('register: 20'); // 21 -> hex address 0x14, the vendor-stated correspondence
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+  });
+
   it('schneider-pm53xx registers match the official register list v2011_v2021_R01 (docs/devices/schneider-pm53xx.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm53xx')!;
     expect(t.func).toBe(3); // holding registers (FC not stated by Schneider; FC 03 chosen, gated in the provisional text)
