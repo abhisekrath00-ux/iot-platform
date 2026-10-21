@@ -322,6 +322,37 @@ describe('edge setup', () => {
     expect(y).toContain('register: 20537'); expect(y).toContain('register: 20592');
     expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
   });
+  it('satec-pm130 registers match the official guide BG0427 Rev. A10 (docs/devices/satec-pm130.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'satec-pm130')!;
+    expect(t.func).toBe(3); // FC 03; the guide documents FC 04 as equivalent
+    expect(t.type).toBe('u32');
+    expect(t.word_order).toBe('cdab'); // guide: "the first register contains the low-order word"
+    expect(t.wordOrderUnverified).toBeUndefined(); // word order, base and FC are all vendor-stated
+    expect(t.pduBaseUnverified).toBeUndefined();
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.unitsUnverified).toBe(true); // units follow the meter's resolution option (default Low: 1V/1A/1kW)
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1n').register).toBe(13952); expect(pt('v2n').register).toBe(13954); expect(pt('v3n').register).toBe(13956);
+    expect(pt('i1').register).toBe(13958); expect(pt('i2').register).toBe(13960); expect(pt('i3').register).toBe(13962);
+    expect(pt('p1').register).toBe(13964); expect(pt('p2').register).toBe(13966); expect(pt('p3').register).toBe(13968);
+    expect(pt('p1').type).toBe('i32'); // kW rows are signed
+    expect(pt('v12').register).toBe(14012); expect(pt('v23').register).toBe(14014); expect(pt('v31').register).toBe(14016);
+    expect(pt('p_total').register).toBe(14336); expect(pt('p_total').type).toBe('i32');
+    expect(pt('q_total').register).toBe(14338); expect(pt('s_total').register).toBe(14340);
+    expect(pt('pf_total').register).toBe(14342); expect(pt('pf_total').scale).toBe(0.001); expect(pt('pf_total').type).toBe('i32');
+    expect(pt('v_avg_ln').register).toBe(14356); expect(pt('v_avg_ll').register).toBe(14358); expect(pt('i_avg').register).toBe(14360);
+    expect(pt('freq').register).toBe(14468); expect(pt('freq').scale).toBe(0.01);
+    expect(pt('kwh_import').register).toBe(14720); expect(pt('kwh_export').register).toBe(14722);
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    // units gate: no YAML until the unit confirmation is ticked
+    const base = { deviceId: 'pm130-1', templateId: 'satec-pm130', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(base).join(' ')).toContain('units');
+    const y = deviceYaml({ ...base, unitsConfirmed: true });
+    expect(y).toContain('register: 14468'); expect(y).toContain('register: 14720');
+    expect(y).toContain('func: 3'); expect(y).toContain('word_order: cdab');
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
