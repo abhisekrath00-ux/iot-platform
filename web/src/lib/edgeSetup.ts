@@ -7,6 +7,7 @@ export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; f
   // template's word_order is only a suggestion - the UI must make the installer choose it explicitly
   // (from their exact model's documentation or a live display check) before any YAML is generated.
   wordOrderUnverified?: boolean;
+  unitsUnverified?: boolean; // the vendor reports units dynamically (unit registers or config); the installer must confirm the meter's configured units
   // pduBaseUnverified: the vendor lists register numbers but does not state whether the on-wire
   // (PDU) address is the listed number or the listed number minus 1. The UI must make the
   // installer pick explicitly before any YAML is generated.
@@ -308,6 +309,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     wordOrderUnverified: true,
     pduBaseUnverified: true,
     funcUnverified: true,
+    unitsUnverified: true,
     note: 'Every register number, hex address, size, type and meaning verified line-by-line against Kamstrup\'s official data sheet "Modbus RTU / Modbus/KMP TCP/IP - MULTICAL 403/603/803" FILE100004479_C_EN_03.2025 (Kamstrup\'s Sitecore content delivery tenant, provenance chain in docs/devices/kamstrup-multical-x03.md). Points use the default datagram xx-yy-300 FLOAT values. The doc prints two numberings and states their correspondence ("the Modbus register count starts at number 1, and corresponds to the memory address 0"): the listed register numbers are stored here and the base gate below decides whether register N or its hex address (N-1) goes on the wire. Units are DYNAMIC: each value\'s SI unit is set by the meter configuration and readable in unit registers 83+ (kWh=2, kW=22, m3/h=42, m3=40, degC=37) - the installer gate below confirms the meter reports the units this template labels. Registers a model lacks answer with the documented invalid float 0x4F800000, so a wildly out-of-range reading means "not present on this meter/configuration", not a fault. The HC-003-82 Modbus TCP module carries the same map; this template presets RTU (HC-003-67). Serial parameters are set on the module, not stated in this data sheet - match the form to the module. Read-only; never run on a real meter.',
     provisional: 'Addresses, sizes and types are verified against Kamstrup\'s official data sheet FILE100004479_C_EN_03.2025. Three things the data sheet does NOT state: the multi-register byte/word order, the read function code (FC 03 vs FC 04; "3 or 4" appears only in the PQT-controller section), and which numbering goes on the wire (printed register N vs hex address N-1). Make all three choices yourself below, from the module\'s documentation or by testing. ALSO confirm the meter\'s configured units: this template labels energy kWh, power kW, flow m3/h, volume m3 and temperatures degC - read the unit registers (flow 83, power 85, t1 86, t2 87, diff 90, E1 93, E3 95, V1 109; codes kWh=2, kW=22, m3/h=42, m3=40, degC=37) or check the meter display/METERTOOL, because with other configured units every value is off by the unit ratio. Then validate against the real meter: compare SEVERAL independent known readings (for example t1 temperature, flow and heat energy) with the meter\'s own display - a single plausible value is only a smoke check, it does not prove the word order, function code, base or units, and says nothing about the other registers. Until that display comparison is done, every value from this template is hardware-untested.',
     points: [
@@ -450,7 +452,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
 
 export interface DeviceInput {
   deviceId: string; templateId: string; link: 'rtu' | 'tcp';
-  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; stopBits?: 1 | 2; host?: string; tcpPort?: number; address: number; intervalSec: number; provisionalConfirmed?: boolean; wordOrder?: string; pduBase?: 'listed' | 'minus1'; readFunc?: 3 | 4;
+  port?: string; baud?: number; parity?: 'none' | 'even' | 'odd'; stopBits?: 1 | 2; host?: string; tcpPort?: number; address: number; intervalSec: number; provisionalConfirmed?: boolean; unitsConfirmed?: boolean; wordOrder?: string; pduBase?: 'listed' | 'minus1'; readFunc?: 3 | 4;
 }
 
 export function validateDevice(d: DeviceInput): string[] {
@@ -458,9 +460,10 @@ export function validateDevice(d: DeviceInput): string[] {
   if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(d.deviceId)) e.push('Device id: lowercase letters, digits, - and _ only (max 40).');
   const tpl = EDGE_TEMPLATES.find((t) => t.id === d.templateId);
   if (!tpl) e.push('Pick a template.');
-  if (tpl?.provisional && !d.provisionalConfirmed) e.push(`Provisional template: ${tpl.provisional}`);
+  if (tpl?.provisional && !d.provisionalConfirmed) e.push('Provisional template: tick the confirmation in the safety block above once you have checked the points it lists.');
+  if (tpl?.unitsUnverified && !d.unitsConfirmed) e.push('Configured units: confirm the meter reports the labeled units (its unit registers, display or configuration tool) - a correct-looking value in the wrong unit misleads silently.');
   if (tpl?.wordOrderUnverified && !d.wordOrder) e.push('Word order: the vendor does not document it - choose it explicitly from your model\'s documentation or a display check against the meter.');
-  if (tpl?.pduBaseUnverified && !d.pduBase) e.push('Register base: the vendor numbers registers from 1 but does not document whether the on-wire address is the listed number or the listed number minus 1 - choose it explicitly from your model\'s documentation or a live read of a known value (e.g. frequency at 3110).');
+  if (tpl?.pduBaseUnverified && !d.pduBase) e.push('Register base: the vendor numbers registers from 1 but does not document whether the on-wire address is the listed number or the listed number minus 1 - choose it explicitly from your model\'s documentation or a live read of a value you can verify against the meter\'s own display.');
   if (tpl?.funcUnverified && !d.readFunc) e.push('Read function: the vendor does not document whether these registers are read with FC 03 (holding) or FC 04 (input) - choose it explicitly from your model\'s documentation or a gateway/scan tool that shows which one the meter answers.');
   if (!Number.isInteger(d.address) || d.address < 1 || d.address > 247) e.push('Modbus address must be 1-247.');
   if (!(d.intervalSec >= 1 && d.intervalSec <= 3600)) e.push('Read interval must be 1-3600 seconds.');
