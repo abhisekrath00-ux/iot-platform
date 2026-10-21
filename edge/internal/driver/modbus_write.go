@@ -112,6 +112,10 @@ func (g *modbusGeneric) Write(ctx context.Context, pointID string, value float64
 				if words, err = encodeWords(u, p.WordOrder); err != nil {
 					return err
 				}
+			default:
+				// t5/t6 (Iskra decade-exponent) and any future read-only measurement
+				// encoding must never reach the write path silently.
+				return fmt.Errorf("type %q is a read-only measurement encoding; writes support u16/i16/u32/i32/f32", typ)
 			}
 			if p.Func == 6 && n != 1 {
 				return fmt.Errorf("function 6 writes one register; use func 16 for %s", typ)
