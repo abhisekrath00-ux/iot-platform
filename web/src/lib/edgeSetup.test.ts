@@ -292,6 +292,36 @@ describe('edge setup', () => {
     const used = new Set<number>();
     for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
   });
+  it('ime-conto-d4 registers match the official protocol IDP000372 REV 1.01 (docs/devices/ime-conto-d4.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'ime-conto-d4')!;
+    expect(t.func).toBe(4); // FC 04 printed per input-register row
+    expect(t.type).toBe('u32');
+    expect(t.wordOrderUnverified).toBe(true); // only byte order ("big endian") stated; 32-bit word order NOT stated
+    expect(t.pduBaseUnverified).toBeUndefined(); // the protocol prints the on-wire "Register Address" column explicitly
+    expect(t.funcUnverified).toBeUndefined();
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('i1').register).toBe(20480); expect(pt('i1').scale).toBe(0.001); // 0x5000, mA
+    expect(pt('i2').register).toBe(20482); expect(pt('i3').register).toBe(20484);
+    expect(pt('v1n').register).toBe(20509); expect(pt('v1n').scale).toBe(0.001); // 0x501D, mV
+    expect(pt('v2n').register).toBe(20511); expect(pt('v3n').register).toBe(20513);
+    expect(pt('v12').register).toBe(20515); expect(pt('v23').register).toBe(20517); expect(pt('v31').register).toBe(20519);
+    expect(pt('freq').register).toBe(20537); expect(pt('freq').scale).toBe(0.01); expect(pt('freq').type).toBe('u16'); // 0x5039
+    expect(pt('p_total').register).toBe(20538); expect(pt('p_total').scale).toBe(0.01); expect(pt('p_total').type).toBe('i32'); // 0x503A, 0.01 kW
+    expect(pt('q_total').register).toBe(20540); // 0x503C
+    expect(pt('s_total').register).toBe(20544); // 0x5040
+    expect(pt('pf_total').register).toBe(20548); expect(pt('pf_total').scale).toBe(0.001); expect(pt('pf_total').type).toBe('i16'); // 0x5044
+    expect(pt('p1').register).toBe(20551); expect(pt('p2').register).toBe(20553); expect(pt('p3').register).toBe(20555);
+    expect(pt('kwh_import').register).toBe(20592); expect(pt('kwh_import').scale).toBe(0.01); // 0x5070, 0.01 kWh
+    expect(pt('kwh_export').register).toBe(20594); // 0x5072
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    const base = { deviceId: 'd4-1', templateId: 'ime-conto-d4', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 5, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(base).join(' ')).toContain('Word order'); // no YAML until the word-order gate is chosen
+    const y = deviceYaml({ ...base, wordOrder: 'abcd' });
+    expect(y).toContain('register: 20537'); expect(y).toContain('register: 20592');
+    expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
