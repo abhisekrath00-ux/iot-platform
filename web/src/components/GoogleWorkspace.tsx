@@ -59,8 +59,9 @@ export default function GoogleWorkspace() {
         address (channel type Gmail above), lets an on-call schedule follow a Google Calendar (Escalation settings),
         and lets reports be exported to your Drive (Reports page). The sign-in happens on Google's site; this
         deployment stores only the finished grant, and Disconnect removes it here. Google will ask for three
-        permissions: send email on your behalf, read your calendars, and create new Drive files (it cannot see
-        your existing files). Nothing is sent, no calendar is read and no file is created until you use a feature.
+        permissions: send email on your behalf, read your calendars, and add new files to your Drive. HexThings uses
+        the Drive permission only to upload new report files - it never reads, lists or changes your existing files.
+        Nothing is sent, no calendar is read and no file is created until you use a feature.
       </p>
       {st && !st.configured && (
         <p className="muted" role="status" data-testid="google-not-configured">
