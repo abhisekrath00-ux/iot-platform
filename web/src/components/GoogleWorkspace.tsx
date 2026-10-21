@@ -4,10 +4,10 @@ import { api } from '../lib/api';
 // Google Workspace connection card (Settings > Integrations).
 // Optional integration: the deployment works fully without it. Consent
 // happens on Google's site; this page only starts it and shows the result.
-// Only surfaces with a live consumer are offered - today that is Gmail send
-// (the Gmail notification channel and its Send test path). Calendar and
-// Drive scopes exist server-side but have no product consumer yet, so they
-// are not requested here.
+// Only surfaces with a live consumer are requested - Gmail send (the Gmail
+// notification channel and its Send test path) and Calendar read (the on-call
+// calendar sync). The Drive scope exists server-side but has no consumer yet,
+// so it is not requested here.
 
 interface GStatus { configured: boolean; connected: boolean; }
 
@@ -31,7 +31,7 @@ export default function GoogleWorkspace() {
   async function connect() {
     setMsg('');
     try {
-      const r = await api<{ url: string }>('/v1/integrations/google/connect', { method: 'POST', body: JSON.stringify({ surfaces: ['gmail_send'] }) });
+      const r = await api<{ url: string }>('/v1/integrations/google/connect', { method: 'POST', body: JSON.stringify({ surfaces: ['gmail_send', 'calendar_oncall'] }) });
       window.open(r.url, '_blank', 'noopener');
       setMsg('Finish the sign-in in the new tab - Google brings you back to this page when it is done.');
     } catch (e) { setMsg(String(e)); }
@@ -48,9 +48,10 @@ export default function GoogleWorkspace() {
       <b>Integrations: Google Workspace</b>
       <p className="muted">
         Optional - everything works without this. Connecting one Google account lets alerts be sent from your Gmail
-        address (channel type Gmail above). The sign-in happens on Google's site; this deployment stores only the
-        finished grant, and Disconnect removes it here. Google will ask for one permission: send email on your behalf.
-        Nothing is sent until you add a Gmail channel and press Enable on it.
+        address (channel type Gmail above) and lets an on-call schedule follow a Google Calendar (Escalation settings).
+        The sign-in happens on Google's site; this deployment stores only the finished grant, and Disconnect removes it
+        here. Google will ask for two read/send permissions: send email on your behalf and read your calendars.
+        Nothing is sent and no calendar is read until you add a Gmail channel or link a calendar to a schedule.
       </p>
       {st && !st.configured && (
         <p className="muted" role="status" data-testid="google-not-configured">
