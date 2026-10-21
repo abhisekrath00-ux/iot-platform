@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
+import ReportDrive from '../components/ReportDrive';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 
 interface Metric { device_id: string; point_id: string; }
@@ -352,6 +353,7 @@ export default function Reports() {
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=docx`, `${r.name}.docx`).catch(e => setMsg(String(e)))}>Word</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=pptx`, `${r.name}.pptx`).catch(e => setMsg(String(e)))}>PowerPoint</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=xml`, `${r.name}.xml`).catch(e => setMsg(String(e)))}>XML</button>
+            {!scoped && <ReportDrive reportId={r.id} />}
             {me?.role === 'admin' && !scoped && <ShareWithCustomer path={`/v1/reports/${r.id}/customer`} value={r.customer_id} onDone={load} onError={setMsg} />}
           </div>
           {hist?.id === r.id && (
