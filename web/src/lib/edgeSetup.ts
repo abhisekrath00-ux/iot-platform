@@ -350,6 +350,23 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'satec-pm130', name: 'SATEC PM130 PLUS (PM130P/PM130E/PM130EH, Modbus RTU)', link: 'rtu', func: 3, type: 'u32', word_order: 'cdab',
+    unitsUnverified: true,
+    note: 'Every register address, size, type, range and scale verified line-by-line against SATEC\'s official PM130 PLUS Modbus Communications Protocol Reference Guide BG0427 Rev. A10 (satec-global.com; docs/devices/satec-pm130.md). All three conventions are vendor-stated: FC 03 (FC 04 documented as equivalent), low-word-first 32-bit order (cdab - "the first register contains the low-order word"), and listed address = on-wire address (the 4XXXXX Modicon scheme is notation only). Reads the 1-second 32-bit register set with the meter at factory defaults: 32-bit integer format (setup register 246 = 0) and Low resolution option (1V / 1A / 1kW). Serial parameters and the Modbus RTU protocol selection are configured on the meter; no factory default is stated, so match the form to your meter. Read-only; never run on a real meter.',
+    provisional: 'Addresses, types, scales, word order, FC 03 and the address base are verified against SATEC\'s official guide BG0427 Rev. A10. TWO configuration dependencies. Units follow the meter\'s resolution option: the defaults (Low resolution) give the labeled units 1V, 1A and 1kW/kvar/kVA, but the High resolution option reports 0.1V, 0.01A and 1W instead - confirm the meter reports the labeled units (unit checkbox below). And the 32-bit registers must be in the default INTEGER format (setup register 246 = 0): if the meter was switched to floating point, this template decodes garbage - check register 246 in the meter setup or PAS. Wiring note: the first three voltage registers carry phase-to-neutral voltage in 4-wire mode and phase-to-phase in 3-wire mode (the guide\'s "V1/V12"); the explicit L-L set at 14012-14016 is only valid in 4-wire mode. Then validate against the real meter: compare SEVERAL independent known readings (for example frequency, one voltage and the energy import counter) with the meter\'s own display - a single plausible value is only a smoke check. Until that display comparison is done, every value from this template is hardware-untested.',
+    points: [
+      ps('v1n', 13952, 'V', 0, 1000, 1), ps('v2n', 13954, 'V', 0, 1000, 1), ps('v3n', 13956, 'V', 0, 1000, 1),
+      ps('i1', 13958, 'A', 0, 10000, 1), ps('i2', 13960, 'A', 0, 10000, 1), ps('i3', 13962, 'A', 0, 10000, 1),
+      ps('p1', 13964, 'kW', -1e7, 1e7, 1, 'i32'), ps('p2', 13966, 'kW', -1e7, 1e7, 1, 'i32'), ps('p3', 13968, 'kW', -1e7, 1e7, 1, 'i32'),
+      ps('v12', 14012, 'V', 0, 1000, 1), ps('v23', 14014, 'V', 0, 1000, 1), ps('v31', 14016, 'V', 0, 1000, 1),
+      ps('p_total', 14336, 'kW', -1e7, 1e7, 1, 'i32'), ps('q_total', 14338, 'kvar', -1e7, 1e7, 1, 'i32'), ps('s_total', 14340, 'kVA', 0, 1e7, 1),
+      ps('pf_total', 14342, '', -1, 1, 0.001, 'i32'),
+      ps('v_avg_ln', 14356, 'V', 0, 1000, 1), ps('v_avg_ll', 14358, 'V', 0, 1000, 1), ps('i_avg', 14360, 'A', 0, 10000, 1),
+      ps('freq', 14468, 'Hz', 40, 70, 0.01),
+      ps('kwh_import', 14720, 'kWh', 0, 1e9, 1), ps('kwh_export', 14722, 'kWh', 0, 1e9, 1),
+    ],
+  },
+  {
     id: 'schneider-pm53xx', name: 'Schneider PowerLogic PM53xx (PM5310/20/30/31/40/41)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
     wordOrderUnverified: true,
     pduBaseUnverified: true,
