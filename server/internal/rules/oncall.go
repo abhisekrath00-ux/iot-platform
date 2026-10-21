@@ -13,6 +13,11 @@ type Schedule struct {
 	Anchor     time.Time `json:"anchor"`
 	ShiftHours int       `json:"shift_hours"`
 	ChannelIDs []string  `json:"channel_ids"`
+
+	// Calendar sync override (optional; see EffectiveOnCall).
+	CalChannelID string    `json:"cal_channel_id,omitempty"`
+	CalUntil     time.Time `json:"cal_until,omitempty"`
+	CalSyncedAt  time.Time `json:"cal_synced_at,omitempty"`
 }
 
 // OnCall returns the channel on duty at t and when that shift ends.
@@ -56,4 +61,21 @@ func ValidateSchedule(s Schedule) error {
 		seen[c] = true
 	}
 	return nil
+}
+
+// Calendar-sync override columns (migration 0083). Empty CalChannelID means
+// no override and the plain rotation applies.
+// CalSyncedAt is when the calendar was last read successfully; an override
+// older than the caller's staleness bound is ignored so a dead sync never
+// pins the wrong person on duty.
+
+// EffectiveOnCall resolves who is on duty: a fresh calendar override wins
+// over the static rotation; anything missing, expired or stale falls back
+// to the rotation. shiftEnds comes from the winning source.
+func (s Schedule) EffectiveOnCall(t time.Time, maxStale time.Duration) (channel string, shiftEnds time.Time, ok bool) {
+	if s.CalChannelID != "" && !s.CalUntil.IsZero() && t.Before(s.CalUntil) &&
+		!s.CalSyncedAt.IsZero() && t.Sub(s.CalSyncedAt) <= maxStale {
+		return s.CalChannelID, s.CalUntil, true
+	}
+	return OnCall(s, t)
 }
