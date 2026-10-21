@@ -30,7 +30,8 @@ func (s *server) listOnCall(w http.ResponseWriter, r *http.Request) {
 		cur, ends, _ := sc.EffectiveOnCall(now, calStaleBound)
 		out = append(out, map[string]any{"id": sc.ID, "name": sc.Name, "anchor": sc.Anchor, "shift_hours": sc.ShiftHours,
 			"channel_ids": sc.ChannelIDs, "on_call_channel": cur, "shift_ends": ends,
-			"google_calendar_id": calID, "cal_summary": calSummary, "cal_sync_error": calErr})
+			"google_calendar_id": calID, "cal_summary": calSummary, "cal_sync_error": calErr,
+			"cal_channel_id": sc.CalChannelID, "cal_until": sc.CalUntil, "cal_synced_at": sc.CalSyncedAt})
 	}
 	writeJSON(w, 200, out)
 }
