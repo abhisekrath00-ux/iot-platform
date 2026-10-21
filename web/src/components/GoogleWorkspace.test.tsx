@@ -33,7 +33,7 @@ test('configured and unconnected: connect posts the gmail surface and opens the 
   await act(async () => btn.click());
   expect(opened[0]).toContain('accounts.google.com');
   const call = vi.mocked(api).mock.calls.find(c => c[0] === '/v1/integrations/google/connect')!;
-  expect(JSON.parse((call[1] as any).body).surfaces).toEqual(['gmail_send', 'calendar_oncall']);
+  expect(JSON.parse((call[1] as any).body).surfaces).toEqual(['gmail_send', 'calendar_oncall', 'drive_reports']);
   expect(box.textContent).toContain('Finish the sign-in');
 });
 
@@ -68,4 +68,33 @@ test('returning from the Google consent shows the success note and cleans the UR
   await act(async () => root.render(<GoogleWorkspace />));
   expect(box.textContent).toContain('Google account connected');
   expect(window.location.search).toBe('');
+});
+
+test('connected with recorded grants shows each surface with its true state', async () => {
+  vi.mocked(api).mockImplementation((url: string) => {
+    if (url === '/v1/integrations/google/status') return Promise.resolve({
+      configured: true, connected: true,
+      surfaces: { gmail_send: true, calendar_oncall: true, drive_reports: false },
+    }) as any;
+    return Promise.reject(new Error('not mocked')) as any;
+  });
+  await act(async () => root.render(<GoogleWorkspace />));
+  const el = box.querySelector('[data-testid="google-surfaces"]')!;
+  expect(el.textContent).toContain('Send email from your Gmail address: granted');
+  expect(el.textContent).toContain('Read calendars (on-call sync): granted');
+  expect(el.textContent).toContain('Create report files in your Drive: not granted');
+});
+
+test('connected without a scope record shows unknown, never a guess', async () => {
+  vi.mocked(api).mockImplementation((url: string) => {
+    if (url === '/v1/integrations/google/status') return Promise.resolve({
+      configured: true, connected: true,
+      surfaces: { gmail_send: 'unknown', calendar_oncall: 'unknown', drive_reports: 'unknown' },
+    }) as any;
+    return Promise.reject(new Error('not mocked')) as any;
+  });
+  await act(async () => root.render(<GoogleWorkspace />));
+  const el = box.querySelector('[data-testid="google-surfaces"]')!;
+  expect(el.textContent).toContain('unknown - reconnect to confirm');
+  expect(el.textContent).not.toContain('granted:');
 });
