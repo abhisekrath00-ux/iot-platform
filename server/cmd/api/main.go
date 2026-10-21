@@ -2383,9 +2383,33 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 			Target string `json:"target"`
 		}
 		if err := json.Unmarshal(payload, &in); err != nil || in.Target == "" ||
-			(in.Type != "email" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp" && in.Type != "teams" && in.Type != "sms" && in.Type != "whatsapp" && in.Type != "telegram") {
-			http.Error(w, "type (email|slack|webhook|teams|sms|whatsapp|telegram|kafka|amqp) and target required", 400)
+			(in.Type != "email" && in.Type != "gmail" && in.Type != "slack" && in.Type != "webhook" && in.Type != "kafka" && in.Type != "amqp" && in.Type != "teams" && in.Type != "sms" && in.Type != "whatsapp" && in.Type != "telegram") {
+			http.Error(w, "type (email|gmail|slack|webhook|teams|sms|whatsapp|telegram|kafka|amqp) and target required", 400)
 			return
+		}
+		if in.Type == "gmail" {
+			if s.google == nil {
+				http.Error(w, "Google Workspace is not configured on this deployment (the operator sets GOOGLE_CLIENT_ID/SECRET)", 409)
+				return
+			}
+			if strings.ContainsAny(in.Target, "\r\n\t ,;") || !strings.Contains(in.Target, "@") {
+				http.Error(w, "target must be a single email address", 400)
+				return
+			}
+			var connected bool
+			if s.secrets != nil && len(s.secrets.Key) > 0 {
+				if infos, err := s.secrets.List(r.Context(), auth.Tenant(r)); err == nil {
+					for _, inf := range infos {
+						if inf.Name == googlews.RefreshSecretName {
+							connected = true
+						}
+					}
+				}
+			}
+			if !connected {
+				http.Error(w, "connect Google Workspace for this workspace first (Settings > Integrations > Google)", 409)
+				return
+			}
 		}
 		if in.Type == "teams" {
 			if err := notify.ValidateTeamsURL(in.Target); err != nil {
