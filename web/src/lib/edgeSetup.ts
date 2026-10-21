@@ -72,7 +72,11 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   },
   {
     id: 'socomec-diris-a40', name: 'Socomec DIRIS A-40, load 1 (three-phase panel meter)', link: 'rtu', func: 4, type: 'u32', word_order: 'abcd',
-    note: 'From the official DIRIS A-40 Modbus communication table CMT-1.7.4B (docs/devices/socomec-diris-a40.md). Reads load-1 instantaneous values only; scaled integers (V 10e-2, mA, mHz, PF /1000) carry their scale. Energy counters and loads 2-3 not in this template yet. Read-only; never run on a real meter.',
+    wordOrderUnverified: true,
+    pduBaseUnverified: true,
+    funcUnverified: true,
+    note: 'Every register number, hex address, size, type and scale verified line-by-line against Socomec\'s official communication table "MODBUS tables of DIRIS A-40" CMT-1.7.4B EN (docs/devices/socomec-diris-a40.md). Reads the load-1 instantaneous block (0x4800+) plus the total energy counters (0x4D83+): scaled integers, no floats - V 10e-2, mA, mHz, PF /1000, counters as printed (kWh; "varh 10e3" is kvarh; kVAh). RS485 Modbus RTU is standard on the base unit (Ethernet variants add Modbus TCP; this template presets RTU). Serial parameters are configured on the meter display, not stated in the table - match the form to the meter. Loads 2-3, per-tariff and residual counters, harmonics and PF-type flags excluded (named in the doc). Read-only; never run on a real meter.',
+    provisional: 'Addresses, sizes, types and scales are verified against Socomec\'s official communication table CMT-1.7.4B. Three things neither the table nor the operating manual 545802B state: the multi-register word order, the read function code (FC 03 holding vs FC 04 input), and whether the listed address or the listed address minus 1 goes on the wire. Make all three choices yourself below, from the meter\'s integration guidance or by testing. Then validate against the real meter: compare SEVERAL independent known readings (for example frequency, one voltage and the energy import counter) with the meter\'s own display - a single plausible value is only a smoke check, it does not prove the word order, function code or base, and says nothing about the other registers. Until that display comparison is done, every value from this template is hardware-untested.',
     points: [
       ps('v_sys_ln', 18436, 'V', 0, 1000, 0.01), ps('v_sys_ll', 18438, 'V', 0, 1000, 0.01),
       ps('i_sys', 18440, 'A', 0, 100000, 0.001), ps('freq', 18442, 'Hz', 0, 70, 0.001),
@@ -86,6 +90,8 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('q1', 18494, 'var', -1e9, 1e9, 1, 'i32'), ps('q2', 18496, 'var', -1e9, 1e9, 1, 'i32'), ps('q3', 18498, 'var', -1e9, 1e9, 1, 'i32'),
       ps('s1', 18512, 'VA', 0, 1e9, 1), ps('s2', 18514, 'VA', 0, 1e9, 1), ps('s3', 18516, 'VA', 0, 1e9, 1),
       ps('pf1', 18518, '', -1, 1, 0.001, 'i16'), ps('pf2', 18519, '', -1, 1, 0.001, 'i16'), ps('pf3', 18520, '', -1, 1, 0.001, 'i16'),
+      ps('kwh_import', 19843, 'kWh', 0, 4.29e9, 1), ps('kwh_export', 19846, 'kWh', 0, 4.29e9, 1),
+      ps('kvarh_import', 19849, 'kvarh', 0, 4.29e9, 1), ps('kvah_total', 19855, 'kVAh', 0, 4.29e9, 1),
     ],
   },
   {
