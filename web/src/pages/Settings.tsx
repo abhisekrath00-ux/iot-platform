@@ -14,6 +14,7 @@ import ServerAddresses from '../components/ServerAddresses';
 import AIProfiles from '../components/AIProfiles';
 import AIActivity from '../components/AIActivity';
 import AssistantChannels from '../components/AssistantChannels';
+import GoogleWorkspace from '../components/GoogleWorkspace';
 import { ChannelGuide, targetHint } from '../components/ChannelGuide';
 
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
@@ -130,14 +131,20 @@ export default function Settings() {
         <form onSubmit={submit}>
           <label>Type</label>
           <select value={type} onChange={e => setType(e.target.value)}>
-            <option value="email">Email</option><option value="slack">Slack channel</option><option value="webhook">Webhook (HTTPS URL)</option><option value="teams">Microsoft Teams (webhook URL)</option><option value="sms">SMS (needs a gateway)</option><option value="whatsapp">WhatsApp (needs a business account)</option><option value="telegram">Telegram (bot chat)</option>
+            <option value="email">Email</option><option value="gmail">Gmail (connected Google account)</option><option value="slack">Slack channel</option><option value="webhook">Webhook (HTTPS URL)</option><option value="teams">Microsoft Teams (webhook URL)</option><option value="sms">SMS (needs a gateway)</option><option value="whatsapp">WhatsApp (needs a business account)</option><option value="telegram">Telegram (bot chat)</option>
           </select>
-          <label>{({ email: 'Email address', slack: 'Slack channel ID', webhook: 'Webhook URL', teams: 'Teams incoming-webhook URL (https)', sms: 'Phone number (+country code)', whatsapp: 'WhatsApp number (+country code)', telegram: 'Telegram chat ID' } as Record<string, string>)[type]}</label>
-          <input value={target} onChange={e => setTarget(e.target.value)} placeholder={({ email: 'ops@yourcompany.com', slack: 'C0123456789', webhook: 'https://example.com/hook', teams: 'https://prod-XX.westus.logic.azure.com/workflows/... (from the Workflows app)', sms: '+4915112345678', whatsapp: '+919812345678', telegram: '-1001234567890 (a group) or 123456789 (a person)' } as Record<string, string>)[type]} required />
+          <label>{({ email: 'Email address', gmail: 'Recipient email address', slack: 'Slack channel ID', webhook: 'Webhook URL', teams: 'Teams incoming-webhook URL (https)', sms: 'Phone number (+country code)', whatsapp: 'WhatsApp number (+country code)', telegram: 'Telegram chat ID' } as Record<string, string>)[type]}</label>
+          <input value={target} onChange={e => setTarget(e.target.value)} placeholder={({ email: 'ops@yourcompany.com', gmail: 'ops@yourcompany.com', slack: 'C0123456789', webhook: 'https://example.com/hook', teams: 'https://prod-XX.westus.logic.azure.com/workflows/... (from the Workflows app)', sms: '+4915112345678', whatsapp: '+919812345678', telegram: '-1001234567890 (a group) or 123456789 (a person)' } as Record<string, string>)[type]} required />
           {targetHint(type, target) && <div className="muted" role="status" style={{ marginTop: 4 }}>{targetHint(type, target)}</div>}
           {type === 'email' && emailCfg === false && (
             <div className="muted" role="status" data-testid="email-smtp-off" style={{ marginTop: 4 }}>
               Email sending (SMTP) is not configured on this deployment yet, so Send test cannot deliver. Your platform operator sets SMTP_HOST and ALERT_FROM_EMAIL (plus SMTP_PORT, SMTP_USER and SMTP_PASS if the mail server needs them) on the server. You can still add the channel now - press Send test once the operator confirms, then Enable.
+            </div>
+          )}
+          {type === 'gmail' && (
+            <div className="muted" role="status" data-testid="gmail-needs-google" style={{ marginTop: 4 }}>
+              Sends from the Google account connected under Integrations: Google Workspace below - connect it there first.
+              The server refuses a Gmail channel while no account is connected. Send test here exercises the real send path from that Gmail address.
             </div>
           )}
           {type !== 'telegram' && <ChannelGuide type={type} />}
@@ -224,6 +231,7 @@ export default function Settings() {
         </table>
         )}
       </div>
+      <GoogleWorkspace />
       <div className="card" style={{ maxWidth: 640, margin: '20px 0' }}>
         <b>Branding</b>
         <p className="muted">Product name and accent colour for this tenant. Admins only. The accent must keep white button text readable (contrast 4.5:1).</p>
