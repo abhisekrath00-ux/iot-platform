@@ -63,6 +63,10 @@ func (s *server) putOnCallCalendar(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "connect Google Workspace for this workspace first (Settings > Integrations > Google)", 409)
 		return
 	}
+	if err := googlews.RequireScope(r.Context(), s.secrets, tenant, googlews.ScopeCalendarOnCall); err != nil {
+		http.Error(w, err.Error(), 409)
+		return
+	}
 	if err := s.syncOneCalendarSchedule(r.Context(), tenant, id, in.CalendarID); err != nil {
 		http.Error(w, "calendar is not readable with the connected grant: "+err.Error(), 502)
 		return
@@ -147,6 +151,13 @@ func (s *server) syncCalendarSchedules(ctx context.Context) {
 // returned; the schedule keeps its previous override and the static rotation
 // remains the fallback.
 func (s *server) syncOneCalendarSchedule(ctx context.Context, tenant, scheduleID, calendarID string) error {
+	if err := googlews.RequireScope(ctx, s.secrets, tenant, googlews.ScopeCalendarOnCall); err != nil {
+		// partial or legacy grant: the static rotation stays in effect and the
+		// row says why, like every other fail-closed calendar state
+		s.st.Pool.Exec(ctx, `UPDATE oncall_schedules SET cal_channel_id=NULL, cal_until=NULL, cal_summary='', cal_synced_at=now(), cal_sync_error=$3 WHERE id=$1 AND tenant_id=$2`,
+			scheduleID, tenant, "the connected Google grant does not cover calendar read - "+err.Error())
+		return nil // handled on the row; not a sweep failure
+	}
 	tok, err := googlews.AccessToken(ctx, s.google, s.secrets, tenant)
 	if err != nil {
 		return err
