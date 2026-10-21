@@ -64,3 +64,37 @@ func TestValidateScheduleAndSteps(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestEffectiveOnCallCalendarOverride(t *testing.T) {
+	anchor := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	sc := Schedule{Anchor: anchor, ShiftHours: 24, ChannelIDs: []string{"ch-a", "ch-b"}}
+	now := anchor.Add(36 * time.Hour) // rotation says ch-b
+	rot, _, ok := OnCall(sc, now)
+	if !ok || rot != "ch-b" {
+		t.Fatalf("rotation baseline: %q ok=%v", rot, ok)
+	}
+	// fresh override wins
+	ov := sc
+	ov.CalChannelID = "ch-a"
+	ov.CalUntil = now.Add(2 * time.Hour)
+	ov.CalSyncedAt = now.Add(-time.Minute)
+	ch, ends, ok := ov.EffectiveOnCall(now, 15*time.Minute)
+	if !ok || ch != "ch-a" || !ends.Equal(ov.CalUntil) {
+		t.Fatalf("override should win: %q %v ok=%v", ch, ends, ok)
+	}
+	// expired event falls back to the rotation
+	ov.CalUntil = now.Add(-time.Minute)
+	if ch, _, _ = ov.EffectiveOnCall(now, 15*time.Minute); ch != "ch-b" {
+		t.Fatalf("expired override must fall back: %q", ch)
+	}
+	// stale sync falls back to the rotation
+	ov.CalUntil = now.Add(2 * time.Hour)
+	ov.CalSyncedAt = now.Add(-30 * time.Minute)
+	if ch, _, _ = ov.EffectiveOnCall(now, 15*time.Minute); ch != "ch-b" {
+		t.Fatalf("stale override must fall back: %q", ch)
+	}
+	// no override columns at all: identical to OnCall
+	if ch, _, _ = sc.EffectiveOnCall(now, 15*time.Minute); ch != "ch-b" {
+		t.Fatalf("plain schedule must rotate: %q", ch)
+	}
+}
