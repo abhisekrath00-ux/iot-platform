@@ -395,6 +395,43 @@ describe('edge setup', () => {
     expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
     expect(y).toContain('type: t6'); expect(y).toContain('type: t5');
   });
+  it('iskra-mc3x0 registers match the official MC 3x0 manual Appendix A, MC7x0-compatible map (docs/devices/iskra-mc3x0.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'iskra-mc3x0')!;
+    expect(t.func).toBe(4); // 3xxxx input registers; manual states memory reference 30000/40000
+    expect(t.type).toBe('t5');
+    expect(t.word_order).toBe('abcd'); // vendor worked examples print MSW first
+    expect(t.wordOrderUnverified).toBeUndefined();
+    expect(t.pduBaseUnverified).toBeUndefined();
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.stopBits).toBe(2);
+    expect(t.serial).toEqual({ baud: 115200, parity: 'none', address: 33 });
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('freq').register).toBe(104); // 30105
+    expect(pt('v1').register).toBe(106); expect(pt('v3').register).toBe(110); expect(pt('v_avg_ln').register).toBe(112);
+    expect(pt('v12').register).toBe(117); expect(pt('v31').register).toBe(121); expect(pt('v_avg_ll').register).toBe(123);
+    expect(pt('i1').register).toBe(125); expect(pt('i3').register).toBe(129);
+    expect(pt('i_neutral').register).toBe(131); expect(pt('i_total').register).toBe(137); // 30138
+    expect(pt('p_total').register).toBe(139); expect(pt('p_total').type).toBe('t6');
+    expect(pt('p1').register).toBe(141); expect(pt('p3').register).toBe(145);
+    expect(pt('q1').register).toBe(149); expect(pt('q3').register).toBe(153); // per-phase Q are T6
+    expect(pt('s1').register).toBe(157); expect(pt('s3').register).toBe(161); // per-phase S are T5
+    // q_total/s_total excluded: the manual's type codes for the two totals conflict with the
+    // family type definitions (T5/T7 where T6/T5 are expected) - excluded rather than guessed
+    expect(t.points.some((p) => p.id === 'q_total')).toBe(false);
+    expect(t.points.some((p) => p.id === 's_total')).toBe(false);
+    // THD is T1 on this model (unsigned 16-bit, whole percent) - NOT the MC 7x0's T16 0.01
+    expect(pt('thd_u1').register).toBe(181); expect(pt('thd_u1').type).toBe('u16'); expect(pt('thd_u1').scale).toBe(1);
+    expect(pt('thd_i3').register).toBe(189);
+    expect(t.points.some((p) => p.id.startsWith('pf'))).toBe(false);
+    expect(t.points.some((p) => p.id.includes('kwh'))).toBe(false);
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4, t5: 2, t6: 2 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    const base = { deviceId: 'mc350-1', templateId: 'iskra-mc3x0', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 115200, address: 33, intervalSec: 5, provisionalConfirmed: true };
+    const y = deviceYaml(base);
+    expect(y).toContain('register: 104'); expect(y).toContain('register: 139');
+    expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
