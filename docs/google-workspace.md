@@ -30,6 +30,10 @@ OAuth, any live Google call, sending real mail. This file tracks what exists and
   token), load, disconnect; tenant isolation checked.
 - GmailSender: RFC 2822 plain-text send via /gmail/v1/users/me/messages/send with the tenant's
   grant; simulator asserts the exact request and the fail-closed path when unconnected.
+- Every consumer enforces the recorded grant before touching Google (RequireScope): a partial
+  grant (the surface's scope missing) or a legacy grant (no recorded scope list) fails closed
+  with a clear reconnect instruction instead of attempting the call. Gmail send, calendar
+  on-call sync and Drive upload each guard their own scope.
 - API routes (admin-only, tenant-scoped, refused to customer-scoped users by the scopedAllows
   middleware): GET /v1/integrations/google/status (configured + connected), POST
   /v1/integrations/google/connect (mints a single-use 10-minute state, returns the consent
@@ -70,8 +74,8 @@ against the Google simulator, incl. state single-use replay refusal). gofmt/vet 
   report fresh and uploads a NEW file to the connected Drive - format "html" stores the
   rendered document, format "sheet" uploads the CSV render converted into a Google Sheet.
   GET /v1/reports/{id}/exports lists the per-report export history (report_drive_exports
-  table, migration 0084). drive.file can only see files this app created, so no existing
-  tenant Drive content is ever read or overwritten. Unconfigured deployment answers 503,
+  table, migration 0084). The platform uses the Drive permission only to upload new report
+  files - nothing in HexThings reads, lists or changes existing tenant Drive content. Unconfigured deployment answers 503,
   unconnected tenant 409; the Reports page shows both buttons, the last successful export
   link and refused exports as alerts.
 
