@@ -44,6 +44,7 @@ type Provider struct {
 	AuthURL     string // default https://accounts.google.com/o/oauth2/v2/auth
 	TokenURL    string // default https://oauth2.googleapis.com/token
 	CalendarURL string // default https://www.googleapis.com/calendar/v3
+	DriveURL    string // default https://www.googleapis.com/upload/drive/v3/files
 
 	http *http.Client
 }
@@ -57,7 +58,8 @@ func NewProvider(clientID, clientSecret, redirectURL string) (*Provider, error) 
 	return &Provider{
 		ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
 		AuthURL: "https://accounts.google.com/o/oauth2/v2/auth", TokenURL: "https://oauth2.googleapis.com/token",
-		http: &http.Client{Timeout: 15 * time.Second},
+		DriveURL: "https://www.googleapis.com/upload/drive/v3/files",
+		http:     &http.Client{Timeout: 15 * time.Second},
 	}, nil
 }
 
