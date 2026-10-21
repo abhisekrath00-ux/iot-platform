@@ -25,6 +25,13 @@ func TestDecodeWords(t *testing.T) {
 		{"f32 cdab", []uint16{uint16(f100), uint16(f100 >> 16)}, "f32", "cdab", 100},
 		{"f32 badc", []uint16{0xC842, 0x0000}, "f32", "badc", 100},
 		{"f32 dcba", []uint16{0x0000, 0xC842}, "f32", "dcba", 100},
+		// Iskra decade-exponent types: examples are the vendor's own worked bytes
+		// (MC 3x0 user manual, Appendix A "Data types decoding").
+		{"t5 vendor example", []uint16{0xFD01, 0xE240}, "t5", "abcd", 123.456},     // 123456 x 10^-3
+		{"t6 vendor example", []uint16{0xFDFE, 0x1DC0}, "t6", "abcd", -123.456},    // -123456 x 10^-3
+		{"t5 zero exponent", []uint16{0x0000, 0x00E6}, "t5", "abcd", 230},          // 230 x 10^0
+		{"t5 positive exponent", []uint16{0x0500, 0x0096}, "t5", "abcd", 15000000}, // 150 x 10^5
+		{"t6 negative value", []uint16{0x00FF, 0xFF9C}, "t6", "abcd", -100},        // -100 x 10^0
 	}
 	for _, c := range cases {
 		got, err := decodeWords(c.words, c.typ, c.order)
