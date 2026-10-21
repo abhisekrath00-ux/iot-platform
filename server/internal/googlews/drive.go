@@ -35,8 +35,10 @@ type DriveFile struct {
 // Upload creates one file in the tenant's Drive from content the platform
 // generated. convertMime, when non-empty, asks Drive to convert the content
 // into that Google-native type (CSV -> Sheets); otherwise the bytes are
-// stored as-is. The drive.file scope covers only files this upload creates,
-// so no existing tenant file can be read, modified or overwritten here.
+// stored as-is. HexThings only ever creates new report files through this
+// uploader - nothing in the platform reads, lists, modifies or deletes
+// existing Drive content, and the upload refuses to run unless the tenant's
+// recorded grant covers drive.file.
 func (d *DriveUploader) Upload(ctx context.Context, tenant, name, contentType, convertMime string, content []byte) (*DriveFile, error) {
 	if strings.TrimSpace(name) == "" || strings.ContainsAny(name, "\r\n") {
 		return nil, fmt.Errorf("googlews drive: bad file name %q", name)
@@ -46,6 +48,9 @@ func (d *DriveUploader) Upload(ctx context.Context, tenant, name, contentType, c
 	}
 	if len(content) > 10<<20 {
 		return nil, fmt.Errorf("googlews drive: content over 10 MiB limit")
+	}
+	if err := RequireScope(ctx, d.s, tenant, ScopeDriveReportFile); err != nil {
+		return nil, err
 	}
 	at, err := AccessToken(ctx, d.p, d.s, tenant)
 	if err != nil {
