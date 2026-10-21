@@ -292,6 +292,41 @@ describe('edge setup', () => {
     const used = new Set<number>();
     for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
   });
+  it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
+    expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
+    expect(t.type).toBe('f32');
+    expect(t.word_order).toBe('abcd'); // manual: 32-bit data transmitted most-significant word first
+    expect(t.wordOrderUnverified).toBeUndefined(); // all three conventions vendor-stated
+    expect(t.pduBaseUnverified).toBeUndefined();
+    expect(t.funcUnverified).toBeUndefined();
+    const reg = (id: string) => t.points.find((p) => p.id === id)?.register;
+    expect(reg('i1')).toBe(3000); expect(reg('i2')).toBe(3002); expect(reg('i3')).toBe(3004);
+    expect(reg('i_avg')).toBe(3010); // Current Avg
+    expect(reg('v12')).toBe(3020); expect(reg('v23')).toBe(3022); expect(reg('v31')).toBe(3024);
+    expect(reg('v_avg_ll')).toBe(3026); // Voltage L-L Avg
+    expect(reg('v1n')).toBe(3028); expect(reg('v2n')).toBe(3030); expect(reg('v3n')).toBe(3032);
+    expect(reg('v_avg_ln')).toBe(3036); // Voltage L-N Avg
+    expect(reg('p1')).toBe(3054); expect(reg('p2')).toBe(3056); expect(reg('p3')).toBe(3058);
+    expect(reg('p_total')).toBe(3060); // Active Power Total
+    expect(reg('q_total')).toBe(3068); // Reactive Power Total
+    expect(reg('s_total')).toBe(3076); // Apparent Power Total
+    expect(reg('pf_total')).toBe(3150); // Power Factor Total
+    expect(reg('freq')).toBe(3110); // Frequency
+    expect(reg('kwh_import')).toBe(2700); // kWh del
+    expect(reg('kwh_export')).toBe(2702); // kWh rec
+    // power is in W/VAR/VA on this meter, not kW like PM53xx
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('p_total').unit).toBe('W');
+    expect(pt('q_total').unit).toBe('var');
+    expect(pt('s_total').unit).toBe('VA');
+    expect(pt('pf_total').min).toBe(-2); expect(pt('pf_total').max).toBe(2); // sign convention unstated: wide range admits both encodings
+    const used = new Set<number>();
+    for (const p of t.points) { expect(used.has(p.register) || used.has(p.register + 1)).toBe(false); used.add(p.register); used.add(p.register + 1); }
+    const y = deviceYaml({ deviceId: 'pm8-1', templateId: 'schneider-pm8000', link: 'rtu', port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5, provisionalConfirmed: true });
+    expect(y).toContain('register: 3110'); expect(y).toContain('register: 2700');
+    expect(y).toContain('func: 3'); expect(y).toContain('word_order: abcd');
+  });
   it('socomec-diris-a40 registers match communication table CMT-1.7.4B (docs/devices/socomec-diris-a40.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'socomec-diris-a40')!;
     const pt = (id: string) => t.points.find((p) => p.id === id)!;
