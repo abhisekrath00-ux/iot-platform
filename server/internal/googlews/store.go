@@ -11,6 +11,10 @@ import (
 // encrypted at rest like every other tenant secret.
 const RefreshSecretName = "google_refresh_token"
 
+// ScopesSecretName holds the scope string Google returned with the consent
+// grant - the ground truth for which surfaces the tenant actually approved.
+const ScopesSecretName = "google_granted_scopes"
+
 // SecretStore is the slice of server/internal/secrets this package needs; the
 // production wiring passes *secrets.Store, tests pass a fake.
 type SecretStore interface {
@@ -40,10 +44,38 @@ func LoadRefreshToken(ctx context.Context, s SecretStore, tenant string) (string
 	return string(b), nil
 }
 
+// SaveGrantedScopes records the scope string from the consent exchange. An
+// empty string means Google did not echo scopes; that still overwrites so a
+// re-consent with fewer grants cannot leave wider stale scopes on record.
+func SaveGrantedScopes(ctx context.Context, s SecretStore, tenant, by, scope string) error {
+	return s.Put(ctx, tenant, ScopesSecretName, by, []byte(scope))
+}
+
+// LoadGrantedScopes returns the recorded granted scope string; the boolean
+// is false when no consent ever recorded one (older connections).
+func LoadGrantedScopes(ctx context.Context, s SecretStore, tenant string) (string, bool) {
+	b, err := s.Get(ctx, tenant, ScopesSecretName)
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
+}
+
+// ScopeGranted reports whether the recorded grant covers one OAuth scope.
+func ScopeGranted(recorded, scope string) bool {
+	for _, f := range strings.Fields(recorded) {
+		if f == scope {
+			return true
+		}
+	}
+	return false
+}
+
 // Disconnect forgets the tenant's Google grant. Future surface calls then
 // fail with ErrNotConnected until the admin re-consents.
 func Disconnect(ctx context.Context, s SecretStore, tenant string) error {
 	_, err := s.Delete(ctx, tenant, RefreshSecretName)
+	_, _ = s.Delete(ctx, tenant, ScopesSecretName)
 	return err
 }
 
