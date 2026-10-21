@@ -66,6 +66,17 @@ export default function EdgeSetup() {
             <label>Parity<select value={dev.parity} onChange={(e) => setDev({ ...dev, parity: e.target.value as 'none' })}><option>none</option><option>even</option><option>odd</option></select></label>
             <label>Stop bits<select value={dev.stopBits ?? 1} onChange={num('stopBits')}><option value={1}>1</option><option value={2}>2</option></select></label>
             {tpl.stopBits ? <p className="muted" style={{ fontSize: 12, margin: 0 }}>{tpl.stopBits} stop bits are vendor-documented for this device - preset from its manual. Check your exact model.</p> : null}
+            {tpl.serial ? (() => {
+              const s = tpl.serial!;
+              const parts = [s.baud ? `${s.baud} baud` : '', s.parity ? `${s.parity} parity` : '', s.address !== undefined ? `unit ID ${s.address}` : ''].filter(Boolean).join(', ');
+              const differs = (s.baud !== undefined && dev.baud !== s.baud) || (s.parity !== undefined && dev.parity !== s.parity) || (s.address !== undefined && dev.address !== s.address);
+              return (
+                <p className="muted" style={{ fontSize: 12, margin: 0, gridColumn: '1 / -1' }}>
+                  This meter's factory serial settings: {parts}.
+                  {differs ? <> The form keeps your current values. <button type="button" style={{ fontSize: 12, padding: '2px 8px', marginLeft: 4 }} onClick={() => setDev({ ...dev, ...(s.baud !== undefined ? { baud: s.baud } : {}), ...(s.parity !== undefined ? { parity: s.parity } : {}), ...(s.address !== undefined ? { address: s.address } : {}) })}>Apply factory settings</button></> : ' The form matches them.'}
+                </p>
+              );
+            })() : null}
           </> : <>
             <label>Host or IP<input value={dev.host} onChange={(e) => setDev({ ...dev, host: e.target.value })} /></label>
             <label>TCP port<input type="number" value={dev.tcpPort} onChange={num('tcpPort')} /></label>
