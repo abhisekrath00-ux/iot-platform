@@ -237,7 +237,11 @@ describe('edge setup', () => {
     expect(t.pduBaseUnverified).toBe(true);
     const missing = validateDevice({ deviceId: 'mc-1', templateId: 'kamstrup-multical-x03', link: 'rtu', port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, provisionalConfirmed: true });
     expect(missing.length).toBeGreaterThan(0);
-    const base = { deviceId: 'mc-1', templateId: 'kamstrup-multical-x03', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, wordOrder: 'abcd' as const, readFunc: 3 as const, pduBase: 'listed' as const, provisionalConfirmed: true };
+    // units are dynamic on this meter: a separate acknowledgement is required
+    expect(t.unitsUnverified).toBe(true);
+    const noUnits = { deviceId: 'mc-1', templateId: 'kamstrup-multical-x03', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, wordOrder: 'abcd' as const, readFunc: 3 as const, pduBase: 'listed' as const, provisionalConfirmed: true };
+    expect(validateDevice(noUnits).some((e) => e.startsWith('Configured units:'))).toBe(true);
+    const base = { ...noUnits, unitsConfirmed: true };
     expect(validateDevice(base)).toEqual([]);
     expect(deviceYaml(base)).toContain('register: 21'); // heat energy verbatim (listed register)
     const minus1 = deviceYaml({ ...base, pduBase: 'minus1' as const });
@@ -662,6 +666,12 @@ describe('edge setup', () => {
     const d: DeviceInput = { ...base, templateId: 'siemens-pac3200', link: 'tcp', host: '192.168.1.60', tcpPort: 502 };
     const errs = validateDevice(d);
     expect(errs.some((e) => e.startsWith('Provisional template:'))).toBe(true);
+    // the full provisional text renders once in the safety block, never repeated as an error line
+    for (const e of errs) expect(e.length).toBeLessThan(200);
+    // shared gate messages carry no meter-specific register examples (the old pduBase hint named another vendor's register 3110)
+    const kErrs = validateDevice({ deviceId: 'x-1', templateId: 'kamstrup-multical-x03', link: 'rtu', port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5 });
+    for (const e of kErrs) expect(e).not.toContain('3110');
+
     expect(() => deviceYaml(d)).toThrow();
     const ok = validateDevice({ ...d, provisionalConfirmed: true });
     expect(ok).toEqual([]);
