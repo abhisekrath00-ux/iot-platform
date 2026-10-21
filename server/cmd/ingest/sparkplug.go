@@ -11,7 +11,6 @@ import (
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow/jsfn"
-	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/sparkplug"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
@@ -75,7 +74,7 @@ func sparkplugReadings(topic string, payload []byte, al *sparkplug.Aliases, now 
 	return dev, out, nil
 }
 
-func startSparkplug(ctx context.Context, c mqtt.Client, st *store.Store, tenant string, n *notify.Notifier, pos *store.PositionTracker) {
+func startSparkplug(ctx context.Context, c mqtt.Client, st *store.Store, tenant string, n rules.Notifier, pos *store.PositionTracker) {
 	al := &sparkplug.Aliases{}
 	handler := func(_ mqtt.Client, m mqtt.Message) {
 		dev, rs, err := sparkplugReadings(m.Topic(), m.Payload(), al, time.Now())
