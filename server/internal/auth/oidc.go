@@ -24,8 +24,12 @@ import (
 
 type OIDCProvider struct {
 	Issuer, ClientID, ClientSecret, RedirectURL string
-	authzURL, tokenURL, jwksURL                 string
-	http                                        *http.Client
+	// HostedDomain, when set (OIDC_HOSTED_DOMAIN), restricts sign-in to
+	// accounts of that Google Workspace domain. Empty keeps sign-in open to
+	// any account the provider issues - the current default.
+	HostedDomain                string
+	authzURL, tokenURL, jwksURL string
+	http                        *http.Client
 }
 
 type OIDCIdentity struct {
@@ -125,6 +129,7 @@ type oidcClaims struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 	Nonce string `json:"nonce"`
+	HD    string `json:"hd"` // Google Workspace hosted domain, present only on Workspace accounts
 	jwt.RegisteredClaims
 }
 
@@ -149,6 +154,13 @@ func (p *OIDCProvider) VerifyIDToken(ctx context.Context, idToken, expectedNonce
 	}
 	if c.Email == "" {
 		return nil, fmt.Errorf("id_token: no email claim")
+	}
+	// Optional hosted-domain restriction (OIDC_HOSTED_DOMAIN): when set, only
+	// accounts inside that Google Workspace domain may sign in. A missing or
+	// different hd claim refuses the login outright - the check runs on the
+	// verified token, after signature/issuer/audience/nonce.
+	if p.HostedDomain != "" && c.HD != p.HostedDomain {
+		return nil, fmt.Errorf("id_token: account is outside the allowed hosted domain")
 	}
 	return &OIDCIdentity{Email: c.Email, Name: c.Name}, nil
 }
