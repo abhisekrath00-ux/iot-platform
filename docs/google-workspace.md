@@ -50,12 +50,16 @@ against the Google simulator, incl. state single-use replay refusal). gofmt/vet 
   deployment has no Google OAuth client (409) or the tenant has not consented yet (409), and
   the channel-test button exercises exactly the tenant's grant.
 
+- Ingest-service runtime wiring: cmd/ingest wraps its notifier with the Gmail capability
+  when GOOGLE_CLIENT_ID is set (cmd/ingest/googlews.go). The wrapper resolves the tenant
+  grant through the same secrets store, so alert dispatch from the ingest loop sends through
+  the tenant's connected Google account; Email/Slack delegate unchanged. A missing or
+  invalid SECRETS_KEY on the ingest service is logged at startup and gmail sends fail closed
+  with a clear error - telemetry ingest itself is never blocked by Google configuration.
+  Sparkplug ingestion uses the same wrapped notifier.
+
 ## NOT built yet (next increments)
 
-- Ingest-service runtime wiring: cmd/ingest evaluates alert rules with an env-only notifier
-  today, so a "gmail" alert channel answers errUnsupported there until ingest constructs the
-  Google-capable notifier (needs GOOGLE_* env on the ingest service + secrets store). The
-  channel-test path and the dispatch contract are done; the alert-loop wiring is the gap.
 - Calendar on-call sync worker (calendar.readonly) and Drive/Sheets report export (drive.file).
 - SSO hosted-domain (hd) restriction on top of the generic OIDC provider.
 - Web settings UI (connection card, consent entry, per-surface enable, honest status).
