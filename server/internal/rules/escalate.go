@@ -316,6 +316,6 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 		if repeat {
 			msg = fmt.Sprintf("ESCALATION REMINDER %d of %d, step %d (unacknowledged for %d min): %s", a.repeats+1, reps[a.tenant].Max, st.Step, int(a.age), a.msg)
 		}
-		dispatchOne(ctx, n, typ, target, a.sev, msg, "alert.escalated")
+		dispatchOne(ctx, n, a.tenant, typ, target, a.sev, msg, "alert.escalated")
 	}
 }
