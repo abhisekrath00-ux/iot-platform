@@ -32,6 +32,9 @@ func (g *GmailSender) Send(ctx context.Context, tenant, to, subject, body string
 	if strings.TrimSpace(to) == "" || !strings.Contains(to, "@") || strings.ContainsAny(to, "\r\n\t ,;") {
 		return "", fmt.Errorf("googlews gmail: bad recipient %q", to)
 	}
+	if err := RequireScope(ctx, g.s, tenant, ScopeGmailSend); err != nil {
+		return "", err
+	}
 	at, err := AccessToken(ctx, g.p, g.s, tenant)
 	if err != nil {
 		return "", err
