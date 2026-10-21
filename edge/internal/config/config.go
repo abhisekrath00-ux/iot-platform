@@ -151,7 +151,7 @@ type Point struct {
 	ID        string  `yaml:"id"`         // e.g. "kwh"
 	Register  int     `yaml:"register"`   // protocol register / coil
 	Func      int     `yaml:"func"`       // modbus function: 1 coils, 2 discrete, 3 holding, 4 input (default 4)
-	Type      string  `yaml:"type"`       // u16|i16|u32|i32|f32|bool (default u16; bool for func 1/2)
+	Type      string  `yaml:"type"`       // u16|i16|u32|i32|f32|t5|t6|bool (default u16; bool for func 1/2; t5/t6 Iskra decade-exponent)
 	WordOrder string  `yaml:"word_order"` // abcd|badc|cdab|dcba for 32-bit types (default abcd)
 	Scale     float64 `yaml:"scale"`
 	Unit      string  `yaml:"unit"`
