@@ -353,6 +353,48 @@ describe('edge setup', () => {
     expect(y).toContain('register: 14468'); expect(y).toContain('register: 14720');
     expect(y).toContain('func: 3'); expect(y).toContain('word_order: cdab');
   });
+  it('iskra-mc7x0 registers match the official MC 7x0 manual Appendix A (docs/devices/iskra-mc7x0.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'iskra-mc7x0')!;
+    expect(t.func).toBe(4); // 3xxxx input registers; the manual states memory reference 30000/40000
+    expect(t.type).toBe('t5'); // Iskra decade-exponent unsigned measurement
+    expect(t.word_order).toBe('abcd'); // vendor worked example: FD01 E240 = 123456 x 10^-3, MSW first
+    expect(t.wordOrderUnverified).toBeUndefined(); // word order, base and FC are all vendor-stated
+    expect(t.pduBaseUnverified).toBeUndefined();
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.unitsUnverified).toBeUndefined(); // readings carry their own decade exponent; units are base units
+    expect(t.stopBits).toBe(2); // vendor-stated factory default
+    expect(t.serial).toEqual({ baud: 115200, parity: 'none', address: 33 }); // vendor-stated factory defaults
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    // on-wire = listed Modicon address - 30001
+    expect(pt('freq').register).toBe(104); // 30105
+    expect(pt('v1').register).toBe(106); expect(pt('v2').register).toBe(108); expect(pt('v3').register).toBe(110);
+    expect(pt('v_avg_ln').register).toBe(112);
+    expect(pt('v12').register).toBe(117); expect(pt('v23').register).toBe(119); expect(pt('v31').register).toBe(121);
+    expect(pt('v_avg_ll').register).toBe(123);
+    expect(pt('i1').register).toBe(125); expect(pt('i2').register).toBe(127); expect(pt('i3').register).toBe(129);
+    expect(pt('i_neutral').register).toBe(131); expect(pt('i_avg').register).toBe(135);
+    expect(pt('p_total').register).toBe(139); expect(pt('p_total').type).toBe('t6'); // powers are signed (T6)
+    expect(pt('p1').register).toBe(141); expect(pt('p2').register).toBe(143); expect(pt('p3').register).toBe(145);
+    expect(pt('q_total').register).toBe(147); expect(pt('q_total').type).toBe('t6');
+    expect(pt('q1').register).toBe(149); expect(pt('q2').register).toBe(151); expect(pt('q3').register).toBe(153);
+    expect(pt('s_total').register).toBe(155); expect(pt('s_total').type).toBeUndefined(); // T5 template default
+    expect(pt('s1').register).toBe(157); expect(pt('s2').register).toBe(159); expect(pt('s3').register).toBe(161);
+    expect(pt('thd_u1').register).toBe(181); expect(pt('thd_u1').type).toBe('u16'); expect(pt('thd_u1').scale).toBe(0.01); // T16
+    expect(pt('thd_u3').register).toBe(183); expect(pt('thd_i1').register).toBe(187); expect(pt('thd_i3').register).toBe(189);
+    // no PF and no energy counters: T7 sign bytes and per-counter exponent registers are not
+    // representable as one fixed-scale number - excluded by design, named in the doc
+    expect(t.points.some((p) => p.id.startsWith('pf'))).toBe(false);
+    expect(t.points.some((p) => p.id.includes('kwh'))).toBe(false);
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4, t5: 2, t6: 2 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    // no installer gates on this one: provisional confirmation alone unlocks the YAML
+    const base = { deviceId: 'mc750-1', templateId: 'iskra-mc7x0', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 115200, address: 33, intervalSec: 5, provisionalConfirmed: true };
+    const y = deviceYaml(base);
+    expect(y).toContain('register: 104'); expect(y).toContain('register: 139');
+    expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
+    expect(y).toContain('type: t6'); expect(y).toContain('type: t5');
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
