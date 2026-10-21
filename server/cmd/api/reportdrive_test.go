@@ -98,6 +98,9 @@ func TestIntegrationReportDriveExport(t *testing.T) {
 	if err := googlews.SaveRefreshToken(ctx, s.secrets, "itest-dx", "admin@x", &googlews.Tokens{RefreshToken: "1//rt"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := googlews.SaveGrantedScopes(ctx, s.secrets, "itest-dx", "admin@x", "openid "+googlews.ScopeDriveReportFile); err != nil {
+		t.Fatal(err)
+	}
 	// bad format
 	rec = httptest.NewRecorder()
 	s.exportReportDrive(rec, driveReq(t, "POST", "/v1/reports/rep-dx1/export/drive", `{"format":"pdf"}`, "admin"))
