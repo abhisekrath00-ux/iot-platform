@@ -33,7 +33,7 @@ test('configured and unconnected: connect posts the gmail surface and opens the 
   await act(async () => btn.click());
   expect(opened[0]).toContain('accounts.google.com');
   const call = vi.mocked(api).mock.calls.find(c => c[0] === '/v1/integrations/google/connect')!;
-  expect(JSON.parse((call[1] as any).body).surfaces).toEqual(['gmail_send']);
+  expect(JSON.parse((call[1] as any).body).surfaces).toEqual(['gmail_send', 'calendar_oncall']);
   expect(box.textContent).toContain('Finish the sign-in');
 });
 
