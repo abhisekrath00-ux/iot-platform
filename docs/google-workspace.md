@@ -30,15 +30,22 @@ OAuth, any live Google call, sending real mail. This file tracks what exists and
   token), load, disconnect; tenant isolation checked.
 - GmailSender: RFC 2822 plain-text send via /gmail/v1/users/me/messages/send with the tenant's
   grant; simulator asserts the exact request and the fail-closed path when unconnected.
+- API routes (admin-only, tenant-scoped, refused to customer-scoped users by the scopedAllows
+  middleware): GET /v1/integrations/google/status (configured + connected), POST
+  /v1/integrations/google/connect (mints a single-use 10-minute state, returns the consent
+  URL), GET /auth/google/callback (public but state-bound; exchanges the code, stores the
+  refresh token, redirects to /settings?google=connected), DELETE /v1/integrations/google.
+  OAuth client comes from GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REDIRECT_URL env.
 
 Tests: 11 go tests in internal/googlews (consent params, exchange/refresh forms, error
 surfacing without secret leakage, persistence round-trip + isolation + no-clobber, gmail send
-shape, header injection refusal, bad recipient, unconnected fail-closed). gofmt/vet clean.
+shape, header injection refusal, bad recipient, unconnected fail-closed) plus API tests in
+cmd/api: unit (RBAC refusal, 503 unconfigured, 400 validation, bad-state 403, status defaults)
+and a PG-backed integration test (full connect -> consent -> callback -> status -> disconnect
+against the Google simulator, incl. state single-use replay refusal). gofmt/vet clean.
 
 ## NOT built yet (next increments)
 
-- API routes: connect (admin consent redirect), callback, disconnect, connection status;
-  tenant-RBAC wiring (admin only) and state store (reuse oidcstate pattern).
 - Notification channel type "gmail" (alongside SMTP) using GmailSender.
 - Calendar on-call sync worker (calendar.readonly) and Drive/Sheets report export (drive.file).
 - SSO hosted-domain (hd) restriction on top of the generic OIDC provider.
