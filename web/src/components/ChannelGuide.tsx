@@ -16,6 +16,15 @@ const GUIDES: Record<string, { title: string; steps: string[]; note?: string }> 
     ],
     note: 'By default the server talks to https://slack.com/api. The operator can point SLACK_API_BASE at any Slack-compatible API endpoint instead (for example an internal relay) if your deployment needs one.',
   },
+  gmail: {
+    title: 'Gmail setup (connected Google account)',
+    steps: [
+      'Connect Google once: in Integrations: Google Workspace below, press Connect Google account and finish the sign-in on Google\'s site.',
+      'Add one recipient address in the field above. Want several recipients? Add the channel again for each address.',
+      'Press Send test - the mail comes from the connected Gmail address, so check the spam folder the first time. Enable the channel once the test arrives.',
+    ],
+    note: 'Gmail sends through the connected Google account, not the deployment\'s SMTP server. If the account is disconnected, Gmail channels pause until it is reconnected.',
+  },
   email: {
     title: 'Email setup',
     steps: [
@@ -67,6 +76,7 @@ export function ChannelGuide({ type }: { type: string }) {
 // Soft format hints for the target field. The server stays authoritative -
 // these only warn, never block.
 const HINTS: Record<string, { ok: (v: string) => boolean; hint: string }> = {
+  gmail: { ok: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), hint: 'Looks off: an email address like ops@yourcompany.com.' },
   email: { ok: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), hint: 'Looks off: an email address like ops@yourcompany.com.' },
   slack: { ok: v => /^[CGD][A-Z0-9]{8,}$/.test(v), hint: 'Looks off: a Slack channel ID starts with C, G or D followed by capitals/digits (for example C0123456789) - find it at the bottom of the channel\'s About dialog, not the channel name.' },
   webhook: { ok: v => /^https:\/\/.+/.test(v), hint: 'Looks off: the URL must start with https://.' },
