@@ -362,6 +362,20 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'schneider-pm8000', name: 'Schneider PowerLogic PM8000 series (PM8000/ION7400, Modbus RTU)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    note: 'Every register number, data type, size and unit verified line-by-line against Schneider\'s official PM8000 Modbus Map workbook (PM8000_Modbus_Map.xlsx, se.com download p_Doc_Ref=PM8000_Modbus_Map; docs/devices/schneider-pm8000.md). All three conventions are vendor-stated: FC 03 (user manual 7EN02-0336, Modbus server function table), most-significant-word-first (manual: "32-bit data ... is transmitted with the most-significant word first"), and listed number = on-wire address (the high-level map defines the address space as 0-65535 and the detailed map numbers sit in it directly). Power registers report in W/VAR/VA on this meter, not kW. Serial parameters (2400-115200 baud, 8N1/8N2/8E1/8E2/8O1/8O2, unit ID 1-247) are set on the meter; no factory default is stated, so match the form to your meter. Read-only; never run on a real meter.',
+    provisional: 'Register numbers, types, sizes, units, word order, FC 03 and the address base are verified against Schneider\'s official PM8000 Modbus Map and user manual 7EN02-0336. Two cautions. Power is in watts here (the map lists W/VAR/VA, not kW) - divide by 1000 if you want kW. And the map does not state the power-factor sign convention, so pf_total carries a wide -2..2 range that admits both plain and four-quadrant encodings; the meter\'s own lagging/leading registers at 3172/3174 can disambiguate if you need the sign. Validate against the real meter: compare SEVERAL independent known readings (for example frequency, one voltage and one current) with the meter\'s own display - a single plausible value is only a smoke check and says nothing about the other registers. Until that display comparison is done, every value from this template is hardware-untested.',
+    points: [
+      p('i1', 3000, 'A', 0, 10000), p('i2', 3002, 'A', 0, 10000), p('i3', 3004, 'A', 0, 10000), p('i_avg', 3010, 'A', 0, 10000),
+      p('v12', 3020, 'V', 0, 1000), p('v23', 3022, 'V', 0, 1000), p('v31', 3024, 'V', 0, 1000), p('v_avg_ll', 3026, 'V', 0, 1000),
+      p('v1n', 3028, 'V', 0, 1000), p('v2n', 3030, 'V', 0, 1000), p('v3n', 3032, 'V', 0, 1000), p('v_avg_ln', 3036, 'V', 0, 1000),
+      p('p1', 3054, 'W', -1e7, 1e7), p('p2', 3056, 'W', -1e7, 1e7), p('p3', 3058, 'W', -1e7, 1e7), p('p_total', 3060, 'W', -1e7, 1e7),
+      p('q_total', 3068, 'var', -1e7, 1e7), p('s_total', 3076, 'VA', 0, 1e7),
+      p('pf_total', 3150, '', -2, 2), p('freq', 3110, 'Hz', 40, 70),
+      p('kwh_import', 2700, 'kWh', 0, 1e12), p('kwh_export', 2702, 'kWh', 0, 1e12),
+    ],
+  },
+  {
     id: 'schneider-iem3000', name: 'Schneider Acti9 iEM3000 series (iEM3150/3155/3250/3255/3350/3355/3455/3555, Modbus RTU)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
     wordOrderUnverified: true,
     note: 'Every register number, data type, size and unit verified line-by-line against Schneider\'s official iEM3000 register list DOCA0005EN-07 (se.com FAQ FA370395 attachment; docs/devices/schneider-iem3000.md). Read function and address base are vendor-stated: the doc lists only FC 03 for reads and defines Register Address as the address encoded in the Modbus frame, so listed numbers go on the wire unmodified. All points FLOAT32. Reactive/apparent power (3068/3076), energy export, tariff and Int64 energy counters are excluded (not applicable on iEM3150/3250/3350, or no i64 in the driver - see the doc). Serial is configured on the meter display (9600/19200/38400 baud, even/odd/none parity, 1 stop bit, address 1-247); no factory default is stated, so match the form to your meter. Read-only; never run on a real meter.',
