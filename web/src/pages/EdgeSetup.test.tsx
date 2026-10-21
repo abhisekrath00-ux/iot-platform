@@ -38,3 +38,39 @@ test('picking a template presets its native connection; manual override survives
   await setSel(tplSel, 'carlo-gavazzi-em24-e1');
   expect(connSel.value).toBe('tcp'); // Ethernet model presets tcp again
 });
+
+test('factory serial hint shows vendor-stated settings, never silently replaces edited values, applies only on click', async () => {
+  await act(async () => root.render(<MemoryRouter><EdgeSetup /></MemoryRouter>));
+  await act(async () => {});
+  const tplSel = byOption('IME Conto D4-Pd');
+  await setSel(tplSel, 'ime-conto-d4');
+  // form keeps the generic/user values - no silent replacement
+  const baudSel = selects().find((s) => [...s.options].some((o) => o.textContent === '19200'))!;
+  expect(baudSel.value).toBe('9600');
+  const paritySel = selects().find((s) => [...s.options].some((o) => o.textContent === 'even'))!;
+  expect(paritySel.value).toBe('none');
+  // hint names the factory settings and offers an explicit apply
+  const hint = [...box.querySelectorAll('p')].find((p) => p.textContent?.includes('factory serial settings'))!;
+  expect(hint.textContent).toContain('19200 baud');
+  expect(hint.textContent).toContain('even parity');
+  expect(hint.textContent).toContain('unit ID 5');
+  const btn = [...hint.querySelectorAll('button')].find((b) => b.textContent === 'Apply factory settings')!;
+  await act(async () => { btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  expect(baudSel.value).toBe('19200');
+  expect(paritySel.value).toBe('even');
+  const addrInput = [...box.querySelectorAll('input[type=number]')][0] as HTMLInputElement;
+  expect(addrInput.value).toBe('5');
+  // after applying, the hint says the form matches instead of offering the button
+  const hint2 = [...box.querySelectorAll('p')].find((p) => p.textContent?.includes('factory serial settings'))!;
+  expect(hint2.textContent).toContain('matches');
+  expect([...hint2.querySelectorAll('button')].length).toBe(0);
+  // an installer edit after applying is preserved - no snap-back
+  await setSel(baudSel, '9600');
+  expect(baudSel.value).toBe('9600');
+  const hint3 = [...box.querySelectorAll('p')].find((p) => p.textContent?.includes('factory serial settings'))!;
+  expect([...hint3.querySelectorAll('button')].length).toBe(1); // apply offered again, but never forced
+  expect(baudSel.value).toBe('9600');
+  // templates without a serial block show no hint
+  await setSel(tplSel, 'schneider-pm8000');
+  expect([...box.querySelectorAll('p')].some((p) => p.textContent?.includes('factory serial settings'))).toBe(false);
+});
