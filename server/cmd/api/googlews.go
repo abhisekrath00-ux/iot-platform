@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -134,6 +135,36 @@ func (s *server) googleDisconnect(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "google.disconnected", auth.User(r), nil)
 	writeJSON(w, 200, map[string]any{"connected": false})
+}
+
+// gmailTestNotifier adds the Gmail capability to the channel-test path: the
+// base notifier covers the other types; Gmail binds the request's tenant so
+// the test exercises exactly the tenant's own grant.
+type gmailTestNotifier struct {
+	base   rulesNotifier
+	s      *server
+	tenant string
+}
+
+type rulesNotifier interface {
+	Email(ctx context.Context, to []string, subject, body string) error
+	Slack(ctx context.Context, channel, text string) error
+}
+
+func (g *gmailTestNotifier) Email(ctx context.Context, to []string, subject, body string) error {
+	return g.base.Email(ctx, to, subject, body)
+}
+
+func (g *gmailTestNotifier) Slack(ctx context.Context, channel, text string) error {
+	return g.base.Slack(ctx, channel, text)
+}
+
+func (g *gmailTestNotifier) Gmail(ctx context.Context, tenant, to, subject, body string) error {
+	if g.s.google == nil {
+		return errors.New("google workspace not configured on this deployment")
+	}
+	_, err := googlews.NewGmailSender(g.s.google, g.s.secrets).Send(ctx, tenant, to, subject, body)
+	return err
 }
 
 // googleAccessToken mints an access token for one call batch; surfaces use it.
