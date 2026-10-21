@@ -374,13 +374,13 @@ func dispatch(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, sev
 		if err := rows.Scan(&typ, &target); err != nil {
 			continue
 		}
-		dispatchOne(ctx, n, typ, target, severity, msg, "alert.raised")
+		dispatchOne(ctx, n, tenantID, typ, target, severity, msg, "alert.raised")
 	}
 }
 
 // dispatchOne sends one message to one channel with a 10s limit; failures are logged.
-func dispatchOne(ctx context.Context, n Notifier, typ, target, severity, msg, event string) {
-	if err := SendOne(ctx, n, typ, target, severity, msg, event); err != nil {
+func dispatchOne(ctx context.Context, n Notifier, tenantID, typ, target, severity, msg, event string) {
+	if err := SendOne(ctx, n, tenantID, typ, target, severity, msg, event); err != nil {
 		log.Printf("notify %s -> %s: %v", typ, target, err)
 	}
 }
@@ -389,13 +389,22 @@ var errUnsupported = errors.New("this notifier cannot send to that channel type"
 
 // SendOne delivers one message to one channel with a 10s limit and returns the delivery error. The channel test
 // endpoint uses it, so a test exercises exactly the path a real alert takes.
-func SendOne(ctx context.Context, n Notifier, typ, target, severity, msg, event string) error {
+func SendOne(ctx context.Context, n Notifier, tenant, typ, target, severity, msg, event string) error {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	var err error
 	switch typ {
 	case "email":
 		err = n.Email(cctx, []string{target}, "[HexThings] "+severity+" alert", msg)
+	case "gmail":
+		// Google Workspace connection: the notifier must bind the tenant's OAuth grant.
+		if g, ok := n.(interface {
+			Gmail(context.Context, string, string, string, string) error
+		}); ok {
+			err = g.Gmail(cctx, tenant, target, "[HexThings] "+severity+" alert", msg)
+		} else {
+			err = errUnsupported
+		}
 	case "slack":
 		err = n.Slack(cctx, target, "["+severity+"] "+msg)
 	case "webhook":
