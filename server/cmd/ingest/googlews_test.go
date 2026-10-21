@@ -104,7 +104,10 @@ func TestGmailNotifierSendUsesTenantGrant(t *testing.T) {
 		t.Fatalf("provider: %v", err)
 	}
 	p.TokenURL = ts.URL + "/token"
-	store := &fakeSecretStore{m: map[string][]byte{"t1/" + googlews.RefreshSecretName: []byte("rt-1")}}
+	store := &fakeSecretStore{m: map[string][]byte{
+		"t1/" + googlews.RefreshSecretName: []byte("rt-1"),
+		"t1/" + googlews.ScopesSecretName:  []byte("openid " + googlews.ScopeGmailSend),
+	}}
 	sender := googlews.NewGmailSender(p, store)
 	sender.GmailURL = ts.URL + "/gmail/v1/users/me/messages/send"
 
@@ -131,7 +134,10 @@ func TestGmailNotifierUnknownTenantFailsClosed(t *testing.T) {
 		t.Fatalf("provider: %v", err)
 	}
 	p.TokenURL = ts.URL + "/token"
-	g := &gmailNotifier{base: notify.FromEnv(), sender: googlews.NewGmailSender(p, &fakeSecretStore{m: map[string][]byte{}})}
+	// granted scope on record but no refresh token: still fails closed as not-connected
+	g := &gmailNotifier{base: notify.FromEnv(), sender: googlews.NewGmailSender(p, &fakeSecretStore{m: map[string][]byte{
+		"t9/" + googlews.ScopesSecretName: []byte("openid " + googlews.ScopeGmailSend),
+	}})}
 	if err := g.Gmail(context.Background(), "t9", "ops@example.com", "s", "b"); !errors.Is(err, googlews.ErrNotConnected) {
 		t.Fatalf("want ErrNotConnected, got %v", err)
 	}
