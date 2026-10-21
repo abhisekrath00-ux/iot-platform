@@ -48,6 +48,13 @@ func main() {
 	notifier := notify.FromEnv()
 	flow.HTTPClient = notifier
 
+	// Google Workspace gmail alert channel: off unless GOOGLE_CLIENT_ID is
+	// set; a misconfigured connection must never take down telemetry ingest.
+	rulesN, reason := googleRulesNotifier(notifier, st.Pool)
+	if reason != "" {
+		log.Printf("%s", reason)
+	}
+
 	opts := mqtt.NewClientOptions().
 		AddBroker("tcp://" + mustEnv("MQTT_HOST") + ":" + envOr("MQTT_PORT", "1883")).
 		SetClientID(clientID()).SetAutoReconnect(true).SetConnectRetry(true)
@@ -79,8 +86,8 @@ func main() {
 		if err := pos.Track(ctx, e.TenantID, e.DeviceID, e.PointID, e.Value, e.ObservedAt); err != nil {
 			log.Printf("position track %s: %v", e.DeviceID, err)
 		}
-		rules.Evaluate(ctx, st.Pool, notifier, e.TenantID, e.DeviceID, e.PointID, e.Value)
-		flow.EvaluateWith(ctx, st.Pool, notifier, jsfn.New(4), e.TenantID, e.DeviceID, e.PointID, e.Value)
+		rules.Evaluate(ctx, st.Pool, rulesN, e.TenantID, e.DeviceID, e.PointID, e.Value)
+		flow.EvaluateWith(ctx, st.Pool, rulesN, jsfn.New(4), e.TenantID, e.DeviceID, e.PointID, e.Value)
 	}
 
 	if tok := c.Subscribe(subTopic("t/+/g/+/telemetry"), 1, handler); tok.Wait() && tok.Error() != nil {
@@ -303,7 +310,7 @@ func main() {
 		log.Fatalf("cmd ack subscribe: %v", tok.Error())
 	}
 	if t := os.Getenv("SPARKPLUG_TENANT"); t != "" {
-		startSparkplug(ctx, c, st, t, notifier, pos)
+		startSparkplug(ctx, c, st, t, rulesN, pos)
 	}
 	log.Printf("ingest up")
 	<-ctx.Done()
