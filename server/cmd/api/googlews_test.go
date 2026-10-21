@@ -97,6 +97,8 @@ func TestIntegrationGoogleWorkspaceConnection(t *testing.T) {
 	sim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"access_token": "ya29.sim", "refresh_token": "1//sim-rt", "expires_in": 3600, "token_type": "Bearer",
+			// Google echoes the granted scopes; the sim grants gmail+calendar but NOT drive
+			"scope": "openid email " + googlews.ScopeGmailSend + " " + googlews.ScopeCalendarOnCall,
 		})
 	}))
 	t.Cleanup(sim.Close)
@@ -160,6 +162,15 @@ func TestIntegrationGoogleWorkspaceConnection(t *testing.T) {
 		t.Fatalf("status after consent: %v", st)
 	}
 
+	// 4b. status reports the granted surfaces from the recorded scope string
+	rec = httptest.NewRecorder()
+	s.googleStatus(rec, gwsReq(t, "GET", "/v1/integrations/google/status", "", "admin"))
+	json.NewDecoder(rec.Body).Decode(&st)
+	surf, _ := st["surfaces"].(map[string]any)
+	if surf["gmail_send"] != true || surf["calendar_oncall"] != true || surf["drive_reports"] != false {
+		t.Fatalf("surfaces after consent: %v", surf)
+	}
+
 	// 5. access token mints against the simulator; disconnect closes it
 	if _, err := s.googleAccessToken(context.Background(), "itest-gws"); err != nil {
 		t.Fatalf("access token: %v", err)
@@ -171,5 +182,12 @@ func TestIntegrationGoogleWorkspaceConnection(t *testing.T) {
 	}
 	if _, err := s.googleAccessToken(context.Background(), "itest-gws"); err == nil {
 		t.Fatal("access token after disconnect")
+	}
+	// disconnect also forgets the recorded scopes
+	rec = httptest.NewRecorder()
+	s.googleStatus(rec, gwsReq(t, "GET", "/v1/integrations/google/status", "", "admin"))
+	json.NewDecoder(rec.Body).Decode(&st)
+	if surf, _ := st["surfaces"].(map[string]any); surf["gmail_send"] == true {
+		t.Fatalf("surfaces after disconnect: %v", surf)
 	}
 }
