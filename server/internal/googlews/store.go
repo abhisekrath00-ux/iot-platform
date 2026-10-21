@@ -3,6 +3,7 @@ package googlews
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -92,4 +93,27 @@ func AccessToken(ctx context.Context, p *Provider, s SecretStore, tenant string)
 		return "", err
 	}
 	return t.AccessToken, nil
+}
+
+// ErrScopeUnknown marks connections with no recorded grant list (created
+// before scope recording): the safe answer is "reconnect to confirm", not
+// an assumption.
+var ErrScopeUnknown = errors.New("google workspace grant predates permission recording - reconnect to confirm permissions (Settings > Integrations > Google)")
+
+// ErrScopeNotGranted marks a recorded grant that does not cover the surface
+// the caller needs.
+var ErrScopeNotGranted = errors.New("google workspace grant does not cover this feature - reconnect and approve it (Settings > Integrations > Google)")
+
+// RequireScope enforces that the tenant's recorded grant actually covers
+// scope before a consumer touches Google. Partial and legacy grants fail
+// closed with a clear reconnect instruction.
+func RequireScope(ctx context.Context, s SecretStore, tenant, scope string) error {
+	recorded, ok := LoadGrantedScopes(ctx, s, tenant)
+	if !ok {
+		return ErrScopeUnknown
+	}
+	if !ScopeGranted(recorded, scope) {
+		return fmt.Errorf("%w (missing %s)", ErrScopeNotGranted, scope)
+	}
+	return nil
 }
