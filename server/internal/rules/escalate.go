@@ -299,12 +299,15 @@ func EvaluateEscalations(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 		chID := st.ChannelID
 		if st.ScheduleID != "" {
 			var sc Schedule
-			if pool.QueryRow(ctx, `SELECT anchor, shift_hours, channel_ids FROM oncall_schedules WHERE id=$1 AND tenant_id=$2`, st.ScheduleID, a.tenant).
-				Scan(&sc.Anchor, &sc.ShiftHours, &sc.ChannelIDs) != nil {
+			if pool.QueryRow(ctx, `SELECT anchor, shift_hours, channel_ids, COALESCE(cal_channel_id,''), COALESCE(cal_until,'0001-01-01'::timestamptz), COALESCE(cal_synced_at,'0001-01-01'::timestamptz) FROM oncall_schedules WHERE id=$1 AND tenant_id=$2`, st.ScheduleID, a.tenant).
+				Scan(&sc.Anchor, &sc.ShiftHours, &sc.ChannelIDs, &sc.CalChannelID, &sc.CalUntil, &sc.CalSyncedAt) != nil {
 				log.Printf("escalation: alert %s step %d: on-call schedule %s missing", a.id, st.Step, st.ScheduleID)
 				continue
 			}
-			chID, _, _ = OnCall(sc, time.Now())
+			// a fresh Google Calendar override wins; anything missing, expired or
+			// stale falls back to the static rotation (15 min staleness bound,
+			// same as the API's calStaleBound)
+			chID, _, _ = sc.EffectiveOnCall(time.Now(), 15*time.Minute)
 		}
 		var typ, target string
 		var enabled bool
