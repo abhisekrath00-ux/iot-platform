@@ -57,7 +57,7 @@ func regCount(typ string) (int, error) {
 	switch typ {
 	case "u16", "i16":
 		return 1, nil
-	case "u32", "i32", "f32":
+	case "u32", "i32", "f32", "t5", "t6":
 		return 2, nil
 	case "f64":
 		return 4, nil
@@ -103,6 +103,17 @@ func decodeWords(words []uint16, typ, order string) (float64, error) {
 		return float64(int32(binary.BigEndian.Uint32(b))), nil
 	case "f32":
 		return float64(math.Float32frombits(binary.BigEndian.Uint32(b))), nil
+	case "t5", "t6":
+		// Iskra decade-exponent measurement (vendor "Data types decoding", MC 3x0/MC 7x0
+		// user manuals): byte 0 is a signed 8-bit decade exponent, bytes 1-3 are the
+		// 24-bit mantissa (unsigned for T5, signed for T6); value = mantissa x 10^exp.
+		// The exponent is part of every reading, so no static scale can represent it.
+		exp := int8(b[0])
+		mant := int32(b[1])<<16 | int32(b[2])<<8 | int32(b[3])
+		if typ == "t6" && mant&0x800000 != 0 {
+			mant -= 1 << 24
+		}
+		return float64(mant) * math.Pow10(int(exp)), nil
 	case "f64":
 		return math.Float64frombits(binary.BigEndian.Uint64(b)), nil
 	}
