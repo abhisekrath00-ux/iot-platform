@@ -9,6 +9,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -98,6 +99,10 @@ func (s *server) exportReportDrive(w http.ResponseWriter, r *http.Request) {
 	up := googlews.NewDriveUploader(s.google, s.secrets)
 	f, upErr := up.Upload(r.Context(), tenant, fileName, contentType, convert, content)
 	expID := uuid.NewString()
+	if errors.Is(upErr, googlews.ErrScopeUnknown) || errors.Is(upErr, googlews.ErrScopeNotGranted) {
+		http.Error(w, upErr.Error(), 409)
+		return
+	}
 	if upErr != nil {
 		s.st.Pool.Exec(r.Context(),
 			`INSERT INTO report_drive_exports(id,tenant_id,report_id,format,status,error) VALUES($1,$2,$3,$4,'failed',$5)`,
