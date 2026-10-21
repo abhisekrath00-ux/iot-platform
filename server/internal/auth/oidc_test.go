@@ -128,3 +128,48 @@ func TestRandomTokenEntropy(t *testing.T) {
 		t.Fatal("tokens weak")
 	}
 }
+
+func TestOIDCHostedDomainRestriction(t *testing.T) {
+	key := newKey(t)
+	// matching hd claim: sign-in proceeds
+	srv := fakeProvider(t, key, func(c jwt.MapClaims) { c["hd"] = "hexthings.com" })
+	p, err := NewOIDCProvider(context.Background(), srv.URL, "client-1", "", "http://app/cb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.HostedDomain = "hexthings.com"
+	if _, err := p.Exchange(context.Background(), "code-1", "n-ok"); err != nil {
+		t.Fatalf("matching hosted domain refused: %v", err)
+	}
+
+	// different hd claim: refused
+	srv2 := fakeProvider(t, key, func(c jwt.MapClaims) { c["hd"] = "other.org" })
+	p2, err := NewOIDCProvider(context.Background(), srv2.URL, "client-1", "", "http://app/cb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2.HostedDomain = "hexthings.com"
+	if _, err := p2.Exchange(context.Background(), "code-1", "n-ok"); err == nil {
+		t.Fatal("foreign hosted domain accepted")
+	}
+
+	// no hd claim at all (a plain consumer account): refused when restricted
+	srv3 := fakeProvider(t, key, nil)
+	p3, err := NewOIDCProvider(context.Background(), srv3.URL, "client-1", "", "http://app/cb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p3.HostedDomain = "hexthings.com"
+	if _, err := p3.Exchange(context.Background(), "code-1", "n-ok"); err == nil {
+		t.Fatal("account without hd claim accepted under restriction")
+	}
+
+	// restriction unset: the same claim-less token signs in (default unchanged)
+	p4, err := NewOIDCProvider(context.Background(), srv3.URL, "client-1", "", "http://app/cb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p4.Exchange(context.Background(), "code-1", "n-ok"); err != nil {
+		t.Fatalf("unrestricted default refused: %v", err)
+	}
+}
