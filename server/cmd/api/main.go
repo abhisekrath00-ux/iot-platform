@@ -29,6 +29,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/configaudit"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/googlews"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/indexsink"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/leader"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/mdns"
@@ -55,7 +56,8 @@ type server struct {
 	secret         []byte
 	es             *search.Client
 	oidc           *auth.OIDCProvider
-	states         oidcstate.Store // memory single-replica, Redis when REDIS_URL set
+	google         *googlews.Provider // nil = Google Workspace connection not configured
+	states         oidcstate.Store    // memory single-replica, Redis when REDIS_URL set
 	cache          *respcache.Cache
 	pos            *store.PositionTracker
 	secrets        *secrets.Store // nil or empty key = disabled (503)
@@ -134,6 +136,14 @@ func main() {
 		}
 		s.oidc = p
 		log.Printf("oidc sso enabled for issuer %s", iss)
+	}
+	if cid := os.Getenv("GOOGLE_CLIENT_ID"); cid != "" {
+		p, err := googlews.NewProvider(cid, os.Getenv("GOOGLE_CLIENT_SECRET"), os.Getenv("GOOGLE_REDIRECT_URL"))
+		if err != nil {
+			log.Fatalf("google workspace: %v", err)
+		}
+		s.google = p
+		log.Printf("google workspace connection enabled")
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -268,6 +278,9 @@ func main() {
 	api.HandleFunc("PUT /v1/ai/settings", s.putAISettings)
 	api.HandleFunc("POST /v1/ai/test", s.testAI)
 	api.HandleFunc("GET /v1/system/endpoints", s.listEndpoints)
+	api.HandleFunc("GET /v1/integrations/google/status", s.googleStatus)
+	api.HandleFunc("POST /v1/integrations/google/connect", s.googleConnect)
+	api.HandleFunc("DELETE /v1/integrations/google", s.googleDisconnect)
 	api.HandleFunc("POST /v1/system/endpoints", s.addEndpoint)
 	api.HandleFunc("POST /v1/system/endpoints/check", s.checkEndpoint)
 	api.HandleFunc("DELETE /v1/system/endpoints/{id}", s.deleteEndpoint)
@@ -448,6 +461,7 @@ func main() {
 	mux.Handle("POST /auth/accept-invite", loginRL.Middleware(http.HandlerFunc(s.acceptInvite)))
 	mux.Handle("GET /auth/oidc/login", ssoRL.Middleware(http.HandlerFunc(s.oidcLogin)))
 	mux.Handle("GET /auth/oidc/callback", ssoRL.Middleware(http.HandlerFunc(s.oidcCallback)))
+	mux.Handle("GET /auth/google/callback", ssoRL.Middleware(http.HandlerFunc(s.googleCallback)))
 
 	// API keys are unattended credentials: cap each key (per replica). Override with API_KEY_RPM; 0 disables.
 	rpm := 600
