@@ -328,6 +328,22 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'ime-conto-d4', name: 'IME Conto D4-Pd (Legrand CE4DF3DTMID, Modbus RTU, MID 63A direct)', link: 'rtu', func: 4, type: 'u32', word_order: 'abcd',
+    wordOrderUnverified: true,
+    note: 'Every register address, size, type, scale and unit verified line-by-line against the official communication protocol IDP000372 (assets.legrand.com, REV 1.01; docs/devices/ime-conto-d4.md) for the Modbus variant CE4DF3DTMID - the pulse (CE4DF30PMID) and MBus (CE4DF3MTMID) variants are excluded. The protocol prints both a 1-based "Register Number" and the "Register Address (Dec/Hex)"; this template stores the printed Register Address, which is the on-wire address. Read FC 04 is printed per input-register row. All values are scaled integers (no floats): currents mA, voltages mV, power 0.01 kW/kvar/kVA, PF 0.001, frequency 0.01 Hz, energy 0.01 kWh. Factory serial 19200 8E1, unit ID 5 (manual IDP000190EN_04; configurable 4800-38400 baud, none/even/odd, ID 1-255). Read-only; never run on a real meter.',
+    provisional: 'Addresses, sizes, types, scales, units, FC 04 and the address base are verified against the official protocol IDP000372. One thing the protocol does NOT state: the multi-register word order (it says only that bytes are big-endian). Choose the word order yourself below, from the meter\'s integration guidance or by testing. Then validate against the real meter: compare SEVERAL independent known readings (for example frequency, one voltage and the energy import counter) with the meter\'s own display - a single plausible value is only a smoke check, it does not prove the word order and says nothing about the other registers. Signed values put the sign in the most significant bit (protocol notes 1-2); PF sign shows the quadrant and register 20550 (not mapped) tells inductive vs capacitive. Until that display comparison is done, every value from this template is hardware-untested.',
+    points: [
+      ps('i1', 20480, 'A', 0, 1000, 0.001), ps('i2', 20482, 'A', 0, 1000, 0.001), ps('i3', 20484, 'A', 0, 1000, 0.001),
+      ps('v1n', 20509, 'V', 0, 1000, 0.001), ps('v2n', 20511, 'V', 0, 1000, 0.001), ps('v3n', 20513, 'V', 0, 1000, 0.001),
+      ps('v12', 20515, 'V', 0, 1000, 0.001), ps('v23', 20517, 'V', 0, 1000, 0.001), ps('v31', 20519, 'V', 0, 1000, 0.001),
+      ps('freq', 20537, 'Hz', 40, 70, 0.01, 'u16'),
+      ps('p_total', 20538, 'kW', -1e6, 1e6, 0.01, 'i32'), ps('q_total', 20540, 'kvar', -1e6, 1e6, 0.01, 'i32'), ps('s_total', 20544, 'kVA', 0, 1e6, 0.01, 'i32'),
+      ps('pf_total', 20548, '', -1, 1, 0.001, 'i16'),
+      ps('p1', 20551, 'kW', -1e6, 1e6, 0.01, 'i32'), ps('p2', 20553, 'kW', -1e6, 1e6, 0.01, 'i32'), ps('p3', 20555, 'kW', -1e6, 1e6, 0.01, 'i32'),
+      ps('kwh_import', 20592, 'kWh', 0, 1e12, 0.01), ps('kwh_export', 20594, 'kWh', 0, 1e12, 0.01),
+    ],
+  },
+  {
     id: 'schneider-pm53xx', name: 'Schneider PowerLogic PM53xx (PM5310/20/30/31/40/41)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
     wordOrderUnverified: true,
     pduBaseUnverified: true,
