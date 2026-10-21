@@ -44,9 +44,18 @@ cmd/api: unit (RBAC refusal, 503 unconfigured, 400 validation, bad-state 403, st
 and a PG-backed integration test (full connect -> consent -> callback -> status -> disconnect
 against the Google simulator, incl. state single-use replay refusal). gofmt/vet clean.
 
+- Notification channel type "gmail": alert rules and escalation steps deliver through the
+  tenant's Google grant. rules.SendOne now carries the tenant so any channel type can bind
+  tenant-scoped credentials; channel creation validates the target address, refuses when the
+  deployment has no Google OAuth client (409) or the tenant has not consented yet (409), and
+  the channel-test button exercises exactly the tenant's grant.
+
 ## NOT built yet (next increments)
 
-- Notification channel type "gmail" (alongside SMTP) using GmailSender.
+- Ingest-service runtime wiring: cmd/ingest evaluates alert rules with an env-only notifier
+  today, so a "gmail" alert channel answers errUnsupported there until ingest constructs the
+  Google-capable notifier (needs GOOGLE_* env on the ingest service + secrets store). The
+  channel-test path and the dispatch contract are done; the alert-loop wiring is the gap.
 - Calendar on-call sync worker (calendar.readonly) and Drive/Sheets report export (drive.file).
 - SSO hosted-domain (hd) restriction on top of the generic OIDC provider.
 - Web settings UI (connection card, consent entry, per-surface enable, honest status).
