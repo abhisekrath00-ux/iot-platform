@@ -305,6 +305,27 @@ describe('edge setup', () => {
     expect(pt('pf1').register).toBe(18518); // 0x4856, S16 /1000
     expect(pt('pf1').type).toBe('i16');
     expect(pt('pf1').scale).toBe(0.001);
+    // energy counters, Energy AC block (verified 2026-10-21 against the full table)
+    expect(pt('kwh_import').register).toBe(19843); // 0x4D83, Total Ea+, U32 kWh
+    expect(pt('kwh_import').scale).toBe(1);
+    expect(pt('kwh_export').register).toBe(19846); // 0x4D86, Total Ea-
+    expect(pt('kvarh_import').register).toBe(19849); // 0x4D89, Total Er+, printed "varh 10e3" = kvarh
+    expect(pt('kvarh_import').unit).toBe('kvarh');
+    expect(pt('kvah_total').register).toBe(19855); // 0x4D8F, Total Eap, kVAh
+    // word order, read FC and PDU base are NOT stated in the table or the operating manual: all three gated
+    expect(t.wordOrderUnverified).toBe(true);
+    expect(t.funcUnverified).toBe(true);
+    expect(t.pduBaseUnverified).toBe(true);
+    const missing = validateDevice({ deviceId: 'a40-1', templateId: 'socomec-diris-a40', link: 'rtu', port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, provisionalConfirmed: true });
+    expect(missing.length).toBeGreaterThan(0); // no YAML until the three gates are chosen
+    const base = { deviceId: 'a40-1', templateId: 'socomec-diris-a40', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, wordOrder: 'abcd' as const, readFunc: 4 as const, pduBase: 'listed' as const, provisionalConfirmed: true };
+    expect(validateDevice(base)).toEqual([]);
+    expect(deviceYaml(base)).toContain('register: 19843'); // energy import verbatim (listed address)
+    const minus1 = deviceYaml({ ...base, pduBase: 'minus1' as const });
+    expect(minus1).toContain('register: 19842'); // 19843 -> 0x4D82
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
   });
 
   it('siemens-pac2200 offsets match the official manual L1V30415167B-06 table A-3 (docs/devices/siemens-pac2200.md)', () => {
