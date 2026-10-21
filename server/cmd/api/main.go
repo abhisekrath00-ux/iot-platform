@@ -324,6 +324,7 @@ func main() {
 	api.HandleFunc("GET /v1/oncall", s.listOnCall)
 	api.HandleFunc("POST /v1/oncall", s.createOnCall)
 	api.HandleFunc("DELETE /v1/oncall/{id}", s.deleteOnCall)
+	api.HandleFunc("PUT /v1/oncall/{id}/calendar", s.putOnCallCalendar)
 	api.HandleFunc("POST /v1/alerts/{id}/resolve", s.resolveAlert)
 	api.HandleFunc("POST /v1/alerts/{id}/comments", s.commentAlert)
 	api.HandleFunc("GET /v1/me/totp", s.totpStatus)
@@ -543,6 +544,7 @@ func main() {
 	}
 	installObsLogging()
 	go s.obsRun(ctx)
+	go s.calendarOnCallLoop(ctx)
 	srv := &http.Server{Addr: ":" + envOr("API_PORT", "8000"), Handler: obsMiddleware(auth.SecurityHeaders(auth.BodyLimit(mux))), ReadHeaderTimeout: 10 * time.Second}
 	if os.Getenv("MDNS_ADVERTISE") == "true" {
 		port, _ := strconv.Atoi(envOr("API_PORT", "8000"))
