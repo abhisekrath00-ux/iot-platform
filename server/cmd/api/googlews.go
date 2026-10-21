@@ -31,15 +31,30 @@ func (s *server) googleStatus(w http.ResponseWriter, r *http.Request) {
 	if !adminOnly(w, r) {
 		return
 	}
-	out := map[string]any{"configured": s.google != nil, "connected": false}
+	out := map[string]any{"configured": s.google != nil, "connected": false, "surfaces": map[string]any{}}
 	if s.secrets != nil && len(s.secrets.Key) > 0 {
-		if infos, err := s.secrets.List(r.Context(), auth.Tenant(r)); err == nil {
+		tenant := auth.Tenant(r)
+		if infos, err := s.secrets.List(r.Context(), tenant); err == nil {
 			for _, i := range infos {
 				if i.Name == googlews.RefreshSecretName {
 					out["connected"] = true
 				}
 			}
 		}
+		// Granted surfaces from the scope string recorded at consent. "unknown"
+		// marks connections that predate scope recording - the honest state is
+		// "reconnect to confirm", not a guess.
+		surfaces := map[string]any{}
+		if recorded, ok := googlews.LoadGrantedScopes(r.Context(), s.secrets, tenant); ok {
+			for name, scope := range googleSurfaces {
+				surfaces[name] = googlews.ScopeGranted(recorded, scope)
+			}
+		} else {
+			for name := range googleSurfaces {
+				surfaces[name] = "unknown"
+			}
+		}
+		out["surfaces"] = surfaces
 	}
 	writeJSON(w, 200, out)
 }
@@ -115,6 +130,10 @@ func (s *server) googleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := googlews.SaveRefreshToken(r.Context(), s.secrets, tenant, user, tk); err != nil {
 		http.Error(w, "google grant carried no refresh token; retry the consent", 502)
+		return
+	}
+	if err := googlews.SaveGrantedScopes(r.Context(), s.secrets, tenant, user, tk.Scope); err != nil {
+		http.Error(w, "google grant recorded without its scope list; retry the consent", 502)
 		return
 	}
 	s.audit(r, "google.connected", user, map[string]any{"tenant": tenant, "surfaces": parts[2]})
