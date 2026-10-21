@@ -342,7 +342,7 @@ export default function Reports() {
               {(pw[r.id]?.s || pw[r.id]?.a) && !pw[r.id]?.d && cascadeDevices(r.id).length > 10 && <span className="muted" role="alert">More than 10 devices match: pick one or narrow the choice.</span>}
             </>}
           </div>}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             {!scoped && <><button onClick={() => runNow(r.id)}>Run now</button>
             <button className="ghost" onClick={() => edit(r)}>Edit</button>
             <button className="ghost" onClick={() => showHistory(r.id)} aria-expanded={hist?.id === r.id}>History</button></>}
