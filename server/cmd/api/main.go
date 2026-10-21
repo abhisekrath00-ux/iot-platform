@@ -131,6 +131,9 @@ func main() {
 	}
 	if iss := os.Getenv("OIDC_ISSUER"); iss != "" {
 		p, err := auth.NewOIDCProvider(context.Background(), iss, os.Getenv("OIDC_CLIENT_ID"), os.Getenv("OIDC_CLIENT_SECRET"), os.Getenv("OIDC_REDIRECT_URL"))
+		if err == nil {
+			p.HostedDomain = os.Getenv("OIDC_HOSTED_DOMAIN")
+		}
 		if err != nil {
 			log.Fatalf("oidc: %v", err)
 		}
