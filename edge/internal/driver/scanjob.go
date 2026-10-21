@@ -148,7 +148,7 @@ func SweepModbusRTU(ctx context.Context, open PortOpener, req SweepRequest) Swee
 					continue
 				}
 				cnt := 1
-				if pt.Type == "u32" || pt.Type == "i32" || pt.Type == "f32" {
+				if pt.Type == "u32" || pt.Type == "i32" || pt.Type == "f32" || pt.Type == "t5" || pt.Type == "t6" {
 					cnt = 2
 				}
 				n++
