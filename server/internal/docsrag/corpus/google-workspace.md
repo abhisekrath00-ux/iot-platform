@@ -86,8 +86,15 @@ against the Google simulator, incl. state single-use replay refusal). gofmt/vet 
   The Settings card requests exactly the surfaces with live consumers and lists each with
   its true state.
 
+- SSO hosted-domain restriction: OIDC_HOSTED_DOMAIN on the API restricts OIDC sign-in to
+  accounts of that Google Workspace domain - the verified id_token's hd claim must match, a
+  missing or different claim refuses the login. Unset keeps sign-in open to any account the
+  provider issues (the default, unchanged). The check runs after signature, issuer, audience,
+  expiry and nonce verification, inside the generic OIDC provider (any issuer that emits hd).
+
 ## NOT built yet (next increments)
 
-- SSO hosted-domain (hd) restriction on top of the generic OIDC provider.
+- Nothing left on the agreed Workspace list; real-tenant OAuth and live-surface verification
+  remain gated below.
 - Real-tenant OAuth and live-send verification - GATED, needs the user's Google account and
   explicit approval; the simulator tests are not evidence of live behavior.
