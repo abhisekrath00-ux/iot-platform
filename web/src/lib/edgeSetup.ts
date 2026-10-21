@@ -17,7 +17,10 @@ export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; f
   funcUnverified?: boolean;
   // stopBits: vendor-documented RTU stop bits (1 or 2). When set, the form presets this in the
   // serial settings instead of the generic 1; the emitted YAML carries the operator's value.
-  stopBits?: 1 | 2; }
+  stopBits?: 1 | 2;
+  // serial: vendor-documented FACTORY serial settings (manual-stated only). The form shows them as a
+  // hint with an explicit Apply button; the installer's edited values are never silently replaced.
+  serial?: { baud?: number; parity?: 'none' | 'even' | 'odd'; address?: number }; }
 
 const p = (id: string, register: number, unit: string, min: number, max: number): TplPoint => ({ id, register, unit, min, max });
 // ps adds an explicit scale and/or type for scaled-integer maps (e.g. Socomec U32 in V 10e-2);
@@ -58,6 +61,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   },
   {
     id: 'eastron-sdm120', name: 'Eastron SDM120 Modbus (single-phase DIN-rail meter)', link: 'rtu', func: 4, type: 'f32', word_order: 'abcd',
+    serial: { baud: 2400, parity: 'none', address: 1 },
     note: 'From the official SDM120Modbus Protocol V2.4 PDF (docs/devices/eastron-sdm120.md). Factory serial 2400 8N1 (NOT 9600 like the SDM630), address 1, no broadcast. Units as printed. Read-only; never run on a real meter.',
     points: [
       p('voltage', 0, 'V', 0, 1000), p('current', 6, 'A', 0, 1000),
@@ -239,6 +243,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   },
   {
     id: 'carlo-gavazzi-em340', name: 'Carlo Gavazzi EM340 (three-phase DIN-rail meter)', link: 'rtu', func: 4, type: 'i32', word_order: 'cdab',
+    serial: { baud: 9600 },
     note: 'From the official EM300 Series communication protocol CP (gavazziautomation.com, docs/devices/carlo-gavazzi-em340.md). Signed 32-bit integers with documented weights (V*10, mA, W*10, PF*1000) and LSW-first word order (cdab, per the protocol doc). Registers are the doc\'s physical addresses (Modicon 300001 = physical 0). Rows the doc marks "not available" on EM340 and the ET/EM330-only rows are excluded. Read-only; never run on a real meter.',
     points: [
       ps('v1n', 0x0000, 'V', 0, 1000, 0.1), ps('v2n', 0x0002, 'V', 0, 1000, 0.1), ps('v3n', 0x0004, 'V', 0, 1000, 0.1),
@@ -329,6 +334,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   },
   {
     id: 'ime-conto-d4', name: 'IME Conto D4-Pd (Legrand CE4DF3DTMID, Modbus RTU, MID 63A direct)', link: 'rtu', func: 4, type: 'u32', word_order: 'abcd',
+    serial: { baud: 19200, parity: 'even', address: 5 },
     wordOrderUnverified: true,
     note: 'Every register address, size, type, scale and unit verified line-by-line against the official communication protocol IDP000372 (assets.legrand.com, REV 1.01; docs/devices/ime-conto-d4.md) for the Modbus variant CE4DF3DTMID - the pulse (CE4DF30PMID) and MBus (CE4DF3MTMID) variants are excluded. The protocol prints both a 1-based "Register Number" and the "Register Address (Dec/Hex)"; this template stores the printed Register Address, which is the on-wire address. Read FC 04 is printed per input-register row. All values are scaled integers (no floats): currents mA, voltages mV, power 0.01 kW/kvar/kVA, PF 0.001, frequency 0.01 Hz, energy 0.01 kWh. Factory serial 19200 8E1, unit ID 5 (manual IDP000190EN_04; configurable 4800-38400 baud, none/even/odd, ID 1-255). Read-only; never run on a real meter.',
     provisional: 'Addresses, sizes, types, scales, units, FC 04 and the address base are verified against the official protocol IDP000372. One thing the protocol does NOT state: the multi-register word order (it says only that bytes are big-endian). Choose the word order yourself below, from the meter\'s integration guidance or by testing. Then validate against the real meter: compare SEVERAL independent known readings (for example frequency, one voltage and the energy import counter) with the meter\'s own display - a single plausible value is only a smoke check, it does not prove the word order and says nothing about the other registers. Signed values put the sign in the most significant bit (protocol notes 1-2); PF sign shows the quadrant and register 20550 (not mapped) tells inductive vs capacitive. Until that display comparison is done, every value from this template is hardware-untested.',
@@ -362,6 +368,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   },
   {
     id: 'schneider-em6400ng', name: 'Schneider EasyLogic EM6400NG+ (RS-485 models NGRSCL1/RSCL5/RSCL2)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    serial: { baud: 19200, parity: 'even' },
     wordOrderUnverified: true,
     pduBaseUnverified: true,
     funcUnverified: true,
@@ -407,6 +414,7 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
   },
   {
     id: 'inepro-pro380', name: 'Inepro PRO380-Mod (three-phase MID meter)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    serial: { baud: 9600, parity: 'even', address: 1 },
     note: 'Every register address, function code, length, unit and data type verified line-by-line against the official PRO380 user manual V2.18-8, Appendix A3.2, linked from ineprometering.com (docs/devices/inepro-pro380.md). All conventions are vendor-stated: FC 03, Float ABCD, and listed address = on-wire address (the manual\'s own frame example). Factory serial 9600 8E1, address 1. The starred aggregate rows (Voltage* 0x5000, Current* 0x500A) are excluded - the manual never defines them. Config (0x4xxx) and tariff/reset registers excluded. Read-only; never run on a real meter.',
     points: [
       p('v1n', 20482, 'V', 0, 500), p('v2n', 20484, 'V', 0, 500), p('v3n', 20486, 'V', 0, 500), p('freq', 20488, 'Hz', 40, 70),
