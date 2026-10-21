@@ -58,10 +58,26 @@ against the Google simulator, incl. state single-use replay refusal). gofmt/vet 
   with a clear error - telemetry ingest itself is never blocked by Google configuration.
   Sparkplug ingestion uses the same wrapped notifier.
 
+- Calendar on-call sync (calendar.readonly): an escalation rotation links to a Google
+  calendar; a 2-minute worker resolves the event spanning now and overrides the on-call
+  channel until that event ends. Fail-closed in both directions: no current event, a summary
+  that names no channel target in this workspace, a failed sync, or a sync older than 15
+  minutes all fall back to the static rotation - external calendar data sharpens escalation
+  but can never break it. PUT /v1/oncall/{id}/calendar links (validates readability with the
+  tenant grant before persisting) and unlinks; listOnCall surfaces the override, source
+  event, sync time and sync error; the Escalation UI links/unlinks and shows every state.
+- Drive/Sheets report export (drive.file): POST /v1/reports/{id}/export/drive renders the
+  report fresh and uploads a NEW file to the connected Drive - format "html" stores the
+  rendered document, format "sheet" uploads the CSV render converted into a Google Sheet.
+  GET /v1/reports/{id}/exports lists the per-report export history (report_drive_exports
+  table, migration 0084). drive.file can only see files this app created, so no existing
+  tenant Drive content is ever read or overwritten. Unconfigured deployment answers 503,
+  unconnected tenant 409; the Reports page shows both buttons, the last successful export
+  link and refused exports as alerts.
+
 ## NOT built yet (next increments)
 
-- Calendar on-call sync worker (calendar.readonly) and Drive/Sheets report export (drive.file).
 - SSO hosted-domain (hd) restriction on top of the generic OIDC provider.
-- Web settings UI (connection card, consent entry, per-surface enable, honest status).
+- Settings UI beyond the connection card (per-surface enable toggles, richer status).
 - Real-tenant OAuth and live-send verification - GATED, needs the user's Google account and
   explicit approval; the simulator tests are not evidence of live behavior.
