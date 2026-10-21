@@ -304,6 +304,22 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
     ],
   },
   {
+    id: 'kamstrup-multical-x03', name: 'Kamstrup MULTICAL 403/603/803 (thermal energy meter, Modbus module)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    wordOrderUnverified: true,
+    pduBaseUnverified: true,
+    funcUnverified: true,
+    note: 'Every register number, hex address, size, type and meaning verified line-by-line against Kamstrup\'s official data sheet "Modbus RTU / Modbus/KMP TCP/IP - MULTICAL 403/603/803" FILE100004479_C_EN_03.2025 (Kamstrup\'s Sitecore content delivery tenant, provenance chain in docs/devices/kamstrup-multical-x03.md). Points use the default datagram xx-yy-300 FLOAT values. The doc prints two numberings and states their correspondence ("the Modbus register count starts at number 1, and corresponds to the memory address 0"): the listed register numbers are stored here and the base gate below decides whether register N or its hex address (N-1) goes on the wire. Units are DYNAMIC: each value\'s SI unit is set by the meter configuration and readable in unit registers 83+ (kWh=2, kW=22, m3/h=42, m3=40, degC=37) - the installer gate below confirms the meter reports the units this template labels. Registers a model lacks answer with the documented invalid float 0x4F800000, so a wildly out-of-range reading means "not present on this meter/configuration", not a fault. The HC-003-82 Modbus TCP module carries the same map; this template presets RTU (HC-003-67). Serial parameters are set on the module, not stated in this data sheet - match the form to the module. Read-only; never run on a real meter.',
+    provisional: 'Addresses, sizes and types are verified against Kamstrup\'s official data sheet FILE100004479_C_EN_03.2025. Three things the data sheet does NOT state: the multi-register byte/word order, the read function code (FC 03 vs FC 04; "3 or 4" appears only in the PQT-controller section), and which numbering goes on the wire (printed register N vs hex address N-1). Make all three choices yourself below, from the module\'s documentation or by testing. ALSO confirm the meter\'s configured units: this template labels energy kWh, power kW, flow m3/h, volume m3 and temperatures degC - read the unit registers (flow 83, power 85, t1 86, t2 87, diff 90, E1 93, E3 95, V1 109; codes kWh=2, kW=22, m3/h=42, m3=40, degC=37) or check the meter display/METERTOOL, because with other configured units every value is off by the unit ratio. Then validate against the real meter: compare SEVERAL independent known readings (for example t1 temperature, flow and heat energy) with the meter\'s own display - a single plausible value is only a smoke check, it does not prove the word order, function code, base or units, and says nothing about the other registers. Until that display comparison is done, every value from this template is hardware-untested.',
+    points: [
+      p('flow_m3h', 1, 'm\u00b3/h', 0, 100000),
+      p('power_kw', 5, 'kW', 0, 1e7),
+      p('t_flow_c', 7, '\u00b0C', -30, 250), p('t_return_c', 9, '\u00b0C', -30, 250), p('t_diff_k', 15, 'K', -150, 150),
+      p('heat_kwh', 21, 'kWh', 0, 1e12),
+      p('cooling_kwh', 25, 'kWh', 0, 1e12),
+      p('volume_m3', 53, 'm\u00b3', 0, 1e12),
+    ],
+  },
+  {
     id: 'schneider-pm53xx', name: 'Schneider PowerLogic PM53xx (PM5310/20/30/31/40/41)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
     wordOrderUnverified: true,
     pduBaseUnverified: true,
