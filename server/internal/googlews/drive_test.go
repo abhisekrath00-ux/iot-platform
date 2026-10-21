@@ -3,6 +3,7 @@ package googlews
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -64,6 +65,9 @@ func TestDriveUploadHTMLAgainstSimulator(t *testing.T) {
 	if err := SaveRefreshToken(ctx, d.s, "t1", "admin@x", &Tokens{RefreshToken: "1//rt"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := SaveGrantedScopes(ctx, d.s, "t1", "admin@x", "openid "+ScopeDriveReportFile); err != nil {
+		t.Fatal(err)
+	}
 	f, err := d.Upload(ctx, "t1", "Meter report.html", "text/html", "", []byte("<html><body>report</body></html>"))
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +96,9 @@ func TestDriveUploadCSVConvertsToSheet(t *testing.T) {
 	if err := SaveRefreshToken(ctx, d.s, "t1", "admin@x", &Tokens{RefreshToken: "1//rt"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := SaveGrantedScopes(ctx, d.s, "t1", "admin@x", "openid "+ScopeDriveReportFile); err != nil {
+		t.Fatal(err)
+	}
 	_, err := d.Upload(ctx, "t1", "Meter report", "text/csv",
 		"application/vnd.google-apps.spreadsheet", []byte("bucket,energy\n2026-10-01,42"))
 	if err != nil {
@@ -102,10 +109,30 @@ func TestDriveUploadCSVConvertsToSheet(t *testing.T) {
 	}
 }
 
+func TestDriveUploadRefusedOnPartialOrLegacyGrant(t *testing.T) {
+	d := driveSim(t, func(string, map[string]string, string) { t.Error("simulator must not be called") })
+	ctx := context.Background()
+	if err := SaveRefreshToken(ctx, d.s, "t1", "admin@x", &Tokens{RefreshToken: "1//rt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Upload(ctx, "t1", "r.html", "text/html", "", []byte("x")); err != ErrScopeUnknown {
+		t.Fatalf("legacy grant: want ErrScopeUnknown, got %v", err)
+	}
+	if err := SaveGrantedScopes(ctx, d.s, "t1", "admin@x", "openid "+ScopeGmailSend); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Upload(ctx, "t1", "r.html", "text/html", "", []byte("x")); !errors.Is(err, ErrScopeNotGranted) {
+		t.Fatalf("partial grant: want ErrScopeNotGranted, got %v", err)
+	}
+}
+
 func TestDriveUploadRejectsBadInput(t *testing.T) {
 	d := driveSim(t, func(string, map[string]string, string) {})
 	ctx := context.Background()
 	if err := SaveRefreshToken(ctx, d.s, "t1", "admin@x", &Tokens{RefreshToken: "1//rt"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveGrantedScopes(ctx, d.s, "t1", "admin@x", "openid "+ScopeDriveReportFile); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.Upload(ctx, "t1", "bad\nname", "text/html", "", []byte("x")); err == nil {
