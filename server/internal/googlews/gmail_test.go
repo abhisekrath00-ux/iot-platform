@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -47,6 +48,9 @@ func TestGmailSendAgainstSimulator(t *testing.T) {
 	if err := SaveRefreshToken(ctx, f, "t1", "admin@x", &Tokens{RefreshToken: "1//rt"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := SaveGrantedScopes(ctx, f, "t1", "admin@x", "openid "+ScopeGmailSend); err != nil {
+		t.Fatal(err)
+	}
 	id, err := g.Send(ctx, "t1", "ops@example.com", "Alert: temp high", "Line1\nLine2")
 	if err != nil || id != "msg-1" {
 		t.Fatalf("send: %q %v", id, err)
@@ -62,9 +66,32 @@ func TestGmailSendAgainstSimulator(t *testing.T) {
 }
 
 func TestGmailSendFailsClosedWhenNotConnected(t *testing.T) {
-	g, _ := gmailSim(t, func(_, _ string) { t.Error("simulator must not be called") })
+	g, f := gmailSim(t, func(_, _ string) { t.Error("simulator must not be called") })
+	// granted scopes on record but no refresh token: still fails closed
+	if err := SaveGrantedScopes(context.Background(), f, "t9", "admin@x", "openid "+ScopeGmailSend); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := g.Send(context.Background(), "t9", "ops@example.com", "s", "b"); err != ErrNotConnected {
 		t.Fatalf("want ErrNotConnected, got %v", err)
+	}
+}
+
+func TestGmailSendRefusedOnPartialOrLegacyGrant(t *testing.T) {
+	g, f := gmailSim(t, func(_, _ string) { t.Error("simulator must not be called") })
+	ctx := context.Background()
+	if err := SaveRefreshToken(ctx, f, "t1", "admin@x", &Tokens{RefreshToken: "1//rt"}); err != nil {
+		t.Fatal(err)
+	}
+	// legacy connection: no scope record at all
+	if _, err := g.Send(ctx, "t1", "ops@example.com", "s", "b"); err != ErrScopeUnknown {
+		t.Fatalf("legacy grant: want ErrScopeUnknown, got %v", err)
+	}
+	// partial grant: calendar only, no gmail.send
+	if err := SaveGrantedScopes(ctx, f, "t1", "admin@x", "openid "+ScopeCalendarOnCall); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Send(ctx, "t1", "ops@example.com", "s", "b"); !errors.Is(err, ErrScopeNotGranted) {
+		t.Fatalf("partial grant: want ErrScopeNotGranted, got %v", err)
 	}
 }
 
