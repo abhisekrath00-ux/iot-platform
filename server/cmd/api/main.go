@@ -389,6 +389,8 @@ func main() {
 	api.HandleFunc("GET /v1/reports/{id}/versions", s.listReportVersions)
 	api.HandleFunc("POST /v1/reports/{id}/versions/{v}/restore", s.restoreReportVersion)
 	api.HandleFunc("POST /v1/reports/{id}/run", s.runReport)
+	api.HandleFunc("POST /v1/reports/{id}/export/drive", s.exportReportDrive)
+	api.HandleFunc("GET /v1/reports/{id}/exports", s.listReportExports)
 	api.HandleFunc("POST /v1/reports/preview", s.previewReport)
 	api.HandleFunc("GET /v1/reports/{id}/download", s.downloadReport)
 	api.HandleFunc("PUT /v1/reports/{id}/customer", s.setReportCustomer)
