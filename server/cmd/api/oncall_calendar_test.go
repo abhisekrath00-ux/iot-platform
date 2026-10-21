@@ -97,6 +97,9 @@ func TestIntegrationOnCallCalendarSync(t *testing.T) {
 	if err := googlews.SaveRefreshToken(ctx, s.secrets, "itest-cal", "test", &googlews.Tokens{RefreshToken: "1//sim-rt"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := googlews.SaveGrantedScopes(ctx, s.secrets, "itest-cal", "test", "openid "+googlews.ScopeCalendarOnCall); err != nil {
+		t.Fatal(err)
+	}
 	// link: validates against the sim, syncs immediately
 	rec = httptest.NewRecorder()
 	rOK := calReq(t, "PUT", "/v1/oncall/sc-1/calendar", `{"calendar_id":"cal-1"}`, "admin")
@@ -173,6 +176,9 @@ func TestIntegrationOnCallCalendarNoMatch(t *testing.T) {
 	s.st.Pool.Exec(ctx, `INSERT INTO notification_channels(id,tenant_id,type,target,enabled) VALUES('ch-ops','itest-cal','email','ops@hex.example',true)`)
 	s.st.Pool.Exec(ctx, `INSERT INTO oncall_schedules(id,tenant_id,name,anchor,shift_hours,channel_ids,created_by) VALUES('sc-2','itest-cal','rot2',$1,24,'{ch-ops}','test')`, now.Add(-time.Hour))
 	if err := googlews.SaveRefreshToken(ctx, s.secrets, "itest-cal", "test", &googlews.Tokens{RefreshToken: "1//sim-rt"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := googlews.SaveGrantedScopes(ctx, s.secrets, "itest-cal", "test", "openid "+googlews.ScopeCalendarOnCall); err != nil {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
