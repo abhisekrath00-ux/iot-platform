@@ -92,3 +92,33 @@ func TestAccessTokenEndToEndAgainstSimulator(t *testing.T) {
 		t.Fatalf("access token: %q %v", at, err)
 	}
 }
+
+func TestGrantedScopesRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	f := newFake()
+	if _, ok := LoadGrantedScopes(ctx, f, "t1"); ok {
+		t.Fatal("no consent yet must read as no recorded scopes")
+	}
+	if err := SaveGrantedScopes(ctx, f, "t1", "admin@x", "openid email "+ScopeGmailSend); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok := LoadGrantedScopes(ctx, f, "t1")
+	if !ok || !ScopeGranted(rec, ScopeGmailSend) || ScopeGranted(rec, ScopeDriveReportFile) {
+		t.Fatalf("recorded %q ok=%v", rec, ok)
+	}
+	// a re-consent with fewer grants overwrites, never accumulates
+	if err := SaveGrantedScopes(ctx, f, "t1", "admin@x", "openid email"); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ = LoadGrantedScopes(ctx, f, "t1")
+	if ScopeGranted(rec, ScopeGmailSend) {
+		t.Fatalf("narrower re-consent must not keep the old grant: %q", rec)
+	}
+	// disconnect forgets the scope record too
+	if err := Disconnect(ctx, f, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := LoadGrantedScopes(ctx, f, "t1"); ok {
+		t.Fatal("disconnect must forget recorded scopes")
+	}
+}
