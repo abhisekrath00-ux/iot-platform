@@ -529,6 +529,27 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('thd_i1', 187, '%', 0, 100, 0.01, 'u16'), ps('thd_i2', 188, '%', 0, 100, 0.01, 'u16'), ps('thd_i3', 189, '%', 0, 100, 0.01, 'u16'),
     ],
   },
+  {
+    id: 'iskra-mc3x0', name: 'Iskra MC 3x0 (MC 320/330/350 measuring centre)', link: 'rtu', func: 4, type: 't5', word_order: 'abcd',
+    stopBits: 2,
+    serial: { baud: 115200, parity: 'none', address: 33 },
+    note: 'Every register address and type verified line-by-line against Iskra\'s MC 3x0 User\'s Manual Ver 8.00, Appendix A (iskra.eu; docs/devices/iskra-mc3x0.md), in the meter\'s MC7x0-compatible register map. Conventions vendor-stated: FC 04 input registers, Modicon 3xxxx notation (on-wire = listed - 30001), MSW-first word order (the manual\'s own worked examples), T5/T6 decade-exponent encoding. Factory serial settings vendor-stated (address 33, 115200 8N2): hint with Apply button, never silently applied. Read-only; never run on a real meter.',
+    provisional: 'Addresses, types, FC 04, the address base and the word order are verified against Iskra\'s own manual. ONE configuration check first: the MC 3x0 has TWO register maps selected by holding register 40100 (0 = MC7x0-compatible, 1 = MI71x0-compatible) and the manual does not state the factory default - this template uses the MC7x0-compatible map, so confirm register 40100 reads 0 (or set it) before trusting any value. Two totals are deliberately absent: the manual\'s type codes for total reactive and total apparent power conflict with the family type definitions (T5/T7 where T6/T5 are expected), so they are excluded rather than guessed - named in the doc. Also excluded: power factor (T7 two-sign-byte format), energies (runtime exponent registers), demands and angles. Until one reading (for example frequency or one voltage) is compared against the meter\'s own display, every value from this template is hardware-untested.',
+    points: [
+      p('v1', 106, 'V', 0, 1000), p('v2', 108, 'V', 0, 1000), p('v3', 110, 'V', 0, 1000),
+      p('v_avg_ln', 112, 'V', 0, 1000), p('v12', 117, 'V', 0, 1000), p('v23', 119, 'V', 0, 1000),
+      p('v31', 121, 'V', 0, 1000), p('v_avg_ll', 123, 'V', 0, 1000),
+      p('i1', 125, 'A', 0, 10000), p('i2', 127, 'A', 0, 10000), p('i3', 129, 'A', 0, 10000),
+      p('i_neutral', 131, 'A', 0, 10000), p('i_total', 137, 'A', 0, 30000),
+      ps('p1', 141, 'W', -1e9, 1e9, 1, 't6'), ps('p2', 143, 'W', -1e9, 1e9, 1, 't6'),
+      ps('p3', 145, 'W', -1e9, 1e9, 1, 't6'), ps('p_total', 139, 'W', -1e9, 1e9, 1, 't6'),
+      ps('q1', 149, 'var', -1e9, 1e9, 1, 't6'), ps('q2', 151, 'var', -1e9, 1e9, 1, 't6'), ps('q3', 153, 'var', -1e9, 1e9, 1, 't6'),
+      p('s1', 157, 'VA', 0, 1e9), p('s2', 159, 'VA', 0, 1e9), p('s3', 161, 'VA', 0, 1e9),
+      p('freq', 104, 'Hz', 40, 70),
+      ps('thd_u1', 181, '%', 0, 100, 1, 'u16'), ps('thd_u2', 182, '%', 0, 100, 1, 'u16'), ps('thd_u3', 183, '%', 0, 100, 1, 'u16'),
+      ps('thd_i1', 187, '%', 0, 100, 1, 'u16'), ps('thd_i2', 188, '%', 0, 100, 1, 'u16'), ps('thd_i3', 189, '%', 0, 100, 1, 'u16'),
+    ],
+  },
 ];
 
 
