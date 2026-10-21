@@ -75,9 +75,15 @@ against the Google simulator, incl. state single-use replay refusal). gofmt/vet 
   unconnected tenant 409; the Reports page shows both buttons, the last successful export
   link and refused exports as alerts.
 
+- Settings surface truth: the consent exchange records Google's returned scope string
+  (google_granted_scopes in the secrets store; a narrower re-consent overwrites, never
+  accumulates; disconnect forgets it) and GET /v1/integrations/google/status reports each
+  surface granted / not granted from it ("unknown" for connections predating the record).
+  The Settings card requests exactly the surfaces with live consumers and lists each with
+  its true state.
+
 ## NOT built yet (next increments)
 
 - SSO hosted-domain (hd) restriction on top of the generic OIDC provider.
-- Settings UI beyond the connection card (per-surface enable toggles, richer status).
 - Real-tenant OAuth and live-send verification - GATED, needs the user's Google account and
   explicit approval; the simulator tests are not evidence of live behavior.
