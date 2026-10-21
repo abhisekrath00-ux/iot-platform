@@ -24,15 +24,22 @@ export default function ReportDrive({ reportId }: { reportId: string }) {
     setBusy('');
   };
   return (
-    <span data-testid={`report-drive-${reportId}`} style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <button className="ghost" disabled={!!busy} onClick={() => doExport('html')}
-        title="Upload a fresh HTML render as a new file in the connected Google Drive">
-        {busy === 'html' ? 'Exporting…' : 'Drive HTML'}</button>
-      <button className="ghost" disabled={!!busy} onClick={() => doExport('sheet')}
-        title="Upload the CSV render as a new Google Sheet in the connected Google Drive">
-        {busy === 'sheet' ? 'Exporting…' : 'Drive Sheet'}</button>
-      {latest && <a href={latest.web_link} target="_blank" rel="noreferrer">Last export ({latest.format})</a>}
-      {err && <span role="alert" className="muted">{err}</span>}
+    <span data-testid={`report-drive-${reportId}`} style={{ display: 'contents' }}>
+      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+        <button className="ghost" disabled={!!busy} onClick={() => doExport('html')}
+          title="Upload a fresh HTML render as a new file in the connected Google Drive">
+          {busy === 'html' ? 'Exporting…' : 'Drive HTML'}</button>
+        <button className="ghost" disabled={!!busy} onClick={() => doExport('sheet')}
+          title="Upload the CSV render as a new Google Sheet in the connected Google Drive">
+          {busy === 'sheet' ? 'Exporting…' : 'Drive Sheet'}</button>
+        {latest && <a href={latest.web_link} target="_blank" rel="noreferrer">Last export ({latest.format})</a>}
+      </span>
+      {err && (
+        <span role="alert" className="muted"
+          style={{ flexBasis: '100%', maxWidth: 460, whiteSpace: 'normal', wordBreak: 'break-word', marginTop: 4, paddingRight: 130 }}>
+          {err}
+        </span>
+      )}
     </span>
   );
 }
