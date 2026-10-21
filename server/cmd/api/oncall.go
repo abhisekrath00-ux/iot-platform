@@ -13,7 +13,7 @@ import (
 
 // GET /v1/oncall: schedules with who is on duty now and until when.
 func (s *server) listOnCall(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.st.Pool.Query(r.Context(), `SELECT id,name,anchor,shift_hours,channel_ids FROM oncall_schedules WHERE tenant_id=$1 ORDER BY name`, auth.Tenant(r))
+	rows, err := s.st.Pool.Query(r.Context(), `SELECT id,name,anchor,shift_hours,channel_ids,google_calendar_id,COALESCE(cal_channel_id,''),COALESCE(cal_until,'0001-01-01'::timestamptz),COALESCE(cal_synced_at,'0001-01-01'::timestamptz),cal_summary,cal_sync_error FROM oncall_schedules WHERE tenant_id=$1 ORDER BY name`, auth.Tenant(r))
 	if err != nil {
 		dbErr(w, err)
 		return
@@ -23,12 +23,14 @@ func (s *server) listOnCall(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	for rows.Next() {
 		var sc rules.Schedule
-		if rows.Scan(&sc.ID, &sc.Name, &sc.Anchor, &sc.ShiftHours, &sc.ChannelIDs) != nil {
+		var calID, calSummary, calErr string
+		if rows.Scan(&sc.ID, &sc.Name, &sc.Anchor, &sc.ShiftHours, &sc.ChannelIDs, &calID, &sc.CalChannelID, &sc.CalUntil, &sc.CalSyncedAt, &calSummary, &calErr) != nil {
 			continue
 		}
-		cur, ends, _ := rules.OnCall(sc, now)
+		cur, ends, _ := sc.EffectiveOnCall(now, calStaleBound)
 		out = append(out, map[string]any{"id": sc.ID, "name": sc.Name, "anchor": sc.Anchor, "shift_hours": sc.ShiftHours,
-			"channel_ids": sc.ChannelIDs, "on_call_channel": cur, "shift_ends": ends})
+			"channel_ids": sc.ChannelIDs, "on_call_channel": cur, "shift_ends": ends,
+			"google_calendar_id": calID, "cal_summary": calSummary, "cal_sync_error": calErr})
 	}
 	writeJSON(w, 200, out)
 }
