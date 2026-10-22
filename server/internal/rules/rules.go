@@ -37,7 +37,13 @@ type Definition struct {
 	// 10), plus devices named directly as relation endpoints. Requires
 	// AssetID; the anchor asset's own devices are not covered unless the
 	// relation walk reaches them.
-	Relation  string  `json:"relation,omitempty"`
+	Relation string `json:"relation,omitempty"`
+	// GroupID limits the rule to devices that are members of this device
+	// group, so one rule covers the whole group, now and as membership
+	// changes. Cannot be combined with DeviceID or AssetID (each names a
+	// set); may combine with Profile (both must match). Applies to
+	// threshold, sigma and seasonal rules.
+	GroupID   string  `json:"group_id,omitempty"`
 	PointID   string  `json:"point_id"`
 	Op        string  `json:"op"` // ">" or "<"
 	Threshold float64 `json:"threshold"`
@@ -95,6 +101,18 @@ func (d Definition) Validate() error {
 	}
 	if d.AssetID != "" && (d.Kind == "kpi_band" || d.Kind == "forecast_limit") {
 		return fmt.Errorf("asset_id does not apply to %s rules", d.Kind)
+	}
+	if len(d.GroupID) > 64 {
+		return fmt.Errorf("group_id too long")
+	}
+	if d.GroupID != "" && d.DeviceID != "" {
+		return fmt.Errorf("group_id cannot be combined with device_id")
+	}
+	if d.GroupID != "" && d.AssetID != "" {
+		return fmt.Errorf("group_id cannot be combined with asset_id")
+	}
+	if d.GroupID != "" && (d.Kind == "kpi_band" || d.Kind == "forecast_limit") {
+		return fmt.Errorf("group_id does not apply to %s rules", d.Kind)
 	}
 	if d.Relation != "" {
 		if !relationName.MatchString(d.Relation) {
@@ -272,6 +290,14 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 		if d.Profile != "" {
 			var prof string
 			if pool.QueryRow(ctx, `SELECT profile FROM devices WHERE id=$1 AND tenant_id=$2`, deviceID, tenantID).Scan(&prof) != nil || prof != d.Profile {
+				continue
+			}
+		}
+		if d.GroupID != "" {
+			var in bool
+			if pool.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM device_group_members WHERE tenant_id=$2 AND group_id=$3 AND device_id=$1)`,
+				deviceID, tenantID, d.GroupID).Scan(&in); !in {
 				continue
 			}
 		}
