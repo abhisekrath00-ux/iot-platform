@@ -468,6 +468,40 @@ describe('edge setup', () => {
     const y = deviceYaml(base);
     expect(y).toContain('register: 58'); expect(y).toContain('func: 3');
   });
+  it('cet-pmc53m registers match the official PMC-53 manual V5.2A chapter 5 (docs/devices/cet-pmc53m.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'cet-pmc53m')!;
+    expect(t.func).toBe(3); // manual: Read Holding Registers (Function Code 0x03)
+    expect(t.type).toBe('u32');
+    expect(t.serial).toEqual({ baud: 9600, parity: 'even', address: 100 }); // setup table defaults: 3=9600*, 2=8E1*, Unit ID Default=100
+    expect(t.wordOrderUnverified).toBe(true); // word order never stated for the 5.1 registers
+    expect(t.pduBaseUnverified).toBeUndefined(); // listed = on-wire, manual says no subtraction
+    expect(t.funcUnverified).toBeUndefined();
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1').register).toBe(40000); expect(pt('v3').register).toBe(40004); expect(pt('v_avg_ln').register).toBe(40006);
+    expect(pt('v12').register).toBe(40008); expect(pt('v31').register).toBe(40012); expect(pt('v_avg_ll').register).toBe(40014);
+    expect(pt('v1').scale).toBe(0.01); // Table 5-1 note 2: raw 22003 = 220.03 V
+    expect(pt('i1').register).toBe(40016); expect(pt('i3').register).toBe(40020); expect(pt('i_avg').register).toBe(40022);
+    expect(pt('i_neutral').register).toBe(40053);
+    expect(pt('p1').register).toBe(40024); expect(pt('p_total').register).toBe(40030); expect(pt('p1').type).toBe('i32');
+    expect(pt('p1').unit).toBe('kW'); // manual scales in kW/kvar/kVA, not W
+    expect(pt('q1').register).toBe(40032); expect(pt('q_total').register).toBe(40038);
+    expect(pt('s1').register).toBe(40040); expect(pt('s_total').register).toBe(40046);
+    expect(pt('pf1').register).toBe(40048); expect(pt('pf_total').register).toBe(40051); expect(pt('pf1').type).toBe('i16');
+    expect(pt('freq').register).toBe(40052); expect(pt('freq').type).toBe('u16'); expect(pt('freq').scale).toBe(0.01);
+    expect(pt('kwh_import').register).toBe(40100); expect(pt('kwh_export').register).toBe(40102);
+    expect(pt('kvarh_import').register).toBe(40106); expect(pt('kvarh_export').register).toBe(40108);
+    expect(pt('kwh_import').scale).toBe(0.1);
+    // excluded: demands/peak logs, angles, residual/temperature, unbalance, dPF, bitmaps, harmonics, setup 41000+
+    expect(t.points.some((p) => p.register >= 40110 && p.register !== 40112)).toBe(false);
+    expect(t.points.some((p) => p.id.includes('demand') || p.id.includes('angle') || p.id.includes('thd'))).toBe(false);
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4, t5: 2, t6: 2 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    expect(t.points.length).toBe(34);
+    const base = { deviceId: 'pmc53m-1', templateId: 'cet-pmc53m', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, address: 100, intervalSec: 5, provisionalConfirmed: true, wordOrder: 'abcd' as const };
+    const y = deviceYaml(base);
+    expect(y).toContain('register: 40052'); expect(y).toContain('func: 3'); expect(y).toContain('word_order: abcd');
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
