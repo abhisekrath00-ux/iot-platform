@@ -652,6 +652,49 @@ describe('edge setup', () => {
     expect(y).toContain('type: t6'); expect(y).toContain('type: t5');
     expect(y).toContain('stop_bits: 2');
   });
+  it('socomec-diris-a10 registers match the official MODBUS tables of Diris A-10 CMT_EN 2025-02 (docs/devices/socomec-diris-a10.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'socomec-diris-a10')!;
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(t.type).toBe('u32');
+    // Common metrology block, addresses listed verbatim
+    expect(pt('v12').register).toBe(50514); expect(pt('v12').scale).toBe(0.01); // 0xC552, U32 V 10e-2
+    expect(pt('v1').register).toBe(50520); expect(pt('v3').register).toBe(50524);
+    expect(pt('freq').register).toBe(50526); expect(pt('freq').scale).toBe(0.01);
+    expect(pt('i1').register).toBe(50528); expect(pt('i1').scale).toBe(0.001); // mA
+    expect(pt('i_n').register).toBe(50534);
+    expect(pt('p_total').register).toBe(50536); expect(pt('p_total').type).toBe('i32'); expect(pt('p_total').scale).toBe(10); // S32 W 10
+    expect(pt('q_total').register).toBe(50538); expect(pt('s_total').register).toBe(50540); expect(pt('s_total').type).toBeUndefined(); // U32 default
+    expect(pt('pf_total').register).toBe(50542); expect(pt('pf_total').type).toBe('i32'); expect(pt('pf_total').scale).toBe(0.001); // -leading/+lagging vendor-stated
+    expect(pt('p1').register).toBe(50544); expect(pt('p3').register).toBe(50548);
+    expect(pt('q1').register).toBe(50550); expect(pt('q3').register).toBe(50554);
+    expect(pt('s1').register).toBe(50556); expect(pt('s3').register).toBe(50560);
+    expect(pt('pf1').register).toBe(50562); expect(pt('pf3').register).toBe(50566);
+    // partial (resettable) energy counters, vendor naming
+    expect(pt('kwh_import_partial').register).toBe(50780); expect(pt('kwh_import_partial').scale).toBe(1); // Ea+ k Wh
+    expect(pt('kvarh_import_partial').register).toBe(50782); expect(pt('kvarh_import_partial').unit).toBe('kvarh'); // "varh 10^3"
+    expect(pt('kvah_partial').register).toBe(50784);
+    expect(pt('kwh_export_partial').register).toBe(50786); expect(pt('kvarh_export_partial').register).toBe(50788);
+    // THD block, U16 "% / 10"
+    expect(pt('thd_u12').register).toBe(51536); expect(pt('thd_u12').type).toBe('u16'); expect(pt('thd_u12').scale).toBe(0.1);
+    expect(pt('thd_v3').register).toBe(51541); expect(pt('thd_i1').register).toBe(51542); expect(pt('thd_i3').register).toBe(51544);
+    expect(t.points.length).toBe(41);
+    // word order, read FC and PDU base are NOT stated in the table or the quick-start guide: all three gated
+    expect(t.wordOrderUnverified).toBe(true);
+    expect(t.funcUnverified).toBe(true);
+    expect(t.pduBaseUnverified).toBe(true);
+    const missing = validateDevice({ deviceId: 'a10-1', templateId: 'socomec-diris-a10', link: 'rtu', port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, provisionalConfirmed: true });
+    expect(missing.length).toBeGreaterThan(0); // no YAML until the three gates are chosen
+    const base = { deviceId: 'a10-1', templateId: 'socomec-diris-a10', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 1, intervalSec: 5, wordOrder: 'abcd' as const, readFunc: 4 as const, pduBase: 'listed' as const, provisionalConfirmed: true };
+    expect(validateDevice(base)).toEqual([]);
+    const y = deviceYaml(base);
+    expect(y).toContain('register: 50780'); // energy import verbatim (listed address)
+    expect(y).toContain('type: i32');
+    const minus1 = deviceYaml({ ...base, pduBase: 'minus1' as const });
+    expect(minus1).toContain('register: 50779'); // 50780 -> listed minus 1
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4, t5: 2, t6: 2 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
