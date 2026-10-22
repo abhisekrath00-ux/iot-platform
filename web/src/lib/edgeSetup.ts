@@ -573,6 +573,26 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('thd_i1', 78, '%', 0, 99.9, 0.1), ps('thd_i2', 80, '%', 0, 99.9, 0.1), ps('thd_i3', 82, '%', 0, 99.9, 0.1),
     ],
   },
+  {
+    id: 'cet-pmc53m', name: 'CET PMC-53M (three-phase power meter)', link: 'rtu', func: 3, type: 'u32', word_order: 'abcd',
+    wordOrderUnverified: true,
+    serial: { baud: 9600, parity: 'even', address: 100 },
+    note: 'Every register address, format and scale verified line-by-line against CET\'s official PMC-53 Series User Manual V5.2A, chapter 5 register map, Protocol Version 6.0 (cet-global.com; docs/devices/cet-pmc53m.md). Vendor-stated: FC 03 holding registers, listed address = on-wire address (the manual says the 4 prefix is notation only, no subtraction), the scale convention with a worked example (raw 22003 = 220.03 V), and factory serial settings (unit ID 100, 9600 baud, 8E1): shown as a hint with an Apply button, never silently applied. Power readings are kW/kvar/kVA. Read-only; never run on a real meter.',
+    provisional: 'Addresses, formats, scales, FC 03, the address base and the serial defaults are verified against CET\'s own manual. ONE thing to know: the manual never states the 32-bit WORD ORDER for the measurement registers (its demand-log table does put the high-order word at the lower address, which is why ABCD is preselected), so confirm it yourself below from a known reading (for example frequency or one voltage) against the meter\'s display - until then every value from this template is hardware-untested. Also: in Delta wiring mode the L-N voltage, per-phase power and PF registers are reserved (manual note); I4 needs firmware V1.20.01+; energy counters roll over at 99,999,999.9 kXh. Excluded and named in the doc: demands and peak logs, angles, residual current and temperature, unbalance, dPF, alarm/DO/DI bitmaps, harmonics and all setup registers.',
+    points: [
+      ps('v1', 40000, 'V', 0, 1000, 0.01), ps('v2', 40002, 'V', 0, 1000, 0.01), ps('v3', 40004, 'V', 0, 1000, 0.01), ps('v_avg_ln', 40006, 'V', 0, 1000, 0.01),
+      ps('v12', 40008, 'V', 0, 2000, 0.01), ps('v23', 40010, 'V', 0, 2000, 0.01), ps('v31', 40012, 'V', 0, 2000, 0.01), ps('v_avg_ll', 40014, 'V', 0, 2000, 0.01),
+      ps('i1', 40016, 'A', 0, 6000, 0.001), ps('i2', 40018, 'A', 0, 6000, 0.001), ps('i3', 40020, 'A', 0, 6000, 0.001), ps('i_avg', 40022, 'A', 0, 6000, 0.001),
+      ps('p1', 40024, 'kW', -6000, 6000, 0.001, 'i32'), ps('p2', 40026, 'kW', -6000, 6000, 0.001, 'i32'), ps('p3', 40028, 'kW', -6000, 6000, 0.001, 'i32'), ps('p_total', 40030, 'kW', -18000, 18000, 0.001, 'i32'),
+      ps('q1', 40032, 'kvar', -6000, 6000, 0.001, 'i32'), ps('q2', 40034, 'kvar', -6000, 6000, 0.001, 'i32'), ps('q3', 40036, 'kvar', -6000, 6000, 0.001, 'i32'), ps('q_total', 40038, 'kvar', -18000, 18000, 0.001, 'i32'),
+      ps('s1', 40040, 'kVA', 0, 6000, 0.001, 'i32'), ps('s2', 40042, 'kVA', 0, 6000, 0.001, 'i32'), ps('s3', 40044, 'kVA', 0, 6000, 0.001, 'i32'), ps('s_total', 40046, 'kVA', 0, 18000, 0.001, 'i32'),
+      ps('pf1', 40048, '', -1, 1, 0.001, 'i16'), ps('pf2', 40049, '', -1, 1, 0.001, 'i16'), ps('pf3', 40050, '', -1, 1, 0.001, 'i16'), ps('pf_total', 40051, '', -1, 1, 0.001, 'i16'),
+      ps('freq', 40052, 'Hz', 40, 70, 0.01, 'u16'),
+      ps('i_neutral', 40053, 'A', 0, 6000, 0.001),
+      ps('kwh_import', 40100, 'kWh', 0, 99999999.9, 0.1), ps('kwh_export', 40102, 'kWh', 0, 99999999.9, 0.1),
+      ps('kvarh_import', 40106, 'kvarh', 0, 99999999.9, 0.1), ps('kvarh_export', 40108, 'kvarh', 0, 99999999.9, 0.1),
+    ],
+  },
 ];
 
 
