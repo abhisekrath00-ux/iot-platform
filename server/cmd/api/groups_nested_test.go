@@ -66,7 +66,7 @@ func TestIntegrationNestedGroups(t *testing.T) {
 		t.Fatalf("reparent to unknown = %d, want 404", w.Code)
 	}
 	// depth cap: a chain of 8 is fine, the 9th level is refused
-	parent := cellA // root, line1, cellA are already 3 deep
+	parent := cellA          // root, line1, cellA are already 3 deep
 	for i := 0; i < 5; i++ { // extend to exactly 8 levels
 		parent = mk(fmt.Sprintf("L%d", i+4), parent)
 	}
