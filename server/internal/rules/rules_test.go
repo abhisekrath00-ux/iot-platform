@@ -88,6 +88,9 @@ func TestDefinitionValidate(t *testing.T) {
 		{Kind: "kpi_band", KPIID: "k", Min: &lo, Severity: "critical"},
 		{Kind: "sigma", PointID: "p", Sigma: 3, WindowMinutes: 60, Method: "robust", Severity: "info"},
 		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "feeds"},
+		{PointID: "p", Op: ">", Severity: "info", GroupID: "g"},
+		{PointID: "p", Op: ">", Severity: "info", GroupID: "g", Profile: "modbus-tcp"},
+		{Kind: "seasonal", PointID: "p", Sigma: 3, WindowDays: 7, Severity: "info", GroupID: "g"},
 	}
 	for _, d := range ok {
 		if err := d.Validate(); err != nil {
@@ -104,10 +107,15 @@ func TestDefinitionValidate(t *testing.T) {
 		{Kind: "kpi_band", KPIID: "k", Severity: "info"},
 		{Kind: "kpi_band", KPIID: "k", Min: &hi, Max: &lo, Severity: "info"},
 		{Kind: "magic", Severity: "info"},
-		{PointID: "p", Op: ">", Severity: "info", Relation: "feeds"},                  // relation without asset_id
-		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "Feeds"},    // upper-case
-		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "1feeds"},   // leading digit
-		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "has-dash"}, // bad character
+		{PointID: "p", Op: ">", Severity: "info", Relation: "feeds"},                                                             // relation without asset_id
+		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "Feeds"},                                               // upper-case
+		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "1feeds"},                                              // leading digit
+		{PointID: "p", Op: ">", Severity: "info", AssetID: "a", Relation: "has-dash"},                                            // bad character
+		{PointID: "p", Op: ">", Severity: "info", GroupID: "g", DeviceID: "d"},                                                   // group + device
+		{PointID: "p", Op: ">", Severity: "info", GroupID: "g", AssetID: "a"},                                                    // group + asset
+		{Kind: "kpi_band", KPIID: "k", Min: &lo, Severity: "info", GroupID: "g"},                                                 // group on kpi_band
+		{Kind: "forecast_limit", PointID: "p", Op: ">", Threshold: 1, HorizonHours: 4, Severity: "info", GroupID: "g"},           // group on forecast
+		{PointID: "p", Op: ">", Severity: "info", GroupID: "g12345678901234567890123456789012345678901234567890123456789012345"}, // 66 chars, over cap
 	}
 	for _, d := range bad {
 		if d.Validate() == nil {
