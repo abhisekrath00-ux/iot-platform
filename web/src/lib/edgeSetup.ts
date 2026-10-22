@@ -701,6 +701,22 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('thd_i1', 51542, '%', 0, 100, 0.1, 'u16'), ps('thd_i2', 51543, '%', 0, 100, 0.1, 'u16'), ps('thd_i3', 51544, '%', 0, 100, 0.1, 'u16'),
     ],
   },
+  {
+    id: 'finder-7m24', name: 'Finder 7M.24 (single-phase DIN-rail energy meter/analyzer)', link: 'rtu', func: 4, type: 't5', word_order: 'abcd',
+    stopBits: 2,
+    serial: { baud: 19200, parity: 'none', address: 33 },
+    note: 'Every register address, type and scale verified line-by-line against the 7M.24 section of Finder\'s official "ModBUS COMMUNICATION PROTOCOL 7M24 - 7M38" (cdn.findernet.com; docs/devices/finder-7m24.md), with the factory serial defaults from the 7M.24 user manual (EN edition was inaccessible - HTTP 403 on the vendor CDN - so the numeric spec table was taken from the official IT edition on the same CDN; values are numeric and language-independent). All conventions vendor-stated: FC 04 input registers ("The memory reference for input and holding registers is 30000 and 40000 respectively"), on-wire address = listed - 30000 (the protocol\'s own worked example reads U1, listed 30107, with request address bytes 00 6B = 107), MSW-first word order (the T5 decoding example prints 123456*10^-3 as FD01 E240, register one first), and the T5/T6 decade-exponent encoding - the same encoding the edge agent already decodes for Iskra and the Finder 7M.38. Values decode to base units (V, A, W, var, VA, Hz). Factory serial settings vendor-stated (RS485 Modbus RTU, address 33, 19200 bit/s, frame 8,N,2): baud/parity/address surface as a hint with an explicit Apply button and stop bits preset to 2, never silently applied. Read-only; never run on a real meter.',
+    provisional: 'Addresses, types, FC 04, the address base and the word order are verified against Finder\'s own protocol document (7M.24 section, page 5 actual-measurements table). This template reads the 32-bit decade-exponent registers (T5/T6), which need the t5/t6 decoder in the current edge agent - older agents will reject the type. Same source caveat as the 7M.38: the printed byte example in the protocol\'s request-frame page is internally inconsistent (its bytes do not decode to its printed value); the T5 type-definition example is unambiguous and is the one the decoder is tested against. Excluded and named in the doc: power factor (T7 packs import/export and inductive/capacitive as two separate sign bytes - no single signed PF number is vendor-stated), ALL energy counters (the 7M user manual states the meter\'s energy registers are user-parameterisable for energy type, active quadrants, counting direction and tariff, and each T3 counter\'s scale lives in a separate exponent register), run time, phase angles, internal temperature, I/O status and all setup registers. Until one reading (for example frequency or the voltage) is compared against the meter\'s own display, every value from this template is hardware-untested.',
+    points: [
+      p('freq', 105, 'Hz', 0, 100),
+      p('v1', 107, 'V', 0, 1000), p('v_avg_ln', 113, 'V', 0, 1000),
+      p('i1', 126, 'A', 0, 10000), p('i_avg', 136, 'A', 0, 10000), p('si', 138, 'A', 0, 10000),
+      ps('p_total', 140, 'W', -1e9, 1e9, 1, 't6'), ps('p1', 142, 'W', -1e9, 1e9, 1, 't6'),
+      ps('q_total', 148, 'var', -1e9, 1e9, 1, 't6'), ps('q1', 150, 'var', -1e9, 1e9, 1, 't6'),
+      p('s_total', 156, 'VA', 0, 1e9), p('s1', 158, 'VA', 0, 1e9),
+      ps('thd_v1', 182, '%', 0, 100, 0.01, 'u16'), ps('thd_i1', 188, '%', 0, 100, 0.01, 'u16'),
+    ],
+  },
 ];
 
 
