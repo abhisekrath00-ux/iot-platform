@@ -3,7 +3,7 @@
 This is the map the assistant uses for how-to answers. If a screen or setting is not listed here, it does not exist in the product.
 
 ## The left menu
-Fleet, Devices, Assets, Customers (admin), Users (admin), KPIs, Map, Explorer, Add device, Scan, Dashboards, Assistant, Flows, Alerts, Control, Reports, Profiles, Audit, Settings. Customer-scoped users see only Devices, Alerts, Map, Dashboards and Reports. The assistant panel is the "Ask the assistant" button at the bottom right.
+Fleet, Devices, Assets, Customers (admin), Users (admin), KPIs, Map, Explorer, Add device, Scan, Dashboards, Assistant, Flows, Alerts, Control, Reports, Profiles, Audit, Settings. Customer-scoped users see only Devices, Alerts, Map, Dashboards and Reports. The assistant panel is the "Ask the assistant" button at the bottom right. The button ducks away while you scroll down so it never covers a control you are reaching for, and returns when you scroll back up.
 
 ## How do I create a site?
 There is no Sites page. A site is a physical location that devices and gateways belong to. Admins create one with **Create site** inside **Add device** or **Commission a sensor** (a name and an optional address), or by asking the assistant, which proposes it and waits for your confirmation. A site has a name and an address only. There is no site colour, no site logo, and sites cannot be renamed or deleted in the UI yet. A new workspace starts with a site called "Main site".
