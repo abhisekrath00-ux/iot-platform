@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { groupPath, sortGroupsByTree } from '../lib/groups';
 
-interface Group { id: string; name: string; description: string; devices: number; }
+interface Group { id: string; name: string; description: string; devices: number; parent_id?: string | null; }
 interface Dev { id: string; name: string; }
 
 // Named sets of devices. Click a group to filter the fleet by it; "Manage" edits membership.
@@ -27,6 +28,10 @@ export default function DeviceGroups({ selected, onSelect }: { selected: string;
     if (!edit) return;
     try { await api(`/v1/groups/${edit}/devices`, { method: 'PUT', body: JSON.stringify({ device_ids: [...members] }) }); setEdit(null); load(); setMsg('Saved.'); } catch (e) { setMsg(String(e)); }
   }
+  async function setParent(g: Group, parentId: string) {
+    setMsg('');
+    try { await api(`/v1/groups/${g.id}/parent`, { method: 'PUT', body: JSON.stringify({ parent_id: parentId }) }); load(); } catch (e) { setMsg(String(e)); }
+  }
   async function del(g: Group) {
     if (!window.confirm(`Delete group "${g.name}"? The devices stay.`)) return;
     await api(`/v1/groups/${g.id}`, { method: 'DELETE' }).catch(e => setMsg(String(e)));
@@ -37,7 +42,7 @@ export default function DeviceGroups({ selected, onSelect }: { selected: string;
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <span className="muted" style={{ fontSize: 12 }}>Groups</span>
-        {groups.map(g => <button key={g.id} className={selected === g.id ? '' : 'ghost'} onClick={() => onSelect(selected === g.id ? '' : g.id)}>{g.name} ({g.devices})</button>)}
+        {sortGroupsByTree(groups).map(g => <button key={g.id} className={selected === g.id ? '' : 'ghost'} onClick={() => onSelect(selected === g.id ? '' : g.id)} title={groupPath(g, groups)}>{groupPath(g, groups)} ({g.devices})</button>)}
         <button className="ghost" onClick={() => setOpen(!open)}>{open ? 'Close' : 'Manage groups'}</button>
       </div>
       {open && (
@@ -46,9 +51,13 @@ export default function DeviceGroups({ selected, onSelect }: { selected: string;
             <input aria-label="New group name" placeholder="New group, e.g. Boiler house" value={name} onChange={e => setName(e.target.value)} />
             <button type="submit" disabled={!name.trim()}>Add group</button>
           </form>
-          {groups.map(g => (
+          {sortGroupsByTree(groups).map(g => (
             <div key={g.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
-              <span style={{ flex: 1 }}>{g.name} <span className="muted">({g.devices} devices)</span></span>
+              <span style={{ flex: 1 }}>{groupPath(g, groups)} <span className="muted">({g.devices} devices)</span></span>
+              <select aria-label={`Parent of ${g.name}`} value={g.parent_id ?? ''} onChange={e => setParent(g, e.target.value)} style={{ width: 'auto' }}>
+                <option value="">Top level</option>
+                {sortGroupsByTree(groups).filter(p => p.id !== g.id).map(p => <option key={p.id} value={p.id}>{groupPath(p, groups)}</option>)}
+              </select>
               <button className="ghost" onClick={() => startEdit(g)}>Edit devices</button>
               <button className="ghost" onClick={() => del(g)}>Delete</button>
             </div>
