@@ -6,6 +6,23 @@ import { Link } from 'react-router-dom';
 import { api, download } from '../lib/api';
 
 interface Rule { id: string; name: string; definition: any; version: number; enabled: boolean; }
+
+// Human-readable one-line summary of a rule definition. Never emits "undefined": a
+// definition whose shape matches no known kind is reported as unrecognized instead.
+export function ruleCondition(def: any, groups: { id: string; name: string }[]): string {
+  if (!def || typeof def !== 'object') return 'Unrecognized rule definition';
+  let base: string;
+  if (def.kind === 'sigma') base = `${def.point_id} beyond ${def.sigma} sigma of ${def.window_minutes} min history`;
+  else if (def.kind === 'kpi_band') base = `KPI band ${def.min ?? '-'} to ${def.max ?? '-'}`;
+  else if (def.kind === 'seasonal') base = `${def.point_id} beyond ${def.sigma} sigma of its usual ${def.season === 'hour_of_week' ? 'hour of week' : 'hour of day'} (${def.window_days} days)`;
+  else if (def.kind === 'forecast_limit') base = `${def.point_id} forecast ${def.op} ${def.threshold} within ${def.horizon_hours} h`;
+  else if (def.point_id && def.op && def.threshold !== undefined && def.threshold !== null) base = `${def.point_id} ${def.op} ${def.threshold}`;
+  else return 'Unrecognized rule definition';
+  if (def.device_id) base += ` on ${def.device_id}`;
+  if (def.group_id) base += ` on group ${groups.find(g => g.id === def.group_id)?.name ?? def.group_id}`;
+  return base;
+}
+
 type FlowDef = FlowSummaryDef;
 interface FlowRow { id: string; name: string; definition: FlowDef; enabled: boolean; published_version?: number | null; }
 interface Channel { id: string; type: string; target: string; }
@@ -165,8 +182,8 @@ export default function Flows() {
           {rules.map(r => (
             <tr key={r.id}>
               <td>{r.name}</td>
-              <td className="muted">{r.definition?.kind === 'sigma' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of ${r.definition.window_minutes} min history` : r.definition?.kind === 'kpi_band' ? `KPI band ${r.definition.min ?? '-'} to ${r.definition.max ?? '-'}` : r.definition?.kind === 'seasonal' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of its usual ${r.definition.season === 'hour_of_week' ? 'hour of week' : 'hour of day'} (${r.definition.window_days} days)` : r.definition?.kind === 'forecast_limit' ? `${r.definition.point_id} forecast ${r.definition.op} ${r.definition.threshold} within ${r.definition.horizon_hours} h` : `${r.definition?.point_id} ${r.definition?.op} ${r.definition?.threshold}`}{r.definition?.device_id ? ` on ${r.definition.device_id}` : ''}{r.definition?.group_id ? ` on group ${groups.find(g => g.id === r.definition.group_id)?.name ?? r.definition.group_id}` : ''}</td>
-              <td><span className={`pill ${r.definition?.severity === 'critical' ? 'bad' : r.definition?.severity === 'warning' ? 'warn' : 'ok'}`}>{r.definition?.severity}</span></td>
+              <td className="muted">{ruleCondition(r.definition, groups)}</td>
+              <td><span className={`pill ${r.definition?.severity === 'critical' ? 'bad' : r.definition?.severity === 'warning' ? 'warn' : 'ok'}`}>{r.definition?.severity ?? '\u2014'}</span></td>
               <td className="muted">{r.enabled ? 'enabled' : 'disabled'}</td>
             </tr>
           ))}
