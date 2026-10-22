@@ -695,6 +695,43 @@ describe('edge setup', () => {
     const used = new Set<number>();
     for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
   });
+  it('finder-7m24 registers match the official ModBUS COMMUNICATION PROTOCOL 7M24-7M38 7M.24 table (docs/devices/finder-7m24.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'finder-7m24')!;
+    expect(t.func).toBe(4); // 3xxxx input registers; protocol states memory reference 30000/40000
+    expect(t.type).toBe('t5'); // Finder T5 decade-exponent unsigned measurement
+    expect(t.word_order).toBe('abcd'); // vendor worked example: FD01 E240 = 123456 x 10^-3, MSW first
+    expect(t.wordOrderUnverified).toBeUndefined(); // word order, base and FC are all vendor-stated
+    expect(t.pduBaseUnverified).toBeUndefined(); // worked example: listed 30107 -> on-wire 00 6B = 107
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.unitsUnverified).toBeUndefined();
+    expect(t.stopBits).toBe(2); // vendor-stated factory default: frame 8,N,2
+    expect(t.serial).toEqual({ baud: 19200, parity: 'none', address: 33 }); // vendor-stated factory defaults
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    // on-wire = listed address - 30000 (7M.24 section, footer page 5)
+    expect(pt('freq').register).toBe(105); // 30105
+    expect(pt('v1').register).toBe(107); expect(pt('v_avg_ln').register).toBe(113);
+    expect(pt('i1').register).toBe(126); expect(pt('i_avg').register).toBe(136); expect(pt('si').register).toBe(138);
+    expect(pt('p_total').register).toBe(140); expect(pt('p_total').type).toBe('t6'); // powers are signed (T6)
+    expect(pt('p1').register).toBe(142);
+    expect(pt('q_total').register).toBe(148); expect(pt('q_total').type).toBe('t6'); expect(pt('q1').register).toBe(150);
+    expect(pt('s_total').register).toBe(156); expect(pt('s_total').type).toBeUndefined(); // T5 template default
+    expect(pt('s1').register).toBe(158);
+    expect(pt('thd_v1').register).toBe(182); expect(pt('thd_v1').type).toBe('u16'); expect(pt('thd_v1').scale).toBe(0.01); // T16
+    expect(pt('thd_i1').register).toBe(188);
+    // no PF (T7 two-sign-byte format) and no energy counters (user-parameterisable roles + dynamic exponents)
+    expect(t.points.some((p) => p.id.startsWith('pf'))).toBe(false);
+    expect(t.points.some((p) => p.id.includes('kwh') || p.unit === 'kWh' || p.unit === 'Wh')).toBe(false);
+    expect(t.points.length).toBe(14);
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4, t5: 2, t6: 2 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    const base = { deviceId: '7m24-1', templateId: 'finder-7m24', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 19200, address: 33, stopBits: 2 as const, intervalSec: 5, provisionalConfirmed: true };
+    const y = deviceYaml(base);
+    expect(y).toContain('register: 105'); expect(y).toContain('register: 140');
+    expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
+    expect(y).toContain('type: t6'); expect(y).toContain('type: t5');
+    expect(y).toContain('stop_bits: 2');
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
