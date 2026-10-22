@@ -502,6 +502,41 @@ describe('edge setup', () => {
     const y = deviceYaml(base);
     expect(y).toContain('register: 40052'); expect(y).toContain('func: 3'); expect(y).toContain('word_order: abcd');
   });
+  it('lovato-dmg600 registers match the official protocol I317IGB02_22 table 2 (docs/devices/lovato-dmg600.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'lovato-dmg600')!;
+    expect(t.func).toBe(4); // protocol's worked read example; table 2 header allows FC 03 and 04
+    expect(t.type).toBe('u32');
+    expect(t.word_order).toBe('abcd'); // worked example response 00 01 FB 00 = 129792 = 1.29792 kW, MSW first
+    expect(t.wordOrderUnverified).toBeUndefined();
+    expect(t.pduBaseUnverified).toBeUndefined(); // protocol: query address = listed minus 1 (explicit + example)
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.serial).toEqual({ baud: 9600, parity: 'none', address: 1 }); // manual P07 menu defaults
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    // PDU = listed hex address minus 1 (0002H -> 1)
+    expect(pt('v1').register).toBe(1); expect(pt('v2').register).toBe(3); expect(pt('v3').register).toBe(5);
+    expect(pt('v1').scale).toBe(0.01);
+    expect(pt('i1').register).toBe(7); expect(pt('i3').register).toBe(11); expect(pt('i1').scale).toBe(0.0001);
+    expect(pt('v12').register).toBe(13); expect(pt('v23').register).toBe(15); expect(pt('v31').register).toBe(17);
+    expect(pt('p1').register).toBe(19); expect(pt('p3').register).toBe(23); expect(pt('p1').type).toBe('i32');
+    expect(pt('p2').register).toBe(21); // worked example: L2 active power at 0016H, query 0x15
+    expect(pt('q1').register).toBe(25); expect(pt('q3').register).toBe(29);
+    expect(pt('s1').register).toBe(31); expect(pt('s3').register).toBe(35);
+    expect(pt('pf1').register).toBe(37); expect(pt('pf3').register).toBe(41); expect(pt('pf1').scale).toBe(0.0001);
+    expect(pt('freq').register).toBe(49); expect(pt('freq').scale).toBe(0.001); // Hz/1000 (Hz/100 is DMG210-only)
+    expect(pt('v_avg_ln').register).toBe(51); expect(pt('v_avg_ll').register).toBe(53); expect(pt('i_avg').register).toBe(55);
+    expect(pt('p_total').register).toBe(57); expect(pt('q_total').register).toBe(59); expect(pt('s_total').register).toBe(61);
+    expect(pt('pf_total').register).toBe(63);
+    expect(pt('i_neutral').register).toBe(71);
+    // energies excluded: 32-bit rows unmapped for DMG6xx, 64-bit rows exceed driver types
+    expect(t.points.some((p) => p.id.includes('kwh') || p.id.includes('energy') || p.id.includes('kvarh'))).toBe(false);
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4, t5: 2, t6: 2 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    expect(t.points.length).toBe(30);
+    const base = { deviceId: 'dmg610-1', templateId: 'lovato-dmg600', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    const y = deviceYaml(base);
+    expect(y).toContain('register: 21'); expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
