@@ -15,6 +15,7 @@ interface Channel { id: string; type: string; target: string; }
 export default function Flows() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [assets, setAssets] = useState<{ id: string; name: string }[]>([]);
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
   const [assetFilter, setAssetFilter] = useState('');
   const [name, setName] = useState('');
   const [pointId, setPointId] = useState('');
@@ -27,6 +28,7 @@ export default function Flows() {
   const [importMsg, setImportMsg] = useState('');
   const [profile, setProfile] = useState('');
   const [ruleAsset, setRuleAsset] = useState('');
+  const [ruleGroup, setRuleGroup] = useState('');
   const [ruleRelation, setRuleRelation] = useState('');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [fname, setFname] = useState('');
@@ -45,6 +47,7 @@ export default function Flows() {
   };
   useEffect(() => { load(); }, [assetFilter]);
   useEffect(() => { api<typeof assets>('/v1/assets').then(setAssets).catch(() => {}); }, []);
+  useEffect(() => { api<typeof groups>('/v1/groups').then(setGroups).catch(() => {}); }, []);
 
   function setStep(i: number, patch: any) {
     setSteps(ss => ss.map((st, j) => (j === i ? { ...st, ...patch } : st)));
@@ -86,6 +89,7 @@ export default function Flows() {
             device_id: deviceId || undefined,
             profile: profile || undefined,
             asset_id: ruleAsset || undefined,
+            group_id: ruleGroup || undefined,
             relation: ruleRelation.trim() || undefined,
             point_id: pointId,
             op,
@@ -94,7 +98,7 @@ export default function Flows() {
           }
         })
       });
-      setName(''); setPointId(''); setDeviceId(''); setThreshold(''); setRuleRelation('');
+      setName(''); setPointId(''); setDeviceId(''); setThreshold(''); setRuleRelation(''); setRuleGroup('');
       load();
     } catch (e2) { setMsg(String(e2)); }
   }
@@ -119,6 +123,16 @@ export default function Flows() {
             {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           {deviceId && <span className="muted"> An asset scope cannot be combined with a single device.</span>}
+          {groups.length > 0 && (
+            <>
+              <label>Device group (optional - every device in the group, now and as membership changes)</label>
+              <select aria-label="Rule group" value={ruleGroup} onChange={e => setRuleGroup(e.target.value)} disabled={!!deviceId || !!ruleAsset} style={{ width: 'auto' }}>
+                <option value="">No group scope</option>
+                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              {(deviceId || ruleAsset) && <span className="muted"> A group scope cannot be combined with a single device or an asset scope.</span>}
+            </>
+          )}
           {ruleAsset && (
             <>
               <label>Relation (optional - instead of the asset tree, cover what this asset reaches via a typed relation)</label>
@@ -151,7 +165,7 @@ export default function Flows() {
           {rules.map(r => (
             <tr key={r.id}>
               <td>{r.name}</td>
-              <td className="muted">{r.definition?.kind === 'sigma' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of ${r.definition.window_minutes} min history` : r.definition?.kind === 'kpi_band' ? `KPI band ${r.definition.min ?? '-'} to ${r.definition.max ?? '-'}` : r.definition?.kind === 'seasonal' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of its usual ${r.definition.season === 'hour_of_week' ? 'hour of week' : 'hour of day'} (${r.definition.window_days} days)` : r.definition?.kind === 'forecast_limit' ? `${r.definition.point_id} forecast ${r.definition.op} ${r.definition.threshold} within ${r.definition.horizon_hours} h` : `${r.definition?.point_id} ${r.definition?.op} ${r.definition?.threshold}`}{r.definition?.device_id ? ` on ${r.definition.device_id}` : ''}</td>
+              <td className="muted">{r.definition?.kind === 'sigma' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of ${r.definition.window_minutes} min history` : r.definition?.kind === 'kpi_band' ? `KPI band ${r.definition.min ?? '-'} to ${r.definition.max ?? '-'}` : r.definition?.kind === 'seasonal' ? `${r.definition.point_id} beyond ${r.definition.sigma} sigma of its usual ${r.definition.season === 'hour_of_week' ? 'hour of week' : 'hour of day'} (${r.definition.window_days} days)` : r.definition?.kind === 'forecast_limit' ? `${r.definition.point_id} forecast ${r.definition.op} ${r.definition.threshold} within ${r.definition.horizon_hours} h` : `${r.definition?.point_id} ${r.definition?.op} ${r.definition?.threshold}`}{r.definition?.device_id ? ` on ${r.definition.device_id}` : ''}{r.definition?.group_id ? ` on group ${groups.find(g => g.id === r.definition.group_id)?.name ?? r.definition.group_id}` : ''}</td>
               <td><span className={`pill ${r.definition?.severity === 'critical' ? 'bad' : r.definition?.severity === 'warning' ? 'warn' : 'ok'}`}>{r.definition?.severity}</span></td>
               <td className="muted">{r.enabled ? 'enabled' : 'disabled'}</td>
             </tr>
