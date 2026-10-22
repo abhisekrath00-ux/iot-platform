@@ -1008,6 +1008,7 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 	asset := r.URL.Query().Get("asset_id")    // alerts on devices under this asset
 	rel := r.URL.Query().Get("relation")      // with asset_id: devices the asset reaches via this relation instead
 	assigned := r.URL.Query().Get("assigned") // "none" or a user id
+	group := r.URL.Query().Get("group_id")    // alerts on devices in this group
 	if rel != "" {
 		if !relationName.MatchString(rel) {
 			http.Error(w, "relation must be lower-case letters, digits and underscores, starting with a letter (32 characters at most)", 400)
@@ -1038,7 +1039,8 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		        ($6='' AND d.asset_id IN (SELECT id FROM sub))
 		        OR ($6<>'' AND (d.asset_id IN (SELECT id FROM walk WHERE kind='asset') OR d.id IN (SELECT id FROM walk WHERE kind='device'))))))
 		   AND ($5='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.customer_id IN (SELECT id FROM csub)))
-		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset, assigned, scopeOf(r), rel)
+		   AND ($7='' OR device_id IN (SELECT device_id FROM device_group_members WHERE group_id=$7 AND tenant_id=$1))
+		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset, assigned, scopeOf(r), rel, group)
 	if err != nil {
 		dbErr(w, err)
 		return
