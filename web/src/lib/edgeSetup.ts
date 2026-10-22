@@ -635,6 +635,24 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('thd_i1', 6002, '%', 0, 100, 0.01, 'u16'), ps('thd_i2', 6003, '%', 0, 100, 0.01, 'u16'), ps('thd_i3', 6004, '%', 0, 100, 0.01, 'u16'),
     ],
   },
+  {
+    id: 'chint-dtsu666', name: 'CHINT DTSU666/DSSU666 (three-phase DIN-rail meter)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    pduBaseUnverified: true,
+    serial: { baud: 9600, parity: 'none', address: 1 },
+    note: 'Every register address, format and scale verified line-by-line against Table 11 "ModBus protocol address table" of CHINT\'s official DTSU666 DSSU666 User Manual ZTW0.464.0104 V1 (chintglobal.com), plus its communication-settings section for the factory serial defaults (docs/devices/chint-dtsu666.md). Vendor-stated: FC 03 read / FC 10 write, IEEE754 floats in ABCD order (Table 11 Note 1), fixed unit multipliers (V x0.1, A x0.001, W/var x0.1, PF x0.001, Hz x0.01; energies already kWh), and factory serial 9600bps / N.8.1 / address 1: shown as a hint with an Apply button, never silently applied. NOT stated by the vendor: the register base (listed address vs listed minus 1) - the base gate below makes the installer choose explicitly. The DTSU666_G variant uses a DIFFERENT map (chint.eu doc, instantaneous at 0200H); do not mix. Read-only; never run on a real meter.',
+    provisional: 'Addresses, formats, scales, FC 03, the ABCD float order and the serial defaults are all verified against CHINT\'s official user manual ZTW0.464.0104 V1. One thing the manual does NOT state: whether the on-wire address is the listed hex address or the listed address minus 1. Choose it yourself below, from your unit\'s documentation or a live read you can verify against the meter\'s own display. Hardware is still untested: confirm a known reading (for example frequency or one voltage) against the meter\'s display before trusting values. Vendor-stated caveats: phase voltages and per-phase power/PF rows are invalid on three-phase three-wire hookups; PF positive = inductive, negative = capacitive. Excluded and named in the doc: apparent power/energy (not in the vendor map at all), reactive energies (only on the _G variant map), all writable keyboard/setup registers including the energy-reset, primary-side data (Note 2 requires a non-public protocol doc), demand, THD and tariffs.',
+    points: [
+      ps('kwh_import', 0x101E, 'kWh', 0, 1e12, 1), ps('kwh_import_a', 0x1020, 'kWh', 0, 1e12, 1), ps('kwh_import_b', 0x1022, 'kWh', 0, 1e12, 1), ps('kwh_import_c', 0x1024, 'kWh', 0, 1e12, 1), ps('kwh_import_net', 0x1026, 'kWh', 0, 1e12, 1),
+      ps('kwh_export', 0x1028, 'kWh', 0, 1e12, 1), ps('kwh_export_a', 0x102A, 'kWh', 0, 1e12, 1), ps('kwh_export_b', 0x102C, 'kWh', 0, 1e12, 1), ps('kwh_export_c', 0x102E, 'kWh', 0, 1e12, 1), ps('kwh_export_net', 0x1030, 'kWh', 0, 1e12, 1),
+      ps('v12', 0x2000, 'V', 0, 10000, 0.1), ps('v23', 0x2002, 'V', 0, 10000, 0.1), ps('v31', 0x2004, 'V', 0, 10000, 0.1),
+      ps('v1', 0x2006, 'V', 0, 10000, 0.1), ps('v2', 0x2008, 'V', 0, 10000, 0.1), ps('v3', 0x200A, 'V', 0, 10000, 0.1),
+      ps('i1', 0x200C, 'A', 0, 10000, 0.001), ps('i2', 0x200E, 'A', 0, 10000, 0.001), ps('i3', 0x2010, 'A', 0, 10000, 0.001),
+      ps('p_total', 0x2012, 'W', -1e9, 1e9, 0.1), ps('p1', 0x2014, 'W', -1e9, 1e9, 0.1), ps('p2', 0x2016, 'W', -1e9, 1e9, 0.1), ps('p3', 0x2018, 'W', -1e9, 1e9, 0.1),
+      ps('q_total', 0x201A, 'var', -1e9, 1e9, 0.1), ps('q1', 0x201C, 'var', -1e9, 1e9, 0.1), ps('q2', 0x201E, 'var', -1e9, 1e9, 0.1), ps('q3', 0x2020, 'var', -1e9, 1e9, 0.1),
+      ps('pf_total', 0x202A, '', -1, 1, 0.001), ps('pf1', 0x202C, '', -1, 1, 0.001), ps('pf2', 0x202E, '', -1, 1, 0.001), ps('pf3', 0x2030, '', -1, 1, 0.001),
+      ps('freq', 0x2044, 'Hz', 0, 65, 0.01),
+    ],
+  },
 ];
 
 
