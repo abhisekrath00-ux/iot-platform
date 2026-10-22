@@ -294,9 +294,16 @@ func Evaluate(ctx context.Context, pool *pgxpool.Pool, n Notifier, tenantID, dev
 			}
 		}
 		if d.GroupID != "" {
+			// Coverage is the named group plus every descendant group; write-time
+			// checks in the API keep the parent tree acyclic and depth-capped.
 			var in bool
 			if pool.QueryRow(ctx,
-				`SELECT EXISTS(SELECT 1 FROM device_group_members WHERE tenant_id=$2 AND group_id=$3 AND device_id=$1)`,
+				`SELECT EXISTS(
+				   WITH RECURSIVE gsub AS (
+				     SELECT id FROM device_groups WHERE tenant_id=$2 AND id=$3
+				     UNION ALL SELECT g.id FROM device_groups g JOIN gsub ON g.parent_id=gsub.id WHERE g.tenant_id=$2
+				   )
+				   SELECT 1 FROM device_group_members WHERE tenant_id=$2 AND device_id=$1 AND group_id IN (SELECT id FROM gsub))`,
 				deviceID, tenantID, d.GroupID).Scan(&in); !in {
 				continue
 			}
