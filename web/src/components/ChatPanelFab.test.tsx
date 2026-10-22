@@ -16,8 +16,8 @@ function scrollTo(y: number) {
 
 test('the floating launcher ducks away on downward scroll and returns on upward scroll', async () => {
   await act(async () => root.render(<MemoryRouter><ChatPanel /></MemoryRouter>));
-  const fab = box.querySelector('.chat-fab')!;
-  expect(fab.className).toBe('chat-fab');
+  const fab = box.querySelector('.chat-dock')!;
+  expect(fab.className).toBe('chat-dock');
   // scrolling down: it hides so it cannot cover a control being reached for
   await act(async () => scrollTo(300));
   expect(fab.className).toContain('fab-away');
@@ -26,9 +26,9 @@ test('the floating launcher ducks away on downward scroll and returns on upward 
   expect(fab.className).toContain('fab-away');
   // scrolling back up: it returns
   await act(async () => scrollTo(250));
-  expect(fab.className).toBe('chat-fab');
+  expect(fab.className).toBe('chat-dock');
   // near the top it is always shown
   await act(async () => { scrollTo(80); });
   await act(async () => scrollTo(10));
-  expect(fab.className).toBe('chat-fab');
+  expect(fab.className).toBe('chat-dock');
 });
