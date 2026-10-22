@@ -613,6 +613,28 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('i_neutral', 71, 'A', 0, 6000, 0.0001),
     ],
   },
+  {
+    id: 'eig-shark-200', name: 'Electro Industries Shark 200 (three-phase power meter, Modbus RTU)', link: 'rtu', func: 3, type: 'f32', word_order: 'abcd',
+    serial: { baud: 57600, address: 1 },
+    note: 'Every register address, format and scale verified line-by-line against Electro Industries/GaugeTech\'s official Shark 200 Modbus map, Appendix B of user manual E149701 (electroind.com), plus quickstart E149703 for the factory serial defaults (docs/devices/eig-shark-200.md). Vendor-stated: FC 03 holding registers (Appendix B notes), on-wire address = listed decimal address minus 1 (B.6 works the 40001-style SCADA addressing through explicitly), MSW-first 32-bit formats (B.3: the lower-addressed register is the high-order half for FLOAT/SINT32/UINT32), FLOAT = IEEE 754, and factory serial address 1 / 57600 baud / Modbus RTU from the quickstart\'s Factory Initial Default Settings: shown as a hint with an Apply button, never silently applied. Read-only; never run on a real meter.',
+    provisional: 'Addresses, formats, FC 03, the minus-1 address base, the word order and the serial defaults are all verified against the vendor\'s own documents - unusually complete. Hardware is still untested: confirm a known reading (for example frequency or one voltage) against the meter\'s display before trusting values. Per-phase power and PF read zero on non-WYE hookups (vendor-stated). Parity/data bits are not stated in the quickstart - match the meter. Excluded and named in the doc: ALL energy counters (SINT32 "per energy format" - both the implied decimal point and the units/kilo/mega multiplier follow the meter\'s programmable energy-format setting, so no honest fixed scale exists), the integer Readings Block 279-305 (scale follows programmable settings; the FLOAT block carries the same quantities), secondary readings, demand averages, phase angles, min/max blocks, harmonics, wave scope, logs and all setup registers.',
+    points: [
+      ps('v1', 999, 'V', 0, 1000000, 1), ps('v2', 1001, 'V', 0, 1000000, 1), ps('v3', 1003, 'V', 0, 1000000, 1),
+      ps('v12', 1005, 'V', 0, 1000000, 1), ps('v23', 1007, 'V', 0, 1000000, 1), ps('v31', 1009, 'V', 0, 1000000, 1),
+      ps('i1', 1011, 'A', 0, 100000, 1), ps('i2', 1013, 'A', 0, 100000, 1), ps('i3', 1015, 'A', 0, 100000, 1),
+      ps('p_total', 1017, 'W', -1e10, 1e10, 1), ps('q_total', 1019, 'var', -1e10, 1e10, 1), ps('s_total', 1021, 'VA', 0, 1e10, 1),
+      ps('pf_total', 1023, '', -1, 1, 1),
+      ps('freq', 1025, 'Hz', 0, 65, 1),
+      ps('i_neutral', 1027, 'A', 0, 100000, 1),
+      ps('p1', 1029, 'W', -1e10, 1e10, 1), ps('p2', 1031, 'W', -1e10, 1e10, 1), ps('p3', 1033, 'W', -1e10, 1e10, 1),
+      ps('q1', 1035, 'var', -1e10, 1e10, 1), ps('q2', 1037, 'var', -1e10, 1e10, 1), ps('q3', 1039, 'var', -1e10, 1e10, 1),
+      ps('s1', 1041, 'VA', 0, 1e10, 1), ps('s2', 1043, 'VA', 0, 1e10, 1), ps('s3', 1045, 'VA', 0, 1e10, 1),
+      ps('pf1', 1047, '', -1, 1, 1), ps('pf2', 1049, '', -1, 1, 1), ps('pf3', 1051, '', -1, 1, 1),
+      ps('i_unbalance', 1064, '%', 0, 200, 0.01, 'u16'),
+      ps('thd_v1', 5999, '%', 0, 100, 0.01, 'u16'), ps('thd_v2', 6000, '%', 0, 100, 0.01, 'u16'), ps('thd_v3', 6001, '%', 0, 100, 0.01, 'u16'),
+      ps('thd_i1', 6002, '%', 0, 100, 0.01, 'u16'), ps('thd_i2', 6003, '%', 0, 100, 0.01, 'u16'), ps('thd_i3', 6004, '%', 0, 100, 0.01, 'u16'),
+    ],
+  },
 ];
 
 
