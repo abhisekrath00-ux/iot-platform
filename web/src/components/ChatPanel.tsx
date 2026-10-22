@@ -36,9 +36,9 @@ export default function ChatPanel() {
   const [acts, setActs] = useState<Record<string, string>>({});
   const [scoped, setScoped] = useState(false);
   useEffect(() => { api<{ customer_id?: string }>('/v1/me').then(m => setScoped(!!m.customer_id)).catch(() => {}); }, []);
-  // The launcher floats over page content. Scrolling down means the operator is reaching for
-  // something the launcher may cover, so it ducks away and stays away until they scroll back up
-  // (or return to the top) - it can never sit on top of a control being reached for.
+  // Desktop: the launcher floats over page content, so on downward scroll it ducks away and stays
+  // away until the operator scrolls back up - it can never sit on a control being reached for.
+  // Mobile: the launcher lives in a reserved strip below the scroll area and overlaps nothing.
   const [away, setAway] = useState(false);
   useEffect(() => {
     let last = window.scrollY;
@@ -113,7 +113,11 @@ export default function ChatPanel() {
   if (scoped) return null; // the assistant refuses customer-scoped users; offering it would 403 on use
   return (
     <>
-      {!open && <button className={'chat-fab' + (away ? ' fab-away' : '')} aria-label="Open the assistant" onClick={() => setOpen(true)} style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 40, borderRadius: 24, padding: '10px 16px', boxShadow: '0 4px 14px rgba(0,0,0,.3)' }}>Ask the assistant</button>}
+      {!open && (
+        <div className={'chat-dock' + (away ? ' fab-away' : '')}>
+          <button className="chat-fab" aria-label="Open the assistant" onClick={() => setOpen(true)} style={{ borderRadius: 24, padding: '10px 16px', boxShadow: '0 4px 14px rgba(0,0,0,.3)' }}>Ask the assistant</button>
+        </div>
+      )}
       {open && (
         <aside role="complementary" aria-label="Assistant" style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 400, maxWidth: '100vw', zIndex: 45, display: 'flex', flexDirection: 'column', background: 'var(--card, #fff)', color: 'inherit', borderLeft: '1px solid rgba(127,127,127,.35)', boxShadow: '-6px 0 20px rgba(0,0,0,.25)' }}>
           <header style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid rgba(127,127,127,.3)' }}>
