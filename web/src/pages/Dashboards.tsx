@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
-import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem, filterWidgetsByAsset, createSequencer } from '../lib/widgets';
+import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem, filterWidgetsByAsset, intersectDeviceSets, createSequencer } from '../lib/widgets';
 import { GaugeWidget, BarWidget, StatusWidget, TableWidget, StatWidget, IndicatorWidget, AlarmsWidget, NoteWidget } from '../components/Widgets';
 
 interface Dashboard { id: string; name: string; customer_id?: string | null; layout: { widgets?: Widget[] }; }
@@ -80,6 +80,11 @@ export default function Dashboards() {
   const [assetDevices, setAssetDevices] = useState<{ for: string; ids: Set<string>; incomplete: number } | null>(null);
   const [assetErr, setAssetErr] = useState('');
   const assetSeq = useMemo(createSequencer, []);
+  const [groups, setGroups] = useState<{ id: string; name: string; devices: number }[]>([]);
+  const [groupFilter, setGroupFilter] = useState('');
+  const [groupDevices, setGroupDevices] = useState<{ for: string; ids: Set<string>; incomplete: number } | null>(null);
+  const [groupErr, setGroupErr] = useState('');
+  const groupSeq = useMemo(createSequencer, []);
   const [sel, setSel] = useState<Dashboard | null>(null);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState(false);
@@ -140,6 +145,7 @@ export default function Dashboards() {
     loadBoards();
     api<Device[]>('/v1/devices').then(d => { setDevices(d); if (d.length) { setTplDevice(d[0].id); setWDevice(d[0].id); } }).catch(() => {});
     api<{ id: string; name: string }[]>('/v1/assets').then(setAssets).catch(() => {});
+    api<{ id: string; name: string; devices: number }[]>('/v1/groups').then(setGroups).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -229,9 +235,26 @@ export default function Dashboards() {
       });
   }, [assetFilter, dashRelation, assetSeq]);
 
+  // Group filter: same race-proofing and truncation surfacing as the asset
+  // filter; the member count comes from the group list, no extra endpoint.
+  useEffect(() => {
+    if (!groupFilter) { setGroupDevices(null); setGroupErr(''); return; }
+    const token = groupSeq.begin();
+    setGroupErr('');
+    api<Device[]>(`/v1/devices?group_id=${encodeURIComponent(groupFilter)}`)
+      .then(d => { if (groupSeq.isCurrent(token)) setGroupDevices({ for: groupFilter, ids: new Set(d.map(x => x.id)), incomplete: Math.max(0, (groups.find(g => g.id === groupFilter)?.devices ?? d.length) - d.length) }); })
+      .catch(() => {
+        if (!groupSeq.isCurrent(token)) return;
+        setGroupDevices(null);
+        setGroupErr('The group filter could not load its devices, so no filtering is applied right now. Everything below is unfiltered.');
+      });
+  }, [groupFilter, groups, groupSeq]);
+
   const filtering = assetDevices && assetDevices.for === assetFilter + '\n' + dashRelation.trim() ? assetDevices : null;
+  const groupFiltering = groupDevices && groupDevices.for === groupFilter ? groupDevices : null;
   const widgets = sel?.layout.widgets ?? [];
-  const visibleWidgets = filterWidgetsByAsset(widgets, filtering ? filtering.ids : null);
+  const combinedIds = intersectDeviceSets(filtering ? filtering.ids : null, groupFiltering ? groupFiltering.ids : null);
+  const visibleWidgets = filterWidgetsByAsset(widgets, combinedIds);
   const hiddenByAsset = widgets.length - visibleWidgets.length;
 
   const setWidgets = (ws: Widget[]) => sel && setSel({ ...sel, layout: { widgets: ws } });
@@ -314,6 +337,15 @@ export default function Dashboards() {
             )}
           </label>
         )}
+        {groups.length > 0 && sel && (
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span className="muted" style={{ fontSize: 12 }}>Group</span>
+            <select aria-label="Filter widgets by group" value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
+              <option value="">All groups</option>
+              {groups.map(g => <option key={g.id} value={g.id}>{g.name || g.id}</option>)}
+            </select>
+          </label>
+        )}
       </div>}
 
       {sel && (
@@ -379,8 +411,10 @@ export default function Dashboards() {
           {wall && <button className="ghost wall-exit" onClick={() => setWall(false)}>Exit wall mode (Esc)</button>}
           {editing && widgets.length > 1 && <p className="muted" style={{ fontSize: 12 }}>Drag widgets to reorder. Use the size buttons to make a widget wider or narrower.</p>}
           {assetErr && <p className="muted" style={{ fontSize: 12 }} role="alert">{assetErr}</p>}
+          {groupErr && <p className="muted" style={{ fontSize: 12 }} role="alert">{groupErr}</p>}
           {filtering && filtering.incomplete > 0 && <p className="muted" style={{ fontSize: 12 }} role="alert">This asset has {filtering.incomplete} more device{filtering.incomplete === 1 ? '' : 's'} than the filter could load (list limit), so widgets bound to {filtering.incomplete === 1 ? 'it' : 'them'} are hidden as well. Narrow the asset to see them.</p>}
-          {hiddenByAsset > 0 && <p className="muted" style={{ fontSize: 12 }}>The asset filter{dashRelation.trim() && filtering ? ` (via "${dashRelation.trim()}")` : ''} hides {hiddenByAsset} widget{hiddenByAsset === 1 ? '' : 's'} bound to {hiddenByAsset === 1 ? 'a device' : 'devices'} outside it.</p>}
+          {groupFiltering && groupFiltering.incomplete > 0 && <p className="muted" style={{ fontSize: 12 }} role="alert">This group has {groupFiltering.incomplete} more device{groupFiltering.incomplete === 1 ? '' : 's'} than the filter could load (list limit), so widgets bound to {groupFiltering.incomplete === 1 ? 'it' : 'them'} are hidden as well.</p>}
+          {hiddenByAsset > 0 && <p className="muted" style={{ fontSize: 12 }}>The {filtering && groupFiltering ? 'asset and group filters' : filtering ? `asset filter${dashRelation.trim() ? ` (via "${dashRelation.trim()}")` : ''}` : 'group filter'} hide{!filtering || !groupFiltering ? 's' : ''} {hiddenByAsset} widget{hiddenByAsset === 1 ? '' : 's'} bound to {hiddenByAsset === 1 ? 'a device' : 'devices'} outside {filtering && groupFiltering ? 'them' : 'it'}.</p>}
           <div className={`cards board${wall ? ' wall-grid' : ''}`}>
             {visibleWidgets.map((w, i) => (
               <div key={w.id} className={`board-item${dragFrom === i ? ' dragging' : ''}`}
@@ -390,7 +424,7 @@ export default function Dashboards() {
                 onDragOver={e => { if (editing && dragFrom !== null) e.preventDefault(); }}
                 onDrop={e => { e.preventDefault(); if (dragFrom !== null) setWidgets(moveItem(widgets, dragFrom, i)); setDragFrom(null); }}
                 onDragEnd={() => setDragFrom(null)}>
-                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} assetId={filtering ? assetFilter : undefined} relation={filtering ? dashRelation.trim() || undefined : undefined} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
+                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} assetId={filtering ? assetFilter : undefined} relation={filtering ? dashRelation.trim() || undefined : undefined} groupId={groupFiltering ? groupFilter : undefined} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
                 {editing && (
                   <div className="board-tools">
                     <button className="ghost" aria-label="Narrower" onClick={() => resize(w.id, -1)}>-</button>
