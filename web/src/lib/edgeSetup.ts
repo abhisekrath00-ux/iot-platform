@@ -675,6 +675,32 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('thd_i1', 188, '%', 0, 100, 0.01, 'u16'), ps('thd_i2', 189, '%', 0, 100, 0.01, 'u16'), ps('thd_i3', 190, '%', 0, 100, 0.01, 'u16'),
     ],
   },
+  {
+    id: 'socomec-diris-a10', name: 'Socomec DIRIS A-10 (three-phase multifunction meter, RS485 variant 48250401)', link: 'rtu', func: 4, type: 'u32', word_order: 'abcd',
+    wordOrderUnverified: true,
+    pduBaseUnverified: true,
+    funcUnverified: true,
+    note: 'Every register number, hex address, word count, type and unit verified line-by-line against Socomec\'s official communication table "MODBUS tables of Diris A-10" CMT_EN 2025-02 (emea.socomec.com; docs/devices/socomec-diris-a10.md). Reads the Common metrology block (50512+, primary-side values with CT/VT ratios applied): scaled integers, no floats - V 10e-2, mA, Hz 10e-2, W/var/VA x10, PF /1000 with vendor-stated sign (negative = leading, positive = lagging); plus the partial energy counters (kWh / kvarh / kVAh as printed) and the THD block (% /10). RS485 JBUS/MODBUS RTU is vendor-stated for the COM variant (order 48250401; the base 48250400 has no RS485 - quick-start guide 538847E). Serial address/speed/parity/stop bits are set in the meter\'s own menu, not stated as defaults anywhere, so there is no hint: match the form to the meter. Excluded and named in the doc: the second PF set and its type flags, the non-resettable U16 total counters (ambiguous unit notation), tariff energies, max/avg statistics, the 16-bit mirror blocks, the hour meter, and all alarms/actions/settings. Read-only; never run on a real meter.',
+    provisional: 'Addresses, sizes, types and scales are verified against Socomec\'s official DIRIS A-10 communication table (CMT_EN 2025-02). Three things neither the table nor the quick-start guide state: the multi-register word order, the read function code (FC 03 holding vs FC 04 input), and whether the listed address or the listed address minus 1 goes on the wire. Make all three choices yourself below, from the meter\'s integration guidance or by testing. Then validate against the real meter: compare SEVERAL independent known readings (for example frequency, one voltage and the energy import counter) with the meter\'s own display - a single plausible value is only a smoke check, it does not prove the word order, function code or base, and says nothing about the other registers. Note the energy points are the meter\'s PARTIAL (resettable) counters - the vendor\'s own naming; the non-resettable totals exist in the map only with an ambiguous unit notation and are excluded. Until that display comparison is done, every value from this template is hardware-untested.',
+    points: [
+      ps('v12', 50514, 'V', 0, 1000, 0.01), ps('v23', 50516, 'V', 0, 1000, 0.01), ps('v31', 50518, 'V', 0, 1000, 0.01),
+      ps('v1', 50520, 'V', 0, 1000, 0.01), ps('v2', 50522, 'V', 0, 1000, 0.01), ps('v3', 50524, 'V', 0, 1000, 0.01),
+      ps('freq', 50526, 'Hz', 0, 70, 0.01),
+      ps('i1', 50528, 'A', 0, 100000, 0.001), ps('i2', 50530, 'A', 0, 100000, 0.001), ps('i3', 50532, 'A', 0, 100000, 0.001), ps('i_n', 50534, 'A', 0, 100000, 0.001),
+      ps('p_total', 50536, 'W', -1e9, 1e9, 10, 'i32'), ps('q_total', 50538, 'var', -1e9, 1e9, 10, 'i32'), ps('s_total', 50540, 'VA', 0, 1e9, 10),
+      ps('pf_total', 50542, '', -1, 1, 0.001, 'i32'),
+      ps('p1', 50544, 'W', -1e9, 1e9, 10, 'i32'), ps('p2', 50546, 'W', -1e9, 1e9, 10, 'i32'), ps('p3', 50548, 'W', -1e9, 1e9, 10, 'i32'),
+      ps('q1', 50550, 'var', -1e9, 1e9, 10, 'i32'), ps('q2', 50552, 'var', -1e9, 1e9, 10, 'i32'), ps('q3', 50554, 'var', -1e9, 1e9, 10, 'i32'),
+      ps('s1', 50556, 'VA', 0, 1e9, 10), ps('s2', 50558, 'VA', 0, 1e9, 10), ps('s3', 50560, 'VA', 0, 1e9, 10),
+      ps('pf1', 50562, '', -1, 1, 0.001, 'i32'), ps('pf2', 50564, '', -1, 1, 0.001, 'i32'), ps('pf3', 50566, '', -1, 1, 0.001, 'i32'),
+      ps('kwh_import_partial', 50780, 'kWh', 0, 1e12, 1), ps('kvarh_import_partial', 50782, 'kvarh', 0, 1e12, 1),
+      ps('kvah_partial', 50784, 'kVAh', 0, 1e12, 1),
+      ps('kwh_export_partial', 50786, 'kWh', 0, 1e12, 1), ps('kvarh_export_partial', 50788, 'kvarh', 0, 1e12, 1),
+      ps('thd_u12', 51536, '%', 0, 100, 0.1, 'u16'), ps('thd_u23', 51537, '%', 0, 100, 0.1, 'u16'), ps('thd_u31', 51538, '%', 0, 100, 0.1, 'u16'),
+      ps('thd_v1', 51539, '%', 0, 100, 0.1, 'u16'), ps('thd_v2', 51540, '%', 0, 100, 0.1, 'u16'), ps('thd_v3', 51541, '%', 0, 100, 0.1, 'u16'),
+      ps('thd_i1', 51542, '%', 0, 100, 0.1, 'u16'), ps('thd_i2', 51543, '%', 0, 100, 0.1, 'u16'), ps('thd_i3', 51544, '%', 0, 100, 0.1, 'u16'),
+    ],
+  },
 ];
 
 
