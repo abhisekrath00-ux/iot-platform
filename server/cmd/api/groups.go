@@ -18,8 +18,11 @@ import (
 
 const maxGroupDevices = 1000
 
+// maxGroupDepth caps the nesting tree, same stance as the asset hierarchy.
+const maxGroupDepth = 8
+
 func (s *server) listGroups(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.st.Pool.Query(r.Context(), `SELECT g.id, g.name, g.description, count(m.device_id) FROM device_groups g
+	rows, err := s.st.Pool.Query(r.Context(), `SELECT g.id, g.name, g.description, g.parent_id, count(m.device_id) FROM device_groups g
 		LEFT JOIN device_group_members m ON m.group_id=g.id WHERE g.tenant_id=$1 GROUP BY g.id ORDER BY g.name LIMIT 500`, auth.Tenant(r))
 	if err != nil {
 		http.Error(w, "db", 500)
@@ -29,16 +32,45 @@ func (s *server) listGroups(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var id, name, desc string
+		var parent *string
 		var n int
-		rows.Scan(&id, &name, &desc, &n)
-		out = append(out, map[string]any{"id": id, "name": name, "description": desc, "devices": n})
+		rows.Scan(&id, &name, &desc, &parent, &n)
+		out = append(out, map[string]any{"id": id, "name": name, "description": desc, "parent_id": parent, "devices": n})
 	}
 	writeJSON(w, 200, out)
 }
 
+// groupDepth walks up the tree; 1 for a top-level group. Missing groups read
+// as depth 0 so a dangling parent_id cannot inflate a check.
+func (s *server) groupDepth(ctx context.Context, tenant, id string) int {
+	depth := 0
+	cur := id
+	for seen := map[string]bool{}; cur != "" && !seen[cur]; {
+		seen[cur] = true
+		depth++
+		var parent *string
+		if err := s.st.Pool.QueryRow(ctx, `SELECT parent_id FROM device_groups WHERE id=$1 AND tenant_id=$2`, cur, tenant).Scan(&parent); err != nil || parent == nil {
+			break
+		}
+		cur = *parent
+	}
+	return depth
+}
+
+// groupSubtreeHeight is the longest downward path starting at id (1 for a leaf).
+func (s *server) groupSubtreeHeight(ctx context.Context, tenant, id string) int {
+	var h int
+	s.st.Pool.QueryRow(ctx, `WITH RECURSIVE dn AS (
+	   SELECT id, 1 AS d FROM device_groups WHERE tenant_id=$1 AND id=$2
+	   UNION ALL SELECT g.id, dn.d+1 FROM device_groups g JOIN dn ON g.parent_id=dn.id WHERE g.tenant_id=$1 AND dn.d < $3
+	 ) SELECT coalesce(max(d),0) FROM dn`, tenant, id, maxGroupDepth+2).Scan(&h)
+	return h
+}
+
 func (s *server) getGroup(w http.ResponseWriter, r *http.Request) {
 	var name, desc string
-	if s.st.Pool.QueryRow(r.Context(), `SELECT name, description FROM device_groups WHERE id=$1 AND tenant_id=$2`, r.PathValue("id"), auth.Tenant(r)).Scan(&name, &desc) != nil {
+	var parent *string
+	if s.st.Pool.QueryRow(r.Context(), `SELECT name, description, parent_id FROM device_groups WHERE id=$1 AND tenant_id=$2`, r.PathValue("id"), auth.Tenant(r)).Scan(&name, &desc, &parent) != nil {
 		http.Error(w, "not found", 404)
 		return
 	}
@@ -52,14 +84,27 @@ func (s *server) getGroup(w http.ResponseWriter, r *http.Request) {
 			ids = append(ids, d)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"id": r.PathValue("id"), "name": name, "description": desc, "device_ids": ids})
+	crows, _ := s.st.Pool.Query(r.Context(), `SELECT id FROM device_groups WHERE parent_id=$1 AND tenant_id=$2 ORDER BY name`, r.PathValue("id"), auth.Tenant(r))
+	children := []string{}
+	if crows != nil {
+		defer crows.Close()
+		for crows.Next() {
+			var c string
+			crows.Scan(&c)
+			children = append(children, c)
+		}
+	}
+	writeJSON(w, 200, map[string]any{"id": r.PathValue("id"), "name": name, "description": desc, "parent_id": parent, "device_ids": ids, "child_ids": children})
 }
 
 func (s *server) createGroup(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin", "operator") {
 		return
 	}
-	var in struct{ Name, Description string }
+	var in struct {
+		Name, Description string
+		ParentID          string `json:"parent_id"`
+	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in); err != nil {
 		http.Error(w, "bad json", 400)
 		return
@@ -69,8 +114,23 @@ func (s *server) createGroup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name required (up to 80 characters); description up to 300", 400)
 		return
 	}
+	if in.ParentID != "" {
+		var one int
+		if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM device_groups WHERE id=$1 AND tenant_id=$2`, in.ParentID, auth.Tenant(r)).Scan(&one) != nil {
+			http.Error(w, "parent group not found", 404)
+			return
+		}
+		if s.groupDepth(r.Context(), auth.Tenant(r), in.ParentID) >= maxGroupDepth {
+			http.Error(w, fmt.Sprintf("groups nest at most %d levels", maxGroupDepth), 400)
+			return
+		}
+	}
 	id := uuid.NewString()
-	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO device_groups(id,tenant_id,name,description,created_by) VALUES($1,$2,$3,$4,$5)`, id, auth.Tenant(r), in.Name, in.Description, auth.User(r)); err != nil {
+	var parent any
+	if in.ParentID != "" {
+		parent = in.ParentID
+	}
+	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO device_groups(id,tenant_id,name,description,created_by,parent_id) VALUES($1,$2,$3,$4,$5,$6)`, id, auth.Tenant(r), in.Name, in.Description, auth.User(r), parent); err != nil {
 		http.Error(w, "a group with that name already exists", 409)
 		return
 	}
@@ -142,6 +202,66 @@ func (s *server) setGroupDevices(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "group.members", gid, map[string]any{"devices": len(ids)})
 	writeJSON(w, 200, map[string]any{"id": gid, "devices": len(ids)})
+}
+
+// PUT /v1/groups/{id}/parent {parent_id}: nest the group under another, or
+// lift it to top level with an empty parent_id. Rejects cycles and trees
+// deeper than maxGroupDepth; the checks are on write so the recursive
+// membership walks never loop.
+func (s *server) setGroupParent(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	var in struct {
+		ParentID string `json:"parent_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	tenant, gid := auth.Tenant(r), r.PathValue("id")
+	var one int
+	if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM device_groups WHERE id=$1 AND tenant_id=$2`, gid, tenant).Scan(&one) != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	if in.ParentID == gid {
+		http.Error(w, "a group cannot be its own parent", 400)
+		return
+	}
+	if in.ParentID != "" {
+		if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM device_groups WHERE id=$1 AND tenant_id=$2`, in.ParentID, tenant).Scan(&one) != nil {
+			http.Error(w, "parent group not found", 404)
+			return
+		}
+		// Walking up from the new parent must never reach this group.
+		for cur, seen := in.ParentID, map[string]bool{}; cur != "" && !seen[cur]; {
+			if cur == gid {
+				http.Error(w, "that parent would make a cycle", 400)
+				return
+			}
+			seen[cur] = true
+			var parent *string
+			if err := s.st.Pool.QueryRow(r.Context(), `SELECT parent_id FROM device_groups WHERE id=$1 AND tenant_id=$2`, cur, tenant).Scan(&parent); err != nil || parent == nil {
+				break
+			}
+			cur = *parent
+		}
+		if s.groupDepth(r.Context(), tenant, in.ParentID)+s.groupSubtreeHeight(r.Context(), tenant, gid) > maxGroupDepth {
+			http.Error(w, fmt.Sprintf("groups nest at most %d levels", maxGroupDepth), 400)
+			return
+		}
+	}
+	var parent any
+	if in.ParentID != "" {
+		parent = in.ParentID
+	}
+	if _, err := s.st.Pool.Exec(r.Context(), `UPDATE device_groups SET parent_id=$3 WHERE id=$1 AND tenant_id=$2`, gid, tenant, parent); err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	s.audit(r, "group.parent", gid, map[string]any{"parent_id": in.ParentID})
+	writeJSON(w, 200, map[string]any{"id": gid, "parent_id": in.ParentID})
 }
 
 // ---- typed attribute definitions ----
