@@ -432,6 +432,42 @@ describe('edge setup', () => {
     expect(y).toContain('register: 104'); expect(y).toContain('register: 139');
     expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
   });
+  it('entes-mpr53cs registers match the official MODBUS Register Map and manual A4396 R3 (docs/devices/entes-mpr53cs.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'entes-mpr53cs')!;
+    expect(t.func).toBe(3); // manual's worked read example: 01 03 00 00 00 02 reads L1 voltage
+    expect(t.type).toBe('u32'); // 2 registers per value, map FORMAT column
+    expect(t.stopBits).toBe(2); // manual specifications: 8 data bits, 2 stop bits
+    expect(t.serial).toEqual({ baud: 9600, parity: 'none', address: 1 }); // manual factory settings
+    expect(t.wordOrderUnverified).toBe(true); // word order never stated in either document
+    expect(t.pduBaseUnverified).toBeUndefined(); // example reads L1 voltage at on-wire 0x0000
+    expect(t.funcUnverified).toBeUndefined();
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    expect(pt('v1').register).toBe(0); expect(pt('v2').register).toBe(2); expect(pt('v3').register).toBe(4);
+    expect(pt('i1').register).toBe(6); expect(pt('i3').register).toBe(10); expect(pt('i_neutral').register).toBe(12);
+    expect(pt('i1').scale).toBe(0.001);
+    expect(pt('v12').register).toBe(14); expect(pt('v23').register).toBe(16); expect(pt('v31').register).toBe(18);
+    expect(pt('p1').register).toBe(20); expect(pt('p3').register).toBe(24); expect(pt('p1').type).toBe('i32');
+    expect(pt('q1').register).toBe(26); expect(pt('q3').register).toBe(30);
+    expect(pt('s1').register).toBe(32); expect(pt('s3').register).toBe(36);
+    expect(pt('pf1').register).toBe(38); expect(pt('pf3').register).toBe(42); expect(pt('pf1').scale).toBe(0.001);
+    expect(pt('p_total_import').register).toBe(44); expect(pt('p_total_export').register).toBe(46);
+    expect(pt('q_total_ind').register).toBe(48); expect(pt('q_total_cap').register).toBe(50);
+    expect(pt('s_total').register).toBe(52);
+    expect(pt('freq').register).toBe(58); expect(pt('freq').scale).toBe(0.01);
+    expect(pt('thd_u1').register).toBe(72); expect(pt('thd_u3').register).toBe(76);
+    expect(pt('thd_i1').register).toBe(78); expect(pt('thd_i3').register).toBe(82);
+    // energies excluded: the map prints a 64-bit range (0-FFFFFFFFFFFFFFFF) at 2-register spacing - contradictory
+    expect(t.points.some((p) => p.id.includes('kwh') || p.id.includes('energy'))).toBe(false);
+    // min/max/demand, angles, average cosj pair, I/O, counters, setup registers excluded
+    expect(t.points.some((p) => p.id.includes('max') || p.id.includes('min') || p.id.includes('demand') || p.id.includes('angle'))).toBe(false);
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4, t5: 2, t6: 2 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    expect(t.points.length).toBe(34);
+    const base = { deviceId: 'mpr53cs-1', templateId: 'entes-mpr53cs', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5, provisionalConfirmed: true, wordOrder: 'abcd' as const };
+    const y = deviceYaml(base);
+    expect(y).toContain('register: 58'); expect(y).toContain('func: 3');
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
