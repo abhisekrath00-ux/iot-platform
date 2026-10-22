@@ -537,6 +537,40 @@ describe('edge setup', () => {
     const y = deviceYaml(base);
     expect(y).toContain('register: 21'); expect(y).toContain('func: 4'); expect(y).toContain('word_order: abcd');
   });
+  it('eig-shark-200 registers match the official map E149701 appendix B (docs/devices/eig-shark-200.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'eig-shark-200')!;
+    expect(t.func).toBe(3); // appendix B notes: function codes 0x03, 0x06, 0x10 (reads use 0x03)
+    expect(t.type).toBe('f32');
+    expect(t.word_order).toBe('abcd'); // B.3: lower-addressed register is the high-order half (FLOAT/SINT32)
+    expect(t.wordOrderUnverified).toBeUndefined();
+    expect(t.pduBaseUnverified).toBeUndefined(); // B.6: 40000 + listed address, drivers subtract 1 -> PDU = listed minus 1
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.serial).toEqual({ baud: 57600, address: 1 }); // quickstart E149703 factory initial defaults (QS-5)
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    // PDU = listed decimal address minus 1 (Volts A-N listed 1000 -> 999)
+    expect(pt('v1').register).toBe(999); expect(pt('v2').register).toBe(1001); expect(pt('v3').register).toBe(1003);
+    expect(pt('v12').register).toBe(1005); expect(pt('v23').register).toBe(1007); expect(pt('v31').register).toBe(1009);
+    expect(pt('i1').register).toBe(1011); expect(pt('i2').register).toBe(1013); expect(pt('i3').register).toBe(1015);
+    expect(pt('p_total').register).toBe(1017); expect(pt('q_total').register).toBe(1019); expect(pt('s_total').register).toBe(1021);
+    expect(pt('pf_total').register).toBe(1023);
+    expect(pt('freq').register).toBe(1025); expect(pt('freq').max).toBe(65); // map range 0 to 65.00 Hz
+    expect(pt('i_neutral').register).toBe(1027);
+    expect(pt('p1').register).toBe(1029); expect(pt('p3').register).toBe(1033);
+    expect(pt('q1').register).toBe(1035); expect(pt('q3').register).toBe(1039);
+    expect(pt('s1').register).toBe(1041); expect(pt('s3').register).toBe(1045);
+    expect(pt('pf1').register).toBe(1047); expect(pt('pf3').register).toBe(1051);
+    expect(pt('i_unbalance').register).toBe(1064); expect(pt('i_unbalance').type).toBe('u16'); expect(pt('i_unbalance').scale).toBe(0.01);
+    expect(pt('thd_v1').register).toBe(5999); expect(pt('thd_i3').register).toBe(6004); expect(pt('thd_v1').scale).toBe(0.01); // 0.01% resolution
+    // energies excluded: SINT32 "per energy format" - implied decimal AND unit multiplier are programmable
+    expect(t.points.some((p) => p.id.includes('kwh') || p.id.includes('energy') || p.id.includes('wh_'))).toBe(false);
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4, t5: 2, t6: 2 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    expect(t.points.length).toBe(34);
+    const base = { deviceId: 'shark200-1', templateId: 'eig-shark-200', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 57600, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    const y = deviceYaml(base);
+    expect(y).toContain('register: 999'); expect(y).toContain('func: 3'); expect(y).toContain('word_order: abcd');
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
