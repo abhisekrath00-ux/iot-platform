@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { thresholdState, fraction, freshness, optNum, spanOf, moveItem, summarize, indicatorOn, filterWidgetsByAsset, createSequencer, Widget } from './widgets';
+import { thresholdState, fraction, freshness, optNum, spanOf, moveItem, summarize, indicatorOn, filterWidgetsByAsset, intersectDeviceSets, createSequencer, Widget } from './widgets';
 
 describe('widget logic', () => {
   it('threshold state: crit beats warn, none when no value', () => {
@@ -99,5 +99,21 @@ describe('createSequencer', () => {
     const seq = createSequencer();
     const t1 = seq.begin(), t2 = seq.begin(), t3 = seq.begin();
     expect([seq.isCurrent(t1), seq.isCurrent(t2), seq.isCurrent(t3)]).toEqual([false, false, true]);
+  });
+});
+
+describe('intersectDeviceSets', () => {
+  const a = new Set(['d1', 'd2', 'd3']);
+  const b = new Set(['d2', 'd3', 'd4']);
+  it('returns the other set when one filter is off', () => {
+    expect(intersectDeviceSets(a, null)).toBe(a);
+    expect(intersectDeviceSets(null, b)).toBe(b);
+    expect(intersectDeviceSets(null, null)).toBeNull();
+  });
+  it('intersects two active filters', () => {
+    expect([...intersectDeviceSets(a, b)!].sort()).toEqual(['d2', 'd3']);
+  });
+  it('can intersect to empty', () => {
+    expect(intersectDeviceSets(new Set(['x']), new Set(['y']))!.size).toBe(0);
   });
 });
