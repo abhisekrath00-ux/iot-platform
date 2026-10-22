@@ -2343,6 +2343,13 @@ func (s *server) createRule(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if def.GroupID != "" {
+			var one int
+			if s.st.Pool.QueryRow(r.Context(), `SELECT 1 FROM device_groups WHERE id=$1 AND tenant_id=$2`, def.GroupID, auth.Tenant(r)).Scan(&one) != nil {
+				http.Error(w, "unknown group", 404)
+				return
+			}
+		}
 		id := uuid.NewString()
 		_, err := s.st.Pool.Exec(r.Context(),
 			`INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
