@@ -593,6 +593,26 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('kvarh_import', 40106, 'kvarh', 0, 99999999.9, 0.1), ps('kvarh_export', 40108, 'kvarh', 0, 99999999.9, 0.1),
     ],
   },
+  {
+    id: 'lovato-dmg600', name: 'Lovato DMG600/DMG610 (three-phase DIN multimeter)', link: 'rtu', func: 4, type: 'u32', word_order: 'abcd',
+    serial: { baud: 9600, parity: 'none', address: 1 },
+    note: 'Every register address, format and scale verified line-by-line against Lovato\'s official DMG series MODBUS Communication Protocol I317IGB02_22 (datasheet.lovatoelectric.com) plus the DMG600/610 instruction manual I411IGB02_22 for the serial defaults (docs/devices/lovato-dmg600.md). Vendor-stated: FC 04 input registers (the protocol\'s worked read example; FC 03 documented equivalent), on-wire address = listed address minus 1 (explicitly stated and shown in the example), MSW-first word order (the example response 00 01 FB 00 = 129792 = 1.29792 kW), 2 registers per value, and factory serial settings (node 1, 9600 baud, 8N1, Modbus-RTU) from the P07 menu table: shown as a hint with an Apply button, never silently applied. Read-only; never run on a real meter.',
+    provisional: 'Addresses, formats, scales, FC 04, the minus-1 address base, the word order and the serial defaults are all verified against Lovato\'s own documents - unusually complete. Hardware is still untested: confirm a known reading (for example frequency or one voltage) against the meter\'s display before trusting values. ONE scaling caveat from the protocol: power readings are normally 1/100 W, but if the maximum theoretical power per phase (from the CT/VT combination) exceeds 5 MW the meter switches ALL power readings to 1/10 W - the protocol documents a query (2F70H) to check which scale is active. Excluded and named in the doc: energy counters (the 32-bit rows are not mapped for this model family and the 64-bit rows exceed the driver\'s types), asymmetry and CosPhi rows, MAX/MIN/AVG/demand blocks, harmonics, date/time and all setup registers.',
+    points: [
+      ps('v1', 1, 'V', 0, 1000, 0.01), ps('v2', 3, 'V', 0, 1000, 0.01), ps('v3', 5, 'V', 0, 1000, 0.01),
+      ps('i1', 7, 'A', 0, 6000, 0.0001), ps('i2', 9, 'A', 0, 6000, 0.0001), ps('i3', 11, 'A', 0, 6000, 0.0001),
+      ps('v12', 13, 'V', 0, 2000, 0.01), ps('v23', 15, 'V', 0, 2000, 0.01), ps('v31', 17, 'V', 0, 2000, 0.01),
+      ps('p1', 19, 'W', -5000000, 5000000, 0.01, 'i32'), ps('p2', 21, 'W', -5000000, 5000000, 0.01, 'i32'), ps('p3', 23, 'W', -5000000, 5000000, 0.01, 'i32'),
+      ps('q1', 25, 'var', -5000000, 5000000, 0.01, 'i32'), ps('q2', 27, 'var', -5000000, 5000000, 0.01, 'i32'), ps('q3', 29, 'var', -5000000, 5000000, 0.01, 'i32'),
+      ps('s1', 31, 'VA', 0, 5000000, 0.01), ps('s2', 33, 'VA', 0, 5000000, 0.01), ps('s3', 35, 'VA', 0, 5000000, 0.01),
+      ps('pf1', 37, '', -1, 1, 0.0001, 'i32'), ps('pf2', 39, '', -1, 1, 0.0001, 'i32'), ps('pf3', 41, '', -1, 1, 0.0001, 'i32'),
+      ps('freq', 49, 'Hz', 40, 70, 0.001),
+      ps('v_avg_ln', 51, 'V', 0, 1000, 0.01), ps('v_avg_ll', 53, 'V', 0, 2000, 0.01), ps('i_avg', 55, 'A', 0, 6000, 0.0001),
+      ps('p_total', 57, 'W', -15000000, 15000000, 0.01, 'i32'), ps('q_total', 59, 'var', -15000000, 15000000, 0.01, 'i32'), ps('s_total', 61, 'VA', 0, 15000000, 0.01),
+      ps('pf_total', 63, '', -1, 1, 0.0001, 'i32'),
+      ps('i_neutral', 71, 'A', 0, 6000, 0.0001),
+    ],
+  },
 ];
 
 
