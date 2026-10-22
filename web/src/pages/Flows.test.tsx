@@ -68,3 +68,14 @@ test('a group-scoped rule row names the group', async () => {
   await render();
   expect(box.textContent).toContain('temp > 50 on group Compressors');
 });
+
+test('a rule with an unrecognized definition never renders undefined', async () => {
+  mockWith([
+    { id: 'r-old', name: 'Legacy rule', enabled: true, version: 1, definition: { point: 'power', value: 20 } },
+    { id: 'r2', name: 'Plain threshold', enabled: true, version: 1, definition: { point_id: 'power', op: '>', threshold: 20, severity: 'warning', device_id: 'meter-1' } },
+  ]);
+  await render();
+  expect(box.textContent).toContain('Unrecognized rule definition');
+  expect(box.textContent).toContain('power > 20 on meter-1');
+  expect(box.textContent).not.toContain('undefined');
+});
