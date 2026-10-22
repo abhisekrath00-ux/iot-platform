@@ -87,6 +87,14 @@ export function filterWidgetsByAsset(widgets: Widget[], assetDeviceIds: Set<stri
   return widgets.filter(w => !w.device_id || assetDeviceIds.has(w.device_id));
 }
 
+/** Combine two active device filters: a widget survives only in both scopes.
+    Either side null means that filter is off, so the other one decides. */
+export function intersectDeviceSets(a: Set<string> | null, b: Set<string> | null): Set<string> | null {
+  if (!a) return b;
+  if (!b) return a;
+  return new Set([...a].filter(id => b.has(id)));
+}
+
 /** Latest-wins request sequencer: each begin() invalidates earlier tokens, so
  * a slow earlier response can never overwrite a newer selection. */
 export function createSequencer(): { begin(): number; isCurrent(token: number): boolean } {
