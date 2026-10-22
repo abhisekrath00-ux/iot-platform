@@ -5,6 +5,7 @@ import ShareWithCustomer from '../components/ShareWithCustomer';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, Device, LatestPoint } from '../lib/api';
 import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem, filterWidgetsByAsset, intersectDeviceSets, createSequencer } from '../lib/widgets';
+import { groupPath, sortGroupsByTree } from '../lib/groups';
 import { GaugeWidget, BarWidget, StatusWidget, TableWidget, StatWidget, IndicatorWidget, AlarmsWidget, NoteWidget } from '../components/Widgets';
 
 interface Dashboard { id: string; name: string; customer_id?: string | null; layout: { widgets?: Widget[] }; }
@@ -80,7 +81,7 @@ export default function Dashboards() {
   const [assetDevices, setAssetDevices] = useState<{ for: string; ids: Set<string>; incomplete: number } | null>(null);
   const [assetErr, setAssetErr] = useState('');
   const assetSeq = useMemo(createSequencer, []);
-  const [groups, setGroups] = useState<{ id: string; name: string; devices: number }[]>([]);
+  const [groups, setGroups] = useState<{ id: string; name: string; devices: number; parent_id?: string | null }[]>([]);
   const [groupFilter, setGroupFilter] = useState('');
   const [groupDevices, setGroupDevices] = useState<{ for: string; ids: Set<string>; incomplete: number } | null>(null);
   const [groupErr, setGroupErr] = useState('');
@@ -145,7 +146,7 @@ export default function Dashboards() {
     loadBoards();
     api<Device[]>('/v1/devices').then(d => { setDevices(d); if (d.length) { setTplDevice(d[0].id); setWDevice(d[0].id); } }).catch(() => {});
     api<{ id: string; name: string }[]>('/v1/assets').then(setAssets).catch(() => {});
-    api<{ id: string; name: string; devices: number }[]>('/v1/groups').then(setGroups).catch(() => {});
+    api<{ id: string; name: string; devices: number; parent_id?: string | null }[]>('/v1/groups').then(setGroups).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -342,7 +343,7 @@ export default function Dashboards() {
             <span className="muted" style={{ fontSize: 12 }}>Group</span>
             <select aria-label="Filter widgets by group" value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
               <option value="">All groups</option>
-              {groups.map(g => <option key={g.id} value={g.id}>{g.name || g.id}</option>)}
+              {sortGroupsByTree(groups).map(g => <option key={g.id} value={g.id}>{groupPath(g, groups)}</option>)}
             </select>
           </label>
         )}
