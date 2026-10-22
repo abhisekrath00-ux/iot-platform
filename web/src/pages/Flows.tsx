@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
 import { Link } from 'react-router-dom';
 import { api, download } from '../lib/api';
+import { groupPath, sortGroupsByTree } from '../lib/groups';
 
 interface Rule { id: string; name: string; definition: any; version: number; enabled: boolean; }
 
@@ -19,7 +20,7 @@ export function ruleCondition(def: any, groups: { id: string; name: string }[]):
   else if (def.point_id && def.op && def.threshold !== undefined && def.threshold !== null) base = `${def.point_id} ${def.op} ${def.threshold}`;
   else return 'Unrecognized rule definition';
   if (def.device_id) base += ` on ${def.device_id}`;
-  if (def.group_id) base += ` on group ${groups.find(g => g.id === def.group_id)?.name ?? def.group_id}`;
+  if (def.group_id) base += ` on group ${(() => { const gg = groups.find(g => g.id === def.group_id); return gg ? groupPath(gg, groups) : def.group_id; })()}`;
   return base;
 }
 
@@ -145,7 +146,7 @@ export default function Flows() {
               <label>Device group (optional - every device in the group, now and as membership changes)</label>
               <select aria-label="Rule group" value={ruleGroup} onChange={e => setRuleGroup(e.target.value)} disabled={!!deviceId || !!ruleAsset} style={{ width: 'auto' }}>
                 <option value="">No group scope</option>
-                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                {sortGroupsByTree(groups).map(g => <option key={g.id} value={g.id}>{groupPath(g, groups)}</option>)}
               </select>
               {(deviceId || ruleAsset) && <span className="muted"> A group scope cannot be combined with a single device or an asset scope.</span>}
             </>
