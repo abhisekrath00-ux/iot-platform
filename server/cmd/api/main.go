@@ -339,6 +339,7 @@ func main() {
 	api.HandleFunc("GET /v1/groups/{id}", s.getGroup)
 	api.HandleFunc("DELETE /v1/groups/{id}", s.deleteGroup)
 	api.HandleFunc("PUT /v1/groups/{id}/devices", s.setGroupDevices)
+	api.HandleFunc("PUT /v1/groups/{id}/parent", s.setGroupParent)
 	api.HandleFunc("GET /v1/attribute-defs", s.listAttrDefs)
 	api.HandleFunc("PUT /v1/attribute-defs/{key}", s.putAttrDef)
 	api.HandleFunc("DELETE /v1/attribute-defs/{key}", s.deleteAttrDef)
@@ -668,6 +669,10 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		   SELECT e.to_kind, e.to_id, w.dist+1, w.path || (e.to_kind||':'||e.to_id)
 		     FROM entity_relations e JOIN walk w ON e.from_kind=w.kind AND e.from_id=w.id
 		    WHERE e.tenant_id=$1 AND e.relation=$8 AND w.dist < 10 AND NOT (e.to_kind||':'||e.to_id) = ANY(w.path)
+		 ),
+		 gsub(id) AS (
+		   SELECT id FROM device_groups WHERE tenant_id=$1 AND id=NULLIF($6,'')
+		   UNION ALL SELECT g.id FROM device_groups g JOIN gsub ON g.parent_id=gsub.id WHERE g.tenant_id=$1
 		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($7,'')", 1)+`
 		 SELECT id, profile, name, gateway_id, created_at, tags, asset_id, lat_point, lon_point FROM devices
 		 WHERE tenant_id=$1
@@ -676,7 +681,7 @@ func (s *server) listDevices(w http.ResponseWriter, r *http.Request) {
 		   AND ($2='' OR name ILIKE '%'||$2||'%' OR id ILIKE '%'||$2||'%' OR profile ILIKE '%'||$2||'%')
 		   AND ($3='' OR $3 = ANY(tags))
 		   AND ($4='' OR gateway_id=$4)
-		   AND ($6='' OR id IN (SELECT device_id FROM device_group_members WHERE group_id=$6 AND tenant_id=$1))
+		   AND ($6='' OR id IN (SELECT device_id FROM device_group_members WHERE group_id IN (SELECT id FROM gsub) AND tenant_id=$1))
 		   AND ($7='' OR customer_id IN (SELECT id FROM csub))
 		 ORDER BY created_at DESC LIMIT 1000`, auth.Tenant(r), q, tag, gw, asset, group, scopeOf(r), rel)
 	if err != nil {
@@ -1031,6 +1036,10 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		   SELECT e.to_kind, e.to_id, w.dist+1, w.path || (e.to_kind||':'||e.to_id)
 		     FROM entity_relations e JOIN walk w ON e.from_kind=w.kind AND e.from_id=w.id
 		    WHERE e.tenant_id=$1 AND e.relation=$6 AND w.dist < 10 AND NOT (e.to_kind||':'||e.to_id) = ANY(w.path)
+		 ),
+		 gsub(id) AS (
+		   SELECT id FROM device_groups WHERE tenant_id=$1 AND id=NULLIF($7,'')
+		   UNION ALL SELECT g.id FROM device_groups g JOIN gsub ON g.parent_id=gsub.id WHERE g.tenant_id=$1
 		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($5,'')", 1)+`
 		 SELECT id, severity, message, status, created_at, acknowledged_by, resolved_by, assigned_to, shelved FROM alerts
 		 WHERE tenant_id=$1 AND ($2 = '' OR status=$2)
@@ -1039,7 +1048,7 @@ func (s *server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		        ($6='' AND d.asset_id IN (SELECT id FROM sub))
 		        OR ($6<>'' AND (d.asset_id IN (SELECT id FROM walk WHERE kind='asset') OR d.id IN (SELECT id FROM walk WHERE kind='device'))))))
 		   AND ($5='' OR device_id IN (SELECT d.id FROM devices d WHERE d.tenant_id=$1 AND d.customer_id IN (SELECT id FROM csub)))
-		   AND ($7='' OR device_id IN (SELECT device_id FROM device_group_members WHERE group_id=$7 AND tenant_id=$1))
+		   AND ($7='' OR device_id IN (SELECT device_id FROM device_group_members WHERE group_id IN (SELECT id FROM gsub) AND tenant_id=$1))
 		 ORDER BY created_at DESC LIMIT 100`, auth.Tenant(r), status, asset, assigned, scopeOf(r), rel, group)
 	if err != nil {
 		dbErr(w, err)
