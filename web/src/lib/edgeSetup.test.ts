@@ -571,6 +571,43 @@ describe('edge setup', () => {
     const y = deviceYaml(base);
     expect(y).toContain('register: 999'); expect(y).toContain('func: 3'); expect(y).toContain('word_order: abcd');
   });
+  it('chint-dtsu666 registers match the official manual ZTW0.464.0104 table 11 (docs/devices/chint-dtsu666.md)', () => {
+    const t = EDGE_TEMPLATES.find((x) => x.id === 'chint-dtsu666')!;
+    expect(t.func).toBe(3); // manual: "read command is 03H, write command is 10H"
+    expect(t.type).toBe('f32');
+    expect(t.word_order).toBe('abcd'); // table 11 Note 1: IEEE754 single, ABCD (high type front, low byte behind)
+    expect(t.wordOrderUnverified).toBeUndefined();
+    expect(t.funcUnverified).toBeUndefined();
+    expect(t.pduBaseUnverified).toBe(true); // manual never states listed vs listed-minus-1 on the wire
+    expect(t.serial).toEqual({ baud: 9600, parity: 'none', address: 1 }); // manual factory default statement
+    const pt = (id: string) => t.points.find((p) => p.id === id)!;
+    // listed hex addresses stored verbatim; the installer picks the base (gate)
+    expect(pt('v12').register).toBe(0x2000); expect(pt('v23').register).toBe(0x2002); expect(pt('v31').register).toBe(0x2004);
+    expect(pt('v1').register).toBe(0x2006); expect(pt('v2').register).toBe(0x2008); expect(pt('v3').register).toBe(0x200A);
+    expect(pt('v1').scale).toBe(0.1);
+    expect(pt('i1').register).toBe(0x200C); expect(pt('i2').register).toBe(0x200E); expect(pt('i3').register).toBe(0x2010);
+    expect(pt('i1').scale).toBe(0.001);
+    expect(pt('p_total').register).toBe(0x2012); expect(pt('p1').register).toBe(0x2014); expect(pt('p3').register).toBe(0x2018);
+    expect(pt('q_total').register).toBe(0x201A); expect(pt('q1').register).toBe(0x201C); expect(pt('q3').register).toBe(0x2020);
+    expect(pt('pf_total').register).toBe(0x202A); expect(pt('pf3').register).toBe(0x2030); expect(pt('pf_total').scale).toBe(0.001);
+    expect(pt('freq').register).toBe(0x2044); expect(pt('freq').scale).toBe(0.01);
+    expect(pt('kwh_import').register).toBe(0x101E); expect(pt('kwh_import_c').register).toBe(0x1024);
+    expect(pt('kwh_import_net').register).toBe(0x1026);
+    expect(pt('kwh_export').register).toBe(0x1028); expect(pt('kwh_export_c').register).toBe(0x102E);
+    expect(pt('kwh_export_net').register).toBe(0x1030); expect(pt('kwh_export').scale).toBe(1);
+    // apparent power/energy absent from the vendor map - never synthesized
+    expect(t.points.some((p) => p.id.startsWith('s_') || p.unit === 'VA' || p.unit === 'kVAh')).toBe(false);
+    const widths: Record<string, number> = { u16: 1, i16: 1, u32: 2, i32: 2, f32: 2, f64: 4, t5: 2, t6: 2 };
+    const used = new Set<number>();
+    for (const p of t.points) { const ty = p.type ?? t.type; const w = widths[ty] ?? 2; for (let r = p.register; r < p.register + w; r++) { expect(used.has(r)).toBe(false); used.add(r); } }
+    expect(t.points.length).toBe(32);
+    const base = { deviceId: 'dtsu666-1', templateId: 'chint-dtsu666', link: 'rtu' as const, port: '/dev/ttyUSB0', baud: 9600, address: 1, intervalSec: 5, provisionalConfirmed: true };
+    expect(validateDevice(base).some((e) => e.startsWith('Register base:'))).toBe(true); // gate blocks until base chosen
+    const yListed = deviceYaml({ ...base, pduBase: 'listed' as const });
+    expect(yListed).toContain('register: 8192'); expect(yListed).toContain('func: 3'); expect(yListed).toContain('word_order: abcd');
+    const yMinus1 = deviceYaml({ ...base, pduBase: 'minus1' as const });
+    expect(yMinus1).toContain('register: 8191'); // listed minus 1 on the wire
+  });
   it('schneider-pm8000 registers match the official PM8000 Modbus Map workbook (docs/devices/schneider-pm8000.md)', () => {
     const t = EDGE_TEMPLATES.find((x) => x.id === 'schneider-pm8000')!;
     expect(t.func).toBe(3); // FC 03 server-supported per user manual 7EN02-0336; FC 04 is client-only
