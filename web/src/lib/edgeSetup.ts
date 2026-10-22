@@ -550,6 +550,29 @@ export const EDGE_TEMPLATES: EdgeTemplate[] = [
       ps('thd_i1', 187, '%', 0, 100, 1, 'u16'), ps('thd_i2', 188, '%', 0, 100, 1, 'u16'), ps('thd_i3', 189, '%', 0, 100, 1, 'u16'),
     ],
   },
+  {
+    id: 'entes-mpr53cs', name: 'Entes MPR-53CS (three-phase network analyzer)', link: 'rtu', func: 3, type: 'u32', word_order: 'abcd',
+    stopBits: 2,
+    wordOrderUnverified: true,
+    serial: { baud: 9600, parity: 'none', address: 1 },
+    note: 'Every register address, multiplier and format verified line-by-line against Entes\' official MPR-53CS MODBUS Register Map (entes.com.tr) and user manual A4396 R3 (enteselektronik.com; docs/devices/entes-mpr53cs.md). Vendor-stated: FC 03 holding registers (the manual\'s worked read example), listed address = on-wire address (the example reads phase-1 voltage at 0x0000), 2 registers per value with printed multipliers, and factory serial settings (address 1, 9600 baud, no parity, 8 data bits, 2 stop bits): shown as a hint with an Apply button, never silently applied. Values are primary-side - the meter applies its programmed CT/VT ratios (factory 1:1), which the register map\'s xCT/xUT range notation documents. Read-only; never run on a real meter.',
+    provisional: 'Addresses, formats, multipliers, FC 03, the address base and the serial defaults are verified against Entes\' own documents. TWO things to know: the documents never state the 32-bit WORD ORDER, so pick it yourself below from your unit\'s behavior or a known reading (for example frequency or one voltage) against the meter\'s display - until that comparison is done, every value from this template is hardware-untested. And readings are primary-side: if CT/VT ratios are programmed in the meter, values come out already scaled by them (factory 1:1). Excluded and named in the doc: energy counters (the map prints a 64-bit range at 2-register spacing - contradictory, so not guessed), min/max/demand registers, average cos-phi pair, angles, digital I/O, pulse and hour counters, and all setup registers.',
+    points: [
+      p('v1', 0, 'V', 0, 3000), p('v2', 2, 'V', 0, 3000), p('v3', 4, 'V', 0, 3000),
+      ps('i1', 6, 'A', 0, 6000, 0.001), ps('i2', 8, 'A', 0, 6000, 0.001), ps('i3', 10, 'A', 0, 6000, 0.001), ps('i_neutral', 12, 'A', 0, 6000, 0.001),
+      p('v12', 14, 'V', 0, 5000), p('v23', 16, 'V', 0, 5000), p('v31', 18, 'V', 0, 5000),
+      ps('p1', 20, 'W', -18000, 18000, 0.1, 'i32'), ps('p2', 22, 'W', -18000, 18000, 0.1, 'i32'), ps('p3', 24, 'W', -18000, 18000, 0.1, 'i32'),
+      ps('q1', 26, 'var', -18000, 18000, 0.1, 'i32'), ps('q2', 28, 'var', -18000, 18000, 0.1, 'i32'), ps('q3', 30, 'var', -18000, 18000, 0.1, 'i32'),
+      ps('s1', 32, 'VA', 0, 18000, 0.1), ps('s2', 34, 'VA', 0, 18000, 0.1), ps('s3', 36, 'VA', 0, 18000, 0.1),
+      ps('pf1', 38, '', -1, 1, 0.001, 'i32'), ps('pf2', 40, '', -1, 1, 0.001, 'i32'), ps('pf3', 42, '', -1, 1, 0.001, 'i32'),
+      ps('p_total_import', 44, 'W', 0, 54000, 0.1, 'i32'), ps('p_total_export', 46, 'W', 0, 54000, 0.1, 'i32'),
+      ps('q_total_ind', 48, 'var', 0, 54000, 0.1, 'i32'), ps('q_total_cap', 50, 'var', 0, 54000, 0.1, 'i32'),
+      ps('s_total', 52, 'VA', 0, 54000, 0.1),
+      ps('freq', 58, 'Hz', 40, 70, 0.01),
+      ps('thd_u1', 72, '%', 0, 99.9, 0.1), ps('thd_u2', 74, '%', 0, 99.9, 0.1), ps('thd_u3', 76, '%', 0, 99.9, 0.1),
+      ps('thd_i1', 78, '%', 0, 99.9, 0.1), ps('thd_i2', 80, '%', 0, 99.9, 0.1), ps('thd_i3', 82, '%', 0, 99.9, 0.1),
+    ],
+  },
 ];
 
 
