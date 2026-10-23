@@ -1,3 +1,4 @@
+import GroupSeriesWidget from '../components/GroupSeriesWidget';
 import { chart as ct } from '../lib/theme';
 import { formatValue } from '../lib/format';
 import { useEffect, useMemo, useState } from 'react';
@@ -238,7 +239,7 @@ export default function Dashboards() {
       return;
     }
     if (!sel) return;
-    if (wSource === 'group' && (wType === 'kpi' || wType === 'gauge')) {
+    if (wSource === 'group' && (wType === 'kpi' || wType === 'gauge' || wType === 'timeseries')) {
       if (!wGroup || !wPoint) return;
       const gname = groups.find(g => g.id === wGroup);
       const gw: Widget = {
@@ -442,35 +443,35 @@ export default function Dashboards() {
                   </select>
                 </div>
                 {wType === 'note' && <div><label>Text</label><textarea rows={3} maxLength={2000} value={wText} onChange={e => setWText(e.target.value)} /></div>}
-                {(wType === 'kpi' || wType === 'gauge') && <div><label>Source</label>
+                {(wType === 'kpi' || wType === 'gauge' || wType === 'timeseries') && <div><label>Source</label>
                   <select aria-label="Widget source" value={wSource} onChange={e => setWSource(e.target.value as 'device' | 'group')}>
                     <option value="device">Device</option>
                     <option value="group">Group aggregate</option>
                   </select>
                 </div>}
-                {wSource === 'group' && (wType === 'kpi' || wType === 'gauge') && <div><label>Group</label>
+                {wSource === 'group' && (wType === 'kpi' || wType === 'gauge' || wType === 'timeseries') && <div><label>Group</label>
                   <select aria-label="Aggregate over group" value={wGroup} onChange={e => setWGroup(e.target.value)}>
                     {sortGroupsByTree(groups).map(g => <option key={g.id} value={g.id}>{groupPath(g, groups)}</option>)}
                     {groups.length === 0 && <option value="">no groups yet</option>}
                   </select>
                 </div>}
-                {wSource === 'group' && (wType === 'kpi' || wType === 'gauge') && <div><label>Aggregate</label>
+                {wSource === 'group' && (wType === 'kpi' || wType === 'gauge' || wType === 'timeseries') && <div><label>Aggregate</label>
                   <select aria-label="Aggregation" value={wAgg} onChange={e => setWAgg(e.target.value as 'sum' | 'avg' | 'min' | 'max')}>
-                    <option value="sum">Sum of latest values</option>
-                    <option value="avg">Average of latest values</option>
-                    <option value="min">Lowest latest value</option>
-                    <option value="max">Highest latest value</option>
+                    <option value="sum">{wType === 'timeseries' ? 'Sum of hourly device means' : 'Sum of latest values'}</option>
+                    <option value="avg">{wType === 'timeseries' ? 'Average of hourly device means' : 'Average of latest values'}</option>
+                    <option value="min">{wType === 'timeseries' ? 'Lowest hourly device mean' : 'Lowest latest value'}</option>
+                    <option value="max">{wType === 'timeseries' ? 'Highest hourly device mean' : 'Highest latest value'}</option>
                   </select>
                 </div>}
-                {wType !== 'alarms' && wType !== 'note' && !(wSource === 'group' && (wType === 'kpi' || wType === 'gauge')) && <div><label>Device</label>
+                {wType !== 'alarms' && wType !== 'note' && !(wSource === 'group' && (wType === 'kpi' || wType === 'gauge' || wType === 'timeseries')) && <div><label>Device</label>
                   <select value={wDevice} onChange={e => setWDevice(e.target.value)}>
                     {devices.map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
                   </select>
                 </div>}
                 {wType !== 'alarms' && wType !== 'note' && <div><label>Point</label>
                   <select value={wPoint} onChange={e => setWPoint(e.target.value)}>
-                    {(wSource === 'group' && (wType === 'kpi' || wType === 'gauge') ? groupPoints : devicePoints).map(p => <option key={p.point_id} value={p.point_id}>{p.point_id}</option>)}
-                    {(wSource === 'group' && (wType === 'kpi' || wType === 'gauge') ? groupPoints : devicePoints).length === 0 && <option value="">no live points</option>}
+                    {(wSource === 'group' && (wType === 'kpi' || wType === 'gauge' || wType === 'timeseries') ? groupPoints : devicePoints).map(p => <option key={p.point_id} value={p.point_id}>{p.point_id}</option>)}
+                    {(wSource === 'group' && (wType === 'kpi' || wType === 'gauge' || wType === 'timeseries') ? groupPoints : devicePoints).length === 0 && <option value="">no live points</option>}
                   </select>
                 </div>}
                 <div><label>Title (optional)</label><input value={wTitle} onChange={e => setWTitle(e.target.value)} /></div>
@@ -478,7 +479,7 @@ export default function Dashboards() {
                 {(wType === 'gauge' || wType === 'bar') && <div><label>Max</label><input type="number" style={{ width: 80 }} value={wMax} onChange={e => setWMax(e.target.value)} /></div>}
                 {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && wType !== 'alarms' && wType !== 'note' && <div><label>{wType === 'indicator' ? 'On at (value ≥)' : 'Warn at'}</label><input type="number" style={{ width: 80 }} value={wWarn} onChange={e => setWWarn(e.target.value)} /></div>}
                 {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && wType !== 'indicator' && wType !== 'alarms' && wType !== 'note' && <div><label>Critical at</label><input type="number" style={{ width: 80 }} value={wCrit} onChange={e => setWCrit(e.target.value)} /></div>}
-                <button onClick={addWidget} disabled={wType === 'alarms' || wType === 'note' ? false : (wSource === 'group' && (wType === 'kpi' || wType === 'gauge') ? !wGroup || !wPoint : !wDevice || (!wPoint && wType !== 'bar' && wType !== 'status' && wType !== 'table'))}>Add</button>
+                <button onClick={addWidget} disabled={wType === 'alarms' || wType === 'note' ? false : (wSource === 'group' && (wType === 'kpi' || wType === 'gauge' || wType === 'timeseries') ? !wGroup || !wPoint : !wDevice || (!wPoint && wType !== 'bar' && wType !== 'status' && wType !== 'table'))}>Add</button>
               </div>
             </div>
           )}
@@ -499,7 +500,7 @@ export default function Dashboards() {
                 onDragOver={e => { if (editing && dragFrom !== null) e.preventDefault(); }}
                 onDrop={e => { e.preventDefault(); if (dragFrom !== null) setWidgets(moveItem(widgets, dragFrom, i)); setDragFrom(null); }}
                 onDragEnd={() => setDragFrom(null)}>
-                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} assetId={filtering ? assetFilter : undefined} relation={filtering ? dashRelation.trim() || undefined : undefined} groupId={groupFiltering ? groupFilter : undefined} /> : w.type === 'note' ? <NoteWidget w={w} /> : <SeriesWidget w={w} />}
+                {w.type === 'kpi' ? <KpiWidget w={w} /> : w.type === 'gauge' ? <GaugeWidget w={w} /> : w.type === 'bar' ? <BarWidget w={w} /> : w.type === 'status' ? <StatusWidget w={w} /> : w.type === 'table' ? <TableWidget w={w} /> : w.type === 'stat' ? <StatWidget w={w} /> : w.type === 'indicator' ? <IndicatorWidget w={w} /> : w.type === 'alarms' ? <AlarmsWidget w={w} assetId={filtering ? assetFilter : undefined} relation={filtering ? dashRelation.trim() || undefined : undefined} groupId={groupFiltering ? groupFilter : undefined} /> : w.type === 'note' ? <NoteWidget w={w} /> : w.group_id ? <GroupSeriesWidget w={w} /> : <SeriesWidget w={w} />}
                 {editing && (
                   <div className="board-tools">
                     <button className="ghost" aria-label="Narrower" onClick={() => resize(w.id, -1)}>-</button>
