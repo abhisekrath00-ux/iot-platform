@@ -43,7 +43,7 @@ var (
 	scopedDevicePath     = regexp.MustCompile(`^/v1/devices/([^/]+)/health$`)
 	scopedAlertPath      = regexp.MustCompile(`^/v1/alerts/([^/]+)$`)
 	scopedReportDownload = regexp.MustCompile(`^/v1/reports/[^/]+/download$`)
-	scopedTelemetry      = map[string]bool{"latest": true, "series": true, "count": true, "rollup": true, "anomalies": true, "forecast": true, "related": true}
+	scopedTelemetry      = map[string]bool{"latest": true, "series": true, "count": true, "rollup": true, "anomalies": true, "forecast": true, "related": true, "group-latest": true}
 )
 
 // scopedAllows is the allowlist: the only requests a customer-scoped user may make. Anything else is refused.
@@ -87,7 +87,7 @@ func (s *server) customerScope(next http.Handler) http.Handler {
 		switch {
 		case strings.HasPrefix(p, "/v1/telemetry/"):
 			dev = r.URL.Query().Get("device_id")
-			if dev == "" {
+			if dev == "" && !strings.HasSuffix(p, "/group-latest") { // group-latest scopes its members itself (csub CTE)
 				http.Error(w, "device_id required", 400)
 				return
 			}
