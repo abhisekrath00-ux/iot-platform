@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 )
 
 const maxGeofences = 100
@@ -101,32 +102,68 @@ func (s *server) setDeviceLocationSource(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
+// fenceIn is the create/update body for a zone. A zone is a circle (lat/lon/
+// radius_m) or, when polygon is given, a polygon: lat/lon/radius_m are then
+// derived from the vertices and used only for map framing - membership is the
+// polygon. Update semantics: a body without polygon writes a circle and clears
+// any polygon the zone had; the UI always sends full form state.
+type fenceIn struct {
+	Name     string      `json:"name"`
+	Lat      float64     `json:"lat"`
+	Lon      float64     `json:"lon"`
+	Radius   float64     `json:"radius_m"`
+	Polygon  [][]float64 `json:"polygon"`
+	OnEnter  bool        `json:"alert_on_enter"`
+	OnExit   bool        `json:"alert_on_exit"`
+	Severity string      `json:"alert_severity"`
+}
+
+// validateFenceIn normalises and checks a zone body. For a polygon zone it
+// replaces lat/lon/radius with the polygon's frame.
+func validateFenceIn(in *fenceIn) (poly []rules.Vertex, errMsg string) {
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" || len(in.Name) > 80 || strings.ContainsAny(in.Name, "<>\x00") {
+		return nil, "name (up to 80) required"
+	}
+	if in.Polygon != nil {
+		for _, v := range in.Polygon {
+			if len(v) != 2 {
+				return nil, "polygon vertices are [lat, lon] pairs"
+			}
+			poly = append(poly, rules.Vertex{v[0], v[1]})
+		}
+		if err := rules.ValidatePolygon(poly); err != nil {
+			return nil, err.Error()
+		}
+		in.Lat, in.Lon, in.Radius = rules.PolygonFrame(poly)
+		return poly, ""
+	}
+	if !validLatLon(in.Lat, in.Lon) || !(in.Radius >= 1 && in.Radius <= 100000) {
+		return nil, "valid lat/lon and radius 1-100000 m required"
+	}
+	return nil, ""
+}
+
+func validSeverity(s string) bool { return s == "info" || s == "warning" || s == "critical" }
+
 func (s *server) createGeofence(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin", "operator") {
 		return
 	}
-	var in struct {
-		Name     string  `json:"name"`
-		Lat      float64 `json:"lat"`
-		Lon      float64 `json:"lon"`
-		Radius   float64 `json:"radius_m"`
-		OnEnter  bool    `json:"alert_on_enter"`
-		OnExit   bool    `json:"alert_on_exit"`
-		Severity string  `json:"alert_severity"`
-	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil {
+	var in fenceIn
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in) != nil {
 		http.Error(w, "bad json", 400)
 		return
 	}
-	in.Name = strings.TrimSpace(in.Name)
-	if in.Name == "" || len(in.Name) > 80 || strings.ContainsAny(in.Name, "<>\x00") || !validLatLon(in.Lat, in.Lon) || !(in.Radius >= 1 && in.Radius <= 100000) {
-		http.Error(w, "name (up to 80), valid lat/lon and radius 1-100000 m required", 400)
+	poly, errMsg := validateFenceIn(&in)
+	if errMsg != "" {
+		http.Error(w, errMsg, 400)
 		return
 	}
 	if in.Severity == "" {
 		in.Severity = "warning"
 	}
-	if in.Severity != "info" && in.Severity != "warning" && in.Severity != "critical" {
+	if !validSeverity(in.Severity) {
 		http.Error(w, "alert_severity must be info, warning or critical", 400)
 		return
 	}
@@ -137,7 +174,11 @@ func (s *server) createGeofence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := uuid.NewString()
-	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO geofences(id,tenant_id,name,lat,lon,radius_m,created_by,alert_on_enter,alert_on_exit,alert_severity) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, id, auth.Tenant(r), in.Name, in.Lat, in.Lon, in.Radius, auth.User(r), in.OnEnter, in.OnExit, in.Severity); err != nil {
+	var polyJSON any
+	if poly != nil {
+		polyJSON = poly
+	}
+	if _, err := s.st.Pool.Exec(r.Context(), `INSERT INTO geofences(id,tenant_id,name,lat,lon,radius_m,created_by,alert_on_enter,alert_on_exit,alert_severity,polygon) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, auth.Tenant(r), in.Name, in.Lat, in.Lon, in.Radius, auth.User(r), in.OnEnter, in.OnExit, in.Severity, polyJSON); err != nil {
 		http.Error(w, "db", 500)
 		return
 	}
@@ -150,31 +191,27 @@ func (s *server) updateGeofence(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin", "operator") {
 		return
 	}
-	var in struct {
-		Name     string  `json:"name"`
-		Lat      float64 `json:"lat"`
-		Lon      float64 `json:"lon"`
-		Radius   float64 `json:"radius_m"`
-		OnEnter  bool    `json:"alert_on_enter"`
-		OnExit   bool    `json:"alert_on_exit"`
-		Severity string  `json:"alert_severity"`
-	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil {
+	var in fenceIn
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in) != nil {
 		http.Error(w, "bad json", 400)
 		return
 	}
-	in.Name = strings.TrimSpace(in.Name)
-	if in.Name == "" || len(in.Name) > 80 || strings.ContainsAny(in.Name, "<>\x00") || !validLatLon(in.Lat, in.Lon) || !(in.Radius >= 1 && in.Radius <= 100000) {
-		http.Error(w, "name (up to 80), valid lat/lon and radius 1-100000 m required", 400)
+	poly, errMsg := validateFenceIn(&in)
+	if errMsg != "" {
+		http.Error(w, errMsg, 400)
 		return
 	}
-	if in.Severity != "info" && in.Severity != "warning" && in.Severity != "critical" {
+	if !validSeverity(in.Severity) {
 		http.Error(w, "alert_severity must be info, warning or critical", 400)
 		return
 	}
+	var polyJSON any
+	if poly != nil {
+		polyJSON = poly
+	}
 	ct, err := s.st.Pool.Exec(r.Context(),
-		`UPDATE geofences SET name=$1, lat=$2, lon=$3, radius_m=$4, alert_on_enter=$5, alert_on_exit=$6, alert_severity=$7 WHERE id=$8 AND tenant_id=$9`,
-		in.Name, in.Lat, in.Lon, in.Radius, in.OnEnter, in.OnExit, in.Severity, r.PathValue("id"), auth.Tenant(r))
+		`UPDATE geofences SET name=$1, lat=$2, lon=$3, radius_m=$4, alert_on_enter=$5, alert_on_exit=$6, alert_severity=$7, polygon=$10 WHERE id=$8 AND tenant_id=$9`,
+		in.Name, in.Lat, in.Lon, in.Radius, in.OnEnter, in.OnExit, in.Severity, r.PathValue("id"), auth.Tenant(r), polyJSON)
 	if err != nil || ct.RowsAffected() == 0 {
 		http.Error(w, "not found", 404)
 		return
@@ -200,26 +237,33 @@ func (s *server) deleteGeofence(w http.ResponseWriter, r *http.Request) {
 func (s *server) getMap(w http.ResponseWriter, r *http.Request) {
 	tenant := auth.Tenant(r)
 	type fence struct {
-		ID       string  `json:"id"`
-		Name     string  `json:"name"`
-		Lat      float64 `json:"lat"`
-		Lon      float64 `json:"lon"`
-		Radius   float64 `json:"radius_m"`
-		OnEnter  bool    `json:"alert_on_enter"`
-		OnExit   bool    `json:"alert_on_exit"`
-		Severity string  `json:"alert_severity"`
+		ID       string         `json:"id"`
+		Name     string         `json:"name"`
+		Lat      float64        `json:"lat"`
+		Lon      float64        `json:"lon"`
+		Radius   float64        `json:"radius_m"`
+		Polygon  []rules.Vertex `json:"polygon,omitempty"`
+		OnEnter  bool           `json:"alert_on_enter"`
+		OnExit   bool           `json:"alert_on_exit"`
+		Severity string         `json:"alert_severity"`
+		poly     []rules.Vertex // membership shape: polygon when set, else the circle above
 	}
 	fences := []fence{}
-	fr, err := s.st.Pool.Query(r.Context(), `SELECT id,name,lat,lon,radius_m,alert_on_enter,alert_on_exit,alert_severity FROM geofences WHERE tenant_id=$1 ORDER BY name`, tenant)
+	fr, err := s.st.Pool.Query(r.Context(), `SELECT id,name,lat,lon,radius_m,polygon,alert_on_enter,alert_on_exit,alert_severity FROM geofences WHERE tenant_id=$1 ORDER BY name`, tenant)
 	if err != nil {
 		http.Error(w, "db", 500)
 		return
 	}
 	for fr.Next() {
 		var f fence
-		if fr.Scan(&f.ID, &f.Name, &f.Lat, &f.Lon, &f.Radius, &f.OnEnter, &f.OnExit, &f.Severity) == nil {
-			fences = append(fences, f)
+		var polyRaw []byte
+		if fr.Scan(&f.ID, &f.Name, &f.Lat, &f.Lon, &f.Radius, &polyRaw, &f.OnEnter, &f.OnExit, &f.Severity) != nil {
+			continue
 		}
+		if len(polyRaw) > 0 && json.Unmarshal(polyRaw, &f.poly) == nil && len(f.poly) > 0 {
+			f.Polygon = f.poly
+		}
+		fences = append(fences, f)
 	}
 	fr.Close()
 	dr, err := s.st.Pool.Query(r.Context(), `SELECT id, COALESCE(NULLIF(name,''),id), lat, lon FROM devices WHERE tenant_id=$1 AND lat IS NOT NULL AND lon IS NOT NULL ORDER BY id LIMIT 2000`, tenant)
@@ -237,12 +281,16 @@ func (s *server) getMap(w http.ResponseWriter, r *http.Request) {
 		}
 		inside := []string{}
 		for _, f := range fences {
-			if haversine(lat, lon, f.Lat, f.Lon) <= f.Radius {
+			in := len(f.poly) > 0 && rules.PointInPolygon(lat, lon, f.poly)
+			if len(f.poly) == 0 {
+				in = haversine(lat, lon, f.Lat, f.Lon) <= f.Radius
+			}
+			if in {
 				inside = append(inside, f.Name)
 			}
 		}
 		devs = append(devs, map[string]any{"id": id, "name": name, "lat": lat, "lon": lon, "inside": inside})
 	}
 	writeJSON(w, 200, map[string]any{"devices": devs, "geofences": fences,
-		"note": "Positions are set by people, or reported live when a device names its latitude and longitude points. Zones are circles; a zone can alert when a device enters or leaves it."})
+		"note": "Positions are set by people, or reported live when a device names its latitude and longitude points. Zones are circles or polygons; a zone can alert when a device enters or leaves it."})
 }
