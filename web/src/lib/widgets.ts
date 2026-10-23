@@ -6,8 +6,12 @@ export interface Widget {
   id: string;
   type: WidgetType;
   title: string;
-  device_id: string;
+  device_id: string; // '' when group-bound
   point_id?: string;
+  // group-aggregate binding (kpi and gauge): latest value of the point
+  // aggregated over the group's transitive member devices
+  group_id?: string;
+  agg?: 'sum' | 'avg' | 'min' | 'max';
   // optional per-widget configuration
   min?: number;
   max?: number;
@@ -85,6 +89,34 @@ export function indicatorOn(v: number, onAt = 1): boolean {
 export function filterWidgetsByAsset(widgets: Widget[], assetDeviceIds: Set<string> | null): Widget[] {
   if (!assetDeviceIds) return widgets;
   return widgets.filter(w => !w.device_id || assetDeviceIds.has(w.device_id));
+}
+
+/** True when id is the ancestor group itself or sits below it in the tree. Cycle-safe. */
+export function groupInTree(id: string, ancestor: string, groups: { id: string; parent_id?: string | null }[]): boolean {
+  let cur: string | null | undefined = id;
+  const seen = new Set<string>();
+  while (cur) {
+    if (cur === ancestor) return true;
+    if (seen.has(cur)) return false;
+    seen.add(cur);
+    cur = groups.find(g => g.id === cur)?.parent_id;
+  }
+  return false;
+}
+
+/** Group-aggregate widgets under the dashboard filters (device-bound widgets
+ * are handled by filterWidgetsByAsset; this passes them through). A group
+ * aggregate's coverage is its group's whole transitive subtree, so an active
+ * asset filter always hides it (its coverage is not asset-bounded), and a
+ * group filter keeps only widgets bound to the selected group or a descendant
+ * (coverage inside the filter) - an ancestor's aggregate spills outside it. */
+export function filterGroupWidgets(widgets: Widget[], assetActive: boolean, groupFilter: string, groups: { id: string; parent_id?: string | null }[]): Widget[] {
+  return widgets.filter(w => {
+    if (!w.group_id) return true;
+    if (assetActive) return false;
+    if (!groupFilter) return true;
+    return groupInTree(w.group_id, groupFilter, groups);
+  });
 }
 
 /** Combine two active device filters: a widget survives only in both scopes.
