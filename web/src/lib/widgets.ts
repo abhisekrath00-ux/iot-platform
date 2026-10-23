@@ -8,7 +8,7 @@ export interface Widget {
   title: string;
   device_id: string; // '' when group-bound
   point_id?: string;
-  // group-aggregate binding (kpi and gauge): latest value of the point
+  // group-aggregate binding (kpi, gauge and timeseries): latest value or hourly device means of the point
   // aggregated over the group's transitive member devices
   group_id?: string;
   agg?: 'sum' | 'avg' | 'min' | 'max';
