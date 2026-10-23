@@ -22,6 +22,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export interface Device { id: string; profile: string; name: string; gateway_id: string; created_at: string; tags?: string[]; lat_point?: string | null; lon_point?: string | null; }
 export interface LatestPoint { point_id: string; value: number; unit: string; quality: string; observed_at: string; }
+// One row of GET /v1/telemetry/group-latest: a point's aggregate over the
+// group's transitive member devices (one latest sample per device). unit is
+// empty and units_mixed true when the contributing devices disagree on units.
+export interface GroupPoint { point_id: string; value: number; devices: number; observed_at: string; unit: string; units_mixed: boolean; }
+export type GroupAgg = 'sum' | 'avg' | 'min' | 'max';
 export interface CommandRow { request_id: string; device_id: string; action: string; status: string; requested_by: string; approved_by: string | null; created_at: string; reason?: string | null; parameters?: Record<string, unknown>; }
 export interface AlertRow { id: string; severity: string; message: string; status: string; created_at: string; acknowledged_by?: string | null; resolved_by?: string | null; assigned_to?: string | null; shelved?: boolean; }
 export interface AlertDetail extends AlertRow { acknowledged_at?: string | null; resolved_at?: string | null; comments: { author: string; body: string; created_at: string }[]; }
