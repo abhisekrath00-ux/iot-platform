@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitZoom, metresPerPx, tilesFor, worldPx } from './mercator';
+import { fitZoom, latLonFromWorldPx, metresPerPx, tilesFor, worldPx } from './mercator';
 
 describe('mercator', () => {
   it('puts (0,0) at the middle of the world and the date line at the edges', () => {
@@ -21,6 +21,16 @@ describe('mercator', () => {
     const t = tilesFor(0, 128, 1, 300, 100);
     expect(t.every(q => q.x >= 0 && q.x < 2 && q.y >= 0 && q.y < 2)).toBe(true);
     expect(t.length).toBeGreaterThan(0);
+  });
+  it('latLonFromWorldPx round-trips worldPx across zooms and hemispheres', () => {
+    for (const [lat, lon] of [[12.9716, 77.5946], [-33.8688, 151.2093], [51.5074, -0.1278], [0, 0], [-45, -179.9]] as [number, number][]) {
+      for (const z of [1, 5, 12, 17]) {
+        const [wx, wy] = worldPx(lat, lon, z);
+        const [la, lo] = latLonFromWorldPx(wx, wy, z);
+        expect(la).toBeCloseTo(lat, 9);
+        expect(lo).toBeCloseTo(lon, 9);
+      }
+    }
   });
   it('metres per pixel halves per zoom level and shrinks away from the equator', () => {
     expect(metresPerPx(0, 1) / metresPerPx(0, 2)).toBeCloseTo(2);
