@@ -10,7 +10,7 @@ import (
 // PurgePositions removes expired trail samples, including inactive devices.
 // One pass deletes at most 50,000 rows in 5,000-row transactions. A backlog
 // continues on the next hourly pass; the API window excludes old rows while
-// cleanup catches up. Use a fixed cutoff for the entire pass.
+// cleanup catches up. Use one fixed cutoff for the entire pass.
 func PurgePositions(ctx context.Context, pool *pgxpool.Pool, now time.Time) (int64, error) {
 	cutoff := now.Add(-7 * 24 * time.Hour)
 	var total int64
