@@ -17,6 +17,21 @@ export default function MapPage() {
   const [lat, setLat] = useState(''); const [lon, setLon] = useState('');
   const [fname, setFname] = useState(''); const [flat, setFlat] = useState(''); const [flon, setFlon] = useState(''); const [frad, setFrad] = useState('200');
   const [fenter, setFenter] = useState(false); const [fexit, setFexit] = useState(false); const [fsev, setFsev] = useState('warning');
+  const [trackId,setTrackId] = useState('');
+  const [trackHours,setTrackHours] = useState(24);
+  const [track,setTrack] = useState<{lat:number;lon:number;at:string;source:string}[]>([]);
+  const [trackTotal,setTrackTotal] = useState(0);
+  const [trackState,setTrackState] = useState('');
+  const [trackRefresh,setTrackRefresh] = useState(0);
+  useEffect(() => {
+    setTrack([]); setTrackTotal(0);
+    if (!trackId) {setTrackState('');return;}
+    let dead=false;setTrackState('Loading recorded positions...');
+    api<{points:typeof track;total:number}>(`/v1/devices/${encodeURIComponent(trackId)}/track?hours=${trackHours}`)
+      .then(r=>{if(!dead){setTrack(r.points);setTrackTotal(r.total);setTrackState(r.total ? '' : 'No recorded positions in this window.');}})
+      .catch(()=>{if(!dead)setTrackState('Could not load the trail. Try Refresh.');});
+    return ()=>{dead=true;};
+  },[trackId,trackHours,trackRefresh]);
   const [editId, setEditId] = useState('');
   const [shape, setShape] = useState<'circle' | 'polygon'>('circle');
   const [draft, setDraft] = useState<[number, number][]>([]);
@@ -43,6 +58,7 @@ export default function MapPage() {
   const proj = useMemo(() => {
     const pts: [number, number][] = [];
     data.devices.forEach(d => pts.push([d.lat, d.lon]));
+    track.forEach(p=>pts.push([p.lat,p.lon]));
     data.geofences.forEach(f => {
       if (f.polygon && f.polygon.length > 0) { f.polygon.forEach(v => pts.push(v)); return; }
       const dLat = f.radius_m / 111195, dLon = f.radius_m / (111195 * Math.max(0.01, Math.cos(f.lat * Math.PI / 180)));
@@ -80,7 +96,7 @@ export default function MapPage() {
       mPerPx: 111195 / scale,
       tiles: [] as ReturnType<typeof tilesFor>,
     };
-  }, [data, cfg]);
+  }, [data, cfg, track]);
 
   // Zone labels sit above their circle; coincident or overlapping circles would
   // print them on top of each other, so colliding labels stack upward with a
@@ -134,8 +150,23 @@ export default function MapPage() {
   return (
     <>
       <h1>Map</h1>
-      <p className="muted">Where devices are and which zones they sit in. Positions are entered by hand below, or reported live when a device names the two points that carry its latitude and longitude. {cfg.tiles ? 'Drawn over map tiles from your own tile server. ' : 'Plotted on a plain canvas (no map tiles), so it works with no internet. '}Zones are circles or polygons; a zone can raise an alert when a device enters or leaves it.</p>
+      <p className="muted">Where devices are and which zones they sit in. Positions are entered by hand below, or reported live when a device names the two points that carry its latitude and longitude. {cfg.tiles ? 'Drawn over map tiles from your own tile server. ' : 'Plotted on a plain canvas (no map tiles), so it works with no internet. '}Recorded position trails are available for up to 7 days. Zones are circles or polygons; a zone can raise an alert when a device enters or leaves it.</p>
       {msg && <p className="muted" role="status">{msg}</p>}
+      <div className="card" style={{maxWidth:W+40,marginBottom:14}}>
+        <label htmlFor="mt-device">Recorded position trail</label>
+        <select id="mt-device" value={trackId} onChange={e=>setTrackId(e.target.value)}>
+          <option value="">No trail selected</option>{devices.map(d=><option key={d.id} value={d.id}>{d.name||d.id}</option>)}
+        </select>
+        {trackId && <>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
+            {[1,24,168].map(h=><button key={h} className="ghost" aria-pressed={trackHours===h} onClick={()=>setTrackHours(h)}>{h===1?'1 h':h===24?'24 h':'7 d'}</button>)}
+            <button className="ghost" onClick={()=>setTrackRefresh(n=>n+1)}>Refresh</button>
+            <button className="ghost" onClick={()=>setTrackId('')}>Hide trail</button>
+          </div>
+          <p className="muted" role="status" style={{fontSize:12}}>{trackState || `${track.length} of ${trackTotal} recorded samples shown. Orange dots are recorded positions; connecting lines are not a known route.`}</p>
+          <p className="muted" style={{fontSize:12}}>Manual saves and paired telemetry fixes only. Stationary samples are reduced to a 5-minute heartbeat; moves of at least 5 m are kept. Refresh to fetch newer samples.</p>
+        </>}
+      </div>
       {!proj
         ? <Empty title="Nothing on the map yet" hint="Give a device a position below, and optionally add a zone." />
         : (
@@ -155,6 +186,10 @@ export default function MapPage() {
                   {draft.map(([la, lo], i) => <circle key={i} cx={proj.x(lo)} cy={proj.y(la)} r="4" fill="var(--accent, #4f8cff)" stroke="#fff" strokeWidth="1.5" />)}
                 </g>
               )}
+              {track.length > 0 && <g aria-label="Recorded position trail">
+                {track.length>1 && <polyline points={track.map(p=>`${proj.x(p.lon)},${proj.y(p.lat)}`).join(' ')} fill="none" stroke="var(--warn,#b25000)" strokeWidth="2"/>}
+                {track.map((p,i)=><circle key={i} cx={proj.x(p.lon)} cy={proj.y(p.lat)} r="3" fill="var(--warn,#b25000)"><title>{p.at} ({p.source})</title></circle>)}
+              </g>}
               {zoneLabels.map(l => (
                 <g key={l.id}>
                   {l.y < l.top - 1 && <line x1={l.cx} y1={l.y + l.h - 3} x2={l.cx} y2={l.top + 14} stroke="var(--muted, #6e6e73)" strokeWidth="1" strokeDasharray="2 2" />}
