@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import Empty from '../components/Empty';
 import { api, Device } from '../lib/api';
-import { fitZoom, metresPerPx, TILE, tilesFor, worldPx } from '../lib/mercator';
+import { fitZoom, latLonFromWorldPx, metresPerPx, TILE, tilesFor, worldPx } from '../lib/mercator';
 
 interface MDev { id: string; name: string; lat: number; lon: number; inside: string[]; }
-interface Fence { id: string; name: string; lat: number; lon: number; radius_m: number; alert_on_enter: boolean; alert_on_exit: boolean; alert_severity: string; }
+interface Fence { id: string; name: string; lat: number; lon: number; radius_m: number; polygon?: [number, number][]; alert_on_enter: boolean; alert_on_exit: boolean; alert_severity: string; }
 interface MapData { devices: MDev[]; geofences: Fence[]; note: string; }
 
 const W = 760, H = 460, PAD = 40;
@@ -18,6 +18,9 @@ export default function MapPage() {
   const [fname, setFname] = useState(''); const [flat, setFlat] = useState(''); const [flon, setFlon] = useState(''); const [frad, setFrad] = useState('200');
   const [fenter, setFenter] = useState(false); const [fexit, setFexit] = useState(false); const [fsev, setFsev] = useState('warning');
   const [editId, setEditId] = useState('');
+  const [shape, setShape] = useState<'circle' | 'polygon'>('circle');
+  const [draft, setDraft] = useState<[number, number][]>([]);
+  const [drawing, setDrawing] = useState(false);
   const [srcDev, setSrcDev] = useState(''); const [srcLat, setSrcLat] = useState(''); const [srcLon, setSrcLon] = useState('');
   const [srcPts, setSrcPts] = useState<string[]>([]);
   useEffect(() => {
@@ -41,6 +44,7 @@ export default function MapPage() {
     const pts: [number, number][] = [];
     data.devices.forEach(d => pts.push([d.lat, d.lon]));
     data.geofences.forEach(f => {
+      if (f.polygon && f.polygon.length > 0) { f.polygon.forEach(v => pts.push(v)); return; }
       const dLat = f.radius_m / 111195, dLon = f.radius_m / (111195 * Math.max(0.01, Math.cos(f.lat * Math.PI / 180)));
       pts.push([f.lat - dLat, f.lon - dLon], [f.lat + dLat, f.lon + dLon]);
     });
@@ -54,6 +58,7 @@ export default function MapPage() {
       return {
         x: (lo: number) => W / 2 + worldPx(0, lo, z)[0] - cx,
         y: (la: number) => H / 2 + worldPx(la, 0, z)[1] - cy,
+        latLon: (sx: number, sy: number): [number, number] => latLonFromWorldPx(sx - W / 2 + cx, sy - H / 2 + cy, z),
         mPerPx: metresPerPx(midLat, z),
         tiles: tilesFor(cx, cy, z, W, H),
       };
@@ -64,9 +69,14 @@ export default function MapPage() {
     const minLat = Math.min(...lats), minLon = Math.min(...lons);
     const spanY = Math.max(1e-6, Math.max(...lats) - minLat), spanX = Math.max(1e-6, (Math.max(...lons) - minLon) * k);
     const scale = Math.min((W - 2 * PAD) / spanX, (H - 2 * PAD) / spanY);
+    const offX = (W - 2 * PAD - spanX * scale) / 2, offY = (H - 2 * PAD - spanY * scale) / 2;
     return {
-      x: (lo: number) => PAD + (lo - minLon) * k * scale + (W - 2 * PAD - spanX * scale) / 2,
-      y: (la: number) => H - PAD - (la - minLat) * scale - (H - 2 * PAD - spanY * scale) / 2,
+      x: (lo: number) => PAD + (lo - minLon) * k * scale + offX,
+      y: (la: number) => H - PAD - (la - minLat) * scale - offY,
+      latLon: (sx: number, sy: number): [number, number] => [
+        minLat + (H - PAD - offY - sy) / scale,
+        minLon + (sx - PAD - offX) / (k * scale),
+      ],
       mPerPx: 111195 / scale,
       tiles: [] as ReturnType<typeof tilesFor>,
     };
@@ -111,22 +121,40 @@ export default function MapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proj]);
 
+  // While drawing a polygon zone, a click on the map adds a corner. The SVG
+  // scales to its container, so client pixels are converted to viewBox units.
+  const onMapClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!drawing || !proj) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const sx = ((e.clientX - rect.left) * W) / rect.width;
+    const sy = ((e.clientY - rect.top) * H) / rect.height;
+    setDraft(d => [...d, proj.latLon(sx, sy)]);
+  };
+
   return (
     <>
       <h1>Map</h1>
-      <p className="muted">Where devices are and which zones they sit in. Positions are entered by hand below, or reported live when a device names the two points that carry its latitude and longitude. {cfg.tiles ? 'Drawn over map tiles from your own tile server. ' : 'Plotted on a plain canvas (no map tiles), so it works with no internet. '}Zones are circles; a zone can raise an alert when a device enters or leaves it.</p>
+      <p className="muted">Where devices are and which zones they sit in. Positions are entered by hand below, or reported live when a device names the two points that carry its latitude and longitude. {cfg.tiles ? 'Drawn over map tiles from your own tile server. ' : 'Plotted on a plain canvas (no map tiles), so it works with no internet. '}Zones are circles or polygons; a zone can raise an alert when a device enters or leaves it.</p>
       {msg && <p className="muted" role="status">{msg}</p>}
       {!proj
         ? <Empty title="Nothing on the map yet" hint="Give a device a position below, and optionally add a zone." />
         : (
           <div className="card" style={{ maxWidth: W + 40 }}>
-            <svg role="img" aria-label="Site map" width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
+            <svg role="img" aria-label="Site map" width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', cursor: drawing ? 'crosshair' : undefined }} onClick={onMapClick}>
               {proj.tiles.map(t => imgs[`${t.z}/${t.x}/${t.y}`] && <image key={`${t.z}/${t.x}/${t.y}/${t.px}`} href={imgs[`${t.z}/${t.x}/${t.y}`]} x={t.px} y={t.py} width={TILE} height={TILE} />)}
               {data.geofences.map(f => (
                 <g key={f.id}>
-                  <circle cx={proj.x(f.lon)} cy={proj.y(f.lat)} r={f.radius_m / proj.mPerPx} fill="var(--accent, #4f8cff)" fillOpacity="0.1" stroke="var(--accent, #4f8cff)" strokeDasharray="5 4" />
+                  {f.polygon && f.polygon.length > 2
+                    ? <polygon points={f.polygon.map(([la, lo]) => `${proj.x(lo)},${proj.y(la)}`).join(' ')} fill="var(--accent, #4f8cff)" fillOpacity="0.1" stroke="var(--accent, #4f8cff)" strokeDasharray="5 4" />
+                    : <circle cx={proj.x(f.lon)} cy={proj.y(f.lat)} r={f.radius_m / proj.mPerPx} fill="var(--accent, #4f8cff)" fillOpacity="0.1" stroke="var(--accent, #4f8cff)" strokeDasharray="5 4" />}
                 </g>
               ))}
+              {draft.length > 0 && (
+                <g aria-label="Zone being drawn">
+                  {draft.length > 2 && <polygon points={draft.map(([la, lo]) => `${proj.x(lo)},${proj.y(la)}`).join(' ')} fill="var(--accent, #4f8cff)" fillOpacity="0.18" stroke="var(--accent, #4f8cff)" />}
+                  {draft.map(([la, lo], i) => <circle key={i} cx={proj.x(lo)} cy={proj.y(la)} r="4" fill="var(--accent, #4f8cff)" stroke="#fff" strokeWidth="1.5" />)}
+                </g>
+              )}
               {zoneLabels.map(l => (
                 <g key={l.id}>
                   {l.y < l.top - 1 && <line x1={l.cx} y1={l.y + l.h - 3} x2={l.cx} y2={l.top + 14} stroke="var(--muted, #6e6e73)" strokeWidth="1" strokeDasharray="2 2" />}
@@ -177,28 +205,52 @@ export default function MapPage() {
       <div className="card" style={{ maxWidth: 640, marginTop: 20 }}>
         <b>Zones</b>
         <ul style={{ padding: 0, listStyle: 'none' }}>
-          {data.geofences.map(f => <li key={f.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0' }}><span>{f.name}</span><span className="muted">{f.radius_m} m at {f.lat.toFixed(4)}, {f.lon.toFixed(4)}</span><span className="muted">{f.alert_on_enter || f.alert_on_exit ? `alerts on ${[f.alert_on_enter && 'enter', f.alert_on_exit && 'exit'].filter(Boolean).join('+')} (${f.alert_severity})` : 'no alerts'}</span><span style={{ flex: 1 }} /><button className="ghost" aria-label={`Edit ${f.name}`} onClick={() => { setEditId(f.id); setFname(f.name); setFlat(String(f.lat)); setFlon(String(f.lon)); setFrad(String(f.radius_m)); setFenter(f.alert_on_enter); setFexit(f.alert_on_exit); setFsev(f.alert_severity); }}>Edit</button><button className="ghost" aria-label={`Delete ${f.name}`} onClick={() => act(() => api(`/v1/geofences/${f.id}`, { method: 'DELETE' }).catch(() => {}), 'Deleted.')}>Delete</button></li>)}
+          {data.geofences.map(f => <li key={f.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0', flexWrap: 'wrap' }}><span style={{ minWidth: 0 }}>{f.name}</span><span className="muted" style={{ minWidth: 0 }}>{f.polygon && f.polygon.length > 2 ? `polygon (${f.polygon.length} corners)` : `${f.radius_m} m`} at {f.lat.toFixed(4)}, {f.lon.toFixed(4)}</span><span className="muted" style={{ minWidth: 0 }}>{f.alert_on_enter || f.alert_on_exit ? `alerts on ${[f.alert_on_enter && 'enter', f.alert_on_exit && 'exit'].filter(Boolean).join('+')} (${f.alert_severity})` : 'no alerts'}</span><span style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}><button className="ghost" aria-label={`Edit ${f.name}`} onClick={() => { setEditId(f.id); setFname(f.name); setFlat(String(f.lat)); setFlon(String(f.lon)); setFrad(String(f.radius_m)); setFenter(f.alert_on_enter); setFexit(f.alert_on_exit); setFsev(f.alert_severity); setShape(f.polygon && f.polygon.length > 2 ? 'polygon' : 'circle'); setDraft(f.polygon ?? []); setDrawing(false); }}>Edit</button><button className="ghost" aria-label={`Delete ${f.name}`} onClick={() => act(() => api(`/v1/geofences/${f.id}`, { method: 'DELETE' }).catch(() => {}), 'Deleted.')}>Delete</button></span></li>)}
           {data.geofences.length === 0 && <li className="muted">No zones yet.</li>}
         </ul>
         <form onSubmit={e => {
           e.preventDefault();
-          const body = JSON.stringify({ name: fname, lat: Number(flat), lon: Number(flon), radius_m: Number(frad), alert_on_enter: fenter, alert_on_exit: fexit, alert_severity: fsev });
+          const body = JSON.stringify(shape === 'polygon'
+            ? { name: fname, polygon: draft, alert_on_enter: fenter, alert_on_exit: fexit, alert_severity: fsev }
+            : { name: fname, lat: Number(flat), lon: Number(flon), radius_m: Number(frad), alert_on_enter: fenter, alert_on_exit: fexit, alert_severity: fsev });
+          const reset = () => { setEditId(''); setFname(''); setFlat(''); setFlon(''); setFrad('200'); setFenter(false); setFexit(false); setFsev('warning'); setShape('circle'); setDraft([]); setDrawing(false); };
           if (editId) {
-            act(() => api(`/v1/geofences/${editId}`, { method: 'PUT', body }), 'Zone saved.').then(() => { setEditId(''); setFname(''); setFlat(''); setFlon(''); setFrad('200'); setFenter(false); setFexit(false); setFsev('warning'); });
+            act(() => api(`/v1/geofences/${editId}`, { method: 'PUT', body }), 'Zone saved.').then(reset);
           } else {
-            act(() => api('/v1/geofences', { method: 'POST', body }), 'Zone added.').then(() => { setFname(''); setFenter(false); setFexit(false); });
+            act(() => api('/v1/geofences', { method: 'POST', body }), 'Zone added.').then(reset);
           }
         }}>
           <label htmlFor="mz-name">Name</label><input id="mz-name" value={fname} onChange={e => setFname(e.target.value)} required maxLength={80} />
-          <label htmlFor="mz-lat">Centre latitude</label><input id="mz-lat" inputMode="decimal" value={flat} onChange={e => setFlat(e.target.value)} required />
-          <label htmlFor="mz-lon">Centre longitude</label><input id="mz-lon" inputMode="decimal" value={flon} onChange={e => setFlon(e.target.value)} required />
-          <label htmlFor="mz-rad">Radius (metres)</label><input id="mz-rad" inputMode="decimal" value={frad} onChange={e => setFrad(e.target.value)} required />
+          <label htmlFor="mz-shape">Shape</label>
+          <select id="mz-shape" value={shape} onChange={e => { const v = e.target.value as 'circle' | 'polygon'; setShape(v); if (v === 'circle') { setDraft([]); setDrawing(false); } }}>
+            <option value="circle">Circle - centre and radius</option>
+            <option value="polygon">Polygon - drawn on the map</option>
+          </select>
+          {shape === 'circle' && (<>
+            <label htmlFor="mz-lat">Centre latitude</label><input id="mz-lat" inputMode="decimal" value={flat} onChange={e => setFlat(e.target.value)} required />
+            <label htmlFor="mz-lon">Centre longitude</label><input id="mz-lon" inputMode="decimal" value={flon} onChange={e => setFlon(e.target.value)} required />
+            <label htmlFor="mz-rad">Radius (metres)</label><input id="mz-rad" inputMode="decimal" value={frad} onChange={e => setFrad(e.target.value)} required />
+          </>)}
+          {shape === 'polygon' && (
+            <div style={{ marginTop: 6 }}>
+              <p className="muted" style={{ fontSize: 12 }}>
+                {proj
+                  ? (draft.length < 3 ? `Click corners on the map to draw the zone (${draft.length} placed, at least 3 needed).` : `${draft.length} corners placed. Adjust on the map or below.`)
+                  : 'The map needs something to frame before you can draw - position a device or add a circle zone first.'}
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className={drawing ? '' : 'ghost'} disabled={!proj} onClick={() => setDrawing(d => !d)}>{drawing ? 'Stop drawing' : draft.length ? 'Keep drawing' : 'Draw on the map'}</button>
+                <button type="button" className="ghost" disabled={draft.length === 0} onClick={() => setDraft(d => d.slice(0, -1))}>Undo corner</button>
+                <button type="button" className="ghost" disabled={draft.length === 0} onClick={() => setDraft([])}>Clear corners</button>
+              </div>
+            </div>
+          )}
           <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={fenter} onChange={e => setFenter(e.target.checked)} style={{ width: 'auto' }} /> Alert when a device enters</label>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={fexit} onChange={e => setFexit(e.target.checked)} style={{ width: 'auto' }} /> Alert when a device leaves</label>
           {(fenter || fexit) && (<><label htmlFor="mz-sev">Alert severity</label><select id="mz-sev" value={fsev} onChange={e => setFsev(e.target.value)}><option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option></select></>)}
           <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
-            <button type="submit">{editId ? 'Save zone' : 'Add zone'}</button>
-            {editId && <button type="button" className="ghost" onClick={() => { setEditId(''); setFname(''); setFlat(''); setFlon(''); setFrad('200'); setFenter(false); setFexit(false); setFsev('warning'); }}>Cancel</button>}
+            <button type="submit" disabled={shape === 'polygon' && draft.length < 3}>{editId ? 'Save zone' : 'Add zone'}</button>
+            {editId && <button type="button" className="ghost" onClick={() => { setEditId(''); setFname(''); setFlat(''); setFlon(''); setFrad('200'); setFenter(false); setFexit(false); setFsev('warning'); setShape('circle'); setDraft([]); setDrawing(false); }}>Cancel</button>}
           </div>
           <p className="muted" style={{ fontSize: 12 }}>A zone alert fires on the next check after a position changes, whether saved by hand or reported by telemetry (within about a minute). Devices already inside a zone when its alerts are turned on do not raise an "entered" alert.</p>
         </form>
