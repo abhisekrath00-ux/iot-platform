@@ -2,14 +2,18 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 )
 
 const maxGeofences = 100
@@ -48,6 +52,11 @@ func (s *server) setDeviceLocation(w http.ResponseWriter, r *http.Request) {
 	if err != nil || ct.RowsAffected() == 0 {
 		http.Error(w, "device not found", 404)
 		return
+	}
+	if in.Lat != nil {
+		if err := store.RecordTrail(r.Context(), s.st.Pool, auth.Tenant(r), r.PathValue("id"), *in.Lat, *in.Lon, time.Now(), "manual"); err != nil {
+			log.Printf("position trail: %v", err)
+		}
 	}
 	s.audit(r, "device.location", r.PathValue("id"), map[string]any{"lat": in.Lat, "lon": in.Lon})
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -293,4 +302,62 @@ func (s *server) getMap(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"devices": devs, "geofences": fences,
 		"note": "Positions are set by people, or reported live when a device names its latitude and longitude points. Zones are circles or polygons; a zone can alert when a device enters or leaves it."})
+}
+
+// getDeviceTrack returns at most 720 real recorded samples, including both
+// ends of the window. SQL window ranking bounds application memory on long
+// trails. Lines joining samples are visual connections, not known routes.
+func (s *server) getDeviceTrack(w http.ResponseWriter, r *http.Request) {
+	hours := 24
+	if h := r.URL.Query().Get("hours"); h != "" {
+		n, err := strconv.Atoi(h)
+		if err != nil || n < 1 || n > 168 {
+			http.Error(w, "hours must be 1-168", 400)
+			return
+		}
+		hours = n
+	}
+	tenant, dev := auth.Tenant(r), r.PathValue("id")
+	var exists bool
+	if err := s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM devices WHERE tenant_id=$1 AND id=$2)`, tenant, dev).Scan(&exists); err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	if !exists {
+		http.Error(w, "device not found", 404)
+		return
+	}
+	rows, err := s.st.Pool.Query(r.Context(), `WITH ranked AS (
+ SELECT lat,lon,recorded_at,source,row_number() OVER (ORDER BY recorded_at) AS rn,count(*) OVER () AS n
+ FROM device_positions WHERE tenant_id=$1 AND device_id=$2 AND recorded_at >= now()-make_interval(hours => $3) AND recorded_at<=now())
+ SELECT lat,lon,recorded_at,source,n FROM ranked
+ WHERE n<=720 OR rn=1 OR rn=n OR mod(rn-1,ceil((n-1)::numeric/719)::bigint)=0 ORDER BY recorded_at`, tenant, dev, hours)
+	if err != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	defer rows.Close()
+	type point struct {
+		Lat    float64 `json:"lat"`
+		Lon    float64 `json:"lon"`
+		At     string  `json:"at"`
+		Source string  `json:"source"`
+	}
+	points := []point{}
+	var total int
+	for rows.Next() {
+		var p point
+		var at time.Time
+		if err := rows.Scan(&p.Lat, &p.Lon, &at, &p.Source, &total); err != nil {
+			http.Error(w, "db", 500)
+			return
+		}
+		p.At = at.UTC().Format(time.RFC3339Nano)
+		points = append(points, p)
+	}
+	if rows.Err() != nil {
+		http.Error(w, "db", 500)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"device_id": dev, "hours": hours, "points": points, "total": total})
 }
