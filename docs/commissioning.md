@@ -102,3 +102,7 @@ Limits, honestly:
 - Existing gateways need a regenerated broker ACL (the `scan` topics) and an agent upgrade before scans work.
 - A wide serial range is slow: up to 5 register probes per address at 400 ms each.
 - No SNMP scan from the dashboard (it needs a community secret); use `-scan-snmp` on the box.
+
+## Exporting a recorded position trail
+
+On Map, select a device and a 1 h, 24 h or 7 d window. Export shown CSV downloads the loaded snapshot, up to 720 sampled positions. It is disabled while loading or when the result is empty or failed. It does not download the full stored history: every row includes the device, requested window, available and exported sample counts, UTC timestamp, latitude, longitude and manual/telemetry source. Refresh first to include newer samples. The download is local and works without internet; no file is uploaded or shared. Connecting lines are not a known route, and these samples are not a GPS hardware certification.
