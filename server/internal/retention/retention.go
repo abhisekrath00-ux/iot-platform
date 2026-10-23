@@ -82,6 +82,13 @@ func Job(pool *pgxpool.Pool, retentionDays int, every time.Duration) func(contex
 	return func(ctx context.Context) {
 		run := func() {
 			now := time.Now()
+			// Location history has its own fixed seven-day policy, independent
+			// of the optional raw telemetry retention settings.
+			if n, err := PurgePositions(ctx, pool, now); err != nil {
+				log.Printf("retention: position trails: %v", err)
+			} else if n > 0 {
+				log.Printf("retention: purged %d expired position samples (pass cap 50000)", n)
+			}
 			if c, sk, err := EnsurePartitions(ctx, pool, now, 3); err != nil {
 				log.Printf("retention: partitions: %v", err)
 			} else if len(c)+len(sk) > 0 {
