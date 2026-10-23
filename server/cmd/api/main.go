@@ -201,6 +201,7 @@ func main() {
 	api.HandleFunc("GET /v1/devices/{id}/tokens", s.listDeviceTokens)
 	api.HandleFunc("DELETE /v1/devices/{id}/tokens/{tid}", s.revokeDeviceToken)
 	s.cached(api, "GET /v1/telemetry/latest", s.latestTelemetry)
+	s.cached(api, "GET /v1/telemetry/group-latest", s.groupLatestTelemetry)
 	api.HandleFunc("GET /v1/telemetry/count", s.countTelemetry)
 	api.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
 	api.HandleFunc("GET /v1/telemetry/rollup", s.rollupTelemetry)
@@ -764,6 +765,82 @@ func (s *server) latestTelemetry(w http.ResponseWriter, r *http.Request) {
 		var t time.Time
 		rows.Scan(&p, &v, &u, &q, &t)
 		out = append(out, map[string]any{"point_id": p, "value": v, "unit": u, "quality": q, "observed_at": t})
+	}
+	writeJSON(w, 200, out)
+}
+
+// groupLatestTelemetry aggregates the latest value of every point across the
+// transitive members of a device group - the group's own devices plus every
+// descendant group's. agg (required) is sum, avg, min or max. Each member
+// device contributes one sample per point (its newest); the aggregate is over
+// devices at their own latest timestamps, not over a time window. Units are
+// checked across contributing devices: unit is set only when uniform, and
+// units_mixed flags aggregates that add or average unlike quantities.
+func (s *server) groupLatestTelemetry(w http.ResponseWriter, r *http.Request) {
+	group := r.URL.Query().Get("group_id")
+	if group == "" || len(group) > 128 {
+		http.Error(w, "group_id required", 400)
+		return
+	}
+	var expr string
+	switch r.URL.Query().Get("agg") {
+	case "sum":
+		expr = "sum(value)"
+	case "avg":
+		expr = "avg(value)"
+	case "min":
+		expr = "min(value)"
+	case "max":
+		expr = "max(value)"
+	default:
+		http.Error(w, "agg must be sum, avg, min or max", 400)
+		return
+	}
+	var exists bool
+	if err := s.st.Pool.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM device_groups WHERE tenant_id=$1 AND id=$2)`,
+		auth.Tenant(r), group).Scan(&exists); err != nil {
+		dbErr(w, err)
+		return
+	}
+	if !exists {
+		http.Error(w, "unknown group", 404)
+		return
+	}
+	rows, err := s.st.Pool.Query(r.Context(),
+		`WITH RECURSIVE gsub(id) AS (
+		   SELECT id FROM device_groups WHERE tenant_id=$1 AND id=$2
+		   UNION ALL SELECT g.id FROM device_groups g JOIN gsub ON g.parent_id=gsub.id WHERE g.tenant_id=$1
+		 ), `+strings.Replace(customerSubtreeCTE, "%s", "NULLIF($3,'')", 1)+`,
+		 members AS (
+		   SELECT DISTINCT m.device_id FROM device_group_members m
+		   WHERE m.tenant_id=$1 AND m.group_id IN (SELECT id FROM gsub)
+		     AND ($3='' OR m.device_id IN (SELECT id FROM devices WHERE tenant_id=$1 AND customer_id IN (SELECT id FROM csub)))
+		 ),
+		 latest AS (
+		   SELECT DISTINCT ON (t.device_id, t.point_id) t.point_id, t.value, t.unit, t.observed_at
+		   FROM telemetry t JOIN members m ON m.device_id=t.device_id
+		   WHERE t.tenant_id=$1
+		   ORDER BY t.device_id, t.point_id, t.observed_at DESC
+		 )
+		 SELECT point_id, `+expr+`, count(*), max(observed_at),
+		        CASE WHEN count(DISTINCT unit)=1 THEN min(unit) ELSE '' END,
+		        count(DISTINCT unit)>1
+		 FROM latest GROUP BY point_id ORDER BY point_id`, auth.Tenant(r), group, scopeOf(r))
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var p, u string
+		var v float64
+		var n int
+		var t time.Time
+		var mixed bool
+		rows.Scan(&p, &v, &n, &t, &u, &mixed)
+		out = append(out, map[string]any{"point_id": p, "value": v, "devices": n, "observed_at": t, "unit": u, "units_mixed": mixed})
 	}
 	writeJSON(w, 200, out)
 }
