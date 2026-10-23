@@ -35,3 +35,11 @@ export function tilesFor(cx: number, cy: number, z: number, w: number, h: number
 
 /** Metres per pixel at a latitude and zoom. */
 export const metresPerPx = (lat: number, z: number): number => (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** z;
+
+/** Inverse of worldPx: world pixel back to latitude/longitude at the same zoom. */
+export function latLonFromWorldPx(wx: number, wy: number, z: number): [number, number] {
+  const n = TILE * 2 ** z;
+  const lon = (wx / n) * 360 - 180;
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * wy) / n))) * 180) / Math.PI;
+  return [lat, lon];
+}
