@@ -3,8 +3,8 @@ import { formatValue } from '../lib/format';
 import { useEffect, useMemo, useState } from 'react';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { api, Device, LatestPoint } from '../lib/api';
-import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem, filterWidgetsByAsset, intersectDeviceSets, createSequencer } from '../lib/widgets';
+import { api, Device, LatestPoint, GroupPoint } from '../lib/api';
+import { Widget, WidgetType, thresholdState, optNum, spanOf, moveItem, filterWidgetsByAsset, filterGroupWidgets, intersectDeviceSets, createSequencer } from '../lib/widgets';
 import { groupPath, sortGroupsByTree } from '../lib/groups';
 import { GaugeWidget, BarWidget, StatusWidget, TableWidget, StatWidget, IndicatorWidget, AlarmsWidget, NoteWidget } from '../components/Widgets';
 
@@ -18,17 +18,48 @@ const TEMPLATES = [
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+const AGG_WORD: Record<string, string> = { sum: 'total', avg: 'average', min: 'lowest', max: 'highest' };
+
 function KpiWidget({ w }: { w: Widget }) {
   const [pt, setPt] = useState<LatestPoint | null>(null);
+  const [gpt, setGpt] = useState<GroupPoint | null>(null);
   const [err, setErr] = useState('');
+  const isGroup = !!w.group_id;
   useEffect(() => {
+    if (isGroup) return;
     const load = () => api<LatestPoint[]>(`/v1/telemetry/latest?device_id=${w.device_id}`)
       .then(d => setPt(d.find(p => p.point_id === w.point_id) ?? null))
       .catch(e => setErr(String(e)));
     load();
     const t = setInterval(load, 10000);
     return () => clearInterval(t);
-  }, [w.device_id, w.point_id]);
+  }, [w.device_id, w.point_id, isGroup]);
+  useEffect(() => {
+    if (!isGroup) return;
+    const load = () => api<GroupPoint[]>(`/v1/telemetry/group-latest?group_id=${encodeURIComponent(w.group_id ?? '')}&agg=${w.agg ?? 'sum'}`)
+      .then(d => setGpt(d.find(p => p.point_id === w.point_id) ?? null))
+      .catch(e => setErr(String(e)));
+    load();
+    const t = setInterval(load, 10000);
+    return () => clearInterval(t);
+  }, [w.group_id, w.agg, w.point_id, isGroup]);
+  if (isGroup) {
+    return (
+      <div className="card">
+        <div className="muted">{w.title}</div>
+        {err && <div className="muted" style={{ fontSize: 12 }}>{err}</div>}
+        {gpt ? (
+          <>
+            <div className="kpi" style={{ color: ({ ok: 'inherit', warn: 'var(--warn, #b25000)', bad: 'var(--bad, #d70015)', none: 'inherit' } as Record<string, string>)[thresholdState(gpt.value, w.warn, w.crit)] }}>{formatValue(gpt.value)} <small>{gpt.units_mixed ? '' : gpt.unit}</small></div>
+            {gpt.units_mixed
+              ? <span className="pill warn">mixed units across devices - check the point's units before trusting this</span>
+              : <span className="pill ok">{AGG_WORD[w.agg ?? 'sum']} across {gpt.devices} device{gpt.devices === 1 ? '' : 's'}</span>}
+            <div className="muted" style={{ fontSize: 12 }}>latest member reading {new Date(gpt.observed_at).toLocaleString()}</div>
+          </>
+        ) : !err && <div className="muted">no data yet</div>}
+      </div>
+    );
+  }
   return (
     <div className="card">
       <div className="muted">{w.title}</div>
@@ -107,6 +138,10 @@ export default function Dashboards() {
   const [wDevice, setWDevice] = useState('');
   const [wPoint, setWPoint] = useState('');
   const [devicePoints, setDevicePoints] = useState<LatestPoint[]>([]);
+  const [wSource, setWSource] = useState<'device' | 'group'>('device');
+  const [wGroup, setWGroup] = useState('');
+  const [wAgg, setWAgg] = useState<'sum' | 'avg' | 'min' | 'max'>('sum');
+  const [groupPoints, setGroupPoints] = useState<GroupPoint[]>([]);
 
   const deviceName = useMemo(() => {
     const m = new Map(devices.map(d => [d.id, d.name || d.id]));
@@ -146,7 +181,7 @@ export default function Dashboards() {
     loadBoards();
     api<Device[]>('/v1/devices').then(d => { setDevices(d); if (d.length) { setTplDevice(d[0].id); setWDevice(d[0].id); } }).catch(() => {});
     api<{ id: string; name: string }[]>('/v1/assets').then(setAssets).catch(() => {});
-    api<{ id: string; name: string; devices: number; parent_id?: string | null }[]>('/v1/groups').then(setGroups).catch(() => {});
+    api<{ id: string; name: string; devices: number; parent_id?: string | null }[]>('/v1/groups').then(d => { setGroups(d); if (d.length) setWGroup(d[0].id); }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -156,6 +191,12 @@ export default function Dashboards() {
       .then(d => { setDevicePoints(d); if (d.length) setWPoint(d[0].point_id); })
       .catch(() => setDevicePoints([]));
   }, [wDevice]);
+  useEffect(() => {
+    if (wSource !== 'group' || !wGroup) { setGroupPoints([]); return; }
+    api<GroupPoint[]>(`/v1/telemetry/group-latest?group_id=${encodeURIComponent(wGroup)}&agg=avg`)
+      .then(d => { setGroupPoints(d); if (d.length) setWPoint(d[0].point_id); })
+      .catch(() => setGroupPoints([]));
+  }, [wSource, wGroup]);
 
   const createBoard = async () => {
     if (!newName.trim()) return;
@@ -196,7 +237,20 @@ export default function Dashboards() {
       setWTitle(''); setWText('');
       return;
     }
-    if (!sel || !wDevice) return;
+    if (!sel) return;
+    if (wSource === 'group' && (wType === 'kpi' || wType === 'gauge')) {
+      if (!wGroup || !wPoint) return;
+      const gname = groups.find(g => g.id === wGroup);
+      const gw: Widget = {
+        id: uid(), type: wType, device_id: '', group_id: wGroup, agg: wAgg, point_id: wPoint,
+        title: wTitle.trim() || `${gname ? groupPath(gname, groups) : wGroup} ${wPoint} (${wAgg})`,
+        min: optNum(wMin), max: optNum(wMax), warn: optNum(wWarn), crit: optNum(wCrit),
+      };
+      setSel({ ...sel, layout: { widgets: [...(sel.layout.widgets ?? []), gw] } });
+      setWTitle('');
+      return;
+    }
+    if (!wDevice) return;
     const w: Widget = {
       id: uid(), type: wType, device_id: wDevice, point_id: wPoint || undefined,
       title: wTitle.trim() || `${deviceName(wDevice)} ${wType === 'bar' || wType === 'status' || wType === 'table' ? '' : wPoint || ''}${wType === 'timeseries' ? ' (24h)' : ''}`.trim(),
@@ -255,7 +309,7 @@ export default function Dashboards() {
   const groupFiltering = groupDevices && groupDevices.for === groupFilter ? groupDevices : null;
   const widgets = sel?.layout.widgets ?? [];
   const combinedIds = intersectDeviceSets(filtering ? filtering.ids : null, groupFiltering ? groupFiltering.ids : null);
-  const visibleWidgets = filterWidgetsByAsset(widgets, combinedIds);
+  const visibleWidgets = filterGroupWidgets(filterWidgetsByAsset(widgets, combinedIds), !!filtering, groupFiltering ? groupFilter : '', groups);
   const hiddenByAsset = widgets.length - visibleWidgets.length;
 
   const setWidgets = (ws: Widget[]) => sel && setSel({ ...sel, layout: { widgets: ws } });
@@ -388,15 +442,35 @@ export default function Dashboards() {
                   </select>
                 </div>
                 {wType === 'note' && <div><label>Text</label><textarea rows={3} maxLength={2000} value={wText} onChange={e => setWText(e.target.value)} /></div>}
-                {wType !== 'alarms' && wType !== 'note' && <div><label>Device</label>
+                {(wType === 'kpi' || wType === 'gauge') && <div><label>Source</label>
+                  <select aria-label="Widget source" value={wSource} onChange={e => setWSource(e.target.value as 'device' | 'group')}>
+                    <option value="device">Device</option>
+                    <option value="group">Group aggregate</option>
+                  </select>
+                </div>}
+                {wSource === 'group' && (wType === 'kpi' || wType === 'gauge') && <div><label>Group</label>
+                  <select aria-label="Aggregate over group" value={wGroup} onChange={e => setWGroup(e.target.value)}>
+                    {sortGroupsByTree(groups).map(g => <option key={g.id} value={g.id}>{groupPath(g, groups)}</option>)}
+                    {groups.length === 0 && <option value="">no groups yet</option>}
+                  </select>
+                </div>}
+                {wSource === 'group' && (wType === 'kpi' || wType === 'gauge') && <div><label>Aggregate</label>
+                  <select aria-label="Aggregation" value={wAgg} onChange={e => setWAgg(e.target.value as 'sum' | 'avg' | 'min' | 'max')}>
+                    <option value="sum">Sum of latest values</option>
+                    <option value="avg">Average of latest values</option>
+                    <option value="min">Lowest latest value</option>
+                    <option value="max">Highest latest value</option>
+                  </select>
+                </div>}
+                {wType !== 'alarms' && wType !== 'note' && !(wSource === 'group' && (wType === 'kpi' || wType === 'gauge')) && <div><label>Device</label>
                   <select value={wDevice} onChange={e => setWDevice(e.target.value)}>
                     {devices.map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
                   </select>
                 </div>}
                 {wType !== 'alarms' && wType !== 'note' && <div><label>Point</label>
                   <select value={wPoint} onChange={e => setWPoint(e.target.value)}>
-                    {devicePoints.map(p => <option key={p.point_id} value={p.point_id}>{p.point_id}</option>)}
-                    {devicePoints.length === 0 && <option value="">no live points</option>}
+                    {(wSource === 'group' && (wType === 'kpi' || wType === 'gauge') ? groupPoints : devicePoints).map(p => <option key={p.point_id} value={p.point_id}>{p.point_id}</option>)}
+                    {(wSource === 'group' && (wType === 'kpi' || wType === 'gauge') ? groupPoints : devicePoints).length === 0 && <option value="">no live points</option>}
                   </select>
                 </div>}
                 <div><label>Title (optional)</label><input value={wTitle} onChange={e => setWTitle(e.target.value)} /></div>
@@ -404,7 +478,7 @@ export default function Dashboards() {
                 {(wType === 'gauge' || wType === 'bar') && <div><label>Max</label><input type="number" style={{ width: 80 }} value={wMax} onChange={e => setWMax(e.target.value)} /></div>}
                 {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && wType !== 'alarms' && wType !== 'note' && <div><label>{wType === 'indicator' ? 'On at (value ≥)' : 'Warn at'}</label><input type="number" style={{ width: 80 }} value={wWarn} onChange={e => setWWarn(e.target.value)} /></div>}
                 {wType !== 'timeseries' && wType !== 'status' && wType !== 'stat' && wType !== 'indicator' && wType !== 'alarms' && wType !== 'note' && <div><label>Critical at</label><input type="number" style={{ width: 80 }} value={wCrit} onChange={e => setWCrit(e.target.value)} /></div>}
-                <button onClick={addWidget} disabled={wType === 'alarms' || wType === 'note' ? false : !wDevice || (!wPoint && wType !== 'bar' && wType !== 'status' && wType !== 'table')}>Add</button>
+                <button onClick={addWidget} disabled={wType === 'alarms' || wType === 'note' ? false : (wSource === 'group' && (wType === 'kpi' || wType === 'gauge') ? !wGroup || !wPoint : !wDevice || (!wPoint && wType !== 'bar' && wType !== 'status' && wType !== 'table'))}>Add</button>
               </div>
             </div>
           )}
@@ -415,7 +489,7 @@ export default function Dashboards() {
           {groupErr && <p className="muted" style={{ fontSize: 12 }} role="alert">{groupErr}</p>}
           {filtering && filtering.incomplete > 0 && <p className="muted" style={{ fontSize: 12 }} role="alert">This asset has {filtering.incomplete} more device{filtering.incomplete === 1 ? '' : 's'} than the filter could load (list limit), so widgets bound to {filtering.incomplete === 1 ? 'it' : 'them'} are hidden as well. Narrow the asset to see them.</p>}
           {groupFiltering && groupFiltering.incomplete > 0 && <p className="muted" style={{ fontSize: 12 }} role="alert">This group has {groupFiltering.incomplete} more device{groupFiltering.incomplete === 1 ? '' : 's'} than the filter could load (list limit), so widgets bound to {groupFiltering.incomplete === 1 ? 'it' : 'them'} are hidden as well.</p>}
-          {hiddenByAsset > 0 && <p className="muted" style={{ fontSize: 12 }}>The {filtering && groupFiltering ? 'asset and group filters' : filtering ? `asset filter${dashRelation.trim() ? ` (via "${dashRelation.trim()}")` : ''}` : 'group filter'} hide{!filtering || !groupFiltering ? 's' : ''} {hiddenByAsset} widget{hiddenByAsset === 1 ? '' : 's'} bound to {hiddenByAsset === 1 ? 'a device' : 'devices'} outside {filtering && groupFiltering ? 'them' : 'it'}.</p>}
+          {hiddenByAsset > 0 && <p className="muted" style={{ fontSize: 12 }}>The {filtering && groupFiltering ? 'asset and group filters' : filtering ? `asset filter${dashRelation.trim() ? ` (via "${dashRelation.trim()}")` : ''}` : 'group filter'} hide{!filtering || !groupFiltering ? 's' : ''} {hiddenByAsset} widget{hiddenByAsset === 1 ? '' : 's'} bound to devices or groups outside {filtering && groupFiltering ? 'them' : 'it'}.</p>}
           <div className={`cards board${wall ? ' wall-grid' : ''}`}>
             {visibleWidgets.map((w, i) => (
               <div key={w.id} className={`board-item${dragFrom === i ? ' dragging' : ''}`}
