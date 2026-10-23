@@ -15,7 +15,7 @@ Status words: Built (implemented and tested here), Partial (narrower version), N
 | Dashboards and widgets | Partial | 10 widget types against ThingsBoard's 300+ |
 | Rule engine | Partial | Flows and threshold rules, no full node library |
 | Device groups, typed attributes | Built | Named groups with fleet filter and editor; admin-defined typed attributes (text, number, yes/no, one-of, required). Group-scoped alert rules, group dashboard filtering and nested groups built (2026-10-23, tested); no group-wide aggregate widgets yet |
-| Maps and geofencing | Partial | Circular zones with enter/exit alerts; device positions from telemetry points (simulator-tested, no real GPS hardware); no polygons or GPS tracks |
+| Maps and geofencing | Partial | Circular and polygon zones with enter/exit alerts; device positions from telemetry points (simulator-tested, no real GPS hardware); no GPS tracks |
 | OTA firmware for end devices | Partial | Edge agent releases only |
 | White-label | Partial | Name, accent colour and logo upload (PNG/JPEG, also drawn into report PDFs), plus per-customer name/accent/logo overrides (2026-10-20). No custom domain, no email template branding |
 | Mobile app | Partial | Responsive web and PWA; no native app |
