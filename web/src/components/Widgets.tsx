@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, LatestPoint, AlertRow } from '../lib/api';
+import { api, LatestPoint, GroupPoint, GroupAgg, AlertRow } from '../lib/api';
 import { formatValue } from '../lib/format';
 import { Widget, thresholdState, fraction, freshness, summarize, indicatorOn } from '../lib/widgets';
 
@@ -10,6 +10,7 @@ export function useLatest(deviceId: string, everyMs = 10000) {
   const [pts, setPts] = useState<LatestPoint[]>([]);
   const [err, setErr] = useState('');
   useEffect(() => {
+    if (!deviceId) { setPts([]); return; }
     let alive = true;
     const load = () => api<LatestPoint[]>(`/v1/telemetry/latest?device_id=${encodeURIComponent(deviceId)}`)
       .then(d => { if (alive) { setPts(d); setErr(''); } })
@@ -21,8 +22,31 @@ export function useLatest(deviceId: string, everyMs = 10000) {
   return { pts, err };
 }
 
+/** Polls one point's aggregate over a group's transitive member devices. */
+export function useGroupLatest(groupId: string, agg: GroupAgg, everyMs = 10000) {
+  const [pts, setPts] = useState<GroupPoint[]>([]);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!groupId) { setPts([]); return; }
+    let alive = true;
+    const load = () => api<GroupPoint[]>(`/v1/telemetry/group-latest?group_id=${encodeURIComponent(groupId)}&agg=${agg}`)
+      .then(d => { if (alive) { setPts(d); setErr(''); } })
+      .catch(e => { if (alive) setErr(String(e)); });
+    load();
+    const t = setInterval(load, everyMs);
+    return () => { alive = false; clearInterval(t); };
+  }, [groupId, agg, everyMs]);
+  return { pts, err };
+}
+
 export function GaugeWidget({ w }: { w: Widget }) {
-  const { pts, err } = useLatest(w.device_id);
+  const dev = useLatest(w.group_id ? '' : w.device_id);
+  const grp = useGroupLatest(w.group_id ?? '', w.agg ?? 'sum');
+  const pts: { point_id: string; value: number; unit: string }[] = w.group_id
+    ? grp.pts.map(p => ({ point_id: p.point_id, value: p.value, unit: p.units_mixed ? '' : p.unit }))
+    : dev.pts;
+  const err = w.group_id ? grp.err : dev.err;
+  const mixed = w.group_id && (grp.pts.find(x => x.point_id === w.point_id)?.units_mixed ?? false);
   const p = pts.find(x => x.point_id === w.point_id);
   const min = w.min ?? 0, max = w.max ?? 100;
   const f = p ? fraction(p.value, min, max) : 0;
@@ -40,6 +64,7 @@ export function GaugeWidget({ w }: { w: Widget }) {
       </svg>
       <div className="kpi" style={{ marginTop: -26 }}>{p ? formatValue(p.value) : '-'} <small>{p?.unit}</small></div>
       <div className="muted" style={{ fontSize: 12 }}>{formatValue(min)} to {formatValue(max)}</div>
+      {mixed && <div className="muted" style={{ fontSize: 12, color: STATE_VAR.warn }}>mixed units across devices - check the point's units before trusting this</div>}
     </div>
   );
 }
