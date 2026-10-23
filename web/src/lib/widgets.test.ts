@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { thresholdState, fraction, freshness, optNum, spanOf, moveItem, summarize, indicatorOn, filterWidgetsByAsset, intersectDeviceSets, createSequencer, Widget } from './widgets';
+import { thresholdState, fraction, freshness, optNum, spanOf, moveItem, summarize, indicatorOn, filterWidgetsByAsset, filterGroupWidgets, groupInTree, intersectDeviceSets, createSequencer, Widget } from './widgets';
 
 describe('widget logic', () => {
   it('threshold state: crit beats warn, none when no value', () => {
@@ -115,5 +115,34 @@ describe('intersectDeviceSets', () => {
   });
   it('can intersect to empty', () => {
     expect(intersectDeviceSets(new Set(['x']), new Set(['y']))!.size).toBe(0);
+  });
+});
+
+describe('filterGroupWidgets: group-aggregate widgets under the dashboard filters', () => {
+  const groups = [
+    { id: 'root', parent_id: null },
+    { id: 'line', parent_id: 'root' },
+    { id: 'cell', parent_id: 'line' },
+    { id: 'other', parent_id: null },
+  ];
+  const dev = { id: 'w1', type: 'kpi' as const, title: 'd', device_id: 'd1', point_id: 'p' };
+  const gw = (gid: string) => ({ id: 'g-' + gid, type: 'kpi' as const, title: gid, device_id: '', group_id: gid, agg: 'sum' as const, point_id: 'p' });
+
+  it('passes device-bound widgets through and shows group widgets when no filter is active', () => {
+    const ws = [dev, gw('root'), gw('cell')];
+    expect(filterGroupWidgets(ws, false, '', groups)).toHaveLength(3);
+  });
+  it('an asset filter always hides group aggregates: their coverage is not asset-bounded', () => {
+    expect(filterGroupWidgets([dev, gw('cell')], true, '', groups)).toEqual([dev]);
+  });
+  it('a group filter keeps widgets bound to it or its descendants and hides ancestors and unrelated groups', () => {
+    const ws = [dev, gw('root'), gw('line'), gw('cell'), gw('other')];
+    expect(filterGroupWidgets(ws, false, 'line', groups).map(w => w.id)).toEqual(['w1', 'g-line', 'g-cell']);
+    expect(filterGroupWidgets(ws, false, 'root', groups).map(w => w.id)).toEqual(['w1', 'g-root', 'g-line', 'g-cell']);
+  });
+  it('groupInTree is cycle-safe', () => {
+    const loop = [{ id: 'a', parent_id: 'b' }, { id: 'b', parent_id: 'a' }];
+    expect(groupInTree('a', 'zzz', loop)).toBe(false);
+    expect(groupInTree('a', 'b', loop)).toBe(true);
   });
 });
