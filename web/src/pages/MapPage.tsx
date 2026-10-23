@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Empty from '../components/Empty';
+import { downloadTrailCsv } from '../lib/trailCsv';
 import { api, Device } from '../lib/api';
 import { fitZoom, latLonFromWorldPx, metresPerPx, TILE, tilesFor, worldPx } from '../lib/mercator';
 
@@ -162,9 +163,10 @@ export default function MapPage() {
             {[1,24,168].map(h=><button key={h} className="ghost" aria-pressed={trackHours===h} onClick={()=>setTrackHours(h)}>{h===1?'1 h':h===24?'24 h':'7 d'}</button>)}
             <button className="ghost" onClick={()=>setTrackRefresh(n=>n+1)}>Refresh</button>
             <button className="ghost" onClick={()=>setTrackId('')}>Hide trail</button>
+            <button className="ghost" disabled={track.length===0 || !!trackState} onClick={()=>downloadTrailCsv(trackId,trackHours,trackTotal,track)}>Export shown CSV</button>
           </div>
           <p className="muted" role="status" style={{fontSize:12}}>{trackState || `${track.length} of ${trackTotal} recorded samples shown. Orange dots are recorded positions; connecting lines are not a known route.`}</p>
-          <p className="muted" style={{fontSize:12}}>Manual saves and paired telemetry fixes only. Stationary samples are reduced to a 5-minute heartbeat; moves of at least 5 m are kept. Refresh to fetch newer samples.</p>
+          <p className="muted" style={{fontSize:12}}>Manual saves and paired telemetry fixes only. Stationary samples are reduced to a 5-minute heartbeat; moves of at least 5 m are kept. Refresh to fetch newer samples. CSV exports only the displayed samples (up to 720), not the full stored history; each row includes the window and shown/available counts.</p>
         </>}
       </div>
       {!proj
