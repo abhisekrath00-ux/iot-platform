@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -114,7 +115,19 @@ func (t *PositionTracker) Track(ctx context.Context, tenant, device, point strin
 	if err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if pubLat != nil {
+		fixAt := *latT
+		if lonT.After(fixAt) {
+			fixAt = *lonT
+		}
+		if err := RecordTrail(ctx, t.pool, tenant, device, *pubLat, *pubLon, fixAt, "telemetry"); err != nil {
+			log.Printf("position trail: %v", err)
+		}
+	}
+	return nil
 }
 
 func (t *PositionTracker) config(ctx context.Context, tenant, device string) (posCfg, error) {
