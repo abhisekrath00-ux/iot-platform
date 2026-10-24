@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -42,6 +43,8 @@ type Detector struct {
 	ListPorts func() ([]string, error)
 	Sweep     func(context.Context, driver.PortOpener, driver.SweepRequest) driver.SweepResult
 	ScanLAN   func(context.Context, string, time.Duration) ([]discover.Hit, error)
+	ScanSNMP  func(context.Context, string, string, time.Duration) ([]discover.SNMPHit, error)
+	LookupEnv func(string) (string, bool)
 	WhoIs     func(context.Context, string, time.Duration) ([]discover.BACnetDevice, error)
 	Nets      func() []Net
 	Now       func() time.Time
@@ -58,7 +61,7 @@ func New(cfg *config.Config, profiles []Profile) *Detector {
 	return &Detector{
 		Cfg: cfg, Profiles: profiles,
 		ListPorts: serial.GetPortsList, Sweep: driver.SweepModbusRTU,
-		ScanLAN: discover.ScanLAN, WhoIs: discover.FindBACnet,
+		ScanSNMP: discover.ScanSNMP, LookupEnv: os.LookupEnv, ScanLAN: discover.ScanLAN, WhoIs: discover.FindBACnet,
 		Nets: LocalNets, Now: time.Now,
 	}
 }
@@ -97,6 +100,10 @@ func (d *Detector) Run(ctx context.Context) Result {
 	}
 	if a.DoBACnet() {
 		f, n := d.bacnetPass(ctx, nets)
+		res.Findings, res.Notes = append(res.Findings, f...), append(res.Notes, n...)
+	}
+	if a.SNMP {
+		f, n := d.snmpPass(ctx, nets)
 		res.Findings, res.Notes = append(res.Findings, f...), append(res.Notes, n...)
 	}
 	return res
