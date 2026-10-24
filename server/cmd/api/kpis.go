@@ -158,6 +158,15 @@ func (s *server) kpiHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		hours = n
 	}
+	forecastHours := 0
+	if v := r.URL.Query().Get("forecast_hours"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 72 || hours < 96 {
+			http.Error(w, "forecast_hours must be 1-72 and history hours at least 96", 400)
+			return
+		}
+		forecastHours = n
+	}
 	var name, expr, unit string
 	if s.st.Pool.QueryRow(r.Context(), `SELECT name,expression,unit FROM kpis WHERE id=$1 AND tenant_id=$2`, r.PathValue("id"), auth.Tenant(r)).Scan(&name, &expr, &unit) != nil {
 		http.Error(w, "not found", 404)
@@ -168,14 +177,20 @@ func (s *server) kpiHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "stored expression invalid", 500)
 		return
 	}
-	since := time.Now().Add(-time.Duration(hours) * time.Hour).Truncate(time.Hour)
+	end := time.Now().UTC().Truncate(time.Hour)
+	since := end.Add(-time.Duration(hours) * time.Hour)
 	perBucket := map[time.Time]map[string]float64{}
 	for _, ref := range e.Refs {
 		rows, err := s.st.Pool.Query(r.Context(), `
-			WITH r AS (SELECT bucket b, sum/NULLIF(n,0) v FROM telemetry_rollup_hourly WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND bucket>=$4),
-			     t AS (SELECT date_trunc('hour',observed_at) b, avg(value) v FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND quality='measured' AND observed_at>=$4 GROUP BY 1)
+			WITH r AS (SELECT bucket b, sum/NULLIF(n,0) v FROM telemetry_rollup_hourly WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND bucket>=$4 AND ($5::timestamptz IS NULL OR bucket<$5)),
+			     t AS (SELECT date_trunc('hour',observed_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' b, avg(value) v FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND quality='measured' AND observed_at>=$4 AND ($5::timestamptz IS NULL OR observed_at<$5) GROUP BY 1)
 			SELECT b, v FROM r WHERE v IS NOT NULL UNION ALL SELECT b, v FROM t WHERE b NOT IN (SELECT b FROM r)`,
-			auth.Tenant(r), ref.Device, ref.Point, since)
+			auth.Tenant(r), ref.Device, ref.Point, since, func() any {
+				if forecastHours > 0 {
+					return end
+				}
+				return nil
+			}())
 		if err != nil {
 			http.Error(w, "db", 500)
 			return
@@ -190,19 +205,20 @@ func (s *server) kpiHistory(w http.ResponseWriter, r *http.Request) {
 				perBucket[b][ref.String()] = v
 			}
 		}
+		if rows.Err() != nil {
+			rows.Close()
+			http.Error(w, "db", 500)
+			return
+		}
 		rows.Close()
 	}
-	type pt struct {
-		T time.Time `json:"t"`
-		V float64   `json:"v"`
-	}
-	pts := []pt{}
+	pts := []kpiHour{}
 	for b, vals := range perBucket {
 		if len(vals) != len(e.Refs) {
 			continue
 		}
 		if v, err := e.Eval(vals); err == nil && !math.IsNaN(v) && !math.IsInf(v, 0) {
-			pts = append(pts, pt{b, v})
+			pts = append(pts, kpiHour{b, v})
 		}
 	}
 	sort.Slice(pts, func(i, j int) bool { return pts[i].T.Before(pts[j].T) })
@@ -214,6 +230,9 @@ func (s *server) kpiHistory(w http.ResponseWriter, r *http.Request) {
 			mn, mx, sum = math.Min(mn, p.V), math.Max(mx, p.V), sum+p.V
 		}
 		out["min"], out["max"], out["avg"] = mn, mx, sum/float64(len(pts))
+	}
+	if forecastHours > 0 {
+		out["projection"] = projectKPI(pts, since, hours, forecastHours)
 	}
 	writeJSON(w, 200, out)
 }
