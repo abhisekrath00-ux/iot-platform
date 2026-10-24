@@ -9,7 +9,7 @@ interface Host { Addr: string; Port: number; Service: string; }
 interface Bac { Addr: string; Instance: number; Vendor: number; }
 interface ScanRow {
   id: string; kind: 'modbus-rtu' | 'lan' | 'bacnet'; status: string; created_at: string;
-  params: { port?: string; baud?: number; parity?: string; auto?: boolean };
+  params: { port?: string; baud?: number; data_bits?: number; stop_bits?: number; parity?: string; auto?: boolean };
   result?: { ok: boolean; error?: string; note?: string; slaves?: Slave[]; hosts?: Host[]; bacnet?: Bac[] };
 }
 
@@ -145,7 +145,7 @@ function SlaveTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile
             <td className="muted">{best ? `${best.name} (${Math.round(best.score * 100)}% of ${best.probed} registers plausible)${best.profile_id.startsWith('builtin:') ? ', gateway built-in; choose a matching profile to add' : ''}` : 'no profile matched'}</td>
             <td><select value={pid} onChange={e => setSel({ ...sel, [sl.address]: e.target.value })}><option value="">Choose...</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
             <td><input value={names[sl.address] ?? `Slave ${sl.address}`} onChange={e => setNames({ ...names, [sl.address]: e.target.value })} aria-label={`Name for slave ${sl.address}`} /></td>
-            <td>{added[key] ? <span className="muted">Added</span> : <button disabled={!pid} onClick={() => add(s, key, pid, names[sl.address] ?? `Slave ${sl.address}`, { port: s.params.port, baud: s.params.baud, parity: s.params.parity ?? 'none', address: sl.address, interval_seconds: 10 })}>Add</button>}</td>
+            <td>{added[key] ? <span className="muted">Added</span> : <button disabled={!pid} onClick={() => add(s, key, pid, names[sl.address] ?? `Slave ${sl.address}`, { port: s.params.port, baud: s.params.baud, data_bits: s.params.data_bits ?? 8, stop_bits: s.params.stop_bits ?? 1, parity: s.params.parity ?? 'none', address: sl.address, interval_seconds: 10 })}>Add</button>}</td>
           </tr>
         );
       })}
