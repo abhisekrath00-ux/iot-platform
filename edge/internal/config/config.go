@@ -6,6 +6,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/paths"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -70,20 +71,22 @@ type Config struct {
 	CommandMode    string `yaml:"command_mode"` // "" = reject all commands | "simulate" = record only, no hardware
 }
 
-// Autodetect configures edge-side discovery. Everything defaults to on except
+// Autodetect configures edge-side discovery. SNMP is opt-in. Other passes default on except
 // auto_add: the agent proposes devices, a person confirms them in the dashboard
 // (or here, with auto_add, for confident matches only).
 type Autodetect struct {
-	Enabled     *bool         `yaml:"enabled"`      // default true; false turns the whole thing off
-	Interval    time.Duration `yaml:"interval"`     // between scans, default 6h, minimum 15m
-	Serial      *bool         `yaml:"serial"`       // sweep serial ports (default true)
-	LAN         *bool         `yaml:"lan"`          // probe the local private subnets (default true)
-	BACnet      *bool         `yaml:"bacnet"`       // BACnet Who-Is broadcast (default true)
-	SerialFrom  int           `yaml:"serial_from"`  // first slave address to try, default 1
-	SerialTo    int           `yaml:"serial_to"`    // last slave address to try, default 32
-	SerialPorts []string      `yaml:"serial_ports"` // extra ports to sweep besides the ones the OS lists (e.g. a custom udev name)
-	LANCIDRs    []string      `yaml:"lan_cidrs"`    // explicit ranges instead of the local subnets
-	AutoAdd     bool          `yaml:"auto_add"`     // add confident matches to polling on this gateway (default false)
+	Enabled          *bool         `yaml:"enabled"`            // default true; false turns the whole thing off
+	Interval         time.Duration `yaml:"interval"`           // between scans, default 6h, minimum 15m
+	Serial           *bool         `yaml:"serial"`             // sweep serial ports (default true)
+	LAN              *bool         `yaml:"lan"`                // probe the local private subnets (default true)
+	SNMP             bool          `yaml:"snmp"`               // opt-in; default false, local proposals only
+	SNMPCommunityEnv string        `yaml:"snmp_community_env"` // environment variable name, never the secret
+	BACnet           *bool         `yaml:"bacnet"`             // BACnet Who-Is broadcast (default true)
+	SerialFrom       int           `yaml:"serial_from"`        // first slave address to try, default 1
+	SerialTo         int           `yaml:"serial_to"`          // last slave address to try, default 32
+	SerialPorts      []string      `yaml:"serial_ports"`       // extra ports to sweep besides the ones the OS lists (e.g. a custom udev name)
+	LANCIDRs         []string      `yaml:"lan_cidrs"`          // explicit ranges instead of the local subnets
+	AutoAdd          bool          `yaml:"auto_add"`           // add confident matches to polling on this gateway (default false)
 }
 
 func on(p *bool) bool { return p == nil || *p }
@@ -184,6 +187,9 @@ func Load(path string) (*Config, error) {
 	f, t := c.Autodetect.Range()
 	if f < 1 || t > 247 || f > t {
 		return nil, fmt.Errorf("autodetect serial_from/serial_to must be within 1-247")
+	}
+	if a := c.Autodetect; a.SNMP && !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`).MatchString(a.SNMPCommunityEnv) {
+		return nil, fmt.Errorf("autodetect.snmp requires snmp_community_env (environment variable name)")
 	}
 	if c.Autodetect.AutoAdd {
 		c.mergeOverlay()
