@@ -13,7 +13,7 @@ type kpiHour struct {
 // Forecast the expression of hourly input means, not a forecast of each input.
 // Fail closed on any missing/undefined hour. No synthetic fill or actuation.
 func projectKPI(pts []kpiHour, start time.Time, hours, horizon int) map[string]any {
-	out := map[string]any{"label": "statistical", "method": "additive Holt-Winters, season 24h", "enough_data": false, "useful": false, "history_hours": hours, "complete_hours": len(pts), "note": "Expression applied to hourly input averages, not average of the expression. Complete UTC hours only; no gap filling. Approximate intervals, not guarantees. No alerts or control actions."}
+	out := map[string]any{"label": "statistical", "method": "additive Holt-Winters, season 24h", "enough_data": false, "useful": false, "history_hours": hours, "complete_hours": len(pts), "note": "Expression applied to hourly input averages, not average of the expression. Complete UTC hours only; no gap filling. Nominal 95% model interval: 1.96 times training-residual sigma, widened by forecast step. Coverage not calibrated or verified on real plant data; not a guarantee. No alerts or control actions."}
 	if len(pts) != hours {
 		out["reason"] = "every complete hour must have all inputs and a finite expression result"
 		return out
