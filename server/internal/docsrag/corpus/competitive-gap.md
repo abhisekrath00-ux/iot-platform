@@ -186,3 +186,5 @@ function node sandbox.
 | Capability | Competitor | Status | Note |
 |---|---|---|---|
 | Push telemetry into a customer's own OpenSearch/Elasticsearch | ThingsBoard (rule-engine external nodes), Insights Hub integrations | Partial | One-way, idempotent, off by default, LAN-only if you wish. Tested against a fake `_bulk` endpoint only. See search-sink.md. No index templates, no read-back, no retention sync. |
+
+- KPI statistical projection (2026-10-24): on-demand 24h UI forecast from 14d of complete evaluated KPI hours, Holt-Winters with last24h backtest and >5% improvement requirement. Missing/undefined hours or zero-error baseline withhold predictions; no fill, alerts or actuation. Synthetic-data verification only; no dimensional/unit-history validation. See ai-design.md.
