@@ -241,9 +241,9 @@ func (s *server) addScannedDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var kind string
-	var result []byte
+	var result, params []byte
 	if err := s.st.Pool.QueryRow(r.Context(),
-		`SELECT kind, result FROM gateway_scans WHERE id=$1 AND tenant_id=$2 AND gateway_id=$3 AND status='done'`, sid, tenant, gw).Scan(&kind, &result); err != nil {
+		`SELECT kind, result, params FROM gateway_scans WHERE id=$1 AND tenant_id=$2 AND gateway_id=$3 AND status='done'`, sid, tenant, gw).Scan(&kind, &result, &params); err != nil {
 		http.Error(w, "finished scan not found", 404)
 		return
 	}
@@ -257,8 +257,8 @@ func (s *server) addScannedDevice(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "connection: "+err.Error(), 400)
 		return
 	}
-	if !connectionFromScan(kind, result, in.Connection) {
-		http.Error(w, "that device was not in this scan's results", 409)
+	if !boundScanConnection(kind, driverProfile, params, result, in.Connection) {
+		http.Error(w, "connection does not match the scan transport/result; rerun legacy scans without recorded settings", 409)
 		return
 	}
 	// The same bus address or host:port twice on one gateway is almost always a mistake.
@@ -360,7 +360,7 @@ func connectionFromScan(kind string, result []byte, conn map[string]any) bool {
 		h, _ := conn["host"].(string)
 		p, hasPort := conn["net_port"].(float64)
 		for _, x := range res.Hosts {
-			if x.Addr == h && (!hasPort || float64(x.Port) == p) {
+			if x.Addr == h && hasPort && float64(x.Port) == p {
 				return true
 			}
 		}
