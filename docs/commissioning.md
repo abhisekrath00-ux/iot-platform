@@ -106,3 +106,9 @@ Limits, honestly:
 ## Exporting a recorded position trail
 
 On Map, select a device and a 1 h, 24 h or 7 d window. Export shown CSV downloads the loaded snapshot, up to 720 sampled positions. It is disabled while loading or when the result is empty or failed. It does not download the full stored history: every row includes the device, requested window, available and exported sample counts, UTC timestamp, latitude, longitude and manual/telemetry source. Refresh first to include newer samples. The download is local and works without internet; no file is uploaded or shared. Connecting lines are not a known route, and these samples are not a GPS hardware certification.
+
+## Scan Add transport binding
+
+The scan Add API now checks the recorded transport as well as the found address. Serial Modbus requires the scanned port, baud, data bits, stop bits and parity (omitted connection values mean the polling defaults:9600/8/1/none). It only accepts the two Modbus RTU driver profiles, not an unrelated serial or network driver. Legacy serial results without saved scan settings must be rerun; missing settings are not guessed. If a scan used non-default data/stop bits, API clients must include them explicitly when adding.
+
+LAN Add requires an explicit observed host/port pair. An OPC UA endpoint must name that same host and port; paths on that endpoint remain allowed, but userinfo, query and fragment cannot change the target. BACnet Add stays host-based and BACnet-driver-only; this does not verify object points or instance-level identity. These checks bind a proposal to the scanned transport; they do not prove hardware compatibility or authorize network control.
