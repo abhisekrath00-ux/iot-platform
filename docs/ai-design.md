@@ -103,3 +103,9 @@ Label in the response: `learned`. What that means and does not mean:
   Both models can be compared in the Forecast card (selector). Neither is better in general; the backtest decides per series.
 - The interval is an approximation (training residual sigma, widening with the square root of the step). It is not a calibrated prediction interval.
 - Forecasts are descriptive and never trigger actions. Tested on synthetic series only (daily cycle with trend, noise, constant) plus an integration test.
+
+## KPI projections
+
+KPI cards can request a statistical projection from the evaluated hourly KPI history. `GET /v1/kpis/{id}/history?hours=336&forecast_hours=24` uses complete UTC hours, with rollups first and measured raw fallback. `forecast_hours` is 1-72 and `hours` must be 96-720. The expression is applied to hourly input averages first (a ratio of means is not a mean of ratios), then additive Holt-Winters with a 24-hour season is fit. All requested hours need every input and finite math. No gaps are filled. The response's `projection` reports coverage and a reason if rejected.
+
+The last 24 hours are held out. A forecast is returned only when its mean absolute error is strictly below 95% of the repeating-yesterday baseline error and that baseline error is positive. A constant series with a perfect baseline is therefore withheld. The UI asks on demand for 14 days and shows 24 hours ahead, with an approximate 95% interval, coverage/error states and exact hourly values. Synthetic seasonal-trend data verified the pipeline, not real-plant predictive accuracy. KPI units remain user-entered labels; the engine does not validate dimensions or historic input units. No projection creates alerts or controls. Customer-scoped users remain denied KPI APIs.
