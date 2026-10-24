@@ -17,11 +17,13 @@ export default function KpiForecast({id,unit}:{id:string;unit:string}) {
    {p?.backtest&&<p className="muted" style={{fontSize:12}}>Mean absolute error {p.backtest.mae} vs {p.backtest.seasonal_naive_mae} for repeating yesterday. Must improve by more than 5%.</p>}
    {p?.enough_data&&p.useful&&pts.length>0&&<>
     <svg role="img" aria-label="KPI forecast with approximate interval" viewBox="0 0 300 120" width="100%" style={{display:'block'}}>
-     <polygon points={[...pts.map((v,i)=>`${x(i)},${y(v.upper)}`),...pts.map((v,i)=>`${x(i)},${y(v.lower)}`).reverse()].join(' ')} fill="var(--accent,#006cce)" opacity="0.15"/>
+     <polygon points={[...pts.map((v,i)=>`${x(i)},${y(v.upper)}`),...pts.map((v,i)=>`${x(i)},${y(v.lower)}`).reverse()].join(' ')} fill="var(--accent,#006cce)" opacity="0.22"/>
+     <polyline points={pts.map((v,i)=>`${x(i)},${y(v.upper)}`).join(' ')} fill="none" stroke="var(--accent,#006cce)" opacity="0.5" strokeWidth="0.7"/>
+     <polyline points={pts.map((v,i)=>`${x(i)},${y(v.lower)}`).join(' ')} fill="none" stroke="var(--accent,#006cce)" opacity="0.5" strokeWidth="0.7"/>
      <polyline points={pts.map((v,i)=>`${x(i)},${y(v.value)}`).join(' ')} fill="none" stroke="var(--accent,#006cce)" strokeWidth="2" strokeDasharray="4 3"/>
     </svg>
     <p className="muted" style={{fontSize:12}}>Interval range {Number(low.toFixed(3))} to {Number(high.toFixed(3))} {unit}. Left to right: hourly steps.</p>
-    <p className="muted" style={{fontSize:12}}>Approximate 95% band, not a guarantee. {new Date(pts[0].t).toLocaleString()} to {new Date(pts[pts.length-1].t).toLocaleString()}. Unit: {unit||'not specified'}.</p>
+    <p className="muted" style={{fontSize:12}}>Nominal 95% model band (shaded, bounds outlined), not measured coverage or a guarantee. Thin bands may be hard to see; exact bounds below. {new Date(pts[0].t).toLocaleString()} to {new Date(pts[pts.length-1].t).toLocaleString()}. Unit: {unit||'not specified'}.</p>
     <details><summary>Hourly forecast values and intervals</summary><div style={{overflowX:'auto'}}><table><thead><tr><th>Time</th><th>Value</th><th>Lower</th><th>Upper</th></tr></thead><tbody>{pts.map(v=><tr key={v.t}><td>{new Date(v.t).toLocaleString()}</td><td>{v.value}</td><td>{v.lower}</td><td>{v.upper}</td></tr>)}</tbody></table></div></details>
    </>}
   </section>}
