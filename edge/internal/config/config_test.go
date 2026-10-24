@@ -167,3 +167,19 @@ devices:
 		t.Fatalf("%+v", c.Devices)
 	}
 }
+
+func TestSNMPDiscoveryRequiresEnvName(t *testing.T) {
+	for _, tc := range []struct {
+		tail string
+		bad  bool
+	}{
+		{"snmp: false", false}, {"snmp: true", true}, {"snmp: true\n  snmp_community_env: public;echo", true}, {"snmp: true\n  snmp_community_env: PLANT_SNMP_SCAN", false},
+	} {
+		p := filepath.Join(t.TempDir(), "config.yaml")
+		os.WriteFile(p, []byte("gateway_id: g\ntenant_id: t\nautodetect:\n  "+tc.tail+"\n"), 0600)
+		_, err := Load(p)
+		if (err != nil) != tc.bad {
+			t.Fatalf("%q %v", tc.tail, err)
+		}
+	}
+}
