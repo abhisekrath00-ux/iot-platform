@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Empty from '../components/Empty';
+import KpiForecast from '../components/KpiForecast';
 import { api } from '../lib/api';
 import { buildOee } from '../lib/oee';
 
@@ -61,6 +62,7 @@ export default function Kpis() {
                 {k.stale && !k.error && <span className="pill warn">stale input</span>}
                 <div className="muted" style={{ fontSize: 12, marginTop: 6 }}><code>{k.expression}</code></div>
                 <Trend id={k.id} unit={k.unit} />
+                <KpiForecast id={k.id} unit={k.unit} />
                 <button className="ghost" style={{ marginTop: 8 }} aria-label={`Delete ${k.name}`} onClick={() => api(`/v1/kpis/${k.id}`, { method: 'DELETE' }).then(load).catch(e => setMsg(String(e)))}>Delete</button>
               </div>
             ))}
