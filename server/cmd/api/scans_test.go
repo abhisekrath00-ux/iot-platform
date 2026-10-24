@@ -72,7 +72,7 @@ func TestIntegrationScanAddDevice(t *testing.T) {
 	})
 	ctx := t.Context()
 	s.st.Pool.Exec(ctx, `INSERT INTO device_profiles(id,tenant_id,name,driver_profile,points,created_by) VALUES('itest-sc1-p','itest-sc1','Selec test','modbus-generic','[{"id":"v","register":0,"func":4,"type":"u16","min":0,"max":300}]','x')`)
-	s.st.Pool.Exec(ctx, `INSERT INTO gateway_scans(id,tenant_id,gateway_id,kind,params,status,result) VALUES('itest-sc1-s','itest-sc1','itest-sc1-gw','modbus-rtu','{}','done','{"ok":true,"slaves":[{"address":5,"matches":[]}]}'),('itest-sc1-run','itest-sc1','itest-sc1-gw','lan','{}','requested',NULL)`)
+	s.st.Pool.Exec(ctx, `INSERT INTO gateway_scans(id,tenant_id,gateway_id,kind,params,status,result) VALUES('itest-sc1-s','itest-sc1','itest-sc1-gw','modbus-rtu','{"port":"/dev/ttyUSB0","baud":9600,"parity":"none","data_bits":8,"stop_bits":1}','done','{"ok":true,"slaves":[{"address":5,"matches":[]}]}'),('itest-sc1-run','itest-sc1','itest-sc1-gw','lan','{}','requested',NULL)`)
 	api := http.NewServeMux()
 	api.HandleFunc("POST /v1/gateways/{id}/scans", s.requestScan)
 	api.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
@@ -92,6 +92,11 @@ func TestIntegrationScanAddDevice(t *testing.T) {
 	}
 	if c := add("operator", "itest-sc1-s", strings.Replace(good, "/dev/ttyUSB0", "/etc/passwd", 1)); c != 400 {
 		t.Errorf("bad port: %d", c)
+	}
+	for _, body := range []string{strings.Replace(good, "/dev/ttyUSB0", "/dev/ttyUSB1", 1), strings.Replace(good, "9600", "19200", 1), strings.Replace(good, `"address":5`, `"address":5,"data_bits":7`, 1), strings.Replace(good, `"address":5`, `"address":5,"parity":"even"`, 1)} {
+		if c := add("operator", "itest-sc1-s", body); c != 409 {
+			t.Fatalf("transport bypass %d %s", c, body)
+		}
 	}
 	if c := add("operator", "itest-sc1-s", good); c != 201 {
 		t.Fatalf("add: %d", c)
