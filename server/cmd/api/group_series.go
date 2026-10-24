@@ -20,6 +20,11 @@ func (s *server) groupSeriesTelemetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "group_id and point_id required (up to 128 chars)", 400)
 		return
 	}
+	format := r.URL.Query().Get("format")
+	if format != "" && format != "csv" {
+		http.Error(w, "format must be csv or omitted", 400)
+		return
+	}
 	expr := ""
 	switch agg {
 	case "sum":
@@ -82,6 +87,10 @@ func (s *server) groupSeriesTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 	if rows.Err() != nil {
 		dbErr(w, rows.Err())
+		return
+	}
+	if format == "csv" {
+		writeGroupSeriesCSV(w, group, point, agg, out)
 		return
 	}
 	writeJSON(w, 200, out)
