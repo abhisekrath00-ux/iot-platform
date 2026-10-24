@@ -1,15 +1,17 @@
 import {useEffect,useState} from 'react';
 import {LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,CartesianGrid} from 'recharts';
 import {api} from '../lib/api';
+import {downloadGroupCSV} from '../lib/groupCsv';
 import {Widget} from '../lib/widgets';
 import {formatValue} from '../lib/format';
 import {chart as ct} from '../lib/theme';
 export interface GroupBucket {t:string;v:number|null;devices:number;members:number;samples:number;unit:string;units_mixed:boolean}
 
 export default function GroupSeriesWidget({w}:{w:Widget}) {
+ const [exporting,setExporting]=useState(false);const [exportError,setExportError]=useState('');
  const [rows,setRows]=useState<GroupBucket[]>([]);const [state,setState]=useState('Loading...');
  useEffect(()=>{
-  let alive=true;setRows([]);setState('Loading...');
+  let alive=true;setRows([]);setExportError('');setState('Loading...');
   const load=()=>api<GroupBucket[]>(`/v1/telemetry/group-series?group_id=${encodeURIComponent(w.group_id??'')}&point_id=${encodeURIComponent(w.point_id??'')}&agg=${w.agg??'sum'}`)
    .then(r=>{if(alive){setRows(r);setState(r.length?'':'No raw samples in the last 24 hours.');}})
    .catch(()=>{if(alive){setRows([]);setState('Could not load the group trend.');}});
@@ -33,6 +35,11 @@ export default function GroupSeriesWidget({w}:{w:Widget}) {
    </LineChart></ResponsiveContainer></div>
    <p className="muted" style={{fontSize:12}}>{Math.min(...contributors)}-{Math.max(...contributors)} of {members} current member devices contribute per populated hour. Missing devices are omitted, not zero.</p>
   </>}
+  <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+   <button className="ghost" disabled={exporting||!!state||mixed||rows.length===0} onClick={async()=>{setExporting(true);setExportError('');try{await downloadGroupCSV(w.group_id??'',w.point_id??'',w.agg??'sum')}catch(e){setExportError(e instanceof Error?e.message:'CSV download failed. Try again.')}finally{setExporting(false)}}}>{exporting?'Downloading CSV...':'Download group CSV'}</button>
+  </div>
+  {exportError&&<p role="alert">{exportError}</p>}
+  <p className="muted" style={{fontSize:12}}>CSV fetches a fresh 24 h snapshot, so it may differ from this chart's last poll. Includes coverage counts; mixed units withhold the download. Not a saved or scheduled report.</p>
   <p className="muted" style={{fontSize:12}}>Current group tree and customer scope, not historical membership. Raw samples only; retained rollups are not used because they carry no units. First and current hours can be partial. Refreshes each minute.</p>
  </div>
 }
