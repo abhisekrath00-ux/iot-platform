@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"math"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -86,6 +88,26 @@ func TestIntegrationGroupSeries(t *testing.T) {
 	if r := get("avg", "gs-root"); r[0].V == nil || *r[0].V != 22.5 || r[0].Samples != 3 {
 		t.Fatalf("estimate excluded: %+v", r)
 	}
+	// CSV is the same scoped aggregate, not a new unbounded reporting query.
+	csvRead := func(handler http.Handler, scoped bool) [][]string {
+		t.Helper()
+		path := "/v1/telemetry/group-series?group_id=gs-root&point_id=power&agg=sum&format=csv"
+		w := call(handler, "itest-gseries", "viewer", "GET", path, "")
+		if scoped {
+			w = callAs(handler, "itest-gseries", "gs-view", "viewer", "GET", path, "")
+		}
+		if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/csv") || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("csv %d %s", w.Code, w.Body)
+		}
+		r, e := csv.NewReader(strings.NewReader(w.Body.String())).ReadAll()
+		if e != nil {
+			t.Fatal(e)
+		}
+		return r
+	}
+	if r := csvRead(mux, false); len(r) != 3 || r[1][5] != "45" || r[1][7] != "2" || r[1][8] != "2" || r[1][9] != "3" {
+		t.Fatalf("csv %+v", r)
+	}
 	// A unit change anywhere in the window invalidates the entire series,
 	// rather than connecting incompatible units under one axis label.
 	p.Exec(ctx, `UPDATE telemetry SET unit='W' WHERE event_id='gs5'`)
@@ -93,6 +115,9 @@ func TestIntegrationGroupSeries(t *testing.T) {
 		if !r.Mixed || r.V != nil || r.Unit != "" {
 			t.Fatal("mixed units plotted", r)
 		}
+	}
+	if w := call(mux, "itest-gseries", "viewer", "GET", "/v1/telemetry/group-series?group_id=gs-root&point_id=power&agg=sum&format=csv", ""); w.Code != 409 || strings.HasPrefix(w.Header().Get("Content-Type"), "text/csv") {
+		t.Fatal("mixed CSV not withheld")
 	}
 	p.Exec(ctx, `UPDATE telemetry SET unit='kW' WHERE event_id='gs5'`)
 	// Scope middleware and SQL both enforce a customer subtree.
@@ -105,6 +130,15 @@ func TestIntegrationGroupSeries(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &scoped)
 	if w.Code != 200 || len(scoped) != 2 || scoped[0].V == nil || *scoped[0].V != 30 || scoped[0].Members != 1 {
 		t.Fatalf("scope %d %s", w.Code, w.Body)
+	}
+	if r := csvRead(s.customerScope(mux), true); len(r) != 3 || r[1][5] != "30" || r[1][7] != "1" || r[1][8] != "1" {
+		t.Fatalf("scoped csv %+v", r)
+	}
+	if call(mux, "another-tenant", "viewer", "GET", "/v1/telemetry/group-series?group_id=gs-root&point_id=power&agg=sum&format=csv", "").Code != 404 {
+		t.Fatal("CSV cross tenant")
+	}
+	if call(mux, "itest-gseries", "viewer", "GET", "/v1/telemetry/group-series?group_id=gs-root&point_id=power&agg=sum&format=xml", "").Code != 400 {
+		t.Fatal("format validation")
 	}
 	for _, path := range []string{"?group_id=gs-root&agg=sum", "?group_id=gs-root&point_id=power&agg=bad"} {
 		if call(mux, "itest-gseries", "viewer", "GET", "/v1/telemetry/group-series"+path, "").Code != 400 {
