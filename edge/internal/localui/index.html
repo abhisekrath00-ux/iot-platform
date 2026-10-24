@@ -16,7 +16,7 @@ h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin:0}
 .ok{background:var(--ok)}.bad{background:var(--bad)}.warn{background:var(--warn)}
 h2{font-size:17px;margin:0 0 10px}
 .dev{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:14px 0;border-top:1px solid var(--line)}
-.dev:first-child{border-top:0}.dn{font-weight:600}.dm{color:var(--mute);font-size:13px}
+.dev:first-child{border-top:0}.dn{font-weight:600;overflow-wrap:anywhere}.dm{color:var(--mute);font-size:13px}
 .vals{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.chip{background:var(--bg);border-radius:999px;padding:2px 10px;font-size:12px}
 .err{color:var(--bad);font-size:13px;margin-top:4px}.empty{color:var(--mute);padding:12px 0}
 </style></head><body><main>
@@ -53,6 +53,7 @@ var fs=d.findings||[];document.getElementById("dsub").textContent="Read-only pro
 var h="";fs.forEach(function(f){var t="";
 if(f.kind==="modbus-rtu"){t="Serial "+esc(f.port)+" "+esc(f.baud)+"/"+esc(f.parity)+", address "+esc(f.address);var m=(f.matches||[])[0];t+=m?" \u2013 looks like "+esc(m.name)+" ("+Math.round(m.score*100)+"% of "+m.probed+" registers plausible)":" \u2013 answers, no profile matched"}
 else if(f.kind==="lan"){t="Network "+esc(f.host)+":"+esc(f.net_port)+" ("+esc(f.service)+")"}
+else if(f.kind==="snmp"){t="SNMP "+esc(f.host)+" · "+esc(f.snmp_name||"unnamed")+" · "+esc(f.snmp_descr||"")+" (local only; not enrolled)"}
 else{t="BACnet "+esc(f.host)+" device "+esc(f.instance)+" vendor "+esc(f.vendor)}
 h+='<div class="dev"><div><div class="dn">'+t+'</div><div class="dm">'+esc(f.state)+(f.confident?" \u00b7 confident match":"")+" \u00b7 first seen "+ago(f.first_seen)+"</div></div></div>"});
 document.getElementById("found").innerHTML=h||'<div class="empty">Nothing detected yet. The first scan starts shortly after the agent does.</div>';
