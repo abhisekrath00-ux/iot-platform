@@ -14,11 +14,13 @@ import (
 // Finding is one thing the edge saw. It is a proposal, never a configured device.
 type Finding struct {
 	Key       string         `json:"key"`
-	Kind      string         `json:"kind"` // modbus-rtu | lan | bacnet
+	Kind      string         `json:"kind"` // modbus-rtu | lan | bacnet | snmp (local only)
 	Port      string         `json:"port,omitempty"`
 	Baud      int            `json:"baud,omitempty"`
 	Parity    string         `json:"parity,omitempty"`
 	Address   int            `json:"address,omitempty"`
+	SNMPName  string         `json:"snmp_name,omitempty"`
+	SNMPDescr string         `json:"snmp_descr,omitempty"`
 	Host      string         `json:"host,omitempty"`
 	NetPort   int            `json:"net_port,omitempty"`
 	Service   string         `json:"service,omitempty"`
