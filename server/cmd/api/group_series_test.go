@@ -62,6 +62,30 @@ func TestIntegrationGroupSeries(t *testing.T) {
 	if r := get("sum", "gs-child"); *r[0].V != 30 {
 		t.Fatal(r)
 	}
+	// Invalid quality values are placeholders, not observations. Nonfinite
+	// values are excluded before both averaging and the unit check.
+	for _, q := range []string{
+		`INSERT INTO telemetry(event_id,tenant_id,gateway_id,device_id,point_id,observed_at,value,unit,quality,schema_version) VALUES
+ ('gs-stale','itest-gseries','itest-gseries-gw','itest-gseries-dev','power',date_trunc('hour',now())-interval '2 hours',999,'W','stale',1),
+ ('gs-missing','itest-gseries','itest-gseries-gw','gs-second','power',date_trunc('hour',now())-interval '2 hours',999,'A','missing',1),
+ ('gs-nan','itest-gseries','itest-gseries-gw','gs-second','power',date_trunc('hour',now())-interval '2 hours','NaN'::float8,'A','measured',1),
+ ('gs-inf','itest-gseries','itest-gseries-gw','gs-second','power',date_trunc('hour',now())-interval '2 hours','Infinity'::float8,'A','estimated',1),
+ ('gs-neginf','itest-gseries','itest-gseries-gw','gs-second','power',date_trunc('hour',now())-interval '2 hours','-Infinity'::float8,'A','measured',1),
+ ('gs-invalid-hour','itest-gseries','itest-gseries-gw','gs-second','power',date_trunc('hour',now())-interval '3 hours',999,'A','missing',1)`} {
+		if _, err := p.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r := get("sum", "gs-root"); len(r) != 2 || r[0].V == nil || *r[0].V != 45 || r[0].Samples != 3 || r[0].Mixed || r[0].Unit != "kW" {
+		t.Fatalf("invalid raw contributed: %+v", r)
+	}
+	// Estimated finite samples remain useful observations and count honestly.
+	if _, err := p.Exec(ctx, `UPDATE telemetry SET quality='estimated' WHERE event_id='gs2'`); err != nil {
+		t.Fatal(err)
+	}
+	if r := get("avg", "gs-root"); r[0].V == nil || *r[0].V != 22.5 || r[0].Samples != 3 {
+		t.Fatalf("estimate excluded: %+v", r)
+	}
 	// A unit change anywhere in the window invalidates the entire series,
 	// rather than connecting incompatible units under one axis label.
 	p.Exec(ctx, `UPDATE telemetry SET unit='W' WHERE event_id='gs5'`)
