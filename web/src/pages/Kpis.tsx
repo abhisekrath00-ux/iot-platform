@@ -53,7 +53,7 @@ export default function Kpis() {
       <p className="muted">Derived values from live points, for example <code>{'{meter-1.kwh} / {line-a.units}'}</code>. Operators are + - * / and parentheses. Refreshes every 15 s.</p>
       {kpis.length === 0
         ? <Empty title="No KPIs yet" hint="Create one below. Each reference is {device.point}." />
-        : <div className="cards">
+        : <div className="cards" style={{gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,420px),1fr))'}}>
             {kpis.map(k => (
               <div key={k.id} className="card">
                 <div className="muted">{k.name}</div>
