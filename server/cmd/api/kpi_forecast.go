@@ -36,6 +36,7 @@ func projectKPI(pts []kpiHour, start time.Time, hours, horizon int) map[string]a
 		out["reason"] = err.Error()
 		return out
 	}
+	// A perfect naive baseline cannot be improved by a percentage.
 	bt.Useful = bt.NaiveMAE > 0 && bt.MAE < 0.95*bt.NaiveMAE
 	out["enough_data"] = true
 	out["useful"] = bt.Useful
