@@ -207,6 +207,8 @@ func printState(out io.Writer, st autodetect.State) {
 			}
 		case "lan":
 			line = fmt.Sprintf("network %s:%d (%s)", f.Host, f.NetPort, f.Service)
+		case "snmp":
+			line = fmt.Sprintf("SNMP %s: %s (%s) [local only; not enrolled]", f.Host, f.SNMPName, f.SNMPDescr)
 		case "bacnet":
 			line = fmt.Sprintf("BACnet %s device %d vendor %d", f.Host, f.Instance, f.Vendor)
 		}
