@@ -14,6 +14,7 @@ On first start (about 45 seconds after the agent is up, so polling and the broke
 | Profile matching | Each responding slave is scored against the profiles this gateway knows: it reads the first 3 registers of each profile and checks they fall inside that profile's plausible ranges. | Reads only |
 | Local network | Private IPv4 subnets of this machine (never wider than a /24, container bridges skipped), or `lan_cidrs`. TCP connect to Modbus TCP, OPC UA, IEC 104, DNP3, IEC 61850/S7, MQTT ports. | TCP connects, no payload |
 | BACnet | Who-Is broadcast to each local subnet and 255.255.255.255. | One broadcast packet |
+| SNMP (opt-in) | Private IPv4 /24 or smaller, at most 16 unique subnets; sysName/sysDescr v2c GET using operator-named environment variable. | UDP161, 800 ms per host, no retries, 32 workers |
 
 Profiles known offline: two built in (Selec MX300 and Selec MFM383A-C, from `docs/devices/`), any `*.yaml` in
 `<data>/profiles.d/` (one profile per file: `id`, `name`, `match` points, optional full `points` list), and a cache of
@@ -51,6 +52,8 @@ autodetect:
   serial: true
   lan: true
   bacnet: true
+  snmp: false          # opt-in; local proposals only
+  snmp_community_env: PLANT_SNMP_SCAN # name only, never put the secret here
   serial_from: 1
   serial_to: 32
   serial_ports: []     # extra ports besides the ones the OS lists
@@ -65,7 +68,7 @@ polling on its own only when all of these hold: Modbus RTU; exactly one profile 
 (no tie); that profile has a full polling definition on this gateway (built-in or a `profiles.d` file with `points`;
 server-cache profiles never qualify); the port/address is not already configured; the finding is not ignored.
 The device goes into `<data>/autodetected-devices.yaml`, never into your config file, and polling restarts. Delete
-a device from that file to stop it. LAN and BACnet findings are never auto-added.
+a device from that file to stop it. LAN, BACnet and SNMP findings are never auto-added.
 
 ## Bug found while building this
 
@@ -93,5 +96,9 @@ again. `-ignore KEY -ignore-undo` reverses it. The local page is read-only, so t
 
 ## Not built
 
-SNMP is not part of the loop (it needs a community string from the environment; `-scan-snmp` still works by hand).
+SNMP dashboard publication and one-click enrollment are not built. Opt-in SNMP loop findings stay local: CLI and the local status page only. They are deliberately excluded from scan/result payloads.
+
+SNMP loop safety: default off, requires `snmp_community_env` to name an existing nonempty environment variable; no default community is tried. The v2c community is clear text on the wire. No secret is stored in proposals or error notes; scan errors are summarized rather than copied. Duplicate subnets/hosts are deduplicated; this gateway's own addresses are omitted. Configured ranges wider than /24 are skipped for this pass, not expanded. Cancellation may retain answered hosts but adds an incomplete note. Missing responses can mean wrong community, firewall, unsupported v2c or no device, not proof of absence. No automatic polling, auto-add, vendor-profile match or device compatibility claim. Existing ignore/undo works on local keys.
+
+Verified with fake scanner loop tests (default off, missing env, range/cap/dedupe, partial cancellation, no cloud payload or auto-add) plus the separately simulated UDP probe tests. Local page desktop/mobile pixels inspected with an explicitly labelled synthetic finding. No live plant-network scan or hardware validation.
 mDNS in this repo finds the HexThings server, not devices, so it is not a device pass.
