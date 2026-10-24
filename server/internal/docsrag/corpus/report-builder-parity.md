@@ -50,3 +50,9 @@ Scheduler leader lock: verified with two real OS processes on one Postgres (exac
 
 Planned scale units: a load test of report runs against a large seeded telemetry table with measured p95.
 | Emissions (Scope 1 and 2) | Partial | Optional section: quantity x operator-entered factor with printed factor source, Scope 1 / 2 / total, optional intensity (API). No built-in factors, no Scope 3, not a certified BRSR format. See emissions-report.md. Unit-tested and checked with a real API report in six formats. |
+
+## Group aggregate CSV snapshot API
+
+`GET /v1/telemetry/group-series?group_id=...&point_id=...&agg=sum|avg|min|max&format=csv` downloads the existing raw-only trailing24h aggregate as CSV. Each populated UTC hour first averages each device, then aggregates device means. Rows carry contributor/member/sample counts and current-membership/partial-hour/raw-quality caveats. Missing device-hours are omitted, not zero. Only finite measured/estimated raw values contribute. Current transitive group and customer subtree apply, not historical membership.
+
+Any unit conflict in the window returns409 and withholds the file. No rows yields a header-only CSV. Text cells neutralize formula prefixes, numeric values remain numbers. Fixed filename `group-series-24h.csv`, no-store response. This is an API download, not a saved report source, scheduled report, UI download control, rollup-history query or external share. Existing JSON clients are unchanged when format is omitted.
