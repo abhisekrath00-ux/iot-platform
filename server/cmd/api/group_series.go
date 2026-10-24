@@ -12,6 +12,8 @@ import (
 // 24 hours, using current transitive group membership. Raw samples only:
 // historical rollups have no units, so cannot safely establish compatibility.
 // Missing device-hours are absent, never zero-filled or carried forward.
+// Only measured/estimated finite values contribute; stale/missing placeholders
+// cannot affect an aggregate or its unit-compatibility check.
 func (s *server) groupSeriesTelemetry(w http.ResponseWriter, r *http.Request) {
 	group, point, agg := r.URL.Query().Get("group_id"), r.URL.Query().Get("point_id"), r.URL.Query().Get("agg")
 	if group == "" || len(group) > 128 || point == "" || len(point) > 128 {
@@ -50,7 +52,8 @@ func (s *server) groupSeriesTelemetry(w http.ResponseWriter, r *http.Request) {
  raw AS (
  SELECT t.device_id,date_trunc('hour',t.observed_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS bucket,t.value,t.unit
  FROM telemetry t JOIN members m ON m.device_id=t.device_id
- WHERE t.tenant_id=$1 AND t.point_id=$4 AND t.observed_at>=now()-interval '24 hours' AND t.observed_at<=now()),
+ WHERE t.tenant_id=$1 AND t.point_id=$4 AND t.observed_at>=now()-interval '24 hours' AND t.observed_at<=now()
+ AND t.quality IN ('measured','estimated') AND t.value > '-Infinity'::float8 AND t.value < 'Infinity'::float8),
  per_device AS (SELECT device_id,bucket,avg(value) v,count(*) samples FROM raw GROUP BY device_id,bucket),
  units AS (SELECT count(DISTINCT unit)>1 mixed, min(unit) unit FROM raw),
  combined AS (SELECT bucket,`+expr+` v,count(*) devices,sum(samples)::bigint samples FROM per_device GROUP BY bucket)
