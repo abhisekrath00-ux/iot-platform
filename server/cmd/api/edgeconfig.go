@@ -38,6 +38,9 @@ var (
 
 // validateProfilePoints checks points against the driver family's schema.
 func validateProfilePointsFor(driver string, pts []map[string]any) error {
+	if err := profileShapeGuards(driver, pts); err != nil {
+		return err
+	}
 	if driver == "opcua" || driver == "serial-json" || driver == "modbus-tcp" || netExtra[driver] {
 		// The edge agent refuses points without a validation range; fail here,
 		// not on the gateway after deployment.
