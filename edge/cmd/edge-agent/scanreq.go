@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/autodetect"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
+	"os"
 	"sync"
 	"time"
 
@@ -25,7 +27,8 @@ type scanRequest struct {
 	// lan
 	CIDR string `json:"cidr"`
 	// bacnet
-	Broadcast string `json:"broadcast"`
+	Broadcast    string `json:"broadcast"`
+	CommunityEnv string `json:"community_env"`
 }
 
 type scanResult struct {
@@ -37,6 +40,7 @@ type scanResult struct {
 	Slaves     []driver.Slave          `json:"slaves,omitempty"`
 	Hosts      []discover.Hit          `json:"hosts,omitempty"`
 	BACnet     []discover.BACnetDevice `json:"bacnet,omitempty"`
+	SNMP       []discover.SNMPHit      `json:"snmp,omitempty"`
 	FinishedAt time.Time               `json:"finished_at"`
 }
 
@@ -45,7 +49,7 @@ var scanMu sync.Mutex
 const scanLimit = 8 * time.Minute
 
 // runScanRequest handles one request payload and returns the result to publish.
-func runScanRequest(ctx context.Context, payload []byte, open driver.PortOpener) scanResult {
+func runScanRequest(ctx context.Context, payload []byte, open driver.PortOpener, settings ...config.Autodetect) scanResult {
 	var req scanRequest
 	res := scanResult{}
 	fail := func(msg string) scanResult {
@@ -78,6 +82,16 @@ func runScanRequest(ctx context.Context, payload []byte, open driver.PortOpener)
 			return fail(err.Error())
 		}
 		res.Hosts = hits
+	case "snmp":
+		var cfg config.Autodetect
+		if len(settings) > 0 {
+			cfg = settings[0]
+		}
+		hits, note, err := requestedSNMP(sctx, req, cfg, os.LookupEnv, discover.ScanSNMP)
+		if err != nil {
+			return fail(err.Error())
+		}
+		res.SNMP, res.Note = hits, note
 	case "bacnet":
 		ds, err := discover.FindBACnet(sctx, req.Broadcast, 3*time.Second)
 		if err != nil {
