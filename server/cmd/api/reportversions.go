@@ -22,6 +22,8 @@ import (
 
 const maxReportVersions = 100
 
+var errReportVersionChanged = errors.New("report changed since review; reopen history and review again")
+
 var errReportOutsideCustomer = errors.New("this report is shared with a customer and uses a device outside it")
 
 type reportState struct {
@@ -32,7 +34,7 @@ type reportState struct {
 }
 
 // writeReportVersion saves the report's current state as a version and replaces it with next.
-func (s *server) writeReportVersion(ctx context.Context, tenant, id, user string, next reportState) (newVersion int, found bool, err error) {
+func (s *server) writeReportVersion(ctx context.Context, tenant, id, user string, next reportState, expected ...int) (newVersion int, found bool, err error) {
 	tx, err := s.st.Pool.Begin(ctx)
 	if err != nil {
 		return 0, false, err
@@ -48,6 +50,9 @@ func (s *server) writeReportVersion(ctx context.Context, tenant, id, user string
 	}
 	if err != nil {
 		return 0, false, err
+	}
+	if len(expected) > 0 && expected[0] != ver {
+		return 0, false, errReportVersionChanged
 	}
 	if shared != nil { // a report shared with a customer may only use that customer's devices
 		var nd struct {
@@ -141,12 +146,13 @@ func (s *server) updateReport(w http.ResponseWriter, r *http.Request) {
 func (s *server) listReportVersions(w http.ResponseWriter, r *http.Request) {
 	id, tenant := r.PathValue("id"), auth.Tenant(r)
 	var cur int
-	if s.st.Pool.QueryRow(r.Context(), `SELECT version FROM reports WHERE id=$1 AND tenant_id=$2`, id, tenant).Scan(&cur) != nil {
+	var current reportState
+	if s.st.Pool.QueryRow(r.Context(), `SELECT version,name,definition,schedule_cron,channel_id FROM reports WHERE id=$1 AND tenant_id=$2`, id, tenant).Scan(&cur, &current.name, &current.definition, &current.cron, &current.channelID) != nil {
 		http.Error(w, "report not found", 404)
 		return
 	}
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT version, name, definition, schedule_cron, superseded_by, superseded_at FROM report_versions WHERE report_id=$1 ORDER BY version DESC`, id)
+		`SELECT version, name, definition, schedule_cron, channel_id, superseded_by, superseded_at FROM report_versions WHERE report_id=$1 ORDER BY version DESC`, id)
 	if err != nil {
 		dbErr(w, err)
 		return
@@ -157,13 +163,13 @@ func (s *server) listReportVersions(w http.ResponseWriter, r *http.Request) {
 		var ver int
 		var name, by string
 		var def []byte
-		var cron *string
+		var cron, channel *string
 		var at time.Time
-		if rows.Scan(&ver, &name, &def, &cron, &by, &at) == nil {
-			out = append(out, map[string]any{"version": ver, "name": name, "definition": json.RawMessage(def), "schedule_cron": cron, "replaced_by": by, "replaced_at": at})
+		if rows.Scan(&ver, &name, &def, &cron, &channel, &by, &at) == nil {
+			out = append(out, map[string]any{"version": ver, "name": name, "definition": json.RawMessage(def), "schedule_cron": cron, "channel_id": channel, "replaced_by": by, "replaced_at": at})
 		}
 	}
-	writeJSON(w, 200, map[string]any{"current": cur, "versions": out})
+	writeJSON(w, 200, map[string]any{"current": cur, "current_state": map[string]any{"name": current.name, "definition": json.RawMessage(current.definition), "schedule_cron": current.cron, "channel_id": current.channelID}, "versions": out})
 }
 
 // POST /v1/reports/{id}/versions/{v}/restore (admin, operator): make an earlier version current
@@ -194,7 +200,20 @@ func (s *server) restoreReportVersion(w http.ResponseWriter, r *http.Request) {
 			old.channelID = nil
 		}
 	}
-	v, found, err := s.writeReportVersion(r.Context(), tenant, id, auth.User(r), old)
+	var expected []int
+	if h := r.Header.Get("If-Match"); h != "" {
+		n, e := strconv.Atoi(h)
+		if e != nil || n < 1 {
+			http.Error(w, "If-Match must be a positive version", 400)
+			return
+		}
+		expected = []int{n}
+	}
+	v, found, err := s.writeReportVersion(r.Context(), tenant, id, auth.User(r), old, expected...)
+	if errors.Is(err, errReportVersionChanged) {
+		http.Error(w, err.Error(), 409)
+		return
+	}
 	if errors.Is(err, errReportOutsideCustomer) {
 		http.Error(w, err.Error(), 409)
 		return
