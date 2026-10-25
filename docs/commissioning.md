@@ -117,3 +117,8 @@ LAN Add requires an explicit observed host/port pair. An OPC UA endpoint must na
 ## Scan enrollment review
 
 Addable scan rows require choosing a profile explicitly, then Review. No first profile is assumed, including for serial match suggestions. Review snapshots the gateway, scan, device name, profile and connection fields for inspection. Cancel or Escape makes no device write. Confirm enrollment creates the device record through the existing scoped and transport-bound API; it does not start polling by itself. Download or push the updated gateway config afterward. A scan response is not proof that the chosen profile or point mapping fits the device. Pending confirmation prevents duplicate clicks; failures remain in the review for correction/retry. SNMP proposals have no enrollment action. This review is a user-interface step, not a substitute for backend permission or transport checks.
+
+
+## Profile point editor
+
+Profiles groups each point in a numbered card with persistent labels for protocol address, decoding, scale/unit and accepted range. Desktop columns collapse into full-width mobile fields. Templates still load for review only; provisional templates keep their manual-check gate. Creating a profile does not verify a sensor model, its configured units or hardware compatibility. Malformed JSON rows (null, primitive or nested array instead of point object) produce row-numbered errors and do not replace the current map or silently import a subset. Protocol payload cleaning is unchanged. The import parser's f64 allowance still exceeds the profile API's supported type list; f64 profile creation is not supported by this UI increment.
