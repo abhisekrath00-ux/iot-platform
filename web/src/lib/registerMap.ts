@@ -48,6 +48,11 @@ export function parseJson(text: string): { points: MapPoint[]; issues: Issue[] }
   try { v = JSON.parse(text); } catch { return { points: [], issues: [{ row: 0, text: 'Not valid JSON.' }] }; }
   const arr = Array.isArray(v) ? v : (v as { points?: unknown })?.points;
   if (!Array.isArray(arr)) return { points: [], issues: [{ row: 0, text: 'Expected an array of points or an object with a "points" array.' }] };
+  const malformed:Issue[]=[];
+  arr.forEach((r:unknown,i:number)=>{if(!r||typeof r!=='object'||Array.isArray(r))malformed.push({row:i+1,text:'Expected a point object, not null, an array or a primitive.'})});
+  // Preserve the current editor on malformed structure instead of replacing it
+  // with a partial map that silently drops rows.
+  if(malformed.length)return {points:[],issues:malformed};
   const points = arr.map((r: Record<string, unknown>) => ({
     id: String(r.id ?? ''), register: Number(r.register ?? NaN), func: Number(r.func ?? 4), type: String(r.type ?? 'u16').toLowerCase(), word_order: String(r.word_order ?? 'abcd').toLowerCase(),
     scale: Number(r.scale ?? 1), unit: String(r.unit ?? ''), min: Number(r.min ?? 0), max: Number(r.max ?? 1000000),
