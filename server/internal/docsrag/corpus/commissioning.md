@@ -122,3 +122,8 @@ Addable scan rows require choosing a profile explicitly, then Review. No first p
 ## Profile point editor
 
 Profiles groups each point in a numbered card with persistent labels for protocol address, decoding, scale/unit and accepted range. Desktop columns collapse into full-width mobile fields. Templates still load for review only; provisional templates keep their manual-check gate. Creating a profile does not verify a sensor model, its configured units or hardware compatibility. Malformed JSON rows (null, primitive or nested array instead of point object) produce row-numbered errors and do not replace the current map or silently import a subset. Protocol payload cleaning is unchanged. Unsupported imported types, including f64, are refused before replacing the editor, matching the profile API and selector. f64 profile creation is not supported.
+
+
+## Server-side profile map checks
+
+The create-profile API rejects duplicate point IDs for every driver. Supplied scale must be finite and nonzero, supplied ranges must be finite and max greater than min. Modbus register/function values must be integral and in range; multiword values cannot run beyond65535, overlapping spans in the same function space are refused, and bit functions require bool (register functions refuse bool). Separate Modbus function spaces may share an address. Optional legacy serial-Modbus range/scale and default function/type are preserved. Per-driver address/type checks still apply. These checks are structural only, not proof of a device model's map. Existing stored profiles are not migrated/revalidated by this change.
