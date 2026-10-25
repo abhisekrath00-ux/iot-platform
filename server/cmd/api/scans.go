@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,7 +29,8 @@ type scanParams struct {
 	From     int    `json:"from,omitempty"`
 	To       int    `json:"to,omitempty"`
 	// lan
-	CIDR string `json:"cidr,omitempty"`
+	CIDR         string `json:"cidr,omitempty"`
+	CommunityEnv string `json:"community_env,omitempty"`
 	// bacnet
 	Broadcast string `json:"broadcast,omitempty"`
 }
@@ -74,13 +76,21 @@ func validateScan(kind string, p *scanParams) error {
 		if err != nil || !pf.Addr().Is4() || !pf.Addr().IsPrivate() || pf.Bits() < 22 {
 			return fmt.Errorf("cidr must be a private IPv4 range, /22 or smaller (e.g. 192.168.1.0/24)")
 		}
+	case "snmp":
+		pf, err := netip.ParsePrefix(p.CIDR)
+		if err != nil || !pf.Addr().Is4() || !pf.Addr().IsPrivate() || pf.Bits() < 24 {
+			return fmt.Errorf("SNMP cidr must be private IPv4 /24 or smaller")
+		}
+		if !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`).MatchString(p.CommunityEnv) {
+			return fmt.Errorf("community_env must be an environment variable name, not a secret")
+		}
 	case "bacnet":
 		ip := net.ParseIP(p.Broadcast)
 		if ip == nil || ip.To4() == nil {
 			return fmt.Errorf("broadcast must be an IPv4 address (e.g. 192.168.1.255)")
 		}
 	default:
-		return fmt.Errorf("kind must be modbus-rtu, lan or bacnet")
+		return fmt.Errorf("kind must be modbus-rtu, lan, bacnet or snmp")
 	}
 	return nil
 }
@@ -95,7 +105,9 @@ func (s *server) requestScan(w http.ResponseWriter, r *http.Request) {
 		Kind   string     `json:"kind"`
 		Params scanParams `json:"params"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in); err != nil {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
 		http.Error(w, "bad json", 400)
 		return
 	}
@@ -132,6 +144,8 @@ func (s *server) requestScan(w http.ResponseWriter, r *http.Request) {
 		req["port"], req["baud"], req["data_bits"], req["stop_bits"], req["parity"] = in.Params.Port, in.Params.Baud, in.Params.DataBits, in.Params.StopBits, in.Params.Parity
 		req["from"], req["to"] = in.Params.From, in.Params.To
 		req["candidates"] = s.scanCandidates(r, tenant)
+	case "snmp":
+		req["cidr"], req["community_env"] = in.Params.CIDR, in.Params.CommunityEnv
 	case "lan":
 		req["cidr"] = in.Params.CIDR
 	case "bacnet":
