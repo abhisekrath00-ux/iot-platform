@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
+import ReportHistory from '../components/ReportHistory';
 import ReportDrive from '../components/ReportDrive';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 
@@ -114,16 +115,7 @@ export default function Reports() {
     setMsg(''); window.scrollTo({ top: 0 });
   }
   function cancelEdit() { setSubs([]); setEditingId(''); setName(''); setCron(''); setMsg(''); }
-  async function showHistory(id: string) {
-    if (hist?.id === id) { setHist(null); return; }
-    try { const h = await api<{ current: number; versions: VersionRow[] }>(`/v1/reports/${id}/versions`); setHist({ id, ...h }); }
-    catch (e2) { setMsg(String(e2)); }
-  }
-  async function restore(id: string, v: number) {
-    setMsg('');
-    try { await api(`/v1/reports/${id}/versions/${v}/restore`, { method: 'POST' }); setHist(null); setMsg(`Restored version ${v} as a new version.`); load(); }
-    catch (e2) { setMsg(String(e2)); }
-  }
+  function showHistory(id:string){setHist(hist?.id===id?null:{id,current:0,versions:[]})}
 
   async function runNow(id: string) {
     setMsg('');
@@ -356,19 +348,7 @@ export default function Reports() {
             {!scoped && <ReportDrive reportId={r.id} />}
             {me?.role === 'admin' && !scoped && <ShareWithCustomer path={`/v1/reports/${r.id}/customer`} value={r.customer_id} onDone={load} onError={setMsg} />}
           </div>
-          {hist?.id === r.id && (
-            <div style={{ marginTop: 10 }} role="region" aria-label="Report history">
-              <b>Version history</b> <span className="muted">(current is v{hist.current})</span>
-              {hist.versions.length === 0 && <p className="muted">No earlier versions. Editing the report saves the current one here first.</p>}
-              {hist.versions.map(v => (
-                <div key={v.version} style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
-                  <span>v{v.version}</span>
-                  <span className="muted">{v.name}, {v.definition.metrics.length} metrics, {v.definition.window_hours}h, by {v.definition.group_by}; replaced {new Date(v.replaced_at).toLocaleString()}</span>
-                  <button className="ghost" onClick={() => restore(r.id, v.version)}>Restore as new version</button>
-                </div>
-              ))}
-            </div>
-          )}
+          {hist?.id === r.id && <ReportHistory id={r.id} onRestored={v=>{setHist(null);setMsg(`Restored version ${v} as a new version.`);load()}}/>}
         </div>
       ))}
       {reports.length === 0 && <p className="muted">{scoped ? 'No reports have been shared with you yet.' : 'No reports yet.'}</p>}
