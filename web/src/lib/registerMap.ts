@@ -5,7 +5,7 @@ import { EDGE_TEMPLATES } from './edgeSetup';
 export interface MapPoint { id: string; register: number; func: number; type: string; word_order: string; scale: number; unit: string; min: number; max: number; }
 export interface Issue { row: number; text: string; }
 
-const TYPES = ['u16', 'i16', 'u32', 'i32', 'f32', 'f64', 'bool'];
+const TYPES = ['u16', 'i16', 'u32', 'i32', 'f32', 'bool'];
 const ORDERS = ['abcd', 'badc', 'cdab', 'dcba'];
 const WIDTH: Record<string, number> = { u16: 1, i16: 1, bool: 1, u32: 2, i32: 2, f32: 2, f64: 4 };
 export const CSV_COLUMNS = ['id', 'register', 'func', 'type', 'word_order', 'scale', 'unit', 'min', 'max'];
@@ -39,7 +39,7 @@ export function parseCsv(text: string): { points: MapPoint[]; issues: Issue[] } 
     points.push({ id: g('id') ?? '', register: num(g('register'), NaN), func: num(g('func'), 4), type: (g('type') || 'u16').toLowerCase(), word_order: (g('word_order') || 'abcd').toLowerCase(), scale: num(g('scale'), 1), unit: g('unit') ?? '', min: num(g('min'), 0), max: num(g('max'), 1000000) });
     void i;
   });
-  return { points, issues: validateMap(points) };
+  return { points: points.some(p=>!TYPES.includes(p.type))?[]:points, issues: validateMap(points) };
 }
 
 /** Parse a JSON array of points, or an object with a "points" array (the shape /v1/profiles returns). */
@@ -57,7 +57,7 @@ export function parseJson(text: string): { points: MapPoint[]; issues: Issue[] }
     id: String(r.id ?? ''), register: Number(r.register ?? NaN), func: Number(r.func ?? 4), type: String(r.type ?? 'u16').toLowerCase(), word_order: String(r.word_order ?? 'abcd').toLowerCase(),
     scale: Number(r.scale ?? 1), unit: String(r.unit ?? ''), min: Number(r.min ?? 0), max: Number(r.max ?? 1000000),
   }));
-  return { points, issues: validateMap(points) };
+  return { points: points.some(p=>!TYPES.includes(p.type))?[]:points, issues: validateMap(points) };
 }
 
 export function parseAny(text: string): { points: MapPoint[]; issues: Issue[] } {
