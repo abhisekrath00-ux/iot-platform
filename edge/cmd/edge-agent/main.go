@@ -457,7 +457,7 @@ func main() {
 		if err := mc.Subscribe(scanTopic, func(_ mqtt.Client, m mqtt.Message) {
 			payload := append([]byte(nil), m.Payload()...)
 			go func() {
-				res := runScanRequest(ctx, payload, nil)
+				res := runScanRequest(ctx, payload, nil, cfgSnapshot(cfg).Autodetect)
 				b, _ := json.Marshal(res)
 				if err := mc.Publish(scanTopic+"/result", b); err != nil {
 					log.Printf("scan: result publish: %v", err)
