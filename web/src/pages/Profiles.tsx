@@ -24,7 +24,7 @@ export default function Profiles() {
   function loadMap(pts: MapPoint[], iss: Issue[]) { if (pts.length) setPoints(pts); setIssues(iss); }
   function save(name: string, text: string) { const u = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const a = document.createElement('a'); a.href = u; a.download = name; a.click(); URL.revokeObjectURL(u); }
   const extra = EXTRA_DRIVERS[driver];
-  const cols = extra ? (extra.reg ? 'minmax(0,1fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : 'minmax(0,1fr) minmax(0,1.6fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px') : isModbus ? 'minmax(0,1.2fr) minmax(0,.7fr) minmax(0,.6fr) minmax(0,.7fr) minmax(0,.8fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : driver === 'opcua' ? 'minmax(0,1fr) minmax(0,2fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px' : 'minmax(0,1fr) minmax(0,1.4fr) minmax(0,.6fr) minmax(0,.6fr) minmax(0,.8fr) minmax(0,.8fr) 30px';
+
 
   const load = () => api<ProfileRow[]>('/v1/profiles').then(setProfiles).catch(e => setMsg(String(e)));
   useEffect(() => { load(); }, []);
@@ -62,7 +62,7 @@ export default function Profiles() {
           <label>Name</label>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Acme EM-300 power meter" required />
           <label>Driver</label>
-          <select value={driver} onChange={e => setDriver(e.target.value)}>
+          <select aria-label="Profile driver" value={driver} onChange={e => setDriver(e.target.value)}>
             <option value="modbus-generic">Modbus RTU (generic)</option>
             <option value="modbus-energy-meter">Modbus energy meter (legacy)</option>
             <option value="modbus-tcp">Modbus TCP (PLC, meter, SCADA RTU)</option>
@@ -76,7 +76,7 @@ export default function Profiles() {
               <b>Start from a template or import a register map</b>
               <p className="muted">Loads the points into the form below so you can review and edit them. Nothing is saved until you press Create profile. Format: CSV with a header (id, register, func, type, word_order, scale, unit, min, max) or JSON.</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <select style={{ width: 'auto' }} aria-label="Template" defaultValue="" onChange={e => {
+                <select style={{ width: '100%', minWidth:0 }} aria-label="Template" defaultValue="" onChange={e => {
                   const t = EDGE_TEMPLATES.find(x => x.id === e.target.value);
                   if (t?.provisional) { setPendingTpl(t.id); setPendingOk(false); }
                   else if (t) { loadMap(templatePoints(t.id), []); if (!name) setName(t.name); }
@@ -85,7 +85,7 @@ export default function Profiles() {
                   <option value="">Load a built-in template…</option>
                   {EDGE_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}{t.provisional ? ' (provisional)' : ''}</option>)}
                 </select>
-                <input type="file" accept=".csv,.json,.txt" aria-label="Import file" style={{ width: 'auto' }} onChange={async e => { const f = e.target.files?.[0]; if (f) { const r = parseAny(await f.text()); loadMap(r.points, r.issues); } e.target.value = ''; }} />
+                <input type="file" accept=".csv,.json,.txt" aria-label="Import file" style={{ width: '100%', maxWidth:340 }} onChange={async e => { const f = e.target.files?.[0]; if (f) { const r = parseAny(await f.text()); loadMap(r.points, r.issues); } e.target.value = ''; }} />
                 <button type="button" className="ghost" onClick={() => save('register-map.csv', toCsv(points.filter(p => p.id) as MapPoint[]))}>Export CSV</button>
                 <button type="button" className="ghost" onClick={() => save('register-map.json', JSON.stringify(points.filter(p => p.id), null, 2))}>Export JSON</button>
               </div>
@@ -111,46 +111,32 @@ export default function Profiles() {
               {!shown.length && points.some(p => p.id) && <p className="muted" style={{ color: '#16a34a' }}>Register map checks passed (ids unique, no overlaps, types and ranges valid).</p>}
             </div>
           )}
-          <label>Points</label>
-          <div className="muted" style={{ display: 'grid', gridTemplateColumns: cols, gap: 4, fontSize: 11, marginBottom: 2 }}>
-            <span>id</span>
-            {driver === 'opcua' && <span>node id</span>}
-            {driver === 'serial-json' && <span>field</span>}
-            {extra && <span>{extra.f === 'oid' ? 'OID' : extra.f === 'ioa' ? 'IOA' : 'key'}</span>}
-            {extra?.reg && <span>index</span>}
-            {isModbus && <><span>register</span><span>function</span><span>type</span><span>word order</span></>}
-            <span>scale</span><span>unit</span><span>min</span><span>max</span><span />
-          </div>
-          {points.map((p, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: cols, gap: 4, marginBottom: 6 }}>
-              <input value={p.id} onChange={e => setPoint(i, 'id', e.target.value)} placeholder="temp" required />
-              {driver === 'opcua' && <input value={p.node_id ?? ''} onChange={e => setPoint(i, 'node_id', e.target.value)} placeholder="ns=2;s=Boiler.Temp" required />}
-              {extra && <input value={extra.f === 'oid' ? (p.oid ?? '') : extra.f === 'ioa' ? (p.ioa ?? '') : (p.key ?? '')} onChange={e => setPoint(i, extra.f, e.target.value)} placeholder={extra.ph} required />}
-              {extra?.reg && <input type="number" value={p.register ?? 0} onChange={e => setPoint(i, 'register', e.target.value)} title="point index" />}
-              {driver === 'serial-json' && <input value={p.key ?? ''} onChange={e => setPoint(i, 'key', e.target.value)} placeholder="field name (default: id)" />}
-              {isModbus && <input type="number" value={p.register ?? 0} onChange={e => setPoint(i, 'register', e.target.value)} title="register" />}
-              {isModbus && (
-                <select value={p.func} onChange={e => setPoint(i, 'func', e.target.value)}>
-                  <option value={1}>coil</option><option value={2}>discrete</option><option value={3}>holding</option><option value={4}>input</option>
-                </select>
-              )}
-              {isModbus && (
-                <select value={p.type} onChange={e => setPoint(i, 'type', e.target.value)}>
-                  {['u16', 'i16', 'u32', 'i32', 'f32', 'bool'].map(t => <option key={t}>{t}</option>)}
-                </select>
-              )}
-              {isModbus && (
-                <select value={p.word_order} onChange={e => setPoint(i, 'word_order', e.target.value)}>
-                  {['abcd', 'badc', 'cdab', 'dcba'].map(w => <option key={w}>{w}</option>)}
-                </select>
-              )}
-              <input type="number" step="any" value={p.scale} onChange={e => setPoint(i, 'scale', e.target.value)} title="scale" />
-              <input value={p.unit ?? ''} onChange={e => setPoint(i, 'unit', e.target.value)} placeholder="unit" />
-              <input type="number" step="any" value={p.min} onChange={e => setPoint(i, 'min', e.target.value)} title="min" />
-              <input type="number" step="any" value={p.max} onChange={e => setPoint(i, 'max', e.target.value)} title="max" />
-              <button type="button" className="ghost" onClick={() => setPoints(ps => ps.filter((_, j) => j !== i))} disabled={points.length === 1}>x</button>
-            </div>
-          ))}
+          <h3>Points ({points.length})</h3>
+          <p className="muted">Review each point's address, decoding and accepted range. These checks validate the map structure, not the device model or its reported units.</p>
+          {points.map((p,i)=>{
+            const field=(label:string,control:React.ReactNode)=><label style={{display:'flex',flexDirection:'column',gap:5,margin:0,minWidth:0}}>{label}{control}</label>;
+            return <fieldset key={i} style={{minWidth:0,border:'1px solid var(--line)',borderRadius:14,padding:16,margin:'14px 0'}}>
+             <legend style={{padding:'0 6px'}}>Point {i+1}{p.id?` - ${p.id}`:''}</legend>
+             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,180px),1fr))',gap:12}}>
+              {field('Point ID',<input aria-label={`Point ${i+1} ID`} value={p.id} onChange={e=>setPoint(i,'id',e.target.value)} placeholder="temp" required/>)}
+              {driver==='opcua'&&field('OPC UA node ID',<input aria-label={`Point ${i+1} node ID`} value={p.node_id??''} onChange={e=>setPoint(i,'node_id',e.target.value)} placeholder="ns=2;s=Boiler.Temp" required/>)}
+              {extra&&field(extra.f==='oid'?'Numeric OID':extra.f==='ioa'?'IOA':'Protocol key',<input aria-label={`Point ${i+1} protocol address`} value={extra.f==='oid'?(p.oid??''):extra.f==='ioa'?(p.ioa??''):(p.key??'')} onChange={e=>setPoint(i,extra.f,e.target.value)} placeholder={extra.ph} required/>)}
+              {extra?.reg&&field('Point index',<input aria-label={`Point ${i+1} index`} type="number" value={p.register??0} onChange={e=>setPoint(i,'register',e.target.value)}/>)}
+              {driver==='serial-json'&&field('Field name (default: ID)',<input aria-label={`Point ${i+1} field name`} value={p.key??''} onChange={e=>setPoint(i,'key',e.target.value)}/>)}
+              {isModbus&&<>
+               {field('Register (zero-based)',<input aria-label={`Point ${i+1} register`} type="number" value={p.register??0} onChange={e=>setPoint(i,'register',e.target.value)}/>)}
+               {field('Read function',<select aria-label={`Point ${i+1} function`} value={p.func} onChange={e=>setPoint(i,'func',e.target.value)}><option value={1}>1 - coils</option><option value={2}>2 - discrete inputs</option><option value={3}>3 - holding registers</option><option value={4}>4 - input registers</option></select>)}
+               {field('Value type',<select aria-label={`Point ${i+1} type`} value={p.type} onChange={e=>setPoint(i,'type',e.target.value)}>{['u16','i16','u32','i32','f32','bool'].map(t=><option key={t}>{t}</option>)}</select>)}
+               {field('Word / byte order',<select aria-label={`Point ${i+1} word order`} value={p.word_order} onChange={e=>setPoint(i,'word_order',e.target.value)}>{['abcd','badc','cdab','dcba'].map(w=><option key={w}>{w}</option>)}</select>)}
+              </>}
+              {field('Scale multiplier',<input aria-label={`Point ${i+1} scale`} type="number" step="any" value={p.scale} onChange={e=>setPoint(i,'scale',e.target.value)}/>)}
+              {field('Unit label',<input aria-label={`Point ${i+1} unit`} value={p.unit??''} onChange={e=>setPoint(i,'unit',e.target.value)} placeholder="unit"/>)}
+              {field('Minimum accepted value',<input aria-label={`Point ${i+1} minimum`} type="number" step="any" value={p.min} onChange={e=>setPoint(i,'min',e.target.value)}/>)}
+              {field('Maximum accepted value',<input aria-label={`Point ${i+1} maximum`} type="number" step="any" value={p.max} onChange={e=>setPoint(i,'max',e.target.value)}/>)}
+             </div>
+             <button style={{marginTop:12}} type="button" className="ghost" aria-label={`Remove point ${i+1}`} disabled={points.length===1} onClick={()=>setPoints(ps=>ps.filter((_,j)=>j!==i))}>Remove point</button>
+            </fieldset>
+          })}
           <button type="button" className="ghost" onClick={() => setPoints(ps => [...ps, { ...emptyPoint }])}>+ point</button>
           <div style={{ marginTop: 14 }}><button type="submit" disabled={liveIssues.length > 0} title={liveIssues.length ? 'Fix the register map problems first' : undefined}>Create profile</button></div>
         </form>
