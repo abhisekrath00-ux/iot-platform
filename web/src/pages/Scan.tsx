@@ -7,10 +7,11 @@ interface Match { profile_id: string; name: string; score: number; probed: numbe
 interface Slave { address: number; matches: Match[]; }
 interface Host { Addr: string; Port: number; Service: string; }
 interface Bac { Addr: string; Instance: number; Vendor: number; }
+interface SNMPHost { Addr: string; Name: string; Descr: string; }
 interface ScanRow {
-  id: string; kind: 'modbus-rtu' | 'lan' | 'bacnet'; status: string; created_at: string;
+  id: string; kind: 'modbus-rtu' | 'lan' | 'bacnet' | 'snmp'; status: string; created_at: string;
   params: { port?: string; baud?: number; data_bits?: number; stop_bits?: number; parity?: string; auto?: boolean };
-  result?: { ok: boolean; error?: string; note?: string; slaves?: Slave[]; hosts?: Host[]; bacnet?: Bac[] };
+  result?: { ok: boolean; error?: string; note?: string; slaves?: Slave[]; hosts?: Host[]; bacnet?: Bac[]; snmp?: SNMPHost[] };
 }
 
 const PORT_DRIVER: Record<number, string> = { 502: 'modbus-tcp', 4840: 'opcua', 2404: 'iec104', 20000: 'dnp3', 102: 'iec61850' };
@@ -24,7 +25,7 @@ export default function Scan() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [scans, setScans] = useState<ScanRow[]>([]);
   const [kind, setKind] = useState<ScanRow['kind']>('modbus-rtu');
-  const [f, setF] = useState({ port: '/dev/ttyUSB0', baud: 9600, parity: 'none', from: 1, to: 32, cidr: '192.168.1.0/24', broadcast: '192.168.1.255' });
+  const [f, setF] = useState({ port: '/dev/ttyUSB0', baud: 9600, parity: 'none', from: 1, to: 32, cidr: '192.168.1.0/24', broadcast: '192.168.1.255', community_env: '' });
   const [msg, setMsg] = useState('');
   const [added, setAdded] = useState<Record<string, string>>({});
 
@@ -46,7 +47,7 @@ export default function Scan() {
 
   async function start(e: React.FormEvent) {
     e.preventDefault(); setMsg('');
-    const params = kind === 'modbus-rtu' ? { port: f.port, baud: +f.baud, parity: f.parity, from: +f.from, to: +f.to } : kind === 'lan' ? { cidr: f.cidr } : { broadcast: f.broadcast };
+    const params = kind === 'modbus-rtu' ? { port: f.port, baud: +f.baud, parity: f.parity, from: +f.from, to: +f.to } : kind === 'snmp' ? { cidr: f.cidr, community_env:f.community_env } : kind === 'lan' ? { cidr: f.cidr } : { broadcast: f.broadcast };
     try {
       await api(`/v1/gateways/${gw}/scans`, { method: 'POST', body: JSON.stringify({ kind, params }) });
       setAdded({}); load();
@@ -73,6 +74,7 @@ export default function Scan() {
           <select value={kind} onChange={e => setKind(e.target.value as ScanRow['kind'])}>
             <option value="modbus-rtu">Serial Modbus (RS-485 slave addresses)</option>
             <option value="lan">Network (Modbus TCP, OPC UA, IEC 104, DNP3, ports)</option>
+            <option value="snmp">SNMPv2c (sysName/sysDescr, proposals only)</option>
             <option value="bacnet">BACnet/IP (Who-Is)</option>
           </select>
           {kind === 'modbus-rtu' && (<>
@@ -83,6 +85,11 @@ export default function Scan() {
             <div style={{ display: 'flex', gap: 8 }}><input type="number" min={1} max={247} value={f.from} onChange={e => setF({ ...f, from: +e.target.value })} /><input type="number" min={1} max={247} value={f.to} onChange={e => setF({ ...f, to: +e.target.value })} /></div>
           </>)}
           {kind === 'lan' && (<><label>Private network range (max /22)</label><input value={f.cidr} onChange={e => setF({ ...f, cidr: e.target.value })} required /></>)}
+          {kind === 'snmp' && (<>
+           <label>Private IPv4 range (max /24)</label><input aria-label="SNMP range" value={f.cidr} onChange={e=>setF({...f,cidr:e.target.value})} required />
+           <label>Gateway community environment variable name</label><input aria-label="SNMP environment name" value={f.community_env} onChange={e=>setF({...f,community_env:e.target.value})} pattern="[A-Za-z_][A-Za-z0-9_]{0,127}" required placeholder="PLANT_SNMP_SCAN" />
+           <p className="muted">Enter the variable name only, never its secret value. Gateway setup must separately enable autodetect.snmp and autodetect.snmp_dashboard and configure this same snmp_community_env. Both SNMP options default off. The v2c community travels in clear text on UDP161. Reads sysName/sysDescr only; no device is enrolled and no profile is verified.</p>
+          </>)}
           {kind === 'bacnet' && (<><label>Subnet broadcast address</label><input value={f.broadcast} onChange={e => setF({ ...f, broadcast: e.target.value })} required /></>)}
           <div style={{ marginTop: 14 }}><button type="submit" disabled={!gw || running}>{running ? 'Scanning...' : 'Start scan'}</button></div>
         </form>
@@ -115,6 +122,7 @@ export default function Scan() {
           {latest.kind === 'lan' && latest.status === 'done' && (
             <HostTable s={latest} profiles={profiles} added={added} add={add} />
           )}
+          {latest.kind === 'snmp' && latest.status === 'done' && <SNMPResults hosts={latest.result?.snmp??[]} />}
           {latest.kind === 'bacnet' && latest.status === 'done' && (
             <BacTable s={latest} profiles={profiles.filter(p => p.driver_profile === 'bacnet')} added={added} add={add} />
           )}
@@ -202,4 +210,8 @@ function BacTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[]
       })}
     </tbody></table></div>
   );
+}
+
+export function SNMPResults({hosts}:{hosts:SNMPHost[]}){
+ return <div><p className="muted">SNMP proposals only. No polling, Add action or device-profile match. No reply can mean a wrong community, firewall or unsupported v2c, not absence. Local loop findings remain local and are not uploaded by this scan.</p>{hosts.length===0?<p>No SNMP host answered in this requested window.</p>:hosts.map(h=><div className="card" key={h.Addr} style={{marginTop:10,overflowWrap:'anywhere'}}><b>{h.Addr}</b><p>Name: {h.Name||'(not returned)'}</p><p>Description: {h.Descr||'(not returned)'}</p></div>)}</div>
 }
