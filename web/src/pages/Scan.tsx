@@ -65,7 +65,7 @@ export default function Scan() {
   return (
     <>
       <h1>Scan for devices</h1>
-      <p className="muted">The gateway looks for devices on its own serial port or network (read-only), then you pick a profile and add. Nothing is added automatically. Needs a connected gateway; a serial scan fails if another device is already polling that port.</p>
+      <p className="muted">{kind === 'snmp' ? 'The gateway reads SNMP sysName/sysDescr on its own network and returns proposals only. No profile selection, Add action or polling is available for SNMP results. Needs a connected gateway with both SNMP options enabled.' : 'The gateway looks for devices on its own serial port or network (read-only), then you pick a profile and add. Nothing is added automatically. Needs a connected gateway; a serial scan fails if another device is already polling that port.'}</p>
       <div className="card" style={{ maxWidth: 900, marginBottom: 20 }}>
         <form onSubmit={start}>
           <label>Gateway</label>
