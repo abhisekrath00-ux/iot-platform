@@ -127,3 +127,8 @@ Profiles groups each point in a numbered card with persistent labels for protoco
 ## Server-side profile map checks
 
 The create-profile API rejects duplicate point IDs for every driver. Supplied scale must be finite and nonzero, supplied ranges must be finite and max greater than min. Modbus register/function values must be integral and in range; multiword values cannot run beyond65535, overlapping spans in the same function space are refused, and bit functions require bool (register functions refuse bool). Separate Modbus function spaces may share an address. Optional legacy serial-Modbus range/scale and default function/type are preserved. Per-driver address/type checks still apply. These checks are structural only, not proof of a device model's map. Existing stored profiles are not migrated/revalidated by this change.
+
+
+## Saved scan selection
+
+The Scan page's Manual scan history picker exposes manual results among the API's latest10 combined rows for the selected gateway. It is not a full archive: automatic scans can occupy that window. Saved results show gateway, scan ID, time and transport, separate from the form that chooses the next scan. Selecting a record makes no scan or enrollment request. New scan blocking follows the newest manual record, even while viewing an older completed result. Gateway switches clear the old results immediately and out-of-order responses are discarded. Refresh provides loading/error/empty states; a failed history read blocks new requests until a successful refresh. Existing review snapshots the selected saved result before any enrollment confirmation; SNMP results remain non-addable.
