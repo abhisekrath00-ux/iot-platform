@@ -40,3 +40,6 @@ describe('register map import', () => {
     expect(r.length).toBe(2);
   });
 });
+it('rejects malformed JSON rows with row numbers instead of throwing or dropping them',()=>{
+ for(const row of ['null','12','"text"','[]','true']){const r=parseJson(`[{"id":"ok","register":1},${row}]`);expect(r.points).toEqual([]);expect(r.issues[0]).toMatchObject({row:2});expect(r.issues[0].text).toContain('point object')}
+});
