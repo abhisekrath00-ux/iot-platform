@@ -43,3 +43,7 @@ describe('register map import', () => {
 it('rejects malformed JSON rows with row numbers instead of throwing or dropping them',()=>{
  for(const row of ['null','12','"text"','[]','true']){const r=parseJson(`[{"id":"ok","register":1},${row}]`);expect(r.points).toEqual([]);expect(r.issues[0]).toMatchObject({row:2});expect(r.issues[0].text).toContain('point object')}
 });
+
+it('refuses unsupported f64 imports without returning a replacement map',()=>{
+ for(const text of ['[{"id":"energy","register":0,"type":"f64"}]','id,register,type\nenergy,0,f64\n']){const r=parseAny(text);expect(r.points).toEqual([]);expect(r.issues.map(x=>x.text).join(' ')).toContain('type must be');}
+});
