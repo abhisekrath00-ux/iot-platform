@@ -79,6 +79,7 @@ type Autodetect struct {
 	Interval         time.Duration `yaml:"interval"`           // between scans, default 6h, minimum 15m
 	Serial           *bool         `yaml:"serial"`             // sweep serial ports (default true)
 	LAN              *bool         `yaml:"lan"`                // probe the local private subnets (default true)
+	SNMPDashboard    bool          `yaml:"snmp_dashboard"`     // default false; separately permit requested read-only scans
 	SNMP             bool          `yaml:"snmp"`               // opt-in; default false, local proposals only
 	SNMPCommunityEnv string        `yaml:"snmp_community_env"` // environment variable name, never the secret
 	BACnet           *bool         `yaml:"bacnet"`             // BACnet Who-Is broadcast (default true)
