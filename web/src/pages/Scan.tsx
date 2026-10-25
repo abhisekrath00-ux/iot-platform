@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
+import ScanReview,{ScanEnrollment} from '../components/ScanReview';
 
 interface Gateway { id: string; serial: string; status: string; kind: string; }
 interface Profile { id: string; name: string; driver_profile: string; }
@@ -17,7 +18,7 @@ interface ScanRow {
 const PORT_DRIVER: Record<number, string> = { 502: 'modbus-tcp', 4840: 'opcua', 2404: 'iec104', 20000: 'dnp3', 102: 'iec61850' };
 
 // Scan, then one-click add. The gateway scans read-only; nothing is added until
-// you pick a profile and press Add. Suggestions show how plausible a profile is
+// you pick a profile, review the connection and confirm enrollment. Suggestions show how plausible a profile is
 // (its first registers answered inside the profile's ranges), not proof of the model.
 export default function Scan() {
   const [gws, setGws] = useState<Gateway[]>([]);
@@ -27,6 +28,7 @@ export default function Scan() {
   const [kind, setKind] = useState<ScanRow['kind']>('modbus-rtu');
   const [f, setF] = useState({ port: '/dev/ttyUSB0', baud: 9600, parity: 'none', from: 1, to: 32, cidr: '192.168.1.0/24', broadcast: '192.168.1.255', community_env: '' });
   const [msg, setMsg] = useState('');
+  const [review,setReview]=useState<ScanEnrollment|null>(null);const [enrolling,setEnrolling]=useState(false);const [reviewError,setReviewError]=useState('');const sending=useRef(false);
   const [added, setAdded] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -54,18 +56,21 @@ export default function Scan() {
     } catch (e2) { setMsg(String(e2)); }
   }
 
-  async function add(s: ScanRow, key: string, profileId: string, name: string, connection: Record<string, unknown>) {
-    setMsg('');
-    try {
-      await api(`/v1/gateways/${gw}/scans/${s.id}/add`, { method: 'POST', body: JSON.stringify({ profile_id: profileId, device_name: name, connection }) });
-      setAdded(a => ({ ...a, [key]: name }));
-    } catch (e2) { setMsg(String(e2)); }
+  function add(s: ScanRow, key: string, profileId: string, name: string, connection: Record<string, unknown>) {
+    if(!name.trim()){setMsg('Device name is required.');return}
+    setReviewError('');setReview({gateway:gw,gatewayLabel:gws.find(g=>g.id===gw)?.serial??gw,scan:s.id,kind:s.kind,key,profile:profileId,profileLabel:profiles.find(p=>p.id===profileId)?.name??profileId,name:name.trim(),connection:{...connection}});
+  }
+  async function confirmEnrollment(){
+    if(!review||sending.current)return;const item=review;sending.current=true;setEnrolling(true);setReviewError('');
+    try{const result=await api<{note?:string}>(`/v1/gateways/${item.gateway}/scans/${item.scan}/add`,{method:'POST',body:JSON.stringify({profile_id:item.profile,device_name:item.name,connection:item.connection})});setAdded(a=>({...a,[item.key]:item.name}));setReview(null);setMsg(result.note??'Device record created. Download or push the updated gateway config to start polling.');}
+    catch(e){setReviewError(String(e))}finally{sending.current=false;setEnrolling(false)}
   }
 
   return (
     <>
       <h1>Scan for devices</h1>
-      <p className="muted">{kind === 'snmp' ? 'The gateway reads SNMP sysName/sysDescr on its own network and returns proposals only. No profile selection, Add action or polling is available for SNMP results. Needs a connected gateway with both SNMP options enabled.' : 'The gateway looks for devices on its own serial port or network (read-only), then you pick a profile and add. Nothing is added automatically. Needs a connected gateway; a serial scan fails if another device is already polling that port.'}</p>
+      {review&&<ScanReview item={review} busy={enrolling} error={reviewError} onCancel={()=>setReview(null)} onConfirm={confirmEnrollment}/>}
+      <p className="muted">{kind === 'snmp' ? 'The gateway reads SNMP sysName/sysDescr on its own network and returns proposals only. No profile selection, Add action or polling is available for SNMP results. Needs a connected gateway with both SNMP options enabled.' : 'The gateway looks for devices on its own serial port or network (read-only), then you pick a profile and review enrollment. Nothing is added automatically. Needs a connected gateway; a serial scan fails if another device is already polling that port.'}</p>
       <div className="card" style={{ maxWidth: 900, marginBottom: 20 }}>
         <form onSubmit={start}>
           <label>Gateway</label>
@@ -99,7 +104,7 @@ export default function Scan() {
       {autos.length > 0 && (
         <div className="card" style={{ maxWidth: 900, marginBottom: 20 }}>
           <b>Detected by the gateway on its own</b>
-          <p className="muted">The gateway scans by itself (read-only) and proposes what it found. Nothing is added until you pick a profile and press Add. A match shows how plausible a profile is, not proof of the model.</p>
+          <p className="muted">The gateway scans by itself (read-only) and proposes what it found. Nothing is added until you pick a profile, review the connection and confirm enrollment. A match shows how plausible a profile is, not proof of the model.</p>
           {autos.slice(0, 4).map(a => (
             <div key={a.id} style={{ marginTop: 12 }}>
               <span className="muted">{a.kind === 'modbus-rtu' ? `Serial ${a.params.port ?? ''} ${a.params.baud ?? ''}/${a.params.parity ?? ''}` : a.kind === 'lan' ? 'Local network' : 'BACnet'} - {new Date(a.created_at).toLocaleString()}</span>
@@ -144,8 +149,7 @@ function SlaveTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile
     <div style={{ overflowX: "auto" }}><table><thead><tr><th>Address</th><th>Suggested</th><th>Profile</th><th>Name</th><th /></tr></thead><tbody>
       {slaves.map(sl => {
         const best = sl.matches[0];
-        const known = best && profiles.some(p => p.id === best.profile_id) ? best.profile_id : '';
-        const pid = sel[sl.address] ?? known;
+        const pid = sel[sl.address] ?? ''; 
         const key = `rtu-${s.id}-${sl.address}`;
         return (
           <tr key={sl.address}>
@@ -153,7 +157,7 @@ function SlaveTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile
             <td className="muted">{best ? `${best.name} (${Math.round(best.score * 100)}% of ${best.probed} registers plausible)${best.profile_id.startsWith('builtin:') ? ', gateway built-in; choose a matching profile to add' : ''}` : 'no profile matched'}</td>
             <td><select value={pid} onChange={e => setSel({ ...sel, [sl.address]: e.target.value })}><option value="">Choose...</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
             <td><input value={names[sl.address] ?? `Slave ${sl.address}`} onChange={e => setNames({ ...names, [sl.address]: e.target.value })} aria-label={`Name for slave ${sl.address}`} /></td>
-            <td>{added[key] ? <span className="muted">Added</span> : <button disabled={!pid} onClick={() => add(s, key, pid, names[sl.address] ?? `Slave ${sl.address}`, { port: s.params.port, baud: s.params.baud, data_bits: s.params.data_bits ?? 8, stop_bits: s.params.stop_bits ?? 1, parity: s.params.parity ?? 'none', address: sl.address, interval_seconds: 10 })}>Add</button>}</td>
+            <td>{added[key] ? <span className="muted">Added</span> : <button disabled={!pid} onClick={() => add(s, key, pid, names[sl.address] ?? `Slave ${sl.address}`, { port: s.params.port, baud: s.params.baud, data_bits: s.params.data_bits ?? 8, stop_bits: s.params.stop_bits ?? 1, parity: s.params.parity ?? 'none', address: sl.address, interval_seconds: 10 })}>Review</button>}</td>
           </tr>
         );
       })}
@@ -174,7 +178,7 @@ function HostTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[
           const key = `${s.id}-${h.Addr}:${h.Port}`;
           const drv = PORT_DRIVER[h.Port];
           const opts = profiles.filter(p => p.driver_profile === drv);
-          const pid = sel[key] ?? opts[0]?.id ?? '';
+          const pid = sel[key] ?? '';
           const needsAddr = drv === 'modbus-tcp' || drv === 'iec104' || drv === 'dnp3';
           const conn = drv === 'opcua' ? { endpoint: `opc.tcp://${h.Addr}:${h.Port}`, host: h.Addr, net_port: h.Port, interval_seconds: 10 } : { host: h.Addr, net_port: h.Port, interval_seconds: 10, ...(needsAddr ? { address: addr[key] ?? 1 } : {}) };
           return (
@@ -182,7 +186,7 @@ function HostTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[
               <td>{h.Addr}</td><td>{h.Port}</td><td className="muted">{h.Service}</td>
               <td>{drv ? <select value={pid} onChange={e => setSel({ ...sel, [key]: e.target.value })}><option value="">Choose...</option>{opts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select> : <span className="muted">not addable here</span>}</td>
               <td>{needsAddr && <input type="number" min={0} style={{ width: 70 }} value={addr[key] ?? 1} onChange={e => setAddr({ ...addr, [key]: +e.target.value })} aria-label={`Address for ${key}`} />}</td>
-              <td>{added[key] ? <span className="muted">Added</span> : <button disabled={!pid} onClick={() => add(s, key, pid, `${h.Service} ${h.Addr}`, conn)}>Add</button>}</td>
+              <td>{added[key] ? <span className="muted">Added</span> : <button disabled={!pid} onClick={() => add(s, key, pid, `${h.Service} ${h.Addr}`, conn)}>Review</button>}</td>
             </tr>
           );
         })}
@@ -199,12 +203,12 @@ function BacTable({ s, profiles, added, add }: { s: ScanRow; profiles: Profile[]
     <div style={{ overflowX: "auto" }}><table><thead><tr><th>Address</th><th>Device</th><th>Vendor id</th><th>Profile</th><th /></tr></thead><tbody>
       {devs.map(d => {
         const key = `${s.id}-${d.Addr}`;
-        const pid = sel[key] ?? profiles[0]?.id ?? '';
+        const pid = sel[key] ?? '';
         return (
           <tr key={key}>
             <td>{d.Addr}</td><td>{d.Instance}</td><td>{d.Vendor}</td>
             <td><select value={pid} onChange={e => setSel({ ...sel, [key]: e.target.value })}><option value="">Choose...</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
-            <td>{added[key] ? <span className="muted">Added</span> : <button disabled={!pid} onClick={() => add(s, key, pid, `BACnet ${d.Instance}`, { host: d.Addr, interval_seconds: 10 })}>Add</button>}</td>
+            <td>{added[key] ? <span className="muted">Added</span> : <button disabled={!pid} onClick={() => add(s, key, pid, `BACnet ${d.Instance}`, { host: d.Addr, interval_seconds: 10 })}>Review</button>}</td>
           </tr>
         );
       })}
