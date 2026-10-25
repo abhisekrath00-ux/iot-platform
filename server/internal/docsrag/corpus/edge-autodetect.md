@@ -52,7 +52,8 @@ autodetect:
   serial: true
   lan: true
   bacnet: true
-  snmp: false          # opt-in; local proposals only
+  snmp: false          # opt-in; local loop proposals stay local
+  snmp_dashboard: false # separately allow dashboard-requested SNMP probes
   snmp_community_env: PLANT_SNMP_SCAN # name only, never put the secret here
   serial_from: 1
   serial_to: 32
@@ -96,7 +97,7 @@ again. `-ignore KEY -ignore-undo` reverses it. The local page is read-only, so t
 
 ## Not built
 
-SNMP dashboard publication and one-click enrollment are not built. Opt-in SNMP loop findings stay local: CLI and the local status page only. They are deliberately excluded from scan/result payloads.
+Opt-in SNMP loop findings stay local: CLI and the local status page only. They are deliberately excluded from auto scan/result payloads. Separately, the Scan page can request a bounded read-only SNMP scan, only if the gateway has both `autodetect.snmp: true` and `autodetect.snmp_dashboard: true` (both default off), autodetect is not globally disabled, and the request's `community_env` exactly matches configured `snmp_community_env`. The gateway reads that variable locally; no community value is sent in the request or result. This explicit request returns only this scan's sysName/sysDescr responses to the dashboard. It never uploads prior local findings. Range is private IPv4 /24 or smaller, UDP161, 800ms/no retries/32 workers, within the existing eight-minute scan lock/deadline. Probe errors are summarized without raw details; cancelled/incomplete scans keep answered hosts with a note. v2c community is clear text on the wire. An operator/admin starts the request; newer agents are required, old agents reject the unknown kind. SNMP results are escaped proposal cards only, with no Add action. One-click enrollment, point mapping and compatibility verification are still not built. A missing response is not proof of absence.
 
 SNMP loop safety: default off, requires `snmp_community_env` to name an existing nonempty environment variable; no default community is tried. The v2c community is clear text on the wire. No secret is stored in proposals or error notes; scan errors are summarized rather than copied. Duplicate subnets/hosts are deduplicated; this gateway's own addresses are omitted. Configured ranges wider than /24 are skipped for this pass, not expanded. Cancellation may retain answered hosts but adds an incomplete note. Missing responses can mean wrong community, firewall, unsupported v2c or no device, not proof of absence. No automatic polling, auto-add, vendor-profile match or device compatibility claim. Existing ignore/undo works on local keys.
 
