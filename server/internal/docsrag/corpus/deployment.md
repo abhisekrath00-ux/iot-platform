@@ -80,3 +80,10 @@ WantedBy=multi-user.target
 at API start (idempotent). 3. Verify `/healthz` and one live telemetry point.
 4. Roll back by re-deploying the previous image digest; migrations are written
 to be backward compatible within a release pair.
+
+
+## Local MQTT pipeline regression
+
+`TestIntegrationMQTTPipeline` in cmd/api starts the compiled ingest process, publishes through a loopback broker and checks real Postgres plus JWT-authenticated latest/series HTTP handlers. Run from server with a disposable migrated/test database, `TEST_DATABASE_URL`, `TEST_MQTT_PORT` (broker on127.0.0.1) and `TEST_INGEST_BINARY` (build `go build -o /tmp/ingest-pipeline ./cmd/ingest`). The test requires both optional variables or skips. CI's dedicated step starts a disposable anonymous Mosquitto container bound to127.0.0.1 and runs this test explicitly.
+
+This is synthetic lab transport-to-API evidence. It checks QoS1 publication, same(event_id,observed_at) duplicate suppression, payload-tenant spoof rejection, latest/series reads, cross-tenant empty data and missing-JWT401. It does not check broker-authenticated identity, mTLS/ACLs, outage/reconnect, physical gateway polling, chart pixels or Windows/arm64 execution. Never use the anonymous test broker as production config. The database must be disposable: the integration seed creates named synthetic tenants/devices and deletes their telemetry. No notification rules or external destinations are configured by the test.
