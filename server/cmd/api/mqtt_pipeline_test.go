@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,6 +47,48 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	if _, err := s.st.Pool.Exec(ctx, `DELETE FROM telemetry WHERE tenant_id IN ('itest-mqpipe','itest-mqother')`); err != nil {
 		t.Fatal(err)
 	}
+	// A local TCP cut exercises the real client's reconnect, without stopping
+	// or mutating the broker shared by other tests.
+	proxy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var sockets []net.Conn
+	t.Cleanup(func() {
+		proxy.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range sockets {
+			c.Close()
+		}
+	})
+	go func() {
+		for {
+			incoming, err := proxy.Accept()
+			if err != nil {
+				return
+			}
+			upstream, err := net.Dial("tcp", "127.0.0.1:"+port)
+			if err != nil {
+				incoming.Close()
+				continue
+			}
+			mu.Lock()
+			sockets = append(sockets, incoming, upstream)
+			mu.Unlock()
+			go func() {
+				defer incoming.Close()
+				defer upstream.Close()
+				done := make(chan struct{})
+				go func() { io.Copy(upstream, incoming); close(done) }()
+				io.Copy(incoming, upstream)
+				incoming.Close()
+				<-done
+			}()
+		}
+	}()
+	ingestPort := fmt.Sprint(proxy.Addr().(*net.TCPAddr).Port)
 	logPath := filepath.Join(t.TempDir(), "ingest.log")
 	logFile, err := os.Create(logPath)
 	if err != nil {
@@ -53,7 +96,7 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	}
 	defer logFile.Close()
 	cmd := exec.Command(binary)
-	cmd.Env = append(os.Environ(), "DATABASE_URL="+os.Getenv("TEST_DATABASE_URL"), "MQTT_HOST=127.0.0.1", "MQTT_PORT="+port, "GOOGLE_CLIENT_ID=", "SPARKPLUG_TENANT=", "INGEST_SHARED_GROUP=", "SMTP_HOST=", "SLACK_BOT_TOKEN=")
+	cmd.Env = append(os.Environ(), "DATABASE_URL="+os.Getenv("TEST_DATABASE_URL"), "MQTT_HOST=127.0.0.1", "MQTT_PORT="+ingestPort, "GOOGLE_CLIENT_ID=", "SPARKPLUG_TENANT=", "INGEST_SHARED_GROUP=", "SMTP_HOST=", "SLACK_BOT_TOKEN=")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
@@ -63,7 +106,7 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		b, _ := os.ReadFile(logPath)
-		if strings.Contains(string(b), "ingest up") {
+		if strings.Contains(string(b), "ingest subscriptions ready") {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -76,6 +119,26 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 		t.Fatal("publisher connect", tok.Error())
 	}
 	defer c.Disconnect(100)
+	// Disconnect only ingest. Its default clean session is discarded by the
+	// broker; reconnect must explicitly restore all subscriptions.
+	for reconnect := 0; reconnect < 2; reconnect++ {
+		mu.Lock()
+		for _, socket := range sockets {
+			socket.Close()
+		}
+		mu.Unlock()
+		deadline = time.Now().Add(20 * time.Second)
+		for {
+			b, _ := os.ReadFile(logPath)
+			if strings.Count(string(b), "ingest subscriptions ready") >= reconnect+2 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("reconnect subscriptions timeout: %s", b)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
 	at := time.Now().UTC().Truncate(time.Millisecond)
 	send := func(event string, value float64, payloadTenant string) {
 		stamp := at
@@ -163,5 +226,5 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	if res.StatusCode != 401 {
 		t.Fatal("missing JWT", res.StatusCode)
 	}
-	t.Log("local broker -> real ingest process -> Postgres -> JWT-verified latest/series handlers passed; duplicate pair once, payload tenant spoof dropped")
+	t.Log("local broker -> real ingest process after TCP disconnect/reconnect -> Postgres -> JWT-verified latest/series handlers passed; duplicate pair once, payload tenant spoof dropped")
 }
