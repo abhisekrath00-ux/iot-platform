@@ -60,9 +60,11 @@ func main() {
 		SetClientID(clientID()).SetAutoReconnect(true).SetConnectRetry(true)
 	// TODO(production): TLS + broker auth from env; see docs/deployment.md.
 
-	c := mqtt.NewClient(opts)
-	if tok := c.Connect(); tok.Wait() && tok.Error() != nil {
-		log.Fatalf("mqtt connect: %v", tok.Error())
+	// Register every handler before connecting. Clean sessions lose broker
+	// subscriptions on disconnect, including commissioning and ACK topics.
+	var subscriptions []ingestSubscription
+	register := func(topic string, handler mqtt.MessageHandler) {
+		subscriptions = append(subscriptions, ingestSubscription{topic, handler})
 	}
 
 	handler := func(_ mqtt.Client, m mqtt.Message) {
@@ -90,9 +92,7 @@ func main() {
 		flow.EvaluateWith(ctx, st.Pool, rulesN, jsfn.New(4), e.TenantID, e.DeviceID, e.PointID, e.Value)
 	}
 
-	if tok := c.Subscribe(subTopic("t/+/g/+/telemetry"), 1, handler); tok.Wait() && tok.Error() != nil {
-		log.Fatalf("subscribe: %v", tok.Error())
-	}
+	register(subTopic("t/+/g/+/telemetry"), handler)
 
 	// Commissioning port-test results: the edge answers diag probes on
 	// t/<tenant>/g/<gateway>/diag/result. Topic identity is enforced the same
@@ -132,9 +132,7 @@ func main() {
 			log.Printf("diag drop: no session %s for topic identity %s/%s", res.SessionID, parts[1], parts[3])
 		}
 	}
-	if tok := c.Subscribe(subTopic("t/+/g/+/diag/result"), 1, diagHandler); tok.Wait() && tok.Error() != nil {
-		log.Fatalf("diag subscribe: %v", tok.Error())
-	}
+	register(subTopic("t/+/g/+/diag/result"), diagHandler)
 
 	// Discovery scan results: t/<tenant>/g/<gateway>/scan/result. Same topic-identity rule:
 	// a result lands only on a scan owned by that tenant and gateway.
@@ -167,9 +165,7 @@ func main() {
 			log.Printf("scan drop: no open scan %s for %s/%s (%v)", res.ScanID, parts[1], parts[3], err)
 		}
 	}
-	if tok := c.Subscribe(subTopic("t/+/g/+/scan/result"), 1, scanHandler); tok.Wait() && tok.Error() != nil {
-		log.Fatalf("scan subscribe: %v", tok.Error())
-	}
+	register(subTopic("t/+/g/+/scan/result"), scanHandler)
 
 	// Remote maintenance results: t/<tenant>/g/<gateway>/ops/result. A result lands only on an open
 	// operation owned by that tenant and gateway (topic identity), once.
@@ -195,9 +191,7 @@ func main() {
 			log.Printf("ops drop: no open operation %s for %s/%s (%v)", res.OpID, parts[1], parts[3], err)
 		}
 	}
-	if tok := c.Subscribe(subTopic("t/+/g/+/ops/result"), 1, opsHandler); tok.Wait() && tok.Error() != nil {
-		log.Fatalf("ops subscribe: %v", tok.Error())
-	}
+	register(subTopic("t/+/g/+/ops/result"), opsHandler)
 
 	// Device template push results: t/<tenant>/g/<gateway>/config/result. Lands only on that gateway's own
 	// push (topic identity), and only moves it forward: sent -> applied|rejected, applied -> confirmed|rolled_back.
@@ -231,9 +225,7 @@ func main() {
 			log.Printf("config result drop: no matching push %s for %s/%s (%v)", res.PushID, parts[1], parts[3], err)
 		}
 	}
-	if tok := c.Subscribe(subTopic("t/+/g/+/config/result"), 1, cfgHandler); tok.Wait() && tok.Error() != nil {
-		log.Fatalf("config result subscribe: %v", tok.Error())
-	}
+	register(subTopic("t/+/g/+/config/result"), cfgHandler)
 
 	// Fleet auto-ACK: the edge verifies the delivered artifact and answers on
 	// t/<tenant>/g/<gateway>/fleet/ack. Topic identity pins the ack to the
@@ -283,9 +275,7 @@ func main() {
 			}
 		}
 	}
-	if tok := c.Subscribe(subTopic("t/+/g/+/fleet/ack"), 1, ackHandler); tok.Wait() && tok.Error() != nil {
-		log.Fatalf("fleet ack subscribe: %v", tok.Error())
-	}
+	register(subTopic("t/+/g/+/fleet/ack"), ackHandler)
 	// Command ACKs from the edge: t/<tenant>/g/<gateway>/cmd/ack. Topic identity
 	// pins the ack to the command's own gateway; only 'sent' commands move.
 	cmdAckHandler := func(_ mqtt.Client, m mqtt.Message) {
@@ -306,13 +296,27 @@ func main() {
 			log.Printf("cmd ack update: %v", err)
 		}
 	}
-	if tok := c.Subscribe(subTopic("t/+/g/+/cmd/ack"), 1, cmdAckHandler); tok.Wait() && tok.Error() != nil {
-		log.Fatalf("cmd ack subscribe: %v", tok.Error())
-	}
+	register(subTopic("t/+/g/+/cmd/ack"), cmdAckHandler)
 	if t := os.Getenv("SPARKPLUG_TENANT"); t != "" {
-		startSparkplug(ctx, c, st, t, rulesN, pos)
+		startSparkplug(ctx, register, st, t, rulesN, pos)
 	}
-	log.Printf("ingest up")
+	opts.SetOnConnectHandler(func(c mqtt.Client) {
+		// Paho runs this callback independently of the reconnect routine, so
+		// waiting for SUBACK does not block connection recovery.
+		if err := installIngestSubscriptions(ctx, c, subscriptions); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			// Do not stay up silently missing only some topic families. A supervisor
+			// can restart ingest; this is not an offline queue or replay guarantee.
+			log.Fatalf("mqtt subscriptions: %v", err)
+		}
+		log.Printf("ingest subscriptions ready")
+	})
+	c := mqtt.NewClient(opts)
+	if tok := c.Connect(); tok.Wait() && tok.Error() != nil {
+		log.Fatalf("mqtt connect: %v", tok.Error())
+	}
 	<-ctx.Done()
 	c.Disconnect(250)
 }
