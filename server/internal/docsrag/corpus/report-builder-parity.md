@@ -68,3 +68,10 @@ Review/Cancel do not write. The UI's Confirm supplies the current version in opt
 ## Report save integrity
 
 Create validates a delivery channel within the INSERT's tenant-scoped SELECT and checks that one row was inserted before returning201 or recording a create audit. Missing/foreign channels return400, not a phantom saved ID. Update distinguishes channel lookup failure from a missing channel. Create and edit bodies are capped at1MiB. Channel-less drafts and same-tenant disabled channels remain saveable; saving does not execute a report or send anything. Real-Postgres tests cover successful persisted IDs, missing/foreign channels, rejection without report/audit/history writes, oversized create, viewer rejection and zero report runs. This does not add group report sources, scheduled delivery verification or broader destination approval.
+
+
+## Execution history visibility
+
+Reports offers Run history separately from version History. GET /v1/reports/{id}/runs returns the latest50 attempt rows for a tenant-owned report: ID, start, optional finish, status, optional bucket-row count. Missing/foreign report404, customer-scoped users403, no-store. It is bounded, not a full archive or pagination. Raw error messages are not returned: they may contain provider targets or private details; administrators need server logs for diagnosis.
+
+The read-only UI refreshes manually and shows pending/error/empty states. Completed means the server recorded success, not recipient delivery/read confirmation. Channel-less execution only builds the report. A running row may remain after an interrupted process; it does not prove active processing. There is no immutable definition, channel snapshot, retained rendered artifact, retry or cancel action in this view. No live report execution/delivery was used for visual checking. Group saved/scheduled report sources are separate, still unbuilt.
