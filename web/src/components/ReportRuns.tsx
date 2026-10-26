@@ -1,0 +1,10 @@
+import {useEffect,useRef,useState} from 'react';
+import {api} from '../lib/api';
+type Run={id:string;started_at:string;finished_at:string|null;status:string;row_count:number|null};
+export default function ReportRuns({id}:{id:string}){
+ const [runs,setRuns]=useState<Run[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState('');const sequence=useRef(0);
+ async function load(){const n=++sequence.current;setBusy(true);setError('');try{const x=await api<{runs:Run[]}>(`/v1/reports/${id}/runs`);if(n===sequence.current)setRuns(x.runs)}catch(e){if(n===sequence.current){setRuns([]);setError(String(e))}}finally{if(n===sequence.current)setBusy(false)}}
+ useEffect(()=>{setRuns([]);load();return()=>{++sequence.current}},[id]); // eslint-disable-line react-hooks/exhaustive-deps
+ const date=(v:string)=>new Date(v).toLocaleString();
+ return <section aria-label="Report run history" style={{marginTop:16}}><h3>Execution history</h3><p className="muted">Latest 50 attempts, newest first. Refresh manually. Completed means the server recorded success, not that a recipient received or read anything. No-channel runs only build the report. Running can remain after an interrupted process; it is not a live heartbeat.</p><button className="ghost" disabled={busy} onClick={load}>{busy?'Loading runs...':'Refresh run history'}</button>{error&&<p role="alert">Could not load run history: {error}</p>}{!busy&&!error&&!runs.length&&<p>No recorded runs.</p>}{runs.map(r=><article key={r.id} style={{borderTop:'1px solid var(--line)',padding:'14px 0',overflowWrap:'anywhere'}}><strong>{r.status==='ok'?'Completed':r.status==='failed'?'Failed':r.status==='running'?'Running (no completion recorded)':'Unknown status'}</strong><p>Started: {date(r.started_at)}<br/>Finished: {r.finished_at?date(r.finished_at):'Not recorded'}<br/>Bucket rows: {r.row_count??'Not recorded'}</p>{r.status==='failed'&&<p>Execution failed. Ask an administrator to inspect server logs. Raw error details are not exposed here.</p>}<small className="muted">Run ID: {r.id}</small></article>)}</section>
+}
