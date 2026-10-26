@@ -74,7 +74,7 @@ func sparkplugReadings(topic string, payload []byte, al *sparkplug.Aliases, now 
 	return dev, out, nil
 }
 
-func startSparkplug(ctx context.Context, c mqtt.Client, st *store.Store, tenant string, n rules.Notifier, pos *store.PositionTracker) {
+func startSparkplug(ctx context.Context, register func(string, mqtt.MessageHandler), st *store.Store, tenant string, n rules.Notifier, pos *store.PositionTracker) {
 	al := &sparkplug.Aliases{}
 	handler := func(_ mqtt.Client, m mqtt.Message) {
 		dev, rs, err := sparkplugReadings(m.Topic(), m.Payload(), al, time.Now())
@@ -118,9 +118,7 @@ func startSparkplug(ctx context.Context, c mqtt.Client, st *store.Store, tenant 
 	}
 	for _, f := range []string{"spBv1.0/+/NBIRTH/+", "spBv1.0/+/NDATA/+", "spBv1.0/+/NDEATH/+",
 		"spBv1.0/+/DBIRTH/+/+", "spBv1.0/+/DDATA/+/+", "spBv1.0/+/DDEATH/+/+"} {
-		if tok := c.Subscribe(f, 1, handler); tok.Wait() && tok.Error() != nil {
-			log.Fatalf("sparkplug subscribe %s: %v", f, tok.Error())
-		}
+		register(f, handler)
 	}
 	log.Printf("sparkplug B bridge on, tenant=%s", tenant)
 }
