@@ -117,7 +117,11 @@ func (s *server) updateReport(w http.ResponseWriter, r *http.Request) {
 	tenant := auth.Tenant(r)
 	if in.ChannelID != "" {
 		var n int
-		if s.st.Pool.QueryRow(r.Context(), `SELECT count(*) FROM notification_channels WHERE id=$1 AND tenant_id=$2`, in.ChannelID, tenant).Scan(&n); n == 0 {
+		if err := s.st.Pool.QueryRow(r.Context(), `SELECT count(*) FROM notification_channels WHERE id=$1 AND tenant_id=$2`, in.ChannelID, tenant).Scan(&n); err != nil {
+			dbErr(w, err)
+			return
+		}
+		if n == 0 {
 			http.Error(w, "channel not found", 400)
 			return
 		}
