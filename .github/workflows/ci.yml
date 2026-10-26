@@ -37,6 +37,15 @@ jobs:
         run: |
           set -o pipefail
           { go vet ./... && go test ./... && go build ./...; } 2>&1 | tee /tmp/server-ci.log
+      - name: MQTT ingest to dashboard API smoke (synthetic local broker)
+        working-directory: server
+        run: |
+          set -euo pipefail
+          printf 'listener 1883\nallow_anonymous true\npersistence false\n' > /tmp/mqtt-pipeline.conf
+          docker run -d --name hexthings-mqtt-pipeline -p 127.0.0.1:18883:1883 -v /tmp/mqtt-pipeline.conf:/mosquitto/config/mosquitto.conf:ro eclipse-mosquitto:2
+          trap 'docker rm -f hexthings-mqtt-pipeline' EXIT
+          go build -o /tmp/ingest-pipeline ./cmd/ingest
+          TEST_MQTT_PORT=18883 TEST_INGEST_BINARY=/tmp/ingest-pipeline go test ./cmd/api -run '^TestIntegrationMQTTPipeline$' -count=1 -v
       - name: vet + test edge
         working-directory: edge
         run: |
