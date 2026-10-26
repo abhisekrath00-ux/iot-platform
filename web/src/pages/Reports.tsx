@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
 import ReportHistory from '../components/ReportHistory';
 import ReportRuns from '../components/ReportRuns';
+import ReportRunReview from '../components/ReportRunReview';
 import ReportDrive from '../components/ReportDrive';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 
@@ -15,6 +16,7 @@ interface Channel { id: string; type: string; target: string; enabled: boolean; 
 
 export default function Reports() {
   const [runHistory,setRunHistory]=useState('');
+  const [runReview,setRunReview]=useState('');
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [me, setMe] = useState<{ role: string; customer_id?: string } | null>(null);
@@ -119,11 +121,6 @@ export default function Reports() {
   function cancelEdit() { setSubs([]); setEditingId(''); setName(''); setCron(''); setMsg(''); }
   function showHistory(id:string){setHist(hist?.id===id?null:{id,current:0,versions:[]})}
 
-  async function runNow(id: string) {
-    setMsg('');
-    try { await api(`/v1/reports/${id}/run`, { method: 'POST' }); setMsg('Report execution completed. This is not a recipient delivery receipt.'); load(); }
-    catch (e2) { setMsg(String(e2)); }
-  }
 
   const singleDevice = (d: ReportDef) => !(d.computed?.length) && d.metrics.length > 0 && d.metrics.every(m => m.device_id === d.metrics[0].device_id);
   const qs = (id: string) => `${pw[id]?.w ? `window_hours=${encodeURIComponent(pw[id].w!)}&` : ''}${pw[id]?.g ? `group_by=${pw[id].g}&` : ''}${pw[id]?.s ? `site=${encodeURIComponent(pw[id].s!)}&` : ''}${pw[id]?.a ? `asset=${encodeURIComponent(pw[id].a!)}&` : ''}${pw[id]?.d ? `device=${encodeURIComponent(pw[id].d!)}&` : ''}`;
@@ -132,6 +129,7 @@ export default function Reports() {
   return (
     <>
       <h1>Reports</h1>
+      {runReview&&<ReportRunReview key={runReview} id={runReview} onCancel={()=>setRunReview('')} onDone={()=>{setRunReview('');setMsg('Report execution completed. This is not a recipient delivery receipt.');load()}}/>}
       {!scoped && <div className="card" style={{ maxWidth: 680, marginBottom: 20 }}>
         <b>New report</b>
         <form onSubmit={submit}>
@@ -337,7 +335,7 @@ export default function Reports() {
             </>}
           </div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            {!scoped && <><button onClick={() => runNow(r.id)}>Run now</button>
+            {!scoped && <><button onClick={() => setRunReview(r.id)}>Run now</button>
             <button className="ghost" aria-expanded={runHistory===r.id} onClick={()=>setRunHistory(runHistory===r.id?'':r.id)}>Run history</button>
             <button className="ghost" onClick={() => edit(r)}>Edit</button>
             <button className="ghost" onClick={() => showHistory(r.id)} aria-expanded={hist?.id === r.id}>History</button></>}
