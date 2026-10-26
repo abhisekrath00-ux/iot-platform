@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, download } from '../lib/api';
 import ReportHistory from '../components/ReportHistory';
+import ReportRuns from '../components/ReportRuns';
 import ReportDrive from '../components/ReportDrive';
 import ShareWithCustomer from '../components/ShareWithCustomer';
 
@@ -13,6 +14,7 @@ interface PointRow { device_id: string; device_name: string; point_id: string; u
 interface Channel { id: string; type: string; target: string; enabled: boolean; }
 
 export default function Reports() {
+  const [runHistory,setRunHistory]=useState('');
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [me, setMe] = useState<{ role: string; customer_id?: string } | null>(null);
@@ -119,7 +121,7 @@ export default function Reports() {
 
   async function runNow(id: string) {
     setMsg('');
-    try { await api(`/v1/reports/${id}/run`, { method: 'POST' }); setMsg('Report ran and delivered.'); load(); }
+    try { await api(`/v1/reports/${id}/run`, { method: 'POST' }); setMsg('Report execution completed. This is not a recipient delivery receipt.'); load(); }
     catch (e2) { setMsg(String(e2)); }
   }
 
@@ -336,6 +338,7 @@ export default function Reports() {
           </div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             {!scoped && <><button onClick={() => runNow(r.id)}>Run now</button>
+            <button className="ghost" aria-expanded={runHistory===r.id} onClick={()=>setRunHistory(runHistory===r.id?'':r.id)}>Run history</button>
             <button className="ghost" onClick={() => edit(r)}>Edit</button>
             <button className="ghost" onClick={() => showHistory(r.id)} aria-expanded={hist?.id === r.id}>History</button></>}
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=csv`, `${r.name}.csv`).catch(e => setMsg(String(e)))}>CSV</button>
@@ -348,6 +351,7 @@ export default function Reports() {
             {!scoped && <ReportDrive reportId={r.id} />}
             {me?.role === 'admin' && !scoped && <ShareWithCustomer path={`/v1/reports/${r.id}/customer`} value={r.customer_id} onDone={load} onError={setMsg} />}
           </div>
+          {!scoped&&runHistory===r.id&&<ReportRuns id={r.id}/>}
           {hist?.id === r.id && <ReportHistory id={r.id} onRestored={v=>{setHist(null);setMsg(`Restored version ${v} as a new version.`);load()}}/>}
         </div>
       ))}
