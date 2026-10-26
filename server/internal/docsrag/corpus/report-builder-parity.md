@@ -75,3 +75,10 @@ Create validates a delivery channel within the INSERT's tenant-scoped SELECT and
 Reports offers Run history separately from version History. GET /v1/reports/{id}/runs returns the latest50 attempt rows for a tenant-owned report: ID, start, optional finish, status, optional bucket-row count. Missing/foreign report404, customer-scoped users403, no-store. It is bounded, not a full archive or pagination. Raw error messages are not returned: they may contain provider targets or private details; administrators need server logs for diagnosis.
 
 The read-only UI refreshes manually and shows pending/error/empty states. Completed means the server recorded success, not recipient delivery/read confirmation. Channel-less execution only builds the report. A running row may remain after an interrupted process; it does not prove active processing. There is no immutable definition, channel snapshot, retained rendered artifact, retry or cancel action in this view. No live report execution/delivery was used for visual checking. Group saved/scheduled report sources are separate, still unbuilt.
+
+
+## Manual execution review
+
+Run now opens a native review dialog with Cancel initially focused. It reloads saved reports and notification channels and shows current report/version/window/metric count and channel destination/status. Confirm may send immediately; no-channel reports build and record a run only. Missing/disabled channels and failed reads block the UI. Pending double-clicks are guarded. One submission is allowed per review; an execution error keeps the review and warns to inspect run history/destination before starting another attempt, because connection failures do not prove nothing happened.
+
+This is a UI review, not server-pinned authorization: execution uses the latest saved definition/channel when it starts, which can differ after loading. Download overrides are not passed; schedule is unchanged. Direct API callers keep existing behavior. Visual checks used synthetic fixtures and Cancel only, with zero writes or external delivery. Destination visibility is existing tenant channel access, not a new sharing route.
