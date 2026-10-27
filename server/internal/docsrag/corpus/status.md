@@ -511,3 +511,7 @@ Moved all seven ingest topic families and the optional six Sparkplug filters int
 ## 2026-10-27: manual scan duplicate-request guard
 
 Manual scan reservations now serialize on the tenant-owned gateway row before checking/inserting, then commit before broker publish. Concurrent Postgres test sends12 reservations and admits one; foreign/inactive gateway,lock timeout,completed/expired scan cases covered. UI blocks duplicate submits while pending and requires explicit successful refresh after uncertain failure; stale errors cannot overwrite another gateway. Synthetic desktop/mobile checked, no real scan. Not exactly-once delivery; crash-before-publish,ambiguous broker errors,automatic discovery and already-running physical scans remain outside this gate.
+
+## 2026-10-27: system health freshness and unknown states
+
+System health separates failed health/metrics fetches, clears and hides charts on metrics errors, shows response-received times without claiming sample freshness, and rejects out-of-order range responses. Missing/non-finite counters read unknown rather than green/zero; API response is labeled received,not a full service/gateway check. A failed health refresh hides stale stats and offers retry. Chart grid fits narrow screens. Synthetic desktop/mobile checked,unit regressions cover missing/empty/error/late-response/retry states. No new probes or production outage test; response timestamps are not measurement timestamps and source monitoring coverage is unchanged.
