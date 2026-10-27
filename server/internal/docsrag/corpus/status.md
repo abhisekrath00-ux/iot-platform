@@ -523,3 +523,7 @@ Extended the real-broker/compiled-ingest/Postgres/JWT regression to manual scan 
 ## 2026-10-27: diagnostics log response states
 
 Dev tools now distinguishes loading,failed and empty responses,clears prior rows on a filter refresh and rejects late responses. Empty logs no longer imply system health; response time and300-row cap are explicit. Filter controls remain available on errors. Support bundle button blocks duplicate pending downloads and asks operators to review contents before sharing,without promising perfect redaction. Synthetic desktop/mobile checked,regression tests cover empty/error/loading/late results and duplicate download. No new log sources,redaction logic or production outage verification.
+
+## 2026-10-28: failed diagnostics reads
+
+Log API and support exports now fail explicitly on log query/decode/iteration errors,with no partial success or downloadable bundle on these failures. Both admin responses use no-store. Unit fault injection and real-Postgres closed-pool HTTP tests cover failures; successful observability/redaction regression remains tested. Existing snapshot metric probes may still omit unavailable values; no blanket bundle completeness/redaction guarantee or production outage proof.
