@@ -46,6 +46,12 @@ jobs:
           trap 'docker rm -f hexthings-mqtt-pipeline' EXIT
           go build -o /tmp/ingest-pipeline ./cmd/ingest
           TEST_MQTT_PORT=18883 TEST_INGEST_BINARY=/tmp/ingest-pipeline go test ./cmd/api -run '^TestIntegrationMQTTPipeline$' -count=1 -v
+      - name: Local mTLS service transport and ACL regression
+        working-directory: server
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y mosquitto
+          TEST_MOSQUITTO_BINARY=$(command -v mosquitto) go test ./internal/mqttconfig -run '^TestLocalMTLSTransport$' -count=1 -v
       - name: vet + test edge
         working-directory: edge
         run: |
