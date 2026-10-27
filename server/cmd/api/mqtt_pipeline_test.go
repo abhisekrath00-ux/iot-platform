@@ -139,6 +139,83 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
+	// Exercise non-telemetry subscriptions after reconnect. These are seeded
+	// state records and synthetic inbound replies, never requests to an actuator.
+	if _, err := s.st.Pool.Exec(ctx, `DELETE FROM gateway_scans WHERE tenant_id=$1;`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.st.Pool.Exec(ctx, `DELETE FROM commands WHERE request_id LIKE 'mqpipe-%'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"scan", "scan-barrier"} {
+		if _, err := s.st.Pool.Exec(ctx, `INSERT INTO gateway_scans(id,tenant_id,gateway_id,kind,status) VALUES($1,$2,$3,'lan','requested')`, "mqpipe-"+id, tenant, tenant+"-gw"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, row := range []struct{ id, status string }{{"cmd", "sent"}, {"pending", "pending_approval"}, {"rejected", "sent"}, {"cmd-barrier", "sent"}} {
+		if _, err := s.st.Pool.Exec(ctx, `INSERT INTO commands(request_id,tenant_id,gateway_id,device_id,action,status,requested_by) VALUES($1,$2,$3,$4,'synthetic.noop',$5,'test-user')`, "mqpipe-"+row.id, tenant, tenant+"-gw", tenant+"-dev", row.status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publishReply := func(topic string, body any) {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tok := c.Publish(topic, 1, false, b)
+		if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
+			t.Fatal("reply publish", tok.Error())
+		}
+	}
+	topic := "t/" + tenant + "/g/" + tenant + "-gw/"
+	// Wrong topic identity must not settle otherwise valid IDs.
+	for _, prefix := range []string{"t/itest-mqother/g/" + tenant + "-gw/", "t/" + tenant + "/g/wrong-gateway/"} {
+		publishReply(prefix+"scan/result", map[string]any{"scan_id": "mqpipe-scan", "ok": true, "hosts": []any{map[string]any{"Addr": "10.0.0.99", "Port": 502, "Service": "wrong identity"}}})
+		publishReply(prefix+"cmd/ack", map[string]any{"request_id": "mqpipe-cmd", "state": "acked", "detail": "wrong identity"})
+	}
+	publishReply(topic+"scan/result", map[string]any{"scan_id": "mqpipe-scan-barrier", "ok": true})
+	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-cmd-barrier", "state": "acked"})
+	waitState := func(table, key, id, want string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var got string
+			err := s.st.Pool.QueryRow(ctx, "SELECT status FROM "+table+" WHERE "+key+"=$1", id).Scan(&got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got == want {
+				return
+			}
+			if time.Now().After(deadline) {
+				b, _ := os.ReadFile(logPath)
+				t.Fatalf("%s state=%s want%s: %s", id, got, want, b)
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	waitState("gateway_scans", "id", "mqpipe-scan-barrier", "done")
+	waitState("commands", "request_id", "mqpipe-cmd-barrier", "acked")
+	var scanStatus, cmdStatus string
+	if err := s.st.Pool.QueryRow(ctx, `SELECT status FROM gateway_scans WHERE id='mqpipe-scan'`).Scan(&scanStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.Pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id='mqpipe-cmd'`).Scan(&cmdStatus); err != nil {
+		t.Fatal(err)
+	}
+	if scanStatus != "requested" || cmdStatus != "sent" {
+		t.Fatal("wrong identity settled state", scanStatus, cmdStatus)
+	}
+	publishReply(topic+"scan/result", map[string]any{"scan_id": "mqpipe-scan", "ok": true, "hosts": []any{map[string]any{"Addr": "10.0.0.9", "Port": 502, "Service": "Synthetic Modbus"}}})
+	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-cmd", "state": "acked", "detail": "synthetic accepted"})
+	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-pending", "state": "acked"})
+	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-rejected", "state": "rejected", "detail": "synthetic refusal"})
+	waitState("gateway_scans", "id", "mqpipe-scan", "done")
+	waitState("commands", "request_id", "mqpipe-cmd", "acked")
+	waitState("commands", "request_id", "mqpipe-rejected", "failed")
+	// Conflicting late terminal replies must not overwrite the first outcome.
+	publishReply(topic+"scan/result", map[string]any{"scan_id": "mqpipe-scan", "ok": false, "error": "late overwrite"})
+	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-cmd", "state": "rejected", "detail": "late overwrite"})
 	at := time.Now().UTC().Truncate(time.Millisecond)
 	send := func(event string, value float64, payloadTenant string) {
 		stamp := at
@@ -186,6 +263,8 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 		t.Fatalf("dedupe/spoof: count%d spoof%d", count, spoof)
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
+	mux.HandleFunc("GET /v1/commands", s.listCommands)
 	mux.HandleFunc("GET /v1/telemetry/latest", s.latestTelemetry)
 	mux.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
 	secret := []byte("synthetic-test-key-not-for-production")
@@ -218,6 +297,33 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	if code != 200 || strings.TrimSpace(body) != "[]" {
 		t.Fatalf("tenant leak %d %s", code, body)
 	}
+	code, body = get(tenant, "/v1/gateways/"+tenant+"-gw/scans")
+	if code != 200 || !strings.Contains(body, "Synthetic Modbus") || strings.Contains(body, "late overwrite") || strings.Contains(body, "wrong identity") {
+		t.Fatalf("scan read %d %s", code, body)
+	}
+	code, body = get("itest-mqother", "/v1/gateways/"+tenant+"-gw/scans")
+	if code != 200 || strings.TrimSpace(body) != "[]" {
+		t.Fatal("scan tenant leak", code, body)
+	}
+	code, body = get(tenant, "/v1/commands")
+	if code != 200 || !strings.Contains(body, `"status":"acked"`) {
+		t.Fatal("commands read", code, body)
+	}
+	code, body = get("itest-mqother", "/v1/commands")
+	if code != 200 || strings.Contains(body, "mqpipe-") {
+		t.Fatal("command tenant leak", code, body)
+	}
+	var outcome []byte
+	if err := s.st.Pool.QueryRow(ctx, `SELECT status,outcome FROM commands WHERE request_id='mqpipe-cmd'`).Scan(&cmdStatus, &outcome); err != nil {
+		t.Fatal(err)
+	}
+	if cmdStatus != "acked" || !strings.Contains(string(outcome), "synthetic accepted") || strings.Contains(string(outcome), "late overwrite") {
+		t.Fatal("terminal command overwritten", cmdStatus, string(outcome))
+	}
+	if err := s.st.Pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id='mqpipe-pending'`).Scan(&cmdStatus); err != nil || cmdStatus != "pending_approval" {
+		t.Fatal("pending command settled", err, cmdStatus)
+	}
+	t.Log("post-reconnect manual scan results and synthetic command ACKs: topic tenant/gateway isolation, pending-command gate, rejected->failed, first terminal outcome and JWT scoped reads passed; no actuators")
 	res, err := http.Get(httpServer.URL + "/v1/telemetry/latest")
 	if err != nil {
 		t.Fatal(err)
