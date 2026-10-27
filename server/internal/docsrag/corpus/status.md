@@ -519,3 +519,7 @@ System health separates failed health/metrics fetches, clears and hides charts o
 ## 2026-10-27: post-reconnect scan and command reply regression
 
 Extended the real-broker/compiled-ingest/Postgres/JWT regression to manual scan results and synthetic command ACKs after two TCP reconnects. Wrong topic tenant/gateway cannot settle IDs; matching scan/command replies persist, rejected becomes failed, pending-approval commands stay pending, and late conflicting terminal replies cannot overwrite outcomes. Scoped HTTP scan/command reads covered. No product behavior changed, outbound dispatch, actuator or physical scan; approval/dispatch,other ACK families,mTLS/ACLs/offline replay/broker restart remain separate tests.
+
+## 2026-10-27: diagnostics log response states
+
+Dev tools now distinguishes loading,failed and empty responses,clears prior rows on a filter refresh and rejects late responses. Empty logs no longer imply system health; response time and300-row cap are explicit. Filter controls remain available on errors. Support bundle button blocks duplicate pending downloads and asks operators to review contents before sharing,without promising perfect redaction. Synthetic desktop/mobile checked,regression tests cover empty/error/loading/late results and duplicate download. No new log sources,redaction logic or production outage verification.
