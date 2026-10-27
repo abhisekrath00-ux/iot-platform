@@ -96,7 +96,7 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	}
 	defer logFile.Close()
 	cmd := exec.Command(binary)
-	cmd.Env = append(os.Environ(), "DATABASE_URL="+os.Getenv("TEST_DATABASE_URL"), "MQTT_HOST=127.0.0.1", "MQTT_PORT="+ingestPort, "GOOGLE_CLIENT_ID=", "SPARKPLUG_TENANT=", "INGEST_SHARED_GROUP=", "SMTP_HOST=", "SLACK_BOT_TOKEN=")
+	cmd.Env = append(os.Environ(), "DATABASE_URL="+os.Getenv("TEST_DATABASE_URL"), "MQTT_HOST=127.0.0.1", "MQTT_TLS=false", "MQTT_CA_FILE=", "MQTT_CERT_FILE=", "MQTT_KEY_FILE=", "MQTT_PORT="+ingestPort, "GOOGLE_CLIENT_ID=", "SPARKPLUG_TENANT=", "INGEST_SHARED_GROUP=", "SMTP_HOST=", "SLACK_BOT_TOKEN=")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
