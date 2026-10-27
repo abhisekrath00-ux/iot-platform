@@ -527,3 +527,8 @@ Dev tools now distinguishes loading,failed and empty responses,clears prior rows
 ## 2026-10-28: failed diagnostics reads
 
 Log API and support exports now fail explicitly on log query/decode/iteration errors,with no partial success or downloadable bundle on these failures. Both admin responses use no-store. Unit fault injection and real-Postgres closed-pool HTTP tests cover failures; successful observability/redaction regression remains tested. Existing snapshot metric probes may still omit unavailable values; no blanket bundle completeness/redaction guarantee or production outage proof.
+
+
+## 2026-10-28: server MQTT TLS transport
+
+Ingest and API publisher now honor a shared verified TLS/client-certificate configuration instead of hardcoding plaintext. Explicit TLS requires readable CA/cert/key and valid pair,hostname and CA verification,TLS1.2+,no fallback. Existing unset/false lab mode remains;cert settings in plaintext are refused. Real disposable Mosquitto transport tests use ephemeral certs for service subscribe,gateway publish,foreign-tenant publication denial and missing-client/wrong-host/untrusted-CA rejection. CI includes the opt-in test. No production keys,credential creation,certificate lifecycle,compiled-ingest TLS-to-SQL or physical hardware proof. Supplied compose remains plaintext lab and needs deployment-specific mounts/override for production;service CN identities replace the prior misleading password-only documentation.
