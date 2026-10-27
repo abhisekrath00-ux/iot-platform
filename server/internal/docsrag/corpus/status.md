@@ -507,3 +507,7 @@ Guided chat templates: the Assistant page now has one-click, model-free template
 ## 2026-10-27: ingest reconnect subscriptions
 
 Moved all seven ingest topic families and the optional six Sparkplug filters into an OnConnect registration path, so a clean-session reconnect restores subscriptions. Bounded SUBACK waits and explicit rejected-subscription checks fail visibly rather than claiming readiness with missing topics. Synthetic local-broker pipeline now cuts the real ingest TCP connection twice before checking persisted telemetry, duplicate/spoof guards and JWT latest/series reads. Unit tests cover SUBACK/refusal/timeout/error/cancellation. No production broker, credentials, notification delivery or hardware. Offline replay, broker restarts, mTLS/ACLs, Sparkplug BIRTH recovery and full post-reconnect command/commissioning workflows remain unverified.
+
+## 2026-10-27: manual scan duplicate-request guard
+
+Manual scan reservations now serialize on the tenant-owned gateway row before checking/inserting, then commit before broker publish. Concurrent Postgres test sends12 reservations and admits one; foreign/inactive gateway,lock timeout,completed/expired scan cases covered. UI blocks duplicate submits while pending and requires explicit successful refresh after uncertain failure; stale errors cannot overwrite another gateway. Synthetic desktop/mobile checked, no real scan. Not exactly-once delivery; crash-before-publish,ambiguous broker errors,automatic discovery and already-running physical scans remain outside this gate.
