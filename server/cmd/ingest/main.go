@@ -14,6 +14,7 @@ import (
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow/jsfn"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/mqttconfig"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
@@ -55,10 +56,11 @@ func main() {
 		log.Printf("%s", reason)
 	}
 
-	opts := mqtt.NewClientOptions().
-		AddBroker("tcp://" + mustEnv("MQTT_HOST") + ":" + envOr("MQTT_PORT", "1883")).
-		SetClientID(clientID()).SetAutoReconnect(true).SetConnectRetry(true)
-	// TODO(production): TLS + broker auth from env; see docs/deployment.md.
+	opts, err := mqttconfig.Options(os.Getenv, clientID())
+	if err != nil {
+		log.Fatalf("mqtt configuration: %v", err)
+	}
+	opts.SetConnectRetry(true)
 
 	// Register every handler before connecting. Clean sessions lose broker
 	// subscriptions on disconnect, including commissioning and ACK topics.
