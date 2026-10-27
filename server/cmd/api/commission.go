@@ -13,6 +13,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/commission"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/mqttconfig"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/google/uuid"
 )
@@ -333,17 +334,12 @@ func (s *server) publishMQTT(topic string, payload []byte) error {
 // manifests, which a gateway must receive even while offline at fanout time.
 func (s *server) publishMQTTRetained(topic string, payload []byte, retained bool) error {
 	mqttOnce.Do(func() {
-		host, port := os.Getenv("MQTT_HOST"), os.Getenv("MQTT_PORT")
-		if host == "" {
-			mqttErr = fmt.Errorf("MQTT_HOST not configured")
+		opts, err := mqttconfig.Options(os.Getenv, "api-commission")
+		if err != nil {
+			mqttErr = err
 			return
 		}
-		if port == "" {
-			port = "1883"
-		}
-		opts := mqtt.NewClientOptions().
-			AddBroker("tcp://" + host + ":" + port).
-			SetClientID("api-commission").SetAutoReconnect(true).SetConnectRetry(false)
+		opts.SetConnectRetry(false)
 		mqttClient = mqtt.NewClient(opts)
 		if tok := mqttClient.Connect(); tok.Wait() && tok.Error() != nil {
 			mqttErr = tok.Error()
