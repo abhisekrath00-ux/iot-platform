@@ -28,6 +28,8 @@ export default function Scan() {
   const [kind, setKind] = useState<ScanRow['kind']>('modbus-rtu');
   const [f, setF] = useState({ port: '/dev/ttyUSB0', baud: 9600, parity: 'none', from: 1, to: 32, cidr: '192.168.1.0/24', broadcast: '192.168.1.255', community_env: '' });
   const [msg, setMsg] = useState('');
+ const [needsRefresh,setNeedsRefresh]=useState(false);
+ const [requestPending,setRequestPending]=useState(false);const requesting=useRef(false);
   const [review,setReview]=useState<ScanEnrollment|null>(null);const [enrolling,setEnrolling]=useState(false);const [reviewError,setReviewError]=useState('');const sending=useRef(false);
   const [added, setAdded] = useState<Record<string, string>>({});
 
@@ -38,11 +40,11 @@ export default function Scan() {
   activeGateway.current=gw;
   async function load(gateway=gw){
     if(!gateway)return;const sequence=++loadSequence.current;setScanLoading(true);setScanError('');
-    try{const rows=await api<ScanRow[]>(`/v1/gateways/${gateway}/scans`);if(sequence!==loadSequence.current||activeGateway.current!==gateway)return;setScans(rows);setSelectedScan(id=>rows.some(x=>x.id===id&&!x.params.auto)?id:'');}
+    try{const rows=await api<ScanRow[]>(`/v1/gateways/${gateway}/scans`);if(sequence!==loadSequence.current||activeGateway.current!==gateway)return;setScans(rows);setSelectedScan(id=>rows.some(x=>x.id===id&&!x.params.auto)?id:'');return true;}
     catch(e){if(sequence===loadSequence.current&&activeGateway.current===gateway){setScans([]);setScanError(String(e));}}
     finally{if(sequence===loadSequence.current&&activeGateway.current===gateway)setScanLoading(false)}
   }
-  useEffect(()=>{setScans([]);setSelectedScan('');setAdded({});setScanError('');load(gw);return()=>{++loadSequence.current}},[gw]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{setNeedsRefresh(false);setScans([]);setSelectedScan('');setAdded({});setScanError('');load(gw);return()=>{++loadSequence.current}},[gw]); // eslint-disable-line react-hooks/exhaustive-deps
   const manual = scans.filter(x => !x.params.auto);
   const autos = scans.filter(x => x.params.auto && x.status === 'done');
   const latest = manual.find(x=>x.id===selectedScan)??manual[0];
@@ -55,12 +57,12 @@ export default function Scan() {
   }, [running, gw]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function start(e: React.FormEvent) {
-    e.preventDefault(); setMsg('');const gateway=gw;
+    e.preventDefault();if(requesting.current||needsRefresh||running||scanLoading||scanError||!gw)return;requesting.current=true;setRequestPending(true);setMsg('');const gateway=gw;
     const params = kind === 'modbus-rtu' ? { port: f.port, baud: +f.baud, parity: f.parity, from: +f.from, to: +f.to } : kind === 'snmp' ? { cidr: f.cidr, community_env:f.community_env } : kind === 'lan' ? { cidr: f.cidr } : { broadcast: f.broadcast };
     try {
       await api(`/v1/gateways/${gateway}/scans`, { method: 'POST', body: JSON.stringify({ kind, params }) });
-      if(activeGateway.current===gateway){setAdded({});setSelectedScan('');load(gateway);}
-    } catch (e2) { setMsg(String(e2)); }
+      if(activeGateway.current===gateway){setAdded({});setSelectedScan('');await load(gateway);}
+    } catch (e2) { if(activeGateway.current===gateway){setNeedsRefresh(true);setMsg(`Scan request outcome could not be confirmed: ${String(e2)}. Refresh results before trying again; a request may already have reached the gateway.`);await load(gateway);} } finally{requesting.current=false;setRequestPending(false)}
   }
 
   function add(s: ScanRow, key: string, profileId: string, name: string, connection: Record<string, unknown>) {
@@ -103,12 +105,12 @@ export default function Scan() {
            <p className="muted">Enter the variable name only, never its secret value. Gateway setup must separately enable autodetect.snmp and autodetect.snmp_dashboard and configure this same snmp_community_env. Both SNMP options default off. The v2c community travels in clear text on UDP161. Reads sysName/sysDescr only; no device is enrolled and no profile is verified.</p>
           </>)}
           {kind === 'bacnet' && (<><label>Subnet broadcast address</label><input value={f.broadcast} onChange={e => setF({ ...f, broadcast: e.target.value })} required /></>)}
-          <div style={{ marginTop: 14 }}><button type="submit" disabled={!gw || running || scanLoading || !!scanError}>{running ? 'Scanning...' : 'Start scan'}</button></div>
+          <div style={{ marginTop: 14 }}><button type="submit" disabled={!gw || running || scanLoading || !!scanError || requestPending || needsRefresh}>{requestPending?'Requesting scan...':running ? 'Scanning...' : 'Start scan'}</button></div>
         </form>
         {msg && <p className="muted" role="alert">{msg}</p>}
       </div>
 
-      <div style={{marginBottom:16,display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}><button className="ghost" disabled={!gw||scanLoading} onClick={()=>load(gw)}>{scanLoading?'Loading scans...':'Refresh results'}</button><span className="muted">Up to 10 latest scans for {gws.find(x=>x.id===gw)?.serial??'the selected gateway'}. Older records may fall outside this list.</span></div>
+      <div style={{marginBottom:16,display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}><button className="ghost" disabled={!gw||scanLoading} onClick={async()=>{if(await load(gw))setNeedsRefresh(false)}}>{scanLoading?'Loading scans...':'Refresh results'}</button><span className="muted">Up to 10 latest scans for {gws.find(x=>x.id===gw)?.serial??'the selected gateway'}. Older records may fall outside this list.</span></div>
       {scanError&&<p role="alert">Could not load scan history: {scanError}</p>}
       {!scanLoading&&!scanError&&gw&&scans.length===0&&<p>No scan records for this gateway in the latest results.</p>}
       {manual.length>0&&<div className="card" style={{maxWidth:900,marginBottom:20,scrollMarginTop:135}}><label htmlFor="scan-history">Manual scan history</label><select id="scan-history" style={{width:'100%',maxWidth:650}} value={latest?.id??''} onChange={e=>setSelectedScan(e.target.value)}>{manual.map((x,i)=><option key={x.id} value={x.id}>{i===0?'Newest: ':''}{x.kind} - {new Date(x.created_at).toLocaleString()} - {x.status}</option>)}</select><p className="muted">Viewing a saved result does not start a scan. The form above chooses the next scan, not this result's transport.</p></div>}
