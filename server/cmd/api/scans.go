@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -115,27 +116,19 @@ func (s *server) requestScan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	var status string
-	if err := s.st.Pool.QueryRow(r.Context(), `SELECT status FROM gateways WHERE id=$1 AND tenant_id=$2`, gw, tenant).Scan(&status); err != nil {
-		http.Error(w, "gateway not found", 404)
-		return
-	}
-	if status != "active" {
-		http.Error(w, "gateway has not claimed yet; scanning needs a live gateway", 409)
-		return
-	}
-	var running int
-	s.st.Pool.QueryRow(r.Context(), `SELECT count(*) FROM gateway_scans WHERE gateway_id=$1 AND tenant_id=$2 AND status='requested' AND created_at > now() - interval '10 minutes'`, gw, tenant).Scan(&running)
-	if running > 0 {
-		http.Error(w, "a scan is already running on this gateway; wait for it to finish", 409)
-		return
-	}
 	id := uuid.NewString()
 	pj, _ := json.Marshal(in.Params)
-	if _, err := s.st.Pool.Exec(r.Context(),
-		`INSERT INTO gateway_scans(id,tenant_id,gateway_id,kind,params,requested_by) VALUES($1,$2,$3,$4,$5,$6)`,
-		id, tenant, gw, in.Kind, pj, auth.User(r)); err != nil {
-		dbErr(w, err)
+	if err := s.reserveManualScan(r.Context(), tenant, gw, id, in.Kind, pj, auth.User(r)); err != nil {
+		switch {
+		case errors.Is(err, errScanGatewayMissing):
+			http.Error(w, "gateway not found", 404)
+		case errors.Is(err, errScanGatewayInactive):
+			http.Error(w, "gateway has not claimed yet; scanning needs a live gateway", 409)
+		case errors.Is(err, errScanAlreadyRunning):
+			http.Error(w, "a scan is already running on this gateway; wait for it to finish", 409)
+		default:
+			dbErr(w, err)
+		}
 		return
 	}
 	req := map[string]any{"scan_id": id, "kind": in.Kind}
