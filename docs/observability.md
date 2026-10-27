@@ -22,3 +22,7 @@ Metrics sampled every 60 s, kept 14 days. Logs kept 30 days, max 50000 rows. Mig
 - `GET /v1/system/logs?level=&q=&minutes=&service=&limit=` stored logs.
 - `GET /v1/system/prom` Prometheus text format, for an optional external scraper. Nothing is required.
 - `GET /v1/system/support` redacted support bundle (text), audited.
+
+## Failed diagnostics reads
+
+Log lists and support bundles are admin-only and marked `Cache-Control: no-store`. A failed log query, row decode or iteration returns500 rather than partial or empty success. Support bundle log query/decode/iteration failure returns500 before the attachment headers or bundle contents are written; operators can retry after checking availability. This does not certify every support-bundle metric: existing snapshot probes can still omit unavailable values. Redaction remains best-effort and exports need review before sharing. Tests inject scan/iteration errors and close a real Postgres pool to verify no success-shaped JSON or downloadable partial bundle; no production outage was induced.
