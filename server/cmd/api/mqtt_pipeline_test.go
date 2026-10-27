@@ -16,14 +16,20 @@ import (
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/mqttconfig"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 // Opt in with a disposable TEST_DATABASE_URL, loopback TEST_MQTT_PORT and
 // TEST_INGEST_BINARY (built from ./cmd/ingest). No external services/delivery.
-func TestIntegrationMQTTPipeline(t *testing.T) {
+func TestIntegrationMQTTPipeline(t *testing.T) { runMQTTPipeline(t, nil) }
+
+func runMQTTPipeline(t *testing.T, secure map[string]string) {
 	binary, port := os.Getenv("TEST_INGEST_BINARY"), os.Getenv("TEST_MQTT_PORT")
+	if secure != nil {
+		port = secure["MQTT_PORT"]
+	}
 	if binary == "" || port == "" {
 		t.Skip("TEST_INGEST_BINARY and TEST_MQTT_PORT required (local broker)")
 	}
@@ -97,6 +103,11 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	defer logFile.Close()
 	cmd := exec.Command(binary)
 	cmd.Env = append(os.Environ(), "DATABASE_URL="+os.Getenv("TEST_DATABASE_URL"), "MQTT_HOST=127.0.0.1", "MQTT_TLS=false", "MQTT_CA_FILE=", "MQTT_CERT_FILE=", "MQTT_KEY_FILE=", "MQTT_PORT="+ingestPort, "GOOGLE_CLIENT_ID=", "SPARKPLUG_TENANT=", "INGEST_SHARED_GROUP=", "SMTP_HOST=", "SLACK_BOT_TOKEN=")
+	if secure != nil {
+		for _, key := range []string{"MQTT_TLS", "MQTT_CA_FILE", "MQTT_CERT_FILE", "MQTT_KEY_FILE"} {
+			cmd.Env = append(cmd.Env, key+"="+secure[key])
+		}
+	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
@@ -114,7 +125,20 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	c := mqtt.NewClient(mqtt.NewClientOptions().AddBroker("tcp://127.0.0.1:" + port).SetClientID(fmt.Sprintf("test-pipe-%d", time.Now().UnixNano())))
+	publisherOpts := mqtt.NewClientOptions().AddBroker("tcp://127.0.0.1:" + port).SetClientID(fmt.Sprintf("test-pipe-%d", time.Now().UnixNano()))
+	if secure != nil {
+		cfg := map[string]string{}
+		for k, v := range secure {
+			cfg[k] = v
+		}
+		cfg["MQTT_CERT_FILE"], cfg["MQTT_KEY_FILE"] = secure["PUBLISHER_CERT"], secure["PUBLISHER_KEY"]
+		var err error
+		publisherOpts, err = mqttconfig.Options(func(k string) string { return cfg[k] }, fmt.Sprintf("test-tls-pipe-%d", time.Now().UnixNano()))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := mqtt.NewClient(publisherOpts)
 	if tok := c.Connect(); !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
 		t.Fatal("publisher connect", tok.Error())
 	}
@@ -235,6 +259,9 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	send("mq-pipeline-1", 42.5, "")
 	send("mq-pipeline-1", 42.5, "")
 	send("mq-spoof", 999, "itest-mqother")
+	if secure != nil {
+		publishReply("t/itest-mqother/g/itest-mqother-gw/telemetry", map[string]any{"event_id": "mq-tls-foreign", "device_id": "itest-mqother-dev", "point_id": "temp", "observed_at": at, "value": 999, "unit": "C", "schema_version": 1})
+	}
 	send("mq-barrier", 43.5, "")
 	deadline = time.Now().Add(10 * time.Second)
 	for {
@@ -258,6 +285,12 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	}
 	if err := s.st.Pool.QueryRow(ctx, `SELECT count(*) FROM telemetry WHERE event_id='mq-spoof'`).Scan(&spoof); err != nil {
 		t.Fatal(err)
+	}
+	if secure != nil {
+		var foreign int
+		if err := s.st.Pool.QueryRow(ctx, `SELECT count(*) FROM telemetry WHERE event_id='mq-tls-foreign'`).Scan(&foreign); err != nil || foreign != 0 {
+			t.Fatalf("broker ACL foreign telemetry: %d %v", foreign, err)
+		}
 	}
 	if count != 2 || spoof != 0 {
 		t.Fatalf("dedupe/spoof: count%d spoof%d", count, spoof)
@@ -331,6 +364,9 @@ func TestIntegrationMQTTPipeline(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != 401 {
 		t.Fatal("missing JWT", res.StatusCode)
+	}
+	if secure != nil {
+		t.Log("certificate-required TLS broker, CN-scoped gateway ACL -> compiled ingest after two TLS reconnects -> Postgres -> JWT HTTP passed; foreign topic publications withheld by broker")
 	}
 	t.Log("local broker -> real ingest process after TCP disconnect/reconnect -> Postgres -> JWT-verified latest/series handlers passed; duplicate pair once, payload tenant spoof dropped")
 }
