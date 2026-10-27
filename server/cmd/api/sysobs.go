@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/jackc/pgx/v5"
 )
 
 // Built-in observability: request metrics, a one-minute sampler into Postgres and a bounded store of
@@ -301,6 +302,7 @@ func (s *server) systemLogs(w http.ResponseWriter, r *http.Request) {
 	if !adminOnly(w, r) {
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	q := r.URL.Query()
 	lvl := q.Get("level")
 	if lvl != "error" && lvl != "warn" {
@@ -326,16 +328,46 @@ func (s *server) systemLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+	out, err := readObsLogs(rows)
+	if err != nil {
+		http.Error(w, "log read failed", 500)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"logs": out})
+}
+
+// Read fully before writing a success response. Partial rows must not look complete.
+func readObsLogs(rows pgx.Rows) ([]map[string]any, error) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var id int64
 		var ts time.Time
 		var svc, l, msg string
-		if rows.Scan(&id, &ts, &svc, &l, &msg) == nil {
-			out = append(out, map[string]any{"id": id, "ts": ts, "service": svc, "level": l, "message": msg})
+		if err := rows.Scan(&id, &ts, &svc, &l, &msg); err != nil {
+			return nil, err
 		}
+		out = append(out, map[string]any{"id": id, "ts": ts, "service": svc, "level": l, "message": msg})
 	}
-	writeJSON(w, 200, map[string]any{"logs": out})
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func readObsSupportLogs(rows pgx.Rows) (string, error) {
+	var b strings.Builder
+	for rows.Next() {
+		var ts time.Time
+		var l, m string
+		if err := rows.Scan(&ts, &l, &m); err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "%s %s %s\n", ts.UTC().Format(time.RFC3339), l, obsRedact(m))
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return b.String(), nil
 }
 
 // GET /v1/system/prom (admin): the same numbers in Prometheus text format, for an outside scraper.
@@ -360,6 +392,7 @@ func (s *server) systemSupport(w http.ResponseWriter, r *http.Request) {
 	if !adminOnly(w, r) {
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	var b strings.Builder
 	fmt.Fprintf(&b, "HexThings support bundle, %s\nuptime %s, %s\n\n[current numbers]\n", time.Now().UTC().Format(time.RFC3339), time.Since(obs.started).Round(time.Second), runtime.Version())
 	snap := s.obsSnapshot(r.Context())
@@ -382,16 +415,17 @@ func (s *server) systemSupport(w http.ResponseWriter, r *http.Request) {
 	b.WriteString(strings.Join(names, "\n"))
 	b.WriteString("\n\n[last 500 warning and error lines, redacted]\n")
 	rows, err := s.st.Pool.Query(r.Context(), `SELECT ts, level, message FROM obs_logs ORDER BY id DESC LIMIT 500`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var ts time.Time
-			var l, m string
-			if rows.Scan(&ts, &l, &m) == nil {
-				fmt.Fprintf(&b, "%s %s %s\n", ts.UTC().Format(time.RFC3339), l, obsRedact(m))
-			}
-		}
+	if err != nil {
+		http.Error(w, "support log query failed", 500)
+		return
 	}
+	defer rows.Close()
+	logs, err := readObsSupportLogs(rows)
+	if err != nil {
+		http.Error(w, "support log read failed", 500)
+		return
+	}
+	b.WriteString(logs)
 	s.audit(r, "system.support_bundle", "", nil)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="hexthings-support.txt"`)
