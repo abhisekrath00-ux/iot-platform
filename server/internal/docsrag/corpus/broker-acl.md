@@ -37,7 +37,11 @@ or the diag channel of a neighbor.
   reload; a revoked one loses access on reload (and its certificate is
   rejected at the TLS layer once the CRL/rotation lands).
 
-Service users (`ingest` read-all, `api` diag-publish) live in the file's
-static header with password-file credentials; gateway blocks never get
-wildcards. Air-gap: everything is local file + SIGHUP, no plugin or network
+Service users (`ingest` read-all, `api` diagnostic/scan publisher) live in the file's
+static header. On the certificate-required production listener they need distinct
+client-auth certificates with CN `ingest` and `api`, signed by the broker-trusted CA.
+Password-file credentials alone do not satisfy `require_certificate true` and
+`use_identity_as_username true`. Gateway blocks never get wildcards. The static
+API header is not a blanket command/fleet dispatch grant; verify each enabled
+workflow's ACL before use. Air-gap: everything is local file + SIGHUP, no plugin or network
 service required.
