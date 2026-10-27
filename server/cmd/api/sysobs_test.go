@@ -72,6 +72,9 @@ func TestIntegrationSystemObservability(t *testing.T) {
 		t.Fatalf("metrics without names: %d", w.Code)
 	}
 	w = call(api, "itest-obs", "admin", "GET", "/v1/system/logs?level=error&q=itest-obs", "")
+	if w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("logs cacheable")
+	}
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "login failed") || strings.Contains(w.Body.String(), "hunter2hunter2") {
 		t.Fatalf("logs (must be stored redacted): %d %s", w.Code, w.Body.String())
 	}
@@ -79,6 +82,9 @@ func TestIntegrationSystemObservability(t *testing.T) {
 		t.Fatalf("prom: %d %s", w.Code, w.Body.String())
 	}
 	w = call(api, "itest-obs", "admin", "GET", "/v1/system/support", "")
+	if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Disposition") == "" {
+		t.Fatal("bundle headers")
+	}
 	if w.Code != 200 || strings.Contains(w.Body.String(), "hunter2hunter2") || !strings.Contains(w.Body.String(), "[current numbers]") {
 		t.Fatalf("support: %d", w.Code)
 	}
