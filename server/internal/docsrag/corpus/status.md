@@ -515,3 +515,7 @@ Manual scan reservations now serialize on the tenant-owned gateway row before ch
 ## 2026-10-27: system health freshness and unknown states
 
 System health separates failed health/metrics fetches, clears and hides charts on metrics errors, shows response-received times without claiming sample freshness, and rejects out-of-order range responses. Missing/non-finite counters read unknown rather than green/zero; API response is labeled received,not a full service/gateway check. A failed health refresh hides stale stats and offers retry. Chart grid fits narrow screens. Synthetic desktop/mobile checked,unit regressions cover missing/empty/error/late-response/retry states. No new probes or production outage test; response timestamps are not measurement timestamps and source monitoring coverage is unchanged.
+
+## 2026-10-27: post-reconnect scan and command reply regression
+
+Extended the real-broker/compiled-ingest/Postgres/JWT regression to manual scan results and synthetic command ACKs after two TCP reconnects. Wrong topic tenant/gateway cannot settle IDs; matching scan/command replies persist, rejected becomes failed, pending-approval commands stay pending, and late conflicting terminal replies cannot overwrite outcomes. Scoped HTTP scan/command reads covered. No product behavior changed, outbound dispatch, actuator or physical scan; approval/dispatch,other ACK families,mTLS/ACLs/offline replay/broker restart remain separate tests.
