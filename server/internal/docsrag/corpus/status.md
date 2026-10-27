@@ -532,3 +532,8 @@ Log API and support exports now fail explicitly on log query/decode/iteration er
 ## 2026-10-28: server MQTT TLS transport
 
 Ingest and API publisher now honor a shared verified TLS/client-certificate configuration instead of hardcoding plaintext. Explicit TLS requires readable CA/cert/key and valid pair,hostname and CA verification,TLS1.2+,no fallback. Existing unset/false lab mode remains;cert settings in plaintext are refused. Real disposable Mosquitto transport tests use ephemeral certs for service subscribe,gateway publish,foreign-tenant publication denial and missing-client/wrong-host/untrusted-CA rejection. CI includes the opt-in test. No production keys,credential creation,certificate lifecycle,compiled-ingest TLS-to-SQL or physical hardware proof. Supplied compose remains plaintext lab and needs deployment-specific mounts/override for production;service CN identities replace the prior misleading password-only documentation.
+
+
+## 2026-10-28: compiled ingest TLS acceptance regression
+
+Real disposable certificate-required broker with synthetic service/gateway CN identities now feeds the compiled ingest process through two TLS reconnects into Postgres and JWT-scoped latest/series/scan/command reads. Duplicate telemetry/payload spoof protection and foreign-tenant publication absence checked after a permitted barrier. Separate plaintext and TLS handshake-refusal tests retained. Tests only,no runtime/UI or production credential changes. Narrow synthetic ACL,not complete production ACL/enrollment/renewal/revocation/API dispatch/broker persistence/offline replay/physical hardware acceptance.
