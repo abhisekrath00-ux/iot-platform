@@ -87,6 +87,15 @@ func (s *server) updateReport(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin", "operator") {
 		return
 	}
+	var expected []int
+	if h := r.Header.Get("If-Match"); h != "" {
+		n, e := strconv.Atoi(h)
+		if e != nil || n < 1 {
+			http.Error(w, "If-Match must be a positive version", 400)
+			return
+		}
+		expected = []int{n}
+	}
 	var in struct {
 		Name         string            `json:"name"`
 		Definition   report.Definition `json:"definition"`
@@ -129,7 +138,11 @@ func (s *server) updateReport(w http.ResponseWriter, r *http.Request) {
 	}
 	def, _ := json.Marshal(in.Definition)
 	id := r.PathValue("id")
-	v, found, err := s.writeReportVersion(r.Context(), tenant, id, auth.User(r), reportState{name, def, cron, channelID})
+	v, found, err := s.writeReportVersion(r.Context(), tenant, id, auth.User(r), reportState{name, def, cron, channelID}, expected...)
+	if errors.Is(err, errReportVersionChanged) {
+		http.Error(w, "report changed since editing began; reload reports and reopen Edit before saving", 409)
+		return
+	}
 	if errors.Is(err, errReportOutsideCustomer) {
 		http.Error(w, err.Error(), 409)
 		return
