@@ -8,11 +8,15 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/brokeracl"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/mqttconfig"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"math/big"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -64,6 +68,7 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	bc, bk := issue("broker", true)
 	ic, ik := issue("ingest", false)
 	gc, gk := issue("synthetic-gateway", false)
+	ac, ak := issue("api", false)
 	l, e := net.Listen("tcp", "127.0.0.1:0")
 	if e != nil {
 		t.Fatal(e)
@@ -71,7 +76,7 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	port := fmt.Sprint(l.Addr().(*net.TCPAddr).Port)
 	l.Close()
 	acl := filepath.Join(dir, "acl")
-	if e = os.WriteFile(acl, []byte("user ingest\ntopic read t/#\nuser synthetic-gateway\ntopic write t/itest-mqpipe/g/itest-mqpipe-gw/telemetry\ntopic write t/itest-mqpipe/g/itest-mqpipe-gw/scan/result\ntopic write t/itest-mqpipe/g/itest-mqpipe-gw/cmd/ack\n"), 0600); e != nil {
+	if e = brokeracl.WriteAtomic(acl, brokeracl.Generate([]brokeracl.Entry{{Serial: "synthetic-gateway", TenantID: "itest-mqpipe", GatewayID: "itest-mqpipe-gw"}})); e != nil {
 		t.Fatal(e)
 	}
 	conf := filepath.Join(dir, "broker.conf")
@@ -90,5 +95,74 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer func() { cmd.Process.Kill(); cmd.Wait() }()
+	verifyGeneratedACLReads(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
 	runMQTTPipeline(t, map[string]string{"MQTT_TLS": "true", "MQTT_PORT": port, "MQTT_HOST": "127.0.0.1", "MQTT_CA_FILE": filepath.Join(dir, "ca.crt"), "MQTT_CERT_FILE": ic, "MQTT_KEY_FILE": ik, "PUBLISHER_CERT": gc, "PUBLISHER_KEY": gk})
+}
+
+// Both identities use production client options and the generated ACL. An own
+// scan message is a same-publisher barrier after the foreign messages, rather
+// than a sleep used as proof of denial. No requests reach real equipment.
+func verifyGeneratedACLReads(t *testing.T, port, ca, gc, gk, ac, ak string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		c, e := net.DialTimeout("tcp", "127.0.0.1:"+port, 100*time.Millisecond)
+		if e == nil {
+			c.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(e)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	connect := func(id, cert, key string) mqtt.Client {
+		opts, err := mqttconfig.Options(func(k string) string {
+			return map[string]string{"MQTT_TLS": "true", "MQTT_HOST": "127.0.0.1", "MQTT_PORT": port, "MQTT_CA_FILE": ca, "MQTT_CERT_FILE": cert, "MQTT_KEY_FILE": key}[k]
+		}, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := mqtt.NewClient(opts)
+		tok := c.Connect()
+		if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
+			t.Fatal("ACL client connect", tok.Error())
+		}
+		t.Cleanup(func() { c.Disconnect(100) })
+		return c
+	}
+	gateway := connect("generated-acl-gateway", gc, gk)
+	api := connect("generated-acl-api", ac, ak)
+	own := "t/itest-mqpipe/g/itest-mqpipe-gw/"
+	var mu sync.Mutex
+	var received []string
+	barrier := make(chan struct{}, 1)
+	tok := gateway.SubscribeMultiple(map[string]byte{own + "diag": 1, own + "scan": 1, "t/itest-mqother/g/itest-mqpipe-gw/diag": 1, "t/itest-mqpipe/g/wrong-gateway/diag": 1}, func(_ mqtt.Client, m mqtt.Message) {
+		mu.Lock()
+		received = append(received, m.Topic())
+		mu.Unlock()
+		if m.Topic() == own+"scan" {
+			barrier <- struct{}{}
+		}
+	})
+	if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
+		t.Fatal("ACL subscribe", tok.Error())
+	}
+	for _, topic := range []string{"t/itest-mqother/g/itest-mqpipe-gw/diag", "t/itest-mqpipe/g/wrong-gateway/diag", own + "diag", own + "scan"} {
+		tok = api.Publish(topic, 1, false, `{"synthetic":true}`)
+		if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
+			t.Fatal("API CN publish", tok.Error())
+		}
+	}
+	select {
+	case <-barrier:
+	case <-time.After(5 * time.Second):
+		t.Fatal("API CN own scan barrier not delivered")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 2 || received[0] != own+"diag" || received[1] != own+"scan" {
+		t.Fatalf("generated ACL delivered unexpected topics: %v", received)
+	}
+	t.Log("generated ACL: API certificate CN publishes diagnostic/scan requests; gateway reads own requests only after same-client foreign-topic barrier")
 }
