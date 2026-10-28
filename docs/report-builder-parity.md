@@ -148,3 +148,18 @@ current version when writing. Fault-reader and real-Postgres tests cover failure
 handling, empty/success shapes, scoped delivery-field suppression, missing/foreign
 history and unavailable storage. No database-outage UI or multi-replica load drill
 is claimed by these tests.
+
+## Saved report list refresh states
+
+Reports distinguishes loading, failed, successful-empty and received list states.
+Starting a refresh clears saved-report cards and closes their run/version history
+and execution review. A failed or malformed response leaves no stale saved-report
+actions and does not say there are no reports. Refresh retries only the list and
+keeps the local designer draft. Earlier responses cannot replace a newer list.
+The received timestamp is a browser receipt time, not data freshness or delivery
+proof. A zero-report message appears only after a successful empty response.
+
+These states are unit-tested and visually checked on desktop/mobile with synthetic
+API responses. Saved-report snapshots can still change after receipt; edit/run
+version guards remain the write-time protection. Auxiliary point/channel/options
+load behavior and broader designer parity are unchanged by this increment.
