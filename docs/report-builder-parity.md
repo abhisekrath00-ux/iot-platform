@@ -108,3 +108,27 @@ not invalidate its data snapshot. This is request-time data, not a live freshnes
 or delivery guarantee. These states are tested with synthetic responses and
 inspected on desktop and mobile; broader layout-canvas/report-source parity is
 unchanged.
+
+## Version-bound designer saves
+
+The Reports designer sends its opened version as `If-Match` on edit. The API
+checks it under the report row lock before creating history, changing the report
+or recording an update audit. A stale version returns409; malformed/nonpositive
+headers400. Existing callers without the header keep the prior edit behavior.
+Missing version information disables this UI's edit save rather than silently
+falling back to an unguarded write. This is a conflict check, not automatic merge.
+
+Pending saves disable the draft fields and guard duplicate submit events.
+Failure keeps the draft and blocks blind resubmission; the user can reload the
+report list and reopen Edit after checking stored state/history. A version
+conflict explicitly says this request did not overwrite the report; network and
+other failures warn that the outcome may be uncertain. Reopening replaces the
+local draft, so copy any wanted changes first. Success and Cancel edit reset
+content, delivery channel and schedule before a new draft. Saving does not run a
+report immediately, but a saved active schedule can run when due.
+
+Real-Postgres tests cover stale/replayed versions without extra history/audit,
+valid reopened edits, malformed headers, role/missing-report checks and headerless
+compatibility. UI tests cover version binding, duplicate/pending saves, uncertain
+outcomes, missing versions and reset of inherited delivery settings. Desktop and
+mobile use synthetic API states; no real delivery is exercised.
