@@ -537,3 +537,8 @@ Ingest and API publisher now honor a shared verified TLS/client-certificate conf
 ## 2026-10-28: compiled ingest TLS acceptance regression
 
 Real disposable certificate-required broker with synthetic service/gateway CN identities now feeds the compiled ingest process through two TLS reconnects into Postgres and JWT-scoped latest/series/scan/command reads. Duplicate telemetry/payload spoof protection and foreign-tenant publication absence checked after a permitted barrier. Separate plaintext and TLS handshake-refusal tests retained. Tests only,no runtime/UI or production credential changes. Narrow synthetic ACL,not complete production ACL/enrollment/renewal/revocation/API dispatch/broker persistence/offline replay/physical hardware acceptance.
+
+
+## 2026-10-28: truthful broker file regeneration
+
+ACL regeneration checks full query/read results before writing,returns409 when unconfigured and500 on query/write failure,instead of false success;successful file writes explicitly require broker reload. Process-local serialization and unique synced0640 temporary file+rename prevent sharedtemp collision for individual files. Tests cover closed DB unchanged file/admin restriction/write failures/partial two-file failure/no false audit/concurrent file writers. Not atomic across ACL/password pair or replicas,no directoryfsync/reload/certrevocation proof;automatic hooks log failure without rolling back enrollment/auth mutation.
