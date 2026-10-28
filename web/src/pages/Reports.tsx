@@ -50,6 +50,10 @@ export default function Reports() {
   const [opts, setOpts] = useState<{ sites: { id: string; name: string }[]; assets: { id: string; name: string; site_ids: string[] }[]; devices: { id: string; name: string; site_id: string; asset_id: string | null }[] }>({ sites: [], assets: [], devices: [] });
   const [cron, setCron] = useState('');
   const [editingId, setEditingId] = useState('');
+  const [editingVersion, setEditingVersion] = useState<number | null>(null);
+  const [savePending, setSavePending] = useState(false);
+  const [saveBlocked, setSaveBlocked] = useState(false);
+  const saveBusy = useRef(false);
   const [hist, setHist] = useState<{ id: string; current: number; versions: VersionRow[] } | null>(null);
   const [channelId, setChannelId] = useState('');
   const [msg, setMsg] = useState('');
@@ -100,10 +104,14 @@ export default function Reports() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (saveBusy.current || saveBlocked) return;
+    if (editingId && !editingVersion) { setMsg('No version is available for this edit. Reload reports and reopen Edit.'); return; }
+    saveBusy.current = true; setSavePending(true);
     setMsg('');
     try {
       await api(editingId ? `/v1/reports/${editingId}` : '/v1/reports', {
         method: editingId ? 'PUT' : 'POST',
+        headers: editingId ? { 'If-Match': String(editingVersion) } : undefined,
         body: JSON.stringify({
           name,
           definition: buildDef(),
@@ -111,9 +119,16 @@ export default function Reports() {
           channel_id: channelId || ''
         })
       });
-      setName(''); setCron(''); setEditingId(''); setHist(null);
+      resetDraft(); setHist(null);
+      setMsg('Report saved. No immediate delivery was requested; an active schedule may run when next due.');
       load();
-    } catch (e2) { setMsg(String(e2)); }
+    } catch (e2) {
+      setSaveBlocked(true);
+      const error = String(e2);
+      setMsg(error.includes('409: report changed since editing began')
+        ? 'Save refused: the report changed since this edit began. This request did not overwrite it. Your draft is kept. Reload reports and reopen Edit to use the latest version; reopening replaces this draft.'
+        : `Save was not confirmed: ${error}. The outcome may be uncertain. Check the saved report list/history before trying again. Your draft is kept; reload reports and reopen Edit, or start a new draft after checking.`);
+    } finally { saveBusy.current = false; setSavePending(false); }
   }
 
   async function previewNow() {
@@ -139,6 +154,8 @@ export default function Reports() {
 
   // Load a saved report into the form; saving writes a new version and keeps the old one.
   function edit(r: ReportRow) {
+    if (saveBusy.current) return;
+    setEditingVersion(r.version && r.version > 0 ? r.version : null); setSaveBlocked(false);
     const d = r.definition;
     setEditingId(r.id); setName(r.name); setMetrics(d.metrics.length ? d.metrics : [{ device_id: '', point_id: '' }]);
     setWindowHours(d.window_hours); setGroupBy(d.group_by); setLayout(d.layout ?? ''); setAgg(d.agg ?? 'avg'); setRollup(d.rollup ?? '');
@@ -148,7 +165,15 @@ export default function Reports() {
     setEmis((d.emissions ?? []).map(e => ({ name: e.name, scope: String(e.scope), metric: `${e.metric.device_id}|${e.metric.point_id}`, mode: e.mode ?? 'sum', unit: e.unit, factor: String(e.factor), src: e.factor_source })));
     setMsg(''); window.scrollTo({ top: 0 });
   }
-  function cancelEdit() { setSubs([]); setEditingId(''); setName(''); setCron(''); setMsg(''); }
+  function resetDraft() {
+    setEditingVersion(null); setSaveBlocked(false); setEditingId(''); setName('');
+    setMetrics([{ device_id: '', point_id: '' }]); setWindowHours(24); setGroupBy('hour');
+    setLayout(''); setAgg('avg'); setRollup(''); setHeader(''); setFooter(''); setTheme('light');
+    setChart(''); setPage(''); setHiAbove(''); setHiBelow(''); setHiWhen(''); setHiWhenColor('red');
+    setDetail(''); setInsights(false); setCompare(false); setSubs([]); setSecs([]); setEmis([]); setComputed([]);
+    setCron(''); setChannelId(''); closePreview();
+  }
+  function cancelEdit() { if (saveBusy.current) return; resetDraft(); setMsg(''); }
   function showHistory(id:string){setHist(hist?.id===id?null:{id,current:0,versions:[]})}
 
 
@@ -161,8 +186,10 @@ export default function Reports() {
       <h1>Reports</h1>
       {runReview&&<ReportRunReview key={runReview} id={runReview} onCancel={()=>setRunReview('')} onDone={()=>{setRunReview('');setMsg('Report execution completed. This is not a recipient delivery receipt.');load()}}/>}
       {!scoped && <div className="card" style={{ maxWidth: 680, marginBottom: 20 }}>
-        <b>New report</b>
+        <b>{editingId ? `Edit report (version ${editingVersion ?? 'unavailable'})` : 'New report'}</b>
         <form onSubmit={submit}>
+          <fieldset disabled={savePending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+          {editingId && <p className="muted">Saving checks the version opened for editing. If the saved report changed, reopen Edit from the refreshed list before saving again.</p>}
           <label>Name</label>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Weekly energy summary" required />
           <label>Design surface</label>
@@ -316,12 +343,15 @@ export default function Reports() {
             <option value="">None (run history only)</option>
             {channels.map(c => <option key={c.id} value={c.id}>{c.type}: {c.target}</option>)}
           </select>
-          <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+          <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="ghost" onClick={previewNow} disabled={previewPending}>{previewPending ? 'Building preview...' : 'Preview'}</button>
-            <button type="submit">{editingId ? 'Save changes (new version)' : 'Create report'}</button>
+            <button type="submit" disabled={savePending || saveBlocked || (!!editingId && !editingVersion)}>{savePending ? 'Saving...' : editingId ? 'Save changes (new version)' : 'Create report'}</button>
             {editingId && <button type="button" className="ghost" onClick={cancelEdit}>Cancel edit</button>}
           </div>
+          </fieldset>
         </form>
+        {savePending && <p role="status">Saving report. Wait for confirmation before starting another change.</p>}
+        {saveBlocked && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button type="button" className="ghost" onClick={load}>Reload reports to check</button><button type="button" className="ghost" onClick={cancelEdit}>Start new draft after checking</button></div>}
         {msg && <p className="muted">{msg}</p>}
       </div>}
       {scoped && msg && <p className="muted">{msg}</p>}
