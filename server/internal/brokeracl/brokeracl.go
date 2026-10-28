@@ -29,9 +29,9 @@ type Entry struct {
 
 // Header is the static preamble: server-side service users (ingest, api)
 // keep broad access; gateway blocks below narrow each device to its subtree.
-// Service credentials come from the broker password file, not certificates.
+// On the certificate-required listener, use service client certificates with these CNs.
 const Header = `# hexmon broker ACL - generated at claim time, do not edit by hand.
-# Service users (password file): full read for ingest, diag publish for api.
+# Service CN identities: full read for ingest, diagnostic/scan publish for api.
 user ingest
 topic read t/#
 
