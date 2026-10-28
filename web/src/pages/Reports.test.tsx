@@ -72,3 +72,75 @@ test('failed or incomplete refresh clears old HTML and permits retry, with no sa
   expect(vi.mocked(api).mock.calls.filter(c => c[1]?.method)).toHaveLength(3);
   expect(calls()).toHaveLength(3);
 });
+
+test('edit binds version, blocks duplicate pending saves and disables draft changes', async () => {
+  let finish!: (r: unknown) => void;
+  const saved = { id: 'r1', name: 'Stored draft', version: 7, definition: { metrics: [], window_hours: 24, group_by: 'hour' } };
+  const reads = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (p: string, init?: RequestInit) => {
+    if (p === '/v1/reports' && !init) return [saved];
+    if (init?.method === 'PUT') return new Promise(resolve => { finish = resolve; });
+    return reads(p, init);
+  });
+  window.scrollTo = vi.fn();
+  await act(async () => root.render(<Reports />));
+  await act(async () => button('Edit').click());
+  expect(box.textContent).toContain('Edit report (version 7)');
+  const form = box.querySelector('form')!;
+  await act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  const writes = vi.mocked(api).mock.calls.filter(c => c[1]?.method === 'PUT');
+  expect(writes).toHaveLength(1);
+  expect(writes[0][1]!.headers).toEqual({ 'If-Match': '7' });
+  expect(box.querySelector('fieldset')!.disabled).toBe(true);
+  expect(button('Saving...').disabled).toBe(true);
+  await act(async () => finish({ id: 'r1', version: 8 }));
+  expect(box.textContent).toContain('Report saved');
+  expect(box.textContent).not.toContain('Edit report (version');
+});
+
+test('uncertain save preserves draft and blocks blind retry; missing edit version never writes', async () => {
+  const saved = { id: 'r1', name: 'Stored draft', version: 3, definition: { metrics: [], window_hours: 24, group_by: 'hour' } };
+  const reads = vi.mocked(api).getMockImplementation()!;
+  let missing = false;
+  vi.mocked(api).mockImplementation(async (p: string, init?: RequestInit) => {
+    if (p === '/v1/reports' && !init) return [{ ...saved, version: missing ? undefined : 3 }];
+    if (init?.method === 'PUT') throw Error('network unavailable');
+    return reads(p, init);
+  });
+  window.scrollTo = vi.fn();
+  await act(async () => root.render(<Reports />));
+  await act(async () => button('Edit').click());
+  await changeName('Keep my draft');
+  await act(async () => box.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(box.textContent).toContain('outcome may be uncertain');
+  expect((box.querySelector('input[placeholder="Weekly energy summary"]') as HTMLInputElement).value).toBe('Keep my draft');
+  expect(button('Save changes (new version)').disabled).toBe(true);
+  await act(async () => box.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(vi.mocked(api).mock.calls.filter(c => c[1]?.method === 'PUT')).toHaveLength(1);
+  missing = true;
+  await act(async () => button('Reload reports to check').click());
+  await act(async () => button('Edit').click());
+  expect(box.textContent).toContain('version unavailable');
+  expect(button('Save changes (new version)').disabled).toBe(true);
+  await act(async () => box.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(box.textContent).toContain('No version is available');
+  expect(vi.mocked(api).mock.calls.filter(c => c[1]?.method === 'PUT')).toHaveLength(1);
+});
+
+
+test('cancel edit clears inherited delivery and report content before a new draft', async () => {
+ const saved = { id: 'r1', name: 'Stored', version: 2, channel_id: 'c1', schedule_cron: '0 8 * * *', definition: { metrics: [{device_id:'d',point_id:'p'}], window_hours: 168, group_by: 'day' } };
+ const reads = vi.mocked(api).getMockImplementation()!;
+ vi.mocked(api).mockImplementation(async (p: string, i?: RequestInit) => p === '/v1/reports' && !i ? [saved] : p === '/v1/notifications/channels' ? [{id:'c1',type:'email',target:'synthetic@example.invalid'}] : reads(p,i));
+ window.scrollTo=vi.fn();
+ await act(async()=>root.render(<Reports/>));
+ await act(async()=>button('Edit').click());
+ await act(async()=>button('Cancel edit').click());
+ await changeName('Fresh draft');
+ await act(async()=>button('Preview').click());
+ const draft=JSON.parse(calls()[0][1]!.body as string);
+ expect(draft.definition.window_hours).toBe(24);expect(draft.definition.metrics).toEqual([]);
+ const channel=[...box.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.value==='c1'))!;
+ expect(channel.value).toBe('');
+ expect((box.querySelector('input[placeholder="custom: 0 6 * * 1"]') as HTMLInputElement).value).toBe('');
+});
