@@ -45,3 +45,10 @@ Password-file credentials alone do not satisfy `require_certificate true` and
 API header is not a blanket command/fleet dispatch grant; verify each enabled
 workflow's ACL before use. Air-gap: everything is local file + SIGHUP, no plugin or network
 service required.
+
+
+## File generation outcomes and concurrency
+
+The admin regeneration endpoint returns `status: files_written` with `reload_required: true` only after configured file writes finish. Missing `BROKER_ACL_FILE` returns409; query/read/write failure returns500 and no successful regeneration audit. Both query result sets are fully read and checked before replacing files, so a row read failure does not publish a shortened ACL. Automatic claim/direct-auth hooks log generation failures; enrollment/auth mutation is not rolled back by this file-generation step.
+
+One process serializes regeneration. Each file uses a unique same-directory temporary file, mode0640, file sync, close and atomic rename, avoiding the old shared `.tmp` collision. This is atomic replacement per file, not an atomic ACL/password pair. A second-file failure can leave the first replaced; the response warns not to reload until both are checked. Different API processes are not coordinated by this mutex, and no directory fsync/power-loss durability guarantee is made. Broker SIGHUP/reload, existing session behavior and certificate revocation remain separate operator steps, not proved by HTTP200. Regression tests cover disabled configuration, admin-only access, closed DB preserving an existing file, first/second file write failure without success audit and concurrent individual-file writes. No live production broker files are used.
