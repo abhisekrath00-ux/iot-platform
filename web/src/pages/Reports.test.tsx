@@ -144,3 +144,54 @@ test('cancel edit clears inherited delivery and report content before a new draf
  expect(channel.value).toBe('');
  expect((box.querySelector('input[placeholder="custom: 0 6 * * 1"]') as HTMLInputElement).value).toBe('');
 });
+
+test('saved report loading and error never claim empty or leave old actions available', async () => {
+  let finish!: (r: unknown) => void; let fail = false;
+  const reads = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (p: string, i?: RequestInit) => {
+    if (p === '/v1/reports' && !i) { if (fail) throw Error('503: synthetic storage unavailable'); return new Promise(r => { finish = r; }); }
+    return reads(p, i);
+  });
+  await act(async () => root.render(<Reports />));
+  expect(box.textContent).toContain('Loading saved reports');
+  expect(box.textContent).not.toContain('No reports yet.');
+  expect(button('Refreshing reports...').disabled).toBe(true);
+  await act(async () => finish([{id:'r',name:'Saved synthetic',version:1,definition:{metrics:[],window_hours:24,group_by:'hour'}}]));
+  expect(button('Edit')).toBeTruthy(); expect(box.textContent).toContain('List received:');
+  await changeName('Keep this unsaved draft');
+  fail = true;
+  await act(async () => button('Refresh saved reports').click());
+  expect(box.textContent).toContain('Saved reports could not be loaded');
+  expect(box.textContent).not.toContain('No reports yet.');
+  expect(box.textContent).not.toContain('List received:');
+  expect(button('Edit')).toBeUndefined(); expect(button('Run now')).toBeUndefined();
+  expect((box.querySelector('input[placeholder="Weekly energy summary"]') as HTMLInputElement).value).toBe('Keep this unsaved draft');
+  fail = false;
+  await act(async () => button('Refresh saved reports').click());
+  await act(async () => finish([]));
+  expect(box.textContent).toContain('No reports yet.');
+  expect(box.textContent).not.toContain('Saved reports could not be loaded');
+});
+
+test('a late earlier report list cannot replace a newer refresh and malformed lists fail closed', async () => {
+  const requests: ((v: unknown) => void)[] = [];
+  const saved = {id:'r',name:'Old snapshot',version:1,definition:{metrics:[],window_hours:24,group_by:'hour'}};
+  const reads = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (p: string, i?: RequestInit) => p === '/v1/reports' && !i ? new Promise(r => requests.push(r)) : reads(p,i));
+  await act(async()=>root.render(<Reports/>));
+  // Direct event dispatch models two refresh sources reaching the handler before render.
+  const refresh = button('Refreshing reports...');
+  await act(async()=>refresh.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+  // The disabled control must not start another request.
+  expect(requests).toHaveLength(1);
+  await act(async()=>requests[0]([saved]));
+  const b=button('Refresh saved reports');
+  await act(async()=>{b.click();b.click();});
+  expect(requests).toHaveLength(3);
+  await act(async()=>requests[2]([{...saved,name:'New snapshot',version:2}]));
+  await act(async()=>requests[1]([saved]));
+  expect(box.textContent).toContain('New snapshot');expect(box.textContent).not.toContain('Old snapshot');
+  await act(async()=>button('Refresh saved reports').click());
+  await act(async()=>requests[3]({reports:[]}));
+  expect(box.textContent).toContain('incomplete report list');expect(button('Edit')).toBeUndefined();
+});
