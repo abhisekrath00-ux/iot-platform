@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -77,8 +78,25 @@ func Generate(entries []Entry) string {
 // WriteAtomic replaces the acl_file without a partial-write window: write a
 // temp file in the same directory, fsync, rename. Mosquitto reloads on SIGHUP.
 func WriteAtomic(path, content string) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0640); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if err = f.Chmod(0640); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err = f.WriteString(content); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
