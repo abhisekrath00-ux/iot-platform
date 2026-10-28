@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/brokeracl"
 )
@@ -12,12 +15,22 @@ import (
 // regenerateBrokerACL rewrites the mosquitto acl_file from every active
 // gateway that holds an issued certificate. Called after each successful
 // claim and via POST /v1/broker/acl/regenerate (redeploy hook). No-op unless
-// BROKER_ACL_FILE is set - the lab broker (allow_anonymous) has no ACL file.
+// BROKER_ACL_FILE is set; an unconfigured call returns a distinct error.
 // Mosquitto picks up the new file on SIGHUP; see docs/broker-acl.md.
-func (s *server) regenerateBrokerACL(ctx context.Context) {
+var brokerACLWriteMu sync.Mutex
+var errBrokerACLDisabled = errors.New("BROKER_ACL_FILE is not configured")
+
+func (s *server) regenerateBrokerACL(ctx context.Context) (result error) {
+	defer func() {
+		if result != nil && !errors.Is(result, errBrokerACLDisabled) {
+			log.Printf("brokeracl regeneration failed: %v", result)
+		}
+	}()
+	brokerACLWriteMu.Lock()
+	defer brokerACLWriteMu.Unlock()
 	path := os.Getenv("BROKER_ACL_FILE")
 	if path == "" {
-		return
+		return errBrokerACLDisabled
 	}
 	rows, err := s.st.Pool.Query(ctx,
 		`SELECT serial, tenant_id, id, kind='direct' FROM gateways
@@ -25,42 +38,51 @@ func (s *server) regenerateBrokerACL(ctx context.Context) {
 		   OR (auth_mode='password' AND kind='direct' AND broker_pw_hash IS NOT NULL
 		       AND EXISTS (SELECT 1 FROM tenant_direct_auth a WHERE a.tenant_id=gateways.tenant_id AND a.password_enabled)))`)
 	if err != nil {
-		log.Printf("brokeracl: query: %v", err)
-		return
+		return fmt.Errorf("ACL query: %w", err)
 	}
 	defer rows.Close()
 	entries := []brokeracl.Entry{}
 	for rows.Next() {
 		var e brokeracl.Entry
-		if err := rows.Scan(&e.Serial, &e.TenantID, &e.GatewayID, &e.Direct); err == nil {
-			entries = append(entries, e)
+		if err := rows.Scan(&e.Serial, &e.TenantID, &e.GatewayID, &e.Direct); err != nil {
+			return fmt.Errorf("ACL row: %w", err)
 		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("ACL read: %w", err)
+	}
+	rows.Close()
+	pw := os.Getenv("BROKER_DIRECT_PASSWD_FILE")
+	var pe []brokeracl.PasswdEntry
+	if pw != "" {
+		prow, err := s.st.Pool.Query(ctx, `SELECT g.serial, g.broker_pw_hash FROM gateways g JOIN tenant_direct_auth a ON a.tenant_id=g.tenant_id AND a.password_enabled WHERE g.status='active' AND g.kind='direct' AND g.auth_mode='password' AND g.broker_pw_hash IS NOT NULL`)
+		if err != nil {
+			return fmt.Errorf("password query: %w", err)
+		}
+		defer prow.Close()
+		for prow.Next() {
+			var e brokeracl.PasswdEntry
+			if err = prow.Scan(&e.Username, &e.Hash); err != nil {
+				return fmt.Errorf("password row: %w", err)
+			}
+			pe = append(pe, e)
+		}
+		if err = prow.Err(); err != nil {
+			return fmt.Errorf("password read: %w", err)
+		}
+		prow.Close()
 	}
 	if err := brokeracl.WriteAtomic(path, brokeracl.Generate(entries)); err != nil {
-		log.Printf("brokeracl: write %s: %v", path, err)
-		return
+		return fmt.Errorf("ACL write: %w", err)
 	}
-	if pw := os.Getenv("BROKER_DIRECT_PASSWD_FILE"); pw != "" {
-		prow, err := s.st.Pool.Query(ctx, `SELECT g.serial, g.broker_pw_hash FROM gateways g
-			JOIN tenant_direct_auth a ON a.tenant_id=g.tenant_id AND a.password_enabled
-			WHERE g.status='active' AND g.kind='direct' AND g.auth_mode='password' AND g.broker_pw_hash IS NOT NULL`)
-		if err != nil {
-			log.Printf("brokeracl: passwd query: %v", err)
-		} else {
-			var pe []brokeracl.PasswdEntry
-			for prow.Next() {
-				var e brokeracl.PasswdEntry
-				if prow.Scan(&e.Username, &e.Hash) == nil {
-					pe = append(pe, e)
-				}
-			}
-			prow.Close()
-			if err := brokeracl.WriteAtomic(pw, brokeracl.GeneratePasswd(pe)); err != nil {
-				log.Printf("brokeracl: write %s: %v", pw, err)
-			}
+	if pw != "" {
+		if err := brokeracl.WriteAtomic(pw, brokeracl.GeneratePasswd(pe)); err != nil {
+			return fmt.Errorf("password write after ACL replacement: %w", err)
 		}
 	}
 	log.Printf("brokeracl: wrote %d gateway blocks to %s (reload broker with SIGHUP)", len(entries), path)
+	return nil
 }
 
 // regenerateBrokerACLHandler is the operator-facing redeploy hook, e.g. after
@@ -69,7 +91,15 @@ func (s *server) regenerateBrokerACLHandler(w http.ResponseWriter, r *http.Reque
 	if !requireRole(w, r, "admin") {
 		return
 	}
-	s.regenerateBrokerACL(r.Context())
+	if err := s.regenerateBrokerACL(r.Context()); err != nil {
+		if errors.Is(err, errBrokerACLDisabled) {
+			http.Error(w, "broker ACL generation not configured", 409)
+		} else {
+			log.Printf("brokeracl regenerate: %v", err)
+			http.Error(w, "broker file generation failed; files may be partially replaced; do not reload until checked", 500)
+		}
+		return
+	}
 	s.audit(r, "brokeracl.regenerate", "", nil)
-	writeJSON(w, 200, map[string]any{"status": "regenerated"})
+	writeJSON(w, 200, map[string]any{"status": "files_written", "reload_required": true})
 }
