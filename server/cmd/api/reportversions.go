@@ -161,20 +161,46 @@ func (s *server) updateReport(w http.ResponseWriter, r *http.Request) {
 
 // GET /v1/reports/{id}/versions: the current version number and the saved earlier versions.
 func (s *server) listReportVersions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, tenant := r.PathValue("id"), auth.Tenant(r)
-	var cur int
-	var current reportState
-	if s.st.Pool.QueryRow(r.Context(), `SELECT version,name,definition,schedule_cron,channel_id FROM reports WHERE id=$1 AND tenant_id=$2`, id, tenant).Scan(&cur, &current.name, &current.definition, &current.cron, &current.channelID) != nil {
-		http.Error(w, "report not found", 404)
-		return
-	}
-	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT version, name, definition, schedule_cron, channel_id, superseded_by, superseded_at FROM report_versions WHERE report_id=$1 ORDER BY version DESC`, id)
+	// Both reads use one snapshot, so an intervening edit cannot mix a current
+	// baseline from one moment with history from another.
+	tx, err := s.st.Pool.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		dbErr(w, err)
 		return
 	}
-	defer rows.Close()
+	defer tx.Rollback(r.Context())
+	var cur int
+	var current reportState
+	err = tx.QueryRow(r.Context(), `SELECT version,name,definition,schedule_cron,channel_id FROM reports WHERE id=$1 AND tenant_id=$2`, id, tenant).Scan(&cur, &current.name, &current.definition, &current.cron, &current.channelID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		http.Error(w, "report not found", 404)
+		return
+	}
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
+	rows, err := tx.Query(r.Context(), `SELECT version,name,definition,schedule_cron,channel_id,superseded_by,superseded_at FROM report_versions WHERE report_id=$1 ORDER BY version DESC`, id)
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
+	out, err := readReportHistory(rows)
+	rows.Close()
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		dbErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"current": cur, "current_state": map[string]any{"name": current.name, "definition": json.RawMessage(current.definition), "schedule_cron": current.cron, "channel_id": current.channelID}, "versions": out})
+}
+
+func readReportHistory(rows pgx.Rows) ([]map[string]any, error) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var ver int
@@ -182,11 +208,15 @@ func (s *server) listReportVersions(w http.ResponseWriter, r *http.Request) {
 		var def []byte
 		var cron, channel *string
 		var at time.Time
-		if rows.Scan(&ver, &name, &def, &cron, &channel, &by, &at) == nil {
-			out = append(out, map[string]any{"version": ver, "name": name, "definition": json.RawMessage(def), "schedule_cron": cron, "channel_id": channel, "replaced_by": by, "replaced_at": at})
+		if err := rows.Scan(&ver, &name, &def, &cron, &channel, &by, &at); err != nil {
+			return nil, err
 		}
+		out = append(out, map[string]any{"version": ver, "name": name, "definition": json.RawMessage(def), "schedule_cron": cron, "channel_id": channel, "replaced_by": by, "replaced_at": at})
 	}
-	writeJSON(w, 200, map[string]any{"current": cur, "current_state": map[string]any{"name": current.name, "definition": json.RawMessage(current.definition), "schedule_cron": current.cron, "channel_id": current.channelID}, "versions": out})
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // POST /v1/reports/{id}/versions/{v}/restore (admin, operator): make an earlier version current
