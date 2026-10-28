@@ -12,7 +12,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"testing"
 	"time"
@@ -60,10 +59,6 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	if binary == "" || os.Getenv("TEST_INGEST_BINARY") == "" {
 		t.Skip("TEST_MOSQUITTO_BINARY and TEST_INGEST_BINARY required")
 	}
-	u, err := user.Current()
-	if err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
 	issue := pipelineTestCerts(t, dir)
 	bc, bk := issue("broker", true)
@@ -80,7 +75,7 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 		t.Fatal(e)
 	}
 	conf := filepath.Join(dir, "broker.conf")
-	if e = os.WriteFile(conf, []byte(fmt.Sprintf("user %s\nlistener %s 127.0.0.1\ncafile %s\ncertfile %s\nkeyfile %s\nrequire_certificate true\nuse_identity_as_username true\nallow_anonymous false\nacl_file %s\npersistence false\n", u.Username, port, filepath.Join(dir, "ca.crt"), bc, bk, acl)), 0600); e != nil {
+	if e = os.WriteFile(conf, []byte(fmt.Sprintf("listener %s 127.0.0.1\ncafile %s\ncertfile %s\nkeyfile %s\nrequire_certificate true\nuse_identity_as_username true\nallow_anonymous false\nacl_file %s\npersistence false\n", port, filepath.Join(dir, "ca.crt"), bc, bk, acl)), 0600); e != nil {
 		t.Fatal(e)
 	}
 	logfile, e := os.Create(filepath.Join(dir, "broker.log"))
