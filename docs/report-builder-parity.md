@@ -132,3 +132,19 @@ valid reopened edits, malformed headers, role/missing-report checks and headerle
 compatibility. UI tests cover version binding, duplicate/pending saves, uncertain
 outcomes, missing versions and reset of inherited delivery settings. Desktop and
 mobile use synthetic API states; no real delivery is exercised.
+
+## Saved-state read failures
+
+Report list and version-history reads return an error on row scan or iteration
+failure instead of a successful partial result. Database unavailability is500,
+not a missing-history404. Successful and failed responses use `Cache-Control:
+no-store`. Missing and foreign report history remain404; empty results remain
+JSON arrays, not null. Customer-scoped report lists still hide schedule/channel.
+
+Version history reads its current baseline and earlier versions in one read-only
+repeatable-read transaction so those queries share a Postgres snapshot. This is
+not a lock that prevents later edits; version-bound restore/save still checks the
+current version when writing. Fault-reader and real-Postgres tests cover failure
+handling, empty/success shapes, scoped delivery-field suppression, missing/foreign
+history and unavailable storage. No database-outage UI or multi-replica load drill
+is claimed by these tests.
