@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, download } from '../lib/api';
 import ReportHistory from '../components/ReportHistory';
 import ReportRuns from '../components/ReportRuns';
@@ -60,6 +60,11 @@ export default function Reports() {
   const reorder = (from: number, to: number) => setMetrics(ms => { if (from === to || from < 0 || to < 0 || from >= ms.length || to >= ms.length) return ms; const n = [...ms]; const [x] = n.splice(from, 1); n.splice(to, 0, x); return n; });
   const [previewHTML, setPreviewHTML] = useState('');
   const [previewRows, setPreviewRows] = useState(0);
+  const [previewPending, setPreviewPending] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const previewRequest = useRef(0);
+  const previewBusy = useRef(false);
+  const currentPreviewKey = useRef('');
 
   const load = () => {
     api<ReportRow[]>('/v1/reports').then(setReports).catch(e => setMsg(String(e)));
@@ -77,6 +82,21 @@ export default function Reports() {
   const num = (v: string) => (v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
   const highlight = () => { const above = num(hiAbove), below = num(hiBelow), when = hiWhen.trim() || undefined; return above === undefined && below === undefined && !when ? undefined : { above, below, when, when_color: when && hiWhenColor === 'amber' ? 'amber' : undefined }; };
   const buildDef = () => ({ subreports: subs.filter(Boolean).length ? subs.filter(Boolean).map(report_id => ({ report_id })) : undefined, sections: secs.filter(x => x.title.trim() && x.body.trim()).length ? secs.filter(x => x.title.trim() && x.body.trim()).map(x => ({ title: x.title, body: x.body, page_break: x.page_break || undefined })) : undefined, detail: num(detail) && highlight() ? num(detail) : undefined, metrics: metrics.filter(m => m.device_id && m.point_id), window_hours: windowHours, group_by: groupBy, layout, agg, rollup: rollup || undefined, header: header || undefined, footer: footer || undefined, theme: theme === 'dark' ? 'dark' : undefined, chart: chart || undefined, insights: insights || undefined, compare: (insights && compare) || undefined, emissions: emis.filter(e => e.name && e.metric).length ? emis.filter(e => e.name && e.metric).map(e => ({ name: e.name, scope: Number(e.scope), metric: { device_id: e.metric.split('|')[0], point_id: e.metric.split('|')[1] }, mode: e.mode === 'delta' ? 'delta' : undefined, unit: e.unit, factor: Number(e.factor), factor_source: e.src })) : undefined, computed: layout === 'matrix' ? computed.filter(c => c.name && c.expr) : undefined, page: page || undefined, highlight: highlight() });
+
+  // A preview belongs to the exact draft that was requested. Any form edit,
+  // close or newer request invalidates late responses, including late errors.
+  const previewKey = JSON.stringify({ name, definition: buildDef() });
+  currentPreviewKey.current = previewKey;
+  useEffect(() => {
+    previewRequest.current++;
+    previewBusy.current = false;
+    setPreviewPending(false); setPreviewHTML(''); setPreviewError('');
+  }, [previewKey]);
+  useEffect(() => () => { previewRequest.current++; }, []);
+  function closePreview() {
+    previewRequest.current++; previewBusy.current = false;
+    setPreviewPending(false); setPreviewHTML(''); setPreviewError('');
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -97,14 +117,24 @@ export default function Reports() {
   }
 
   async function previewNow() {
-    setMsg('');
+    if (previewBusy.current) return;
+    previewBusy.current = true;
+    const request = ++previewRequest.current, key = previewKey;
+    setPreviewPending(true); setPreviewHTML(''); setPreviewError('');
     try {
       const r = await api<{ html: string; rows: number }>('/v1/reports/preview', {
-        method: 'POST',
-        body: JSON.stringify({ name, definition: buildDef() })
+        method: 'POST', body: key
       });
+      if (previewRequest.current !== request || currentPreviewKey.current !== key) return;
+      if (typeof r?.html !== 'string' || !r.html.trim() || !Number.isFinite(r.rows) || r.rows < 0) {
+        throw new Error('The server returned an incomplete preview.');
+      }
       setPreviewHTML(r.html); setPreviewRows(r.rows);
-    } catch (e2) { setMsg(String(e2)); }
+    } catch (e2) {
+      if (previewRequest.current === request && currentPreviewKey.current === key) setPreviewError(String(e2));
+    } finally {
+      if (previewRequest.current === request) { previewBusy.current = false; setPreviewPending(false); }
+    }
   }
 
   // Load a saved report into the form; saving writes a new version and keeps the old one.
@@ -287,7 +317,7 @@ export default function Reports() {
             {channels.map(c => <option key={c.id} value={c.id}>{c.type}: {c.target}</option>)}
           </select>
           <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
-            <button type="button" className="ghost" onClick={previewNow}>Preview</button>
+            <button type="button" className="ghost" onClick={previewNow} disabled={previewPending}>{previewPending ? 'Building preview...' : 'Preview'}</button>
             <button type="submit">{editingId ? 'Save changes (new version)' : 'Create report'}</button>
             {editingId && <button type="button" className="ghost" onClick={cancelEdit}>Cancel edit</button>}
           </div>
@@ -295,12 +325,15 @@ export default function Reports() {
         {msg && <p className="muted">{msg}</p>}
       </div>}
       {scoped && msg && <p className="muted">{msg}</p>}
+      {previewPending && <div role="status" className="card" style={{ marginBottom: 20 }}>Building a preview of this draft. No report is saved or sent. <button type="button" className="ghost" onClick={closePreview}>Cancel preview</button></div>}
+      {previewError && <p role="alert">Preview failed: {previewError} No preview is shown. Try Preview again.</p>}
       {previewHTML && (
         <div className="card" style={{ marginBottom: 20, padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '12px 18px', display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ padding: '12px 18px', display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
             <b>Preview <span className="muted">({previewRows} rows)</span></b>
-            <button className="ghost" onClick={() => setPreviewHTML('')}>Close</button>
+            <button className="ghost" onClick={closePreview}>Close</button>
           </div>
+          <p className="muted" style={{ padding: '0 18px' }}>Snapshot of this draft when requested. Editing report content clears it. Saving or delivery requires a separate action.</p>
           <iframe title="report preview" sandbox="" srcDoc={previewHTML} style={{ width: '100%', height: 420, border: 0, background: '#fff' }} />
         </div>
       )}
