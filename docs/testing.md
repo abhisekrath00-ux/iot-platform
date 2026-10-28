@@ -42,3 +42,25 @@ curl localhost:8000/v1/telemetry/latest?device_id=meter-1
 - Every bug fix lands with a failing test first.
 - Test electrical and metering accuracy against the meter's certified specs;
   software tests never establish measurement accuracy.
+
+## Disposable MQTT transport acceptance
+
+`TestIntegrationMQTTTLSPipeline` requires a disposable `TEST_DATABASE_URL`,
+`TEST_MOSQUITTO_BINARY`, and `TEST_INGEST_BINARY` built from `server/cmd/ingest`.
+It starts a loopback certificate-required broker with ephemeral test certificates.
+Its ACL is produced by `brokeracl.Generate` and written with `WriteAtomic`, the
+same generator and file writer used by broker-file regeneration.
+
+The API certificate identity publishes diagnostic and scan requests. The gateway
+certificate receives its own requests but not requests for another tenant or
+another gateway. An allowed scan from the same publisher follows the foreign
+requests as an ordering barrier. The compiled ingest path then checks two TLS
+reconnects, gateway-scoped telemetry/scan results/command ACKs, payload tenant
+spoof rejection, duplicate telemetry handling, Postgres persistence and JWT-scoped
+HTTP reads. Foreign telemetry is checked after an allowed same-client barrier.
+These are synthetic messages on a disposable broker, never actuator requests.
+
+This acceptance does not prove deployment certificate provisioning, certificate
+revocation, broker reload, atomic replacement of multiple files, real equipment,
+or lossless delivery during a disconnected clean session. CI runs this test
+separately so a missing test binary cannot be mistaken for a transport pass.
