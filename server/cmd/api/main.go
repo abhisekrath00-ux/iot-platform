@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"io"
 	"log"
 	"net/http"
@@ -1628,6 +1629,7 @@ func (s *server) createProfile(w http.ResponseWriter, r *http.Request) {
 // --- report builder ---
 
 func (s *server) listReports(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	q, args := `SELECT id, name, definition, schedule_cron, channel_id, last_run_at, created_at, version, customer_id
 		 FROM reports WHERE tenant_id=$1 ORDER BY created_at DESC`, []any{auth.Tenant(r)}
 	scoped := scopeOf(r)
@@ -1642,6 +1644,15 @@ func (s *server) listReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+	out, err := readReportList(rows, scoped)
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+func readReportList(rows pgx.Rows, scoped string) ([]map[string]any, error) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var id, name string
@@ -1651,14 +1662,19 @@ func (s *server) listReports(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		var version int
 		var cust *string
-		rows.Scan(&id, &name, &def, &cron, &channelID, &lastRun, &createdAt, &version, &cust)
+		if err := rows.Scan(&id, &name, &def, &cron, &channelID, &lastRun, &createdAt, &version, &cust); err != nil {
+			return nil, err
+		}
 		if scoped != "" { // delivery settings are not for customers
 			cron, channelID = nil, nil
 		}
 		out = append(out, map[string]any{"id": id, "name": name, "definition": json.RawMessage(def),
 			"schedule_cron": cron, "channel_id": channelID, "last_run_at": lastRun, "created_at": createdAt, "version": version, "customer_id": cust})
 	}
-	writeJSON(w, 200, out)
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *server) createReport(w http.ResponseWriter, r *http.Request) {
