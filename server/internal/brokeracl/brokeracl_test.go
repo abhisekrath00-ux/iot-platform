@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -114,5 +115,50 @@ func TestPasswordHashRoundTrip(t *testing.T) {
 	}
 	if got := GeneratePasswd([]PasswdEntry{{"b", "H2"}, {"a", "H1"}}); got != "a:H1\nb:H2\n" {
 		t.Fatalf("%q", got)
+	}
+}
+
+func TestConcurrentAtomicReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "acl")
+	a := strings.Repeat("A", 32768)
+	b := strings.Repeat("B", 32768)
+	if err := WriteAtomic(path, a); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 16)
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			v := a
+			if i%2 == 1 {
+				v = b
+			}
+			errs <- WriteAtomic(path, v)
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || (string(got) != a && string(got) != b) {
+		t.Fatal("torn final file", err)
+	}
+	files, _ := os.ReadDir(dir)
+	if len(files) != 1 {
+		t.Fatalf("temporary files left: %v", files)
+	}
+	st, _ := os.Stat(path)
+	if st.Mode().Perm() != 0640 {
+		t.Fatal(st.Mode())
+	}
+	if err = WriteAtomic(filepath.Join(dir, "missing", "acl"), "bad"); err == nil {
+		t.Fatal("write failure hidden")
 	}
 }
