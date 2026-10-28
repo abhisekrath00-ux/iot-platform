@@ -18,6 +18,10 @@ export default function Reports() {
   const [runHistory,setRunHistory]=useState('');
   const [runReview,setRunReview]=useState('');
   const [reports, setReports] = useState<ReportRow[]>([]);
+  const [reportsPending, setReportsPending] = useState(true);
+  const [reportsError, setReportsError] = useState('');
+  const [reportsReceived, setReportsReceived] = useState('');
+  const reportsRequest = useRef(0);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [me, setMe] = useState<{ role: string; customer_id?: string } | null>(null);
   useEffect(() => { api<{ role: string; customer_id?: string }>('/v1/me').then(setMe).catch(() => {}); }, []);
@@ -70,14 +74,27 @@ export default function Reports() {
   const previewBusy = useRef(false);
   const currentPreviewKey = useRef('');
 
+  async function loadReports() {
+    const request = ++reportsRequest.current;
+    setReportsPending(true); setReportsError(''); setReportsReceived(''); setReports([]);
+    setRunReview(''); setRunHistory(''); setHist(null);
+    try {
+      const rows = await api<ReportRow[]>('/v1/reports');
+      if (reportsRequest.current !== request) return;
+      if (!Array.isArray(rows) || rows.some(r => !r || typeof r.id !== 'string' || typeof r.name !== 'string' || !r.definition || !Array.isArray(r.definition.metrics))) throw new Error('The server returned an incomplete report list.');
+      setReports(rows); setReportsReceived(new Date().toLocaleString());
+    } catch (e) {
+      if (reportsRequest.current === request) setReportsError(String(e));
+    } finally { if (reportsRequest.current === request) setReportsPending(false); }
+  }
   const load = () => {
-    api<ReportRow[]>('/v1/reports').then(setReports).catch(e => setMsg(String(e)));
+    void loadReports();
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
     api<PointRow[]>('/v1/points').then(setPoints).catch(() => {});
     api<{ id: string; name: string }[]>('/v1/devices').then(setDevices).catch(() => {});
     api<typeof opts>('/v1/reports/options').then(setOpts).catch(() => {});
   };
-  useEffect(load, []);
+  useEffect(() => { load(); return () => { reportsRequest.current++; }; }, []);
 
   function setMetric(i: number, k: keyof Metric, v: string) {
     setMetrics(ms => ms.map((m, j) => (j === i ? { ...m, [k]: v } : m)));
@@ -351,7 +368,7 @@ export default function Reports() {
           </fieldset>
         </form>
         {savePending && <p role="status">Saving report. Wait for confirmation before starting another change.</p>}
-        {saveBlocked && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button type="button" className="ghost" onClick={load}>Reload reports to check</button><button type="button" className="ghost" onClick={cancelEdit}>Start new draft after checking</button></div>}
+        {saveBlocked && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button type="button" className="ghost" onClick={load} disabled={reportsPending}>Reload reports to check</button><button type="button" className="ghost" onClick={cancelEdit}>Start new draft after checking</button></div>}
         {msg && <p className="muted">{msg}</p>}
       </div>}
       {scoped && msg && <p className="muted">{msg}</p>}
@@ -367,6 +384,13 @@ export default function Reports() {
           <iframe title="report preview" sandbox="" srcDoc={previewHTML} style={{ width: '100%', height: 420, border: 0, background: '#fff' }} />
         </div>
       )}
+      <section aria-label="Saved reports status" className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}><h2 style={{ margin: 0 }}>Saved reports</h2><button type="button" className="ghost" disabled={reportsPending} onClick={loadReports}>{reportsPending ? 'Refreshing reports...' : 'Refresh saved reports'}</button></div>
+        {reportsPending && <p role="status">Loading saved reports. Previous report actions are hidden until the refresh finishes.</p>}
+        {reportsError && <p role="alert">Saved reports could not be loaded: {reportsError} No saved-report actions are shown. Your draft is unchanged. Try Refresh saved reports again.</p>}
+        {reportsReceived && <p className="muted">List received: {reportsReceived}. This is a saved-state snapshot, not a report delivery receipt or live data check.</p>}
+        {!reportsPending && !reportsError && reportsReceived && reports.length === 0 && <p>{scoped ? 'No reports have been shared with you yet.' : 'No reports yet.'}</p>}
+      </section>
       {reports.map(r => (
         <div key={r.id} className="card" style={{ marginBottom: 10 }}>
           <b>{r.name}</b> <span className="muted">v{r.version ?? 1} - {r.definition.metrics.length} metrics, {r.definition.window_hours}h window, by {r.definition.group_by}{r.definition.rollup ? `, summary by ${r.definition.rollup}` : ''}</span>
@@ -416,7 +440,6 @@ export default function Reports() {
           {hist?.id === r.id && <ReportHistory id={r.id} onRestored={v=>{setHist(null);setMsg(`Restored version ${v} as a new version.`);load()}}/>}
         </div>
       ))}
-      {reports.length === 0 && <p className="muted">{scoped ? 'No reports have been shared with you yet.' : 'No reports yet.'}</p>}
     </>
   );
 }
