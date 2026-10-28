@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -62,6 +63,10 @@ func TestLocalMTLSTransport(t *testing.T) {
 	if binary == "" {
 		t.Skip("TEST_MOSQUITTO_BINARY required for local TLS broker")
 	}
+	u, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	issue := mqttTestCerts(t, dir)
 	bc, bk := issue("broker", true)
@@ -76,7 +81,7 @@ func TestLocalMTLSTransport(t *testing.T) {
 	acl := filepath.Join(dir, "acl")
 	os.WriteFile(acl, []byte("user ingest\ntopic read t/#\nuser synthetic-gateway\ntopic write t/allowed/g/one/telemetry\n"), 0600)
 	conf := filepath.Join(dir, "broker.conf")
-	os.WriteFile(conf, []byte(fmt.Sprintf("listener %d 127.0.0.1\ncafile %s\ncertfile %s\nkeyfile %s\nrequire_certificate true\nuse_identity_as_username true\nallow_anonymous false\nacl_file %s\npersistence false\n", port, filepath.Join(dir, "ca.crt"), bc, bk, acl)), 0600)
+	os.WriteFile(conf, []byte(fmt.Sprintf("user %s\nlistener %d 127.0.0.1\ncafile %s\ncertfile %s\nkeyfile %s\nrequire_certificate true\nuse_identity_as_username true\nallow_anonymous false\nacl_file %s\npersistence false\n", u.Username, port, filepath.Join(dir, "ca.crt"), bc, bk, acl)), 0600)
 	logpath := filepath.Join(dir, "broker.log")
 	logfile, e := os.Create(logpath)
 	if e != nil {
