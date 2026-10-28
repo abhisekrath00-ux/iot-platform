@@ -91,3 +91,20 @@ GET `/v1/reports/{id}/run-review` (admin/operator, unscoped only) returns a no-s
 The UI submits If-Match to Run. The server locks the report (`FOR NO KEY UPDATE`, compatible with report_runs FK inserts), then the channel (`FOR SHARE`), checks the fingerprint and refuses409 before creating a run on mismatch. It holds locks through build/delivery; report/channel mutations cannot redirect the guarded execution. Successful final last_run update commits under that report lock and invalidates successful replay. Missing/disabled/unsupported delivery channels are refused. Locks can delay edits, and guarded execution uses one additional DB connection.
 
 Headerless/direct API calls and the scheduler keep their prior behavior. This is not immutable rendered-output approval: telemetry, logo and referenced subreport content remain fresh and are not fingerprinted. Failures or lost responses can have uncertain side effects; this is not exactly-once delivery. UI permits one attempt per review and asks the operator to inspect run history/destination before retry. Integration tests use no-channel execution and concurrent database mutations, no live delivery.
+
+## Draft preview integrity
+
+The Reports designer binds each preview to its requested name and definition.
+Changing report content clears the snapshot and invalidates an in-flight response;
+late success and failure responses cannot replace a newer preview. Preview has
+pending, cancel and failure states, and guards duplicate clicks before rendering.
+Refreshing clears the prior HTML immediately; failed or incomplete responses do
+not leave old output visible. Zero-row HTML is still a valid preview. The report
+iframe remains sandboxed without script permission.
+
+Preview does not save a report, create a run or send a delivery. Schedule/channel
+selection is not part of the preview payload, so changing only those fields does
+not invalidate its data snapshot. This is request-time data, not a live freshness
+or delivery guarantee. These states are tested with synthetic responses and
+inspected on desktop and mobile; broader layout-canvas/report-source parity is
+unchanged.
