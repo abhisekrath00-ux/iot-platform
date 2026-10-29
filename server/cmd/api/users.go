@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -386,15 +385,17 @@ func (s *server) activeUser(next http.Handler) http.Handler {
 				http.Error(w, "account disabled", http.StatusUnauthorized)
 				return
 			}
-			if iat, ok := auth.IssuedAt(r); ok && validAfter != nil && iat.Before(validAfter.Truncate(time.Second)) {
+			// Legacy tokens have second-granularity iat, so equality is unsafe.
+			// Tracked tokens use the database session creation timestamp below.
+			if iat, ok := auth.IssuedAt(r); ok && auth.SessionID(r) == "" && validAfter != nil && !iat.After(validAfter.Truncate(time.Second)) {
 				http.Error(w, "session revoked", http.StatusUnauthorized)
 				return
 			}
 			if sid := auth.SessionID(r); sid != "" {
 				// A tracked session must still be live; a revoked or unknown id fails closed.
 				var live bool
-				if s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM user_sessions WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND revoked_at IS NULL)`,
-					sid, auth.Tenant(r), auth.User(r)).Scan(&live) != nil || !live {
+				if s.st.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM user_sessions WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND revoked_at IS NULL AND ($4::timestamptz IS NULL OR created_at > $4))`,
+					sid, auth.Tenant(r), auth.User(r), validAfter).Scan(&live) != nil || !live {
 					http.Error(w, "session revoked", http.StatusUnauthorized)
 					return
 				}
@@ -537,11 +538,12 @@ func (s *server) changeCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "user.credentials_change", auth.User(r), map[string]any{"email_changed": !strings.EqualFold(email, in.NewEmail)})
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
-		TenantID: auth.Tenant(r), Role: role,
-		RegisteredClaims: jwt.RegisteredClaims{Subject: auth.User(r), IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(time.Now().Add(12 * time.Hour))},
-	})
-	signed, err := tok.SignedString(s.secret)
+	sid := s.startSession(r, auth.Tenant(r), auth.User(r))
+	if sid == "" {
+		http.Error(w, "credentials changed; sign in again", http.StatusServiceUnavailable)
+		return
+	}
+	signed, err := s.sessionToken(auth.Tenant(r), role, auth.User(r), sid)
 	if err != nil {
 		http.Error(w, "token", 500)
 		return
