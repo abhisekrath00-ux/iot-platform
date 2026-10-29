@@ -163,3 +163,16 @@ These states are unit-tested and visually checked on desktop/mobile with synthet
 API responses. Saved-report snapshots can still change after receipt; edit/run
 version guards remain the write-time protection. Auxiliary point/channel/options
 load behavior and broader designer parity are unchanged by this increment.
+
+## History reload and uncertain restore
+
+History has an explicit reload path. Loading clears prior review choices; failed
+or incomplete responses show no restore actions and never imply no earlier
+versions. Restore guards duplicate clicks, locks reload while pending and blocks
+further restores from that snapshot after success or failure. A failed request
+may have committed before the connection failed: reload history, check current
+state and review again rather than blindly retrying. Reload is not an automatic
+retry, merge or delivery action. Existing server version checks remain in force.
+Synthetic response tests and desktop/mobile pixels cover read recovery, malformed
+history, pending duplicate protection, uncertain failure and blocked replay.
+No real report restore or delivery is executed by those visual tests.
