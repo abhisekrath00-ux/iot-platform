@@ -1,9 +1,21 @@
 // API client. The token comes from the session; dev builds accept a dev token
 // in localStorage. OIDC login flow lands before pilot.
+// Authenticated requests must stay on the application origin. Reject ambiguous
+// browser URL forms before reading credentials or issuing any network request.
+function localAPIPath(path: string): string {
+  if (!path.startsWith('/') || path.startsWith('//') || /[\\\x00-\x20\x7f]/.test(path)) {
+    throw new Error('Authenticated requests require a local application path.');
+  }
+  return path;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  localAPIPath(path);
   const token = localStorage.getItem('iot.token') ?? '';
   const res = await fetch(path, {
     ...init,
+    redirect: 'error',
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -33,8 +45,9 @@ export interface AlertDetail extends AlertRow { acknowledged_at?: string | null;
 
 /** Authenticated file download (the token lives in localStorage, so a plain link will not do). */
 export async function download(path: string, filename: string): Promise<void> {
+  localAPIPath(path);
   const token = localStorage.getItem('iot.token') ?? '';
-  const res = await fetch(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await fetch(path, { redirect: 'error', credentials: 'same-origin', headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement('a');
