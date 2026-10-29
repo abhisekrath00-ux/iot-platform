@@ -237,3 +237,25 @@ intro and trailing page-break note. A native XLSX chart test checks that intro
 notes shift category/value references to the actual first/last bucket rows.
 These checks extend placement acceptance; full Report Builder parity, real Office
 and production/hardware acceptance remain open.
+
+## Duplicate as local draft
+
+Unscoped admin/operators can choose Duplicate as draft on a saved-report card.
+Confirmation warns that the current local draft will be replaced. Cancel changes
+nothing. Accept copies fields supported by this designer, including metrics,
+charts, note order/placement/page-break flags and referenced subreports, into a
+new draft with a "Copy of" name. It does not preserve unsupported/unknown definition
+fields; it is not a byte-for-byte clone. The user must review before saving.
+
+Saved identity/version/history, customer sharing, cron and delivery channel are
+not copied. The original remains unchanged. Subreports remain references to the
+same saved reports, not independent copies. Existing previews and execution/history
+reviews close. Duplicate itself makes no write, run or delivery request; Create
+report is separate, and create does not inherit the source's sharing or schedule.
+The control is disabled during saves and uncertain save outcomes and hidden from
+customer-scoped users/viewers. Existing auth/role checks remain server-side.
+
+Tests cover cancellation, no duplicate-time writes, copied fields, clean create
+payload (not update), preview invalidation, pending/uncertain gates and scoped
+visibility. Desktop/mobile synthetic API pixels and zero write requests checked.
+No actual saved copy or external delivery was used for visual verification.
