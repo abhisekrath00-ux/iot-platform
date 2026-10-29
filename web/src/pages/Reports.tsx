@@ -185,6 +185,14 @@ export default function Reports() {
     setEmis((d.emissions ?? []).map(e => ({ name: e.name, scope: String(e.scope), metric: `${e.metric.device_id}|${e.metric.point_id}`, mode: e.mode ?? 'sum', unit: e.unit, factor: String(e.factor), src: e.factor_source })));
     setMsg(''); window.scrollTo({ top: 0 });
   }
+  function duplicateDraft(r: ReportRow) {
+    if (saveBusy.current || saveBlocked || scoped || !me || !['admin','operator'].includes(me.role)) return;
+    if (!window.confirm('Replace the current local draft with a copy of this report? Only fields supported by this designer are copied. The original stays unchanged. Schedule, delivery channel, customer sharing and version history are not copied. Review the draft before saving.')) return;
+    edit(r);
+    setEditingId(''); setEditingVersion(null); setCron(''); setChannelId('');
+    setName(`Copy of ${r.name}`); setHist(null); setRunHistory(''); setRunReview(''); closePreview();
+    setMsg('Copied supported designer fields into a new local draft. The original is unchanged. Schedule, delivery channel, customer sharing and version history were not copied. Nothing is saved or sent until you choose Create report. Referenced subreports remain references, not independent copies; review them before saving.');
+  }
   function resetDraft() {
     setEditingVersion(null); setSaveBlocked(false); setEditingId(''); setName('');
     setMetrics([{ device_id: '', point_id: '' }]); setWindowHours(24); setGroupBy('hour');
@@ -444,6 +452,7 @@ export default function Reports() {
             {!scoped && <><button onClick={() => setRunReview(r.id)}>Run now</button>
             <button className="ghost" aria-expanded={runHistory===r.id} onClick={()=>setRunHistory(runHistory===r.id?'':r.id)}>Run history</button>
             <button className="ghost" onClick={() => edit(r)}>Edit</button>
+            {me && ['admin','operator'].includes(me.role) && <button className="ghost" disabled={savePending || saveBlocked} onClick={() => duplicateDraft(r)}>Duplicate as draft</button>}
             <button className="ghost" onClick={() => showHistory(r.id)} aria-expanded={hist?.id === r.id}>History</button></>}
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=csv`, `${r.name}.csv`).catch(e => setMsg(String(e)))}>CSV</button>
             <button className="ghost" onClick={() => download(`/v1/reports/${r.id}/download?${qs(r.id)}format=html`, `${r.name}.html`).catch(e => setMsg(String(e)))}>HTML</button>
@@ -461,4 +470,4 @@ export default function Reports() {
       ))}
     </>
   );
-          }
+}
