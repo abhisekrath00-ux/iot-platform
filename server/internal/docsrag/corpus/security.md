@@ -171,9 +171,12 @@ Credential replacement returns a new tracked session; failure to record it retur
 503 with a sign-in-again instruction after the credentials have changed. It does
 not return a legacy replacement token. This avoids waiting for a clock tick while
 rejecting earlier sessions, including sessions whose JWT `iat` rounds to the same
-second. API keys have a separate lifecycle and are unchanged. Existing legacy
-claims without `iat` are outside this timestamp comparison; this fix does not add
-an authentication-format migration.
+second. API keys have a separate lifecycle and are unchanged. For an existing user with a revocation cutoff, an untracked legacy token without
+`iat` now fails closed too. Before a cutoff exists, those legacy tokens remain
+accepted for migration compatibility. Current human session and signup issuers
+include `iat`; the lab gateway token issuer intentionally omits it and has no user
+row, so it is not changed by this user-session revocation guard. API keys remain
+separate. This does not claim a full authentication-format migration.
 
 Regression coverage uses fixed before/equal/after timestamps, and actual default
 login -> credential change -> old token 401 -> replacement token 200. The freshDB
