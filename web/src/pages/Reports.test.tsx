@@ -115,6 +115,7 @@ test('uncertain save preserves draft and blocks blind retry; missing edit versio
   expect(box.textContent).toContain('outcome may be uncertain');
   expect((box.querySelector('input[placeholder="Weekly energy summary"]') as HTMLInputElement).value).toBe('Keep my draft');
   expect(button('Save changes (new version)').disabled).toBe(true);
+  expect(button('Duplicate as draft').disabled).toBe(true);
   await act(async () => box.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(vi.mocked(api).mock.calls.filter(c => c[1]?.method === 'PUT')).toHaveLength(1);
   missing = true;
@@ -218,4 +219,23 @@ test('searchable keyboard point palette and explicit metric/section ordering rea
   await act(async()=>box.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
   const save=vi.mocked(api).mock.calls.find(c=>c[1]?.method==='PUT')!;
   expect(save[1]!.headers).toEqual({'If-Match':'7'});expect(JSON.parse(save[1]!.body as string).definition).toEqual(def);
+});
+
+test('duplicate confirmation copies supported fields into a channel-less unscheduled new draft without writes',async()=>{
+ const saved={id:'original',name:'Weekly source',version:12,customer_id:'customer-a',channel_id:'c1',schedule_cron:'0 9 * * *',definition:{metrics:[{device_id:'d1',point_id:'p1'}],window_hours:168,group_by:'day',chart:'bar',sections:[{title:'Intro',body:'Method',position:'before_data',page_break:true}],subreports:[{report_id:'sub1'}]}};
+ const reads=vi.mocked(api).getMockImplementation()!;let savedBody:any;
+ vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/reports'&&!i)return[saved];if(p==='/v1/notifications/channels')return[{id:'c1',type:'email',target:'synthetic@example.invalid',enabled:true}];if(p==='/v1/points')return[{device_id:'d1',device_name:'Meter',point_id:'p1',unit:'kW'}];if(p==='/v1/reports'&&i?.method==='POST'){savedBody=JSON.parse(i.body as string);return{id:'new-id'}};return reads(p,i)});
+ window.scrollTo=vi.fn();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ await act(async()=>root.render(<Reports/>));await changeName('Unfinished draft');await act(async()=>button('Duplicate as draft').click());expect((box.querySelector('input[placeholder="Weekly energy summary"]') as HTMLInputElement).value).toBe('Unfinished draft');
+ confirm.mockReturnValue(true);await act(async()=>button('Edit').click());await act(async()=>button('Preview').click());await act(async()=>pending[0].resolve({html:'<h1>Old preview</h1>',rows:1}));expect(box.querySelector('iframe')).not.toBeNull();
+ await act(async()=>button('Duplicate as draft').click());expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Replace the current local draft'));expect(box.querySelector('iframe')).toBeNull();expect(box.textContent).not.toContain('Edit report (version');expect(box.textContent).toContain('Nothing is saved or sent');expect(box.textContent).toContain('subreports remain references');expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method&&c[0]!=='/v1/reports/preview')).toHaveLength(0);
+ await act(async()=>button('Preview').click());const def=JSON.parse(calls()[1][1]!.body as string);expect(def.name).toBe('Copy of Weekly source');expect(def.definition.sections).toEqual(saved.definition.sections);expect(def.definition.subreports).toEqual(saved.definition.subreports);
+ await act(async()=>box.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ expect(savedBody.schedule_cron).toBe('');expect(savedBody.channel_id).toBe('');expect(savedBody.customer_id).toBeUndefined();expect(savedBody.id).toBeUndefined();expect(savedBody.definition).toEqual(def.definition);expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method==='PUT')).toHaveLength(0);confirm.mockRestore();
+});
+
+test('duplicate is hidden from customer-scoped viewers and disabled during saves or uncertain outcomes',async()=>{
+ let finish!:(r:unknown)=>void;let role='admin';const saved={id:'r',name:'Source',version:2,definition:{metrics:[],window_hours:24,group_by:'hour'}};const reads=vi.mocked(api).getMockImplementation()!;
+ vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/me')return role==='admin'?{role}:{role:'viewer',customer_id:'customer'};if(p==='/v1/reports'&&!i)return[saved];if(i?.method==='PUT')return new Promise(r=>finish=r);return reads(p,i)});
+ window.scrollTo=vi.fn();await act(async()=>root.render(<Reports/>));await act(async()=>button('Edit').click());await act(async()=>box.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));expect(button('Duplicate as draft').disabled).toBe(true);await act(async()=>finish({}));role='scoped';await act(async()=>root.unmount());root=createRoot(box);await act(async()=>root.render(<Reports/>));expect(button('Duplicate as draft')).toBeUndefined();
 });
