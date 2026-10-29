@@ -12,23 +12,29 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [ "${1:-}" = "--verify" ]; then
-  F="${2:?usage: restore.sh --verify <file.dump.gz>}"
-  echo "== checksum =="
-  sha256sum "$F"
-  grep -F "$(sha256sum "$F" | awk '{print $1}')" backups/MANIFEST >/dev/null \
-    && echo "checksum matches MANIFEST" || echo "WARNING: not in MANIFEST (backup from another host?)"
-  echo "== archive listing (dry run, nothing written) =="
-  gunzip -c "$F" | pg_restore -l >/dev/null && echo "archive readable"
-  exit 0
-fi
-
-F="${1:?usage: restore.sh <file.dump.gz>  (or --verify <file>)}"
+VERIFY=0
+if [ "${1:-}" = "--verify" ]; then VERIFY=1; shift; fi
+F="${1:?usage: restore.sh [--verify] <file.dump.gz>}"
+[ "$#" -eq 1 ] || { echo "usage: restore.sh [--verify] <file.dump.gz>" >&2; exit 2; }
 [ -f "$F" ] || { echo "no such file: $F" >&2; exit 1; }
+[ -f "$F.sha256" ] || { echo "Missing checksum sidecar: $F.sha256. Refusing restore; recover the trusted checksum with the backup, never derive trust from the archive being checked." >&2; exit 1; }
+
+echo "== file-bound checksum =="
+# Do not let a supplied checksum file choose a different file or extra targets.
+expected=$(awk -v name="$(basename "$F")" 'NR==1 && NF==2 && $2==name && length($1)==64 && $1 !~ /[^0-9a-f]/ {print $1}' "$F.sha256")
+[ "$(wc -l < "$F.sha256")" -eq 1 ] && [ -n "$expected" ] || { echo "Invalid or mismatched checksum sidecar; refusing restore." >&2; exit 1; }
+actual=$(sha256sum "$F" | awk '{print $1}')
+[ "$actual" = "$expected" ] || { echo "Checksum mismatch; refusing restore." >&2; exit 1; }
+echo "checksum matches archive name and bytes"
+echo "== archive listing (nothing written) =="
+# Use the matching container client, not an arbitrary host pg_restore version.
+gunzip -c "$F" | docker compose exec -T postgres pg_restore -l >/dev/null
+echo "archive readable"
+[ "$VERIFY" = 0 ] || exit 0
 
 echo "== restoring $F into the running postgres =="
 echo "    (expects api+ingest stopped: docker compose stop api ingest)"
-gunzip -c "$F" | docker compose exec -T postgres pg_restore -U "${POSTGRES_USER:-iot}" -d "${POSTGRES_DB:-iot}" --clean --if-exists --no-owner
+gunzip -c "$F" | docker compose exec -T postgres pg_restore -U "${POSTGRES_USER:-iot}" -d "${POSTGRES_DB:-iot}" --clean --if-exists --no-owner --exit-on-error
 echo "== sanity: row counts =="
 docker compose exec -T postgres psql -U "${POSTGRES_USER:-iot}" -d "${POSTGRES_DB:-iot}" -c \
   "SELECT 'telemetry' t, count(*) FROM telemetry UNION ALL SELECT 'devices', count(*) FROM devices UNION ALL SELECT 'flows', count(*) FROM flows UNION ALL SELECT 'audit_log', count(*) FROM audit_log;"
