@@ -219,3 +219,21 @@ inspected; Word/PowerPoint/Excel artifacts were converted with LibreOffice for
 inspection, not opened in Microsoft Office. XLSX retains its existing print
 pagination across columns, not fit-to-page output. Desktop/mobile designer uses
 synthetic API fixtures; no real saved report or external delivery was executed.
+
+## Note placement storage and export acceptance
+
+`TestIntegrationReportPlacementLifecycle` uses a fresh real Postgres database and
+the authenticated report handlers: create a before-data note, preview, download
+HTML/CSV/PDF/XLSX/DOCX/PPTX/XML, version-bound edit to after-data, read history and
+version-bound restore to before-data as v3. Stored JSON and rendered order are
+checked. Invalid create/preview/edit return400 without report/audit/history
+changes; stale restore409 and foreign-tenant restore/download404 leave state
+unchanged. No report runs are created. This is a handler/database regression,
+not an external delivery, scheduler or full browser-to-database test.
+
+The API fixture aggregates five seeded telemetry samples21..25: average23,
+sum115, count5. The exported PDF was rendered and inspected, including before-data
+intro and trailing page-break note. A native XLSX chart test checks that intro
+notes shift category/value references to the actual first/last bucket rows.
+These checks extend placement acceptance; full Report Builder parity, real Office
+and production/hardware acceptance remain open.
