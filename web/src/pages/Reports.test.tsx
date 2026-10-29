@@ -207,11 +207,13 @@ test('searchable keyboard point palette and explicit metric/section ordering rea
   expect(a('Add Meter A / power')).toBeNull();expect(a('Add Meter B / energy').type).toBe('button');
   await act(async()=>button('Edit').click());
   expect(a('Move metric 1 up').disabled).toBe(true);expect(a('Move metric 2 down').disabled).toBe(true);
-  await act(async()=>a('Move metric 2 up').click());await act(async()=>a('Move section 1 down').click());
+  await act(async()=>a('Move metric 2 up').click());
+  await act(async()=>{const select=box.querySelector<HTMLSelectElement>('#note-position-0')!;select.value='before_data';select.dispatchEvent(new Event('change',{bubbles:true}))});
+  await act(async()=>a('Move section 1 down').click());
   await act(async()=>button('Preview').click());
   const def=JSON.parse(calls()[0][1]!.body as string).definition;
   expect(def.metrics).toEqual([data.definition.metrics[1],data.definition.metrics[0]]);
-  expect(def.sections.map((s:any)=>s.title)).toEqual(['Caveat','Method']);expect(def.sections[1].page_break).toBe(true);
+  expect(def.sections.map((s:any)=>s.title)).toEqual(['Caveat','Method']);expect(def.sections[1].page_break).toBe(true);expect(def.sections[1].position).toBe('before_data');
   expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method==='PUT')).toHaveLength(0);
   await act(async()=>box.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
   const save=vi.mocked(api).mock.calls.find(c=>c[1]?.method==='PUT')!;
