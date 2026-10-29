@@ -136,3 +136,22 @@ Every API request body is capped at 1 MiB (`auth.BodyLimit`), whatever the handl
 endpoints get a 6 MiB ceiling: `POST /v1/telemetry/import` (4 MiB CSV) and `POST /v1/assets/{id}/files` (5 MiB);
 those handlers still enforce their own exact limits. A request that declares more is refused with 413 before it is
 read, and an undeclared (chunked) body is cut off at the limit. Tested in `internal/auth/bodylimit_test.go`.
+
+## Browser credential destination boundary (2026-10-30)
+
+The shared `api` and authenticated `download` helpers now accept only root-relative
+application paths, rejecting absolute/scheme-relative URLs, backslashes, literal
+whitespace and control characters before reading the token or issuing a request.
+Both helpers force `redirect: error` and `credentials: same-origin`; callers cannot
+override those settings through RequestInit. Normal percent-encoded path and query
+values remain supported. Redirects, including same-origin redirects, fail rather
+than silently changing the destination. API routes used by these helpers must
+return their result directly, not a redirect.
+
+This closes a shared-helper credential-destination gap as defense in depth; no
+live exploit was established. It is not an endpoint permission allowlist, an XSS
+fix, or proof that all browser requests use these helpers. Tokens remain in localStorage;
+a same-origin script compromise can still read them. Authorization, tenant checks,
+server egress restrictions, dependency scanning and independent review remain
+separate requirements. Regression tests cover rejected destinations, unchanged
+local query values, and caller attempts to enable redirects/cross-origin cookies.
