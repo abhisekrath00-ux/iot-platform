@@ -132,6 +132,19 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 		return true
 	}
 	ok := true
+	writeNotes := func(sections []Section) {
+		for _, sc := range sections {
+			if !ok {
+				break
+			}
+			var ns [][]cell
+			for _, p := range sectionParas(sc.Body) {
+				ns = append(ns, plain([]string{p}))
+			}
+			ok = paged(strings.TrimSpace(sc.Title), []string{"note"}, ns, false)
+		}
+	}
+	writeNotes(d.sectionsAt(true))
 	if d.Layout == "matrix" {
 		hdr, rows, total := Matrix(d, series)
 		var cs [][]cell
@@ -168,16 +181,7 @@ func RenderPPTX(title string, d Definition, series map[Metric][]Bucket, generate
 			}
 		}
 	}
-	for _, sc := range d.allSections() {
-		if !ok {
-			break
-		}
-		var ns [][]cell
-		for _, p := range sectionParas(sc.Body) {
-			ns = append(ns, plain([]string{p}))
-		}
-		ok = paged(strings.TrimSpace(sc.Title), []string{"note"}, ns, false)
-	}
+	writeNotes(d.allSections())
 	if ok && len(d.Emissions) > 0 {
 		er := BuildEmissions(d, series)
 		var cs [][]cell
