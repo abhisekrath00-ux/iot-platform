@@ -387,9 +387,12 @@ func (s *server) activeUser(next http.Handler) http.Handler {
 			}
 			// Legacy tokens have second-granularity iat, so equality is unsafe.
 			// Tracked tokens use the database session creation timestamp below.
-			if iat, ok := auth.IssuedAt(r); ok && auth.SessionID(r) == "" && validAfter != nil && !iat.After(validAfter.Truncate(time.Second)) {
-				http.Error(w, "session revoked", http.StatusUnauthorized)
-				return
+			if auth.SessionID(r) == "" && validAfter != nil {
+				iat, ok := auth.IssuedAt(r)
+				if !ok || !iat.After(validAfter.Truncate(time.Second)) {
+					http.Error(w, "session revoked", http.StatusUnauthorized)
+					return
+				}
 			}
 			if sid := auth.SessionID(r); sid != "" {
 				// A tracked session must still be live; a revoked or unknown id fails closed.
