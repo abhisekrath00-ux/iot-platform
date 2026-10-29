@@ -146,8 +146,8 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 		c.WriteString(`</cols>`)
 		return strings.Replace(sheet, `<sheetData>`, c.String()+`<sheetData>`, 1)
 	}
-	sectionRows := func() {
-		for _, sc := range d.allSections() {
+	sectionRows := func(sections []Section) {
+		for _, sc := range sections {
 			row += 2
 			col = 0
 			sb.WriteString(fmt.Sprintf(`<row r="%d">`, row) + str(strings.TrimSpace(sc.Title)) + `</row>`)
@@ -216,6 +216,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			sb.WriteString(`</row>`)
 		}
 	}
+	sectionRows(d.sectionsAt(true))
 	if d.Layout == "matrix" {
 		hdr, rows, total := Matrix(d, series)
 		emit := func(cells []string, numeric bool) {
@@ -236,7 +237,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			emit(r, true)
 		}
 		emit(total, true)
-		sectionRows()
+		sectionRows(d.allSections())
 		emissionsRows()
 		rollupRows()
 		sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
@@ -269,7 +270,7 @@ func RenderXLSX(d Definition, series map[Metric][]Bucket) ([]byte, error) {
 			sb.WriteString(`</row>`)
 		}
 	}
-	sectionRows()
+	sectionRows(d.allSections())
 	emissionsRows()
 	rollupRows()
 	sb.WriteString(`</sheetData>` + drawingTag() + `</worksheet>`)
@@ -335,9 +336,30 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 			cur = append(cur, line{})
 		}
 	}
+	putNotes := func(sections []Section) {
+		for _, sc := range sections {
+			if sc.PageBreak {
+				flush()
+			}
+			put(strings.TrimSpace(sc.Title), true)
+			for _, p := range sectionParas(sc.Body) {
+				for len(p) > 88 {
+					cut := strings.LastIndex(p[:88], " ")
+					if cut < 20 {
+						cut = 88
+					}
+					put(p[:cut], false)
+					p = strings.TrimLeft(p[cut:], " ")
+				}
+				put(p, false)
+			}
+			put("", false)
+		}
+	}
 	put(title, true)
 	put(fmt.Sprintf("Generated %s  window %dh  grouped by %s", generated.UTC().Format(time.RFC3339), d.WindowHours, d.GroupBy), false)
 	put("", false)
+	putNotes(d.sectionsAt(true))
 	if d.Insights {
 		put("Insights", true)
 		put("Statistical summary of bucketed averages in this window.", false)
@@ -423,24 +445,7 @@ func RenderPDFLogo(title string, d Definition, series map[Metric][]Bucket, gener
 		put(fmt.Sprintf("%-17s %10.3f %10.3f %10.3f %12.3f %8d", "overall", a, mn, mx, sm, n), true)
 		put("", false)
 	}
-	for _, sc := range d.allSections() {
-		if sc.PageBreak {
-			flush()
-		}
-		put(strings.TrimSpace(sc.Title), true)
-		for _, p := range sectionParas(sc.Body) {
-			for len(p) > 88 {
-				cut := strings.LastIndex(p[:88], " ")
-				if cut < 20 {
-					cut = 88
-				}
-				put(p[:cut], false)
-				p = strings.TrimLeft(p[cut:], " ")
-			}
-			put(p, false)
-		}
-		put("", false)
-	}
+	putNotes(d.allSections())
 	if len(d.Emissions) > 0 {
 		er := BuildEmissions(d, series)
 		put("Emissions (Scope 1 and 2)", true)
