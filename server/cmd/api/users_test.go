@@ -22,6 +22,7 @@ func TestIntegrationUserManagementAndLocalLogin(t *testing.T) {
 	pool := s.st.Pool
 	clean := func() {
 		pool.Exec(ctx, `DELETE FROM audit_log WHERE tenant_id IN ('itest-um1','itest-um2')`)
+		pool.Exec(ctx, `DELETE FROM user_sessions WHERE tenant_id IN ('itest-um1','itest-um2')`)
 		pool.Exec(ctx, `DELETE FROM users WHERE email ILIKE '%@um-test.example'`)
 		pool.Exec(ctx, `DELETE FROM users WHERE id IN ('um-admin','um-admin2') `)
 	}
@@ -110,13 +111,33 @@ func TestIntegrationUserManagementAndLocalLogin(t *testing.T) {
 	if login("bob@um-test.example", "another-long-password").Code != 200 || login("bob@um-test.example", pw).Code != 401 {
 		t.Fatal("reset did not take")
 	}
+	var bobToken string
+	signInBob := func(password string) {
+		resp := login("bob@um-test.example", password)
+		var v struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &v); err != nil || resp.Code != 200 || v.Token == "" {
+			t.Fatalf("Bob sign-in = %d %s", resp.Code, resp.Body)
+		}
+		bobToken = v.Token
+	}
+	callBob := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+bobToken)
+		w := httptest.NewRecorder()
+		authMiddleware(s.secret)(h).ServeHTTP(w, r)
+		return w
+	}
+	signInBob("another-long-password")
 	// own password change
-	if callAs(h, "itest-um1", bob.ID, "operator", "POST", "/v1/me/password", `{"current":"nope-nope-nope-nope","new":"third-long-password"}`).Code != 403 {
+	if callBob("POST", "/v1/me/password", `{"current":"nope-nope-nope-nope","new":"third-long-password"}`).Code != 403 {
 		t.Fatal("changed password with a wrong current one")
 	}
-	if callAs(h, "itest-um1", bob.ID, "operator", "POST", "/v1/me/password", `{"current":"another-long-password","new":"third-long-password"}`).Code != 204 {
+	if callBob("POST", "/v1/me/password", `{"current":"another-long-password","new":"third-long-password"}`).Code != 204 {
 		t.Fatal("own password change")
 	}
+	signInBob("third-long-password")
 	// the last active admin cannot be demoted or disabled, nor yourself
 	if c := adm("PUT", "/v1/users/um-admin", `{"role":"viewer"}`).Code; c != 409 {
 		t.Fatalf("self demote = %d", c)
@@ -124,17 +145,17 @@ func TestIntegrationUserManagementAndLocalLogin(t *testing.T) {
 	if w := adm("PUT", "/v1/users/"+bob.ID, `{"role":"admin"}`); w.Code != 204 {
 		t.Fatalf("promote = %d %s", w.Code, w.Body)
 	}
-	if c := callAs(h, "itest-um1", bob.ID, "admin", "PUT", "/v1/users/um-admin", `{"disabled":true}`).Code; c != 204 {
+	if c := callBob("PUT", "/v1/users/um-admin", `{"disabled":true}`).Code; c != 204 {
 		t.Fatalf("admin disabling the other admin = %d", c)
 	}
-	if c := callAs(h, "itest-um1", bob.ID, "admin", "PUT", "/v1/users/"+bob.ID, `{"disabled":true}`).Code; c != 409 {
+	if c := callBob("PUT", "/v1/users/"+bob.ID, `{"disabled":true}`).Code; c != 409 {
 		t.Fatalf("disable self = %d", c)
 	}
 	// a disabled user's existing token stops working at once, and they cannot log in
 	if c := callAs(h, "itest-um1", "um-admin", "admin", "GET", "/v1/devices", "").Code; c != 401 {
 		t.Fatalf("disabled admin's token still works = %d", c)
 	}
-	if adm2 := callAs(h, "itest-um1", bob.ID, "admin", "PUT", "/v1/users/um-admin", `{"disabled":false}`); adm2.Code != 204 {
+	if adm2 := callBob("PUT", "/v1/users/um-admin", `{"disabled":false}`); adm2.Code != 204 {
 		t.Fatal("re-enable")
 	}
 	if c := callAs(h, "itest-um1", "um-admin", "admin", "GET", "/v1/devices", "").Code; c != 200 {
