@@ -21,12 +21,14 @@ func TestIntegrationSessionRevocationAndLiveRole(t *testing.T) {
 	pool := s.st.Pool
 	seed(t, s, "itest-sr1")
 	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM user_sessions WHERE tenant_id='itest-sr1'`)
 		pool.Exec(ctx, `DELETE FROM users WHERE tenant_id='itest-sr1'`)
 		pool.Exec(ctx, `DELETE FROM audit_log WHERE tenant_id='itest-sr1'`)
 	})
 	pool.Exec(ctx, `DELETE FROM users WHERE tenant_id='itest-sr1'`)
 	pool.Exec(ctx, `INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('sr-u','itest-sr1','sr-u@sr-test.example','U','operator')`)
 	secret := []byte("sr-secret")
+	s.secret = secret
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/probe", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(auth.Role(r)))
@@ -59,6 +61,36 @@ func TestIntegrationSessionRevocationAndLiveRole(t *testing.T) {
 	if w := get(token("operator", time.Now().Add(2*time.Second))); w.Code != 200 {
 		t.Fatalf("token issued after revocation = %d", w.Code)
 	}
+	// Deterministic same-second boundary: legacy equality must not survive.
+	cutoff := time.Now().Truncate(time.Second)
+	if _, err := pool.Exec(ctx, `UPDATE users SET tokens_valid_after=$1 WHERE id='sr-u'`, cutoff); err != nil {
+		t.Fatal(err)
+	}
+	if w := get(token("operator", cutoff)); w.Code != 401 {
+		t.Fatalf("same-second legacy token survived: %d", w.Code)
+	}
+	// Tracked sessions use precise database timestamps, not rounded JWT iat.
+	for _, c := range []struct {
+		id   string
+		at   time.Time
+		want int
+	}{
+		{"sr-before", cutoff.Add(-time.Microsecond), 401},
+		{"sr-equal", cutoff, 401},
+		{"sr-after", cutoff.Add(time.Microsecond), 200},
+	} {
+		if _, err := pool.Exec(ctx, `INSERT INTO user_sessions(id,tenant_id,user_id,created_at) VALUES($1,'itest-sr1','sr-u',$2)`, c.id, c.at); err != nil {
+			t.Fatal(err)
+		}
+		tk, err := s.sessionToken("itest-sr1", "operator", "sr-u", c.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w := get(tk); w.Code != c.want {
+			t.Fatalf("tracked %s = %d, want %d", c.id, w.Code, c.want)
+		}
+	}
+	pool.Exec(ctx, `UPDATE users SET tokens_valid_after=now() WHERE id='sr-u'`)
 	// /v1/me reports the live role and the customer scope
 	pool.Exec(ctx, `INSERT INTO customers(id,tenant_id,name) VALUES('sr-c','itest-sr1','Plant A') ON CONFLICT DO NOTHING`)
 	pool.Exec(ctx, `INSERT INTO user_customer_scope(tenant_id,user_id,customer_id) VALUES('itest-sr1','sr-u','sr-c') ON CONFLICT DO NOTHING`)
