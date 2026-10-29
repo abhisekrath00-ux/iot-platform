@@ -176,3 +176,18 @@ retry, merge or delivery action. Existing server version checks remain in force.
 Synthetic response tests and desktop/mobile pixels cover read recovery, malformed
 history, pending duplicate protection, uncertain failure and blocked replay.
 No real report restore or delivery is executed by those visual tests.
+
+## Accessible draft ordering and point search
+
+The point palette filters by device name/ID, point ID or unit and uses native
+buttons for keyboard activation. Search does not filter saved metric selectors
+or drop existing selections. Adding an already-selected point does not duplicate
+it. Metrics and titled notes have explicit Move up / Move down buttons usable
+without drag gestures, including on narrow screens. Boundary moves are disabled;
+note text and page-break flags travel together. Preview and save preserve the
+resulting array order, with existing preview invalidation and version-bound saves.
+These actions only edit the local draft; they never run or deliver a report.
+Notes still follow the data in HTML, CSV, Excel, PDF, Word and PowerPoint (not XML).
+This is ordered metrics/notes, not arbitrary block ordering or a layout canvas.
+Synthetic preview payload, keyboard activation and desktop/mobile pixels checked;
+no real report save or delivery used for the visual test.
