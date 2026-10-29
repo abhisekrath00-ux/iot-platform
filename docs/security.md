@@ -155,3 +155,27 @@ a same-origin script compromise can still read them. Authorization, tenant check
 server egress restrictions, dependency scanning and independent review remain
 separate requirements. Regression tests cover rejected destinations, unchanged
 local query values, and caller attempts to enable redirects/cross-origin cookies.
+
+## Same-second session revocation (2026-10-30)
+
+A fresh-database first-run readiness test reproduced a pre-change token surviving
+credential replacement when both events happened within the same second. The old
+check compared JWT `iat` with a cutoff rounded to seconds using strict "before",
+so equality survived. This was local API evidence, not evidence of an exposed
+customer deployment.
+
+Legacy JWTs with `iat` and no session ID now fail at or before the cutoff second.
+Tracked sessions use the precise database session creation timestamp and must be
+strictly newer than the cutoff, in addition to the existing revoked-row check.
+Credential replacement returns a new tracked session; failure to record it returns
+503 with a sign-in-again instruction after the credentials have changed. It does
+not return a legacy replacement token. This avoids waiting for a clock tick while
+rejecting earlier sessions, including sessions whose JWT `iat` rounds to the same
+second. API keys have a separate lifecycle and are unchanged. Existing legacy
+claims without `iat` are outside this timestamp comparison; this fix does not add
+an authentication-format migration.
+
+Regression coverage uses fixed before/equal/after timestamps, and actual default
+login -> credential change -> old token 401 -> replacement token 200. The freshDB
+first-run readiness script also exercises that HTTP flow without an artificial
+sleep. Docker, Windows, reverse-proxy and real hardware acceptance remain separate.
