@@ -97,6 +97,15 @@ func RenderDOCX(title string, d Definition, series map[Metric][]Bucket, generate
 	var body strings.Builder
 	body.WriteString(para("Title", title))
 	body.WriteString(para("", fmt.Sprintf("Generated %s - window %dh, grouped by %s", generated.UTC().Format("2006-01-02T15:04:05Z"), d.WindowHours, d.GroupBy)))
+	writeNotes := func(sections []Section) {
+		for _, sc := range sections {
+			body.WriteString(para("Heading2", strings.TrimSpace(sc.Title)))
+			for _, p := range sectionParas(sc.Body) {
+				body.WriteString(para("", p))
+			}
+		}
+	}
+	writeNotes(d.sectionsAt(true))
 	if d.Layout == "matrix" {
 		hdr, rows, total := Matrix(d, series)
 		var cs [][]cell
@@ -133,12 +142,7 @@ func RenderDOCX(title string, d Definition, series map[Metric][]Bucket, generate
 			body.WriteString(table([]string{"bucket (UTC)", "avg", "min", "max", "sum", "samples"}, cs, true))
 		}
 	}
-	for _, sc := range d.allSections() {
-		body.WriteString(para("Heading2", strings.TrimSpace(sc.Title)))
-		for _, p := range sectionParas(sc.Body) {
-			body.WriteString(para("", p))
-		}
-	}
+	writeNotes(d.allSections())
 	if len(d.Emissions) > 0 {
 		er := BuildEmissions(d, series)
 		body.WriteString(para("Heading2", "Emissions (Scope 1 and 2)"))
