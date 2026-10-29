@@ -7,9 +7,8 @@ import (
 	"unicode/utf8"
 )
 
-// Text sections: up to 10 titled notes (commentary, method, caveats) printed after the data and before the
-// emissions section in every format. Plain text only: no markup, no fields, no links; every format escapes it.
-// This is not a free-form canvas or an ordering of the built-in blocks.
+// Text sections: up to 10 plain-text notes positioned before or after data.
+// Trailing notes precede summaries/emissions. No markup or free-form canvas.
 
 const (
 	maxSections     = 10
@@ -19,7 +18,9 @@ const (
 
 type Section struct {
 	Title string `json:"title"`
-	Body  string `json:"body"`
+	// Position is empty/after_data (legacy) or before_data.
+	Position string `json:"position,omitempty"`
+	Body     string `json:"body"`
 	// PageBreak starts this section at the top of a new page in the PDF, and sets a
 	// printed-page break in the HTML. CSV, XLSX, DOCX and PPTX ignore it (their pages
 	// are the reader's). Subreport summaries never carry it.
@@ -33,9 +34,20 @@ type SubreportRef struct {
 
 const maxSubreports = 5
 
-// allSections is the typed notes followed by the embedded subreport summaries, as the renderers print them.
+// allSections is the trailing notes followed by embedded summaries.
 func (d Definition) allSections() []Section {
-	return append(append([]Section{}, d.Sections...), d.SubSummaries...)
+	return append(d.sectionsAt(false), d.SubSummaries...)
+}
+
+// sectionsAt preserves relative order within each placement; summaries remain trailing.
+func (d Definition) sectionsAt(before bool) []Section {
+	out := []Section{}
+	for _, s := range d.Sections {
+		if (s.Position == "before_data") == before {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func validateSubreports(d Definition) error {
@@ -63,6 +75,9 @@ func validateSections(d Definition) error {
 		return fmt.Errorf("at most %d text sections", maxSections)
 	}
 	for i, s := range d.Sections {
+		if s.Position != "" && s.Position != "after_data" && s.Position != "before_data" {
+			return fmt.Errorf("section %d: position must be before_data or after_data", i+1)
+		}
 		t, b := strings.TrimSpace(s.Title), strings.TrimSpace(s.Body)
 		if t == "" || utf8.RuneCountInString(t) > maxSectionTitle || strings.ContainsAny(t, "\r\n") {
 			return fmt.Errorf("section %d: a one-line title of up to %d characters is required", i+1, maxSectionTitle)
@@ -90,8 +105,9 @@ func sectionParas(body string) []string {
 	return out
 }
 
-func writeSectionsHTML(b *strings.Builder, d Definition) {
-	for _, s := range d.allSections() {
+func writeSectionsHTML(b *strings.Builder, d Definition) { writeSectionListHTML(b, d.allSections()) }
+func writeSectionListHTML(b *strings.Builder, sections []Section) {
+	for _, s := range sections {
 		h2 := `<h2>`
 		if s.PageBreak {
 			h2 = `<h2 style="page-break-before:always;break-before:page">`
@@ -103,9 +119,10 @@ func writeSectionsHTML(b *strings.Builder, d Definition) {
 	}
 }
 
-func writeSectionsCSV(b *strings.Builder, d Definition) {
+func writeSectionsCSV(b *strings.Builder, d Definition) { writeSectionListCSV(b, d.allSections()) }
+func writeSectionListCSV(b *strings.Builder, sections []Section) {
 	q := func(s string) string { return `"` + strings.ReplaceAll(CSVSafe(s), `"`, `""`) + `"` }
-	for _, s := range d.allSections() {
+	for _, s := range sections {
 		b.WriteString("\n")
 		for _, l := range append([]string{strings.TrimSpace(s.Title)}, sectionParas(s.Body)...) {
 			b.WriteString(q(l) + "\n")
