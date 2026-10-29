@@ -195,3 +195,25 @@ test('a late earlier report list cannot replace a newer refresh and malformed li
   await act(async()=>requests[3]({reports:[]}));
   expect(box.textContent).toContain('incomplete report list');expect(button('Edit')).toBeUndefined();
 });
+
+test('searchable keyboard point palette and explicit metric/section ordering reach preview and version-bound save', async () => {
+  const data={id:'r',name:'Ordering test',version:7,definition:{metrics:[{device_id:'d1',point_id:'power'},{device_id:'d2',point_id:'energy'}],window_hours:24,group_by:'hour',sections:[{title:'Method',body:'First',page_break:true},{title:'Caveat',body:'Second'}]},channel_id:null,schedule_cron:null,last_run_at:null};
+  const base=vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/reports'&&!i)return[data];if(p==='/v1/points')return[{device_id:'d1',device_name:'Meter A',point_id:'power',unit:'kW'},{device_id:'d2',device_name:'Meter B',point_id:'energy',unit:'kWh'}];if(i?.method==='PUT')return{};return base(p,i)});
+  await act(async()=>root.render(<Reports/>));
+  const a=(label:string)=>box.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  const search=box.querySelector('input[type="search"]')!;
+  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(search,'Meter B');search.dispatchEvent(new Event('input',{bubbles:true}))});
+  expect(a('Add Meter A / power')).toBeNull();expect(a('Add Meter B / energy').type).toBe('button');
+  await act(async()=>button('Edit').click());
+  expect(a('Move metric 1 up').disabled).toBe(true);expect(a('Move metric 2 down').disabled).toBe(true);
+  await act(async()=>a('Move metric 2 up').click());await act(async()=>a('Move section 1 down').click());
+  await act(async()=>button('Preview').click());
+  const def=JSON.parse(calls()[0][1]!.body as string).definition;
+  expect(def.metrics).toEqual([data.definition.metrics[1],data.definition.metrics[0]]);
+  expect(def.sections.map((s:any)=>s.title)).toEqual(['Caveat','Method']);expect(def.sections[1].page_break).toBe(true);
+  expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method==='PUT')).toHaveLength(0);
+  await act(async()=>box.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+  const save=vi.mocked(api).mock.calls.find(c=>c[1]?.method==='PUT')!;
+  expect(save[1]!.headers).toEqual({'If-Match':'7'});expect(JSON.parse(save[1]!.body as string).definition).toEqual(def);
+});
