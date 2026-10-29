@@ -128,8 +128,12 @@ func TestIntegrationFirstRunCredentials(t *testing.T) {
 	if email != "owner@fr-test.example" || mc || strings.Contains(hash, good) || !auth.VerifyPassword(good, hash) || auth.VerifyPassword(auth.DefaultAdminPassword, hash) {
 		t.Fatalf("after change: email=%s mustChange=%v hash=%q", email, mc, hash)
 	}
-	if w := as("GET", "/v1/devices", ""); w.Code != 200 {
-		t.Fatalf("devices after change = %d", w.Code)
+	r := httptest.NewRequest("GET", "/v1/devices", nil)
+	r.Header.Set("Authorization", "Bearer "+changed.Token)
+	out := httptest.NewRecorder()
+	authMiddleware(s.secret)(h).ServeHTTP(out, r)
+	if out.Code != 200 {
+		t.Fatalf("devices after change = %d", out.Code)
 	}
 	if login("fr-default@fr-test.example", auth.DefaultAdminPassword).Code != 401 || login("owner@fr-test.example", auth.DefaultAdminPassword).Code != 401 {
 		t.Fatal("the default login still works after the change")
