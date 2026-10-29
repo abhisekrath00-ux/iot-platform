@@ -12,8 +12,19 @@ import (
 	"time"
 )
 
-func TestSectionPositionsValidateAndRender(t *testing.T) {
+func consistentPositionSeries() (Definition, map[Metric][]Bucket) {
 	d, s := secDef()
+	for m, rows := range s {
+		for i := range rows {
+			rows[i].Sum = rows[i].Avg * float64(rows[i].Count)
+		}
+		s[m] = rows
+	}
+	return d, s
+}
+
+func TestSectionPositionsValidateAndRender(t *testing.T) {
+	d, s := consistentPositionSeries()
 	d.Chart = ""
 	d.Sections = []Section{{Title: "NOTE_AFTER", Body: "Trailing caveat"}, {Title: "NOTE_BEFORE", Body: "Method before data", Position: "before_data"}, {Title: "NOTE_BEFORE_TWO", Body: "Second intro", Position: "before_data"}}
 	d.SubSummaries = []Section{{Title: "SUMMARY_LAST", Body: "Embedded summary"}}
@@ -93,7 +104,7 @@ func TestSectionPositionsValidateAndRender(t *testing.T) {
 func fmtSlide(i int) string { return "ppt/slides/slide" + strconv.Itoa(i) + ".xml" }
 
 func TestSectionPositionLegacyBytes(t *testing.T) {
-	d, s := secDef()
+	d, s := consistentPositionSeries()
 	gen := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
 	before := []string{Render("T", d, s, gen), RenderCSV(d, s), string(RenderPDF("T", d, s, gen))}
 	x, _ := RenderXLSX(d, s)
@@ -119,7 +130,7 @@ func TestSectionPositionVisualFixture(t *testing.T) {
 	if dir == "" {
 		t.Skip("optional rendered artifact fixture")
 	}
-	d, s := secDef()
+	d, s := consistentPositionSeries()
 	d.Chart = "line"
 	d.Sections = []Section{{Title: "Method before data", Body: "Synthetic readings only. Confirm the meter units before use.", Position: "before_data"}, {Title: "Coverage after data", Body: "Missing samples are not zero.", PageBreak: true}}
 	g := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
@@ -135,7 +146,7 @@ func TestSectionPositionVisualFixture(t *testing.T) {
 }
 
 func TestBeforeSectionPageBreak(t *testing.T) {
-	d, s := secDef()
+	d, s := consistentPositionSeries()
 	d.Sections = []Section{{Title: "Intro", Body: "Before data", Position: "before_data"}}
 	gen := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
 	plain := string(RenderPDF("T", d, s, gen))
