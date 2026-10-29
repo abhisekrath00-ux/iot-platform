@@ -47,7 +47,7 @@ type Definition struct {
 	// per group and point and a grand total per point. Empty means off.
 	Rollup string `json:"rollup,omitempty"`
 	// Emissions adds a Scope 1 and 2 section (see emissions.go): metered quantity times an operator-entered factor.
-	// Sections are titled plain-text notes printed after the data (see sections.go).
+	// Sections are titled plain-text notes positioned before or after data (see sections.go).
 	Sections []Section `json:"sections,omitempty"`
 	// Subreports embeds a summary (avg, min, max, sum, readings per metric) of up to 5 other saved reports of the
 	// same workspace. SubSummaries is filled by the server at render time and never stored or read from a request.
@@ -384,6 +384,7 @@ func Render(title string, d Definition, series map[Metric][]Bucket, generated ti
 	b.WriteString(`<h1>` + html.EscapeString(title) + `</h1>`)
 	fmt.Fprintf(&b, `<p class="meta">Generated %s - window %dh, grouped by %s</p>`,
 		generated.UTC().Format(time.RFC3339), d.WindowHours, html.EscapeString(d.GroupBy))
+	writeSectionListHTML(&b, d.sectionsAt(true))
 	if d.Layout == "matrix" {
 		hdr, rows, total := Matrix(d, series)
 		writeChartsHTML(&b, d, series)
@@ -522,6 +523,7 @@ func CSVSafe(s string) string {
 // RenderCSV flattens aggregated series to CSV (device, point, bucket, avg, min, max, count).
 func RenderCSV(d Definition, series map[Metric][]Bucket) string {
 	var b strings.Builder
+	writeSectionListCSV(&b, d.sectionsAt(true))
 	if d.Layout == "matrix" {
 		hdr, rows, total := Matrix(d, series)
 		b.WriteString(CSVSafe(d.GroupBy))
