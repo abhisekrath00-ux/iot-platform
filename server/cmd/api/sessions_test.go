@@ -53,6 +53,14 @@ func TestIntegrationSessionRevocationAndLiveRole(t *testing.T) {
 	if w := get(old); w.Code != 200 || w.Body.String() != "operator" {
 		t.Fatalf("token role must be overridden by the database role: %d %q", w.Code, w.Body.String())
 	}
+	noIssued := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{TenantID: "itest-sr1", Role: "operator", RegisteredClaims: jwt.RegisteredClaims{Subject: "sr-u", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}})
+	noIssuedToken, err := noIssued.SignedString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := get(noIssuedToken); w.Code != 200 {
+		t.Fatalf("legacy no-iat before revocation = %d", w.Code)
+	}
 	// revoke: password reset sets tokens_valid_after; older tokens die, newer ones live
 	pool.Exec(ctx, `UPDATE users SET tokens_valid_after=now() WHERE id='sr-u'`)
 	if w := get(old); w.Code != 401 {
@@ -60,6 +68,9 @@ func TestIntegrationSessionRevocationAndLiveRole(t *testing.T) {
 	}
 	if w := get(token("operator", time.Now().Add(2*time.Second))); w.Code != 200 {
 		t.Fatalf("token issued after revocation = %d", w.Code)
+	}
+	if w := get(noIssuedToken); w.Code != 401 {
+		t.Fatalf("legacy no-iat survived revocation = %d", w.Code)
 	}
 	// Deterministic same-second boundary: legacy equality must not survive.
 	cutoff := time.Now().Truncate(time.Second)
