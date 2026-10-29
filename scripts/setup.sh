@@ -41,7 +41,7 @@ probe_http() { # probe_http name url -> prints a row, returns 0 when healthy
   if ! command -v curl >/dev/null 2>&1; then printf '  %s %-10s no curl to probe with\n' "$(dot_warn)" "$name"; return 2; fi
   out=$(curl -s -o /dev/null --max-time 3 -w '%{http_code} %{time_total}' "$url" 2>/dev/null) || out="000 0"
   code=${out%% *}; t=${out##* }
-  if [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 400 ]; then printf '  %s %-10s healthy   %s  %4.0f ms\n' "$(dot_ok)" "$name" "$url" "$(awk -v x="$t" 'BEGIN{print x*1000}')"; return 0; fi
+  if [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 300 ]; then printf '  %s %-10s healthy   %s  %4.0f ms\n' "$(dot_ok)" "$name" "$url" "$(awk -v x="$t" 'BEGIN{print x*1000}')"; return 0; fi
   printf '  %s %-10s DOWN      %s  (http %s)\n' "$(dot_bad)" "$name" "$url" "$code"; return 1
 }
 probe_tcp() { # probe_tcp name host port
@@ -56,9 +56,9 @@ cmd_health() {
   probe_tcp mqtt "${HEXTHINGS_HOST:-localhost}" "${HEXTHINGS_MQTT_PORT:-1883}" || bad=1
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     if compose exec -T postgres pg_isready -q 2>/dev/null; then printf '  %s %-10s healthy   pg_isready\n' "$(dot_ok)" postgres
-    else printf '  %s %-10s not answering via compose (HA installs run Postgres under Patroni: use "cluster")\n' "$(dot_warn)" postgres; fi
-  else printf '  %s %-10s skipped (Docker not available)\n' "$(dot_warn)" postgres; fi
-  echo ""; [ "$bad" = 0 ] && echo "  All probed services answer." || echo "  Something is down. Try: status, logs api."
+    else printf '  %s %-10s NOT VERIFIED via compose. Check: docker compose logs postgres (HA: use cluster).\n' "$(dot_bad)" postgres; bad=1; fi
+  else printf '  %s %-10s NOT VERIFIED (Docker unavailable). Run: bash scripts/prereq.sh --check\n' "$(dot_warn)" postgres; bad=1; fi
+  echo ""; [ "$bad" = 0 ] && echo "  All required checks passed (HTTP 2xx, MQTT TCP and Postgres readiness)." || echo "  Health is incomplete or failing. Check the rows above; try: status, logs api."
   return "$bad"
 }
 cmd_status() {
