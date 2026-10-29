@@ -92,3 +92,23 @@ func TestXLSXNativeCharts(t *testing.T) {
 		t.Fatal("chart cap exceeded")
 	}
 }
+
+func TestXLSXIntroNotesShiftNativeChartRows(t *testing.T) {
+	d, s := consistentPositionSeries()
+	d.Chart = "line"
+	d.Sections = []Section{{Title: "Intro", Body: "Line one\nLine two", Position: "before_data"}, {Title: "Trailing", Body: "After", Position: "after_data"}}
+	b, e := RenderXLSX(d, s)
+	if e != nil {
+		t.Fatal(e)
+	}
+	p := xlsxParts(t, b)
+	// Intro occupies rows2..4, header row5, twelve data rows6..17.
+	for _, ref := range []string{"Report!$C$6:$C$17", "Report!$D$6:$D$17"} {
+		if !strings.Contains(p["xl/charts/chart1.xml"], ref) {
+			t.Fatalf("missing shifted chart reference%s", ref)
+		}
+	}
+	if !strings.Contains(p["xl/worksheets/sheet1.xml"], `<row r="6"><c t="inlineStr"><is><t>d1</t>`) {
+		t.Fatal("chart start row is not the first metric bucket")
+	}
+}
