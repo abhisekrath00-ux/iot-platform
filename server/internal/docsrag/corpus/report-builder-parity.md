@@ -191,3 +191,31 @@ Notes still follow the data in HTML, CSV, Excel, PDF, Word and PowerPoint (not X
 This is ordered metrics/notes, not arbitrary block ordering or a layout canvas.
 Synthetic preview payload, keyboard activation and desktop/mobile pixels checked;
 no real report save or delivery used for the visual test.
+
+## Before/after data note placement (supersedes trailing-only notes above)
+
+Each text section accepts `position: "before_data"` or `"after_data"`; absent or
+empty retains the existing after-data default. The Reports designer exposes a
+position picker per note and preserves it during reorder/edit/preview/save.
+Relative order is preserved within each placement. HTML, CSV, XLSX, PDF, Word and
+PowerPoint place introductory notes before charts/tables and trailing notes after
+them. Report title/generated metadata remain first where present; PDF insights
+remain after introductory notes, while HTML insights follow data as before.
+Embedded summaries remain after the trailing notes. XML still omits notes.
+
+Unknown position values are rejected when validating a definition. The ten-note,
+text length, escaping and formula-safety limits are unchanged. Existing definitions
+and explicit `after_data` produce identical bytes in all six formats in tests.
+PDF/HTML page-break flags follow the note at either position; other exports still
+ignore that flag. PowerPoint retains its 60-slide cap and truncation notice.
+Putting introductory notes into CSV intentionally puts text before the data header;
+consumers expecting the first row to be the data header should leave notes after.
+XLSX chart row references follow the shifted data rows. This does not add arbitrary
+block ordering, free positioning, a canvas, or group report sources.
+
+Tests cover flat/matrix order in all six formats, unchanged legacy bytes, invalid
+placement, and before-note page breaks. Synthetic PDF pages and HTML pixels were
+inspected; Word/PowerPoint/Excel artifacts were converted with LibreOffice for
+inspection, not opened in Microsoft Office. XLSX retains its existing print
+pagination across columns, not fit-to-page output. Desktop/mobile designer uses
+synthetic API fixtures; no real saved report or external delivery was executed.
