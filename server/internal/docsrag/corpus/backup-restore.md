@@ -27,8 +27,10 @@ set -a; . ./.env; set +a          # pick up POSTGRES_USER/POSTGRES_DB if customi
 BACKUP_KEEP=30 ./scripts/backup.sh # keep 30 rotations instead of 14
 ```
 
-Each backup is gzip-compressed pg_dump custom format with a sha256 recorded
-in `backups/MANIFEST`. Copy the backup directory off-box (site file server,
+Each backup is gzip-compressed pg_dump custom format with a file-bound `.sha256`
+sidecar beside it, plus historical logging in `MANIFEST`. New archive, sidecar and
+manifest files use private owner-only permissions. `BACKUP_KEEP` must be a positive
+integer. Rotation removes each archive and its sidecar together. Copy the backup directory off-box (site file server,
 object storage) - a backup on the same disk is not a backup.
 
 ## Restore
@@ -73,3 +75,32 @@ build. Do a full rehearsal with the scripts on the pilot host before relying on 
 Lesson from the rehearsal: `pg_dump` must be the same major version as the server (a v14 client refused to dump a
 v16 server). The scripts run it inside the Postgres container, which satisfies this; if you dump from the host,
 match the version.
+
+
+## Fail-closed integrity preflight (2026-10-30)
+
+Both `--verify` and a full restore require the adjacent `<archive>.sha256` sidecar
+with exactly one hash and the exact archive basename. The archive bytes must match
+before any database command starts. Then a matching container `pg_restore -l`
+must read the archive before a destructive restore can begin. Missing sidecars,
+wrong names, mismatches and unreadable archives fail nonzero. Full restore uses
+`--exit-on-error`; it is not atomic and can partially change the target if a later
+restore step fails. Stop writers and restore to a scratch database first.
+
+Copy the sidecar with the archive, including custom backup directories. Older
+backups without sidecars are intentionally refused. Recover a trusted original
+checksum from the original host/record and verify it independently before creating
+a file-bound sidecar. Do not generate trust by hashing the suspect archive itself.
+SHA-256 detects accidental corruption, not malicious replacement of both files;
+protect/off-site-copy the backup and trusted checksum through separate controls.
+Backups contain private user and device state; they are not encrypted by this
+script. `.env`, keys/certificates, asset files and other non-Postgres volumes still
+need their own protected backup/recovery plan. No new RPO/RTO guarantee is made.
+
+Executed rehearsal: `bash scripts/test-backup-restore.sh` uses matching local
+PostgreSQL 14.24 clients/server on disposable source/target databases through a
+Docker-command shim. The actual scripts dump, verify and restore a marker row,
+check private modes/custom directories, reject corrupt/missing/wrong-name and
+checksum-matching unreadable archives before destructive restore, and rotate
+sidecars with archives. This tests real database bytes and shell decisions, not
+Docker execution, Windows, clean-host recovery or HA failover. Those gates remain.
