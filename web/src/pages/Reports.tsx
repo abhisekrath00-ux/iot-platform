@@ -62,6 +62,9 @@ export default function Reports() {
   const [channelId, setChannelId] = useState('');
   const [msg, setMsg] = useState('');
   const [points, setPoints] = useState<PointRow[]>([]);
+  const [pointSearch, setPointSearch] = useState('');
+  const filteredPoints = points.filter(p => `${p.device_name} ${p.device_id} ${p.point_id} ${p.unit}`.toLowerCase().includes(pointSearch.trim().toLowerCase()));
+  function moveSection(from: number, to: number) { setSecs(rows => { if(to < 0 || to >= rows.length) return rows; const copy=[...rows]; const [row]=copy.splice(from,1); copy.splice(to,0,row); return copy; }); }
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropOver, setDropOver] = useState(false);
   const addMetric = (device_id: string, point_id: string) => setMetrics(ms => (ms.length === 1 && !ms[0].device_id ? [{ device_id, point_id }] : ms.some(m => m.device_id === device_id && m.point_id === point_id) ? ms : [...ms, { device_id, point_id }]));
@@ -210,14 +213,18 @@ export default function Reports() {
           <label>Name</label>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Weekly energy summary" required />
           <label>Design surface</label>
+          <p className="muted">Add device points, then arrange metrics and notes using Move up / Move down. Changes affect this draft only until saved. Notes remain after the data, not on a free-form canvas.</p>
+          <label htmlFor="report-point-search">Find a device point</label>
+          <input id="report-point-search" type="search" value={pointSearch} onChange={e => setPointSearch(e.target.value)} placeholder="Device, point or unit" />
+          <p role="status" className="muted">{filteredPoints.length} of {points.length} device points match. Click or drag a point to add it.</p>
           <div data-testid="palette" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-            {points.map(p => (
-              <span key={`${p.device_id}|${p.point_id}`} draggable className="ghost" title="Drag onto the report, or click to add"
+            {filteredPoints.map(p => (
+              <button type="button" aria-label={`Add ${p.device_name} / ${p.point_id}`} key={`${p.device_id}|${p.point_id}`} draggable className="ghost" title="Drag onto the report, or click to add"
                 onDragStart={e => { e.dataTransfer.setData('text/hx-point', `${p.device_id}|${p.point_id}`); e.dataTransfer.effectAllowed = 'copy'; }}
                 onClick={() => addMetric(p.device_id, p.point_id)}
                 style={{ cursor: 'grab', border: '1px solid var(--border, #444)', borderRadius: 6, padding: '2px 8px', fontSize: 12 }}>
                 {p.device_name} / {p.point_id}
-              </span>
+              </button>
             ))}
           </div>
           <div data-testid="dropzone"
@@ -230,15 +237,18 @@ export default function Reports() {
             <div key={i} draggable={dragFrom === i}
               onDragOver={e => { if (dragFrom !== null) e.preventDefault(); }}
               onDrop={e => { if (dragFrom !== null) { e.preventDefault(); e.stopPropagation(); reorder(dragFrom, i); setDragFrom(null); } }}
-              style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+              style={{ display: 'flex', gap: 8, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="muted">Metric {i + 1}</span>
               <span role="button" aria-label={`Drag metric ${i + 1}`} title="Drag to reorder" style={{ cursor: 'grab', userSelect: 'none', alignSelf: 'center' }}
                 onMouseDown={() => setDragFrom(i)} onMouseUp={() => setDragFrom(null)}>::</span>
-              <select value={m.device_id && m.point_id ? `${m.device_id}|${m.point_id}` : ''} required
+              <select aria-label={`Metric ${i + 1} point`} style={{ flex: '1 1 220px', minWidth: 0, maxWidth: '100%' }} value={m.device_id && m.point_id ? `${m.device_id}|${m.point_id}` : ''} required
                 onChange={e => { const [d, p] = e.target.value.split('|'); setMetrics(ms => ms.map((x, j) => (j === i ? { device_id: d, point_id: p } : x))); }}>
                 <option value="">Choose a device point...</option>
                 {points.map(p => <option key={`${p.device_id}|${p.point_id}`} value={`${p.device_id}|${p.point_id}`}>{p.device_name} / {p.point_id}{p.unit ? ` (${p.unit})` : ''}</option>)}
               </select>
-              <button type="button" className="ghost" onClick={() => setMetrics(ms => ms.filter((_, j) => j !== i))} disabled={metrics.length === 1}>x</button>
+              <button type="button" className="ghost" aria-label={`Move metric ${i + 1} up`} disabled={i === 0} onClick={() => reorder(i, i - 1)}>Move up</button>
+              <button type="button" className="ghost" aria-label={`Move metric ${i + 1} down`} disabled={i === metrics.length - 1} onClick={() => reorder(i, i + 1)}>Move down</button>
+              <button type="button" className="ghost" aria-label={`Remove metric ${i + 1}`} onClick={() => setMetrics(ms => ms.filter((_, j) => j !== i))} disabled={metrics.length === 1}>Remove</button>
             </div>
           ))}
           {points.length === 0 && <p className="muted">No device points yet. Onboard a device first.</p>}
@@ -302,16 +312,21 @@ export default function Reports() {
             {computed.length < 5 && <button type="button" className="ghost" onClick={() => setComputed([...computed, { name: '', expr: '' }])}>Add computed column</button>}
           </div>}
           <div>
-            <label>Text sections (optional): titled notes printed after the data in every format, plain text only (method, caveats, commentary). Up to 10.</label>
+            <label>Text sections (optional): titled notes printed after the data in HTML, CSV, Excel, PDF, Word and PowerPoint, not XML. Plain text only (method, caveats, commentary). Up to 10; arrange their order below.</label>
             {secs.map((x, i) => (
               <div key={i} style={{ marginBottom: 6 }}>
+                <p className="muted">Section {i + 1}</p>
                 <input placeholder="Section title" maxLength={80} aria-label={`Section title ${i + 1}`} value={x.title} onChange={ev => setSecs(secs.map((y, j) => j === i ? { ...y, title: ev.target.value } : y))} />
                 <textarea placeholder="Text" maxLength={2000} rows={3} aria-label={`Section text ${i + 1}`} value={x.body} onChange={ev => setSecs(secs.map((y, j) => j === i ? { ...y, body: ev.target.value } : y))} style={{ width: '100%' }} />
                 <label style={{ display: 'flex', gap: 6, alignItems: 'center', margin: '4px 0', fontWeight: 'normal' }}>
                   <input type="checkbox" style={{ width: 'auto' }} aria-label={`Section ${i + 1} starts a new page`} checked={!!x.page_break} onChange={ev => setSecs(secs.map((y, j) => j === i ? { ...y, page_break: ev.target.checked } : y))} />
                   Start this section on a new page (PDF and print)
                 </label>
-                <button type="button" className="ghost" onClick={() => setSecs(secs.filter((_, j) => j !== i))}>Remove section</button>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                <button type="button" className="ghost" aria-label={`Move section ${i + 1} up`} disabled={i === 0} onClick={() => moveSection(i, i - 1)}>Move up</button>
+                <button type="button" className="ghost" aria-label={`Move section ${i + 1} down`} disabled={i === secs.length - 1} onClick={() => moveSection(i, i + 1)}>Move down</button>
+                <button type="button" className="ghost" aria-label={`Remove section ${i + 1}`} onClick={() => setSecs(secs.filter((_, j) => j !== i))}>Remove section</button>
+                </div>
               </div>))}
             {secs.length < 10 && <button type="button" className="ghost" onClick={() => setSecs([...secs, { title: '', body: '' }])}>Add text section</button>}
           </div>
