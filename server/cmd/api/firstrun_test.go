@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,7 @@ func TestIntegrationFirstRunCredentials(t *testing.T) {
 	pool := s.st.Pool
 	clean := func() {
 		pool.Exec(ctx, `DELETE FROM audit_log WHERE tenant_id='itest-fr1'`)
+		pool.Exec(ctx, `DELETE FROM user_sessions WHERE tenant_id='itest-fr1'`)
 		pool.Exec(ctx, `DELETE FROM users WHERE id IN ('fr-admin','fr-other')`)
 	}
 	clean()
@@ -62,6 +64,12 @@ func TestIntegrationFirstRunCredentials(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"must_change_credentials":true`) {
 		t.Fatalf("default login = %d %s", w.Code, w.Body.String())
 	}
+	var oldLogin struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &oldLogin); err != nil {
+		t.Fatal(err)
+	}
 	// Server-side block: every route except /v1/me and the credentials change.
 	for _, c := range []struct{ m, p string }{{"GET", "/v1/devices"}, {"POST", "/v1/me/password"}} {
 		if w := as(c.m, c.p, `{}`); w.Code != 403 || !strings.Contains(w.Body.String(), "credentials_change_required") {
@@ -94,6 +102,25 @@ func TestIntegrationFirstRunCredentials(t *testing.T) {
 	w = as("POST", "/v1/me/credentials", `{"current":"`+auth.DefaultAdminPassword+`","new_email":"owner@fr-test.example","new":"`+good+`"}`)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"token"`) {
 		t.Fatalf("change = %d %s", w.Code, w.Body.String())
+	}
+	var changed struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &changed); err != nil {
+		t.Fatal(err)
+	}
+	checkToken := func(tk string) int {
+		r := httptest.NewRequest("GET", "/v1/me", nil)
+		r.Header.Set("Authorization", "Bearer "+tk)
+		out := httptest.NewRecorder()
+		authMiddleware(s.secret)(h).ServeHTTP(out, r)
+		return out.Code
+	}
+	if got := checkToken(oldLogin.Token); got != 401 {
+		t.Fatalf("old default session survived credential replacement: %d", got)
+	}
+	if got := checkToken(changed.Token); got != 200 {
+		t.Fatalf("replacement session not usable: %d", got)
 	}
 	var email, hash string
 	var mc bool
