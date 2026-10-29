@@ -57,3 +57,22 @@ from `docs/deployment.md`. The agent:
 `docker compose exec api /bin/api --seed-demo` creates a demo tenant, site,
 gateway, one energy meter (kWh/V/A points) and one door sensor so the dashboard
 has content on first run.
+
+## Health results are complete or explicitly incomplete (2026-10-30)
+
+On Linux/WSL, `bash scripts/setup.sh health` requires direct HTTP 2xx for API and
+web, an MQTT TCP connection, and successful Compose Postgres `pg_isready` before
+returning zero. A redirect is not readiness. Missing/unreachable Docker or failed
+Postgres checks return nonzero with `NOT VERIFIED` and a next step, even if API and
+web answer. This prevents a skipped database check being shown as a healthy stack.
+For HA/Patroni deployments, use the cluster view and the HA drill as well; the
+single-node Compose database check is not multi-node failover evidence. MQTT here
+is only a TCP connectivity check, not authenticated publish/subscribe acceptance.
+
+Verification: Linux terminal/PTTY and prerequisite decision tests use stubbed
+Docker/curl, with a real local TCP listener; they are not Docker installation
+proof. The freshDB endpoint test actually boots the Go API, migrates, seeds through
+tenantctl, replaces first-run credentials and verifies old-token rejection. A
+local prerequisite check reported Docker absent and warned about ~2 GB RAM; no
+Docker install was attempted. Actual Windows installation, Docker Desktop/WSL,
+Linux Docker host, reverse proxy/TLS and real multi-server failover remain gates.
