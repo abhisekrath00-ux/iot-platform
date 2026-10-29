@@ -3,7 +3,7 @@
 Run: python3 scripts/test-setup-ui.py. It proves menu drawing, keys, Ctrl-C, narrow/no-colour/non-TTY handling,
 bad input and the status/health/cluster/restore logic against STUBBED docker and curl. It does not prove
 anything about a real Docker, real services or a real Patroni cluster."""
-import os, re, socket, pty, select, signal, subprocess, sys, tempfile, time
+import os, re, socket, pty, select, signal, subprocess, sys, tempfile, time, threading
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 T = tempfile.mkdtemp()
 BIN = os.path.join(T, "bin"); os.makedirs(BIN)
@@ -11,9 +11,9 @@ def stub(name, body):
     p = os.path.join(BIN, name); open(p, "w").write("#!/usr/bin/env bash\n" + body); os.chmod(p, 0o755)
 stub("docker", '''
 case "$1 $2" in
-  "info "*) exit 0 ;;
+  "info "*) [ -n "${HX_DOCKER_DOWN:-}" ] && exit 1; exit 0 ;;
   "compose ps") case "$*" in *"--format {{.State}}") if [ -n "${HX_ALL_UP:-}" ]; then printf 'running\\nrunning\\n'; else printf 'running\\nexited\\n'; fi ;; *) if [ -n "${HX_ALL_UP:-}" ]; then printf 'api|running|healthy\\nweb|running|\\npostgres|running|healthy\\n'; else printf 'api|running|healthy\\nweb|running|\\npostgres|running|healthy\\ningest|exited|\\n'; fi ;; esac ;;
-  "compose exec") exit 0 ;;
+  "compose exec") [ -n "${HX_PG_DOWN:-}" ] && exit 1; exit 0 ;;
   "compose up"|"compose restart") echo "stub: $*" >> "$HX_STUB_LOG" ;;
   "compose --profile") echo "stub: $*" >> "$HX_STUB_LOG"; case "$*" in *"ps --status"*) [ -n "${HX_AI_UP:-}" ] && echo ai-runtime ;; esac ;;
   "compose stop"|"compose start") echo "stub: $*" >> "$HX_STUB_LOG" ;;
@@ -24,7 +24,7 @@ stub("curl", '''
 for a in "$@"; do u="$a"; done
 case "$u" in
   *:8008/cluster) [ -n "${HX_NO_CLUSTER:-}" ] && exit 7; echo '{"members":[{"name":"n1","role":"leader","state":"running","lag":0},{"name":"n2","role":"sync_standby","state":"streaming","lag":0},{"name":"n3","role":"replica","state":"stopped","lag":"unknown"}]}' ;;
-  *:8000/healthz) [ -n "${HX_API_DOWN:-}" ] && { printf '503 0.002'; exit 0; }; printf '200 0.012' ;;
+  *:8000/healthz) [ -n "${HX_API_REDIRECT:-}" ] && { printf '302 0.002'; exit 0; }; [ -n "${HX_API_DOWN:-}" ] && { printf '503 0.002'; exit 0; }; printf '200 0.012' ;;
   *) printf '200 0.034' ;;
 esac''')
 fails = 0
@@ -88,8 +88,17 @@ o, rc = run([])
 ok("non-TTY without a command: usage and exit 2", rc == 2 and "needs a terminal" in o)
 o, rc = run(["bogus"]); ok("unknown command rejected with usage (exit 2)", rc == 2 and "unknown command" in o)
 srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(5); MQ = str(srv.getsockname()[1])
-o, rc = run(["health"], e=env(HEXTHINGS_MQTT_PORT=MQ)); ok("health command: all up -> exit 0", rc == 0 and "All probed services answer" in o, o)
+def drain_tcp():
+    while True:
+        try:
+            conn, _ = srv.accept(); conn.close()
+        except OSError: return
+threading.Thread(target=drain_tcp, daemon=True).start()
+o, rc = run(["health"], e=env(HEXTHINGS_MQTT_PORT=MQ)); ok("health command: all up -> exit 0", rc == 0 and "All required checks passed" in o, o)
 o, rc = run(["health"], e=env(HX_API_DOWN="1", HEXTHINGS_MQTT_PORT=MQ)); ok("health command: API down -> exit 1 and says DOWN", rc == 1 and "DOWN" in o and "http 503" in o, o)
+o, rc = run(["health"], e=env(HX_PG_DOWN="1", HEXTHINGS_MQTT_PORT=MQ)); ok("health: Postgres failed -> incomplete/nonzero", rc == 1 and "NOT VERIFIED via compose" in o and "Health is incomplete" in o, o)
+o, rc = run(["health"], e=env(HX_DOCKER_DOWN="1", HEXTHINGS_MQTT_PORT=MQ)); ok("health: unavailable Docker never means green", rc == 1 and "Docker unavailable" in o and "prereq.sh --check" in o, o)
+o, rc = run(["health"], e=env(HX_API_REDIRECT="1", HEXTHINGS_MQTT_PORT=MQ)); ok("health: HTTP302 is not readiness", rc == 1 and "http 302" in o, o)
 o, rc = run(["status"]); ok("status command works non-interactively", rc == 0 and "services up" in o, o)
 o, rc = run(["cluster", "n1"]); ok("cluster view shows leader, sync standby, stopped replica", "LEADER" in o and "SYNC" in o and "stopped" in o and "3 member" in o, o)
 o, rc = run(["cluster", "n1"], e=env(HX_NO_CLUSTER="1")); ok("cluster view with no answer explains itself, exit 1", rc == 1 and "No answer from Patroni" in o, o)
