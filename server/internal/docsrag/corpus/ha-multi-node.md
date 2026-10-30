@@ -27,7 +27,8 @@ The web and API HAProxy listeners now require an exact HTTP 200 from
 `GET /readyz`, not merely an open TCP port. Web nginx forwards that path to
 its local API; API readiness checks Postgres and, when the selected OAuth state backend is Redis,
 a PING to that store (including AUTH). With PostgreSQL OAuth state and an optional
-Redis response cache, cache failure does not remove an otherwise ready API. A database-unhealthy API or broken
+Redis response cache, cache failure does not remove an otherwise ready API; shared read errors bypass
+response caching and read the API backend directly. A database-unhealthy API or broken
 web-to-API proxy therefore fails this check even while its port is listening.
 Checks run every 3 seconds, with 3 failures to remove and 2 successes to restore
 a backend. Requests can still fail during detection or an in-flight outage.
@@ -124,13 +125,41 @@ TEST_VALKEY_BINARY=/path/to/valkey-server go test -race ./internal/redisx -run T
 This proves the direct transport and these commands, not Sentinel/Cluster,
 replication, persistence, failover, rollback or production TLS/proxy-chain behavior.
 The generated HA APIs still use Postgres OAuth state and local response caches.
-If an optional shared cache fails, local fallback and cross-node stale responses
-remain possible until TTL; failed invalidation is not a durable event. No cache
+If an optional shared-cache read fails, the request now bypasses caching and reads
+the backend directly. No local fallback cache is read or filled on that request.
+A failed invalidation is still not a durable event: a replica that can reach an old
+shared entry, or recovery before its TTL expires, can still return stale data. No cache
 consistency, no-loss, RPO or RTO guarantee is added.
 
 Sources: [Valkey 9.0.7 binary](https://download.valkey.io/releases/valkey-9.0.7-jammy-x86_64.tar.gz),
 [SHA-256](https://download.valkey.io/releases/valkey-9.0.7-jammy-x86_64.tar.gz.sha256),
 [TLS](https://valkey.io/topics/tls/), [ACLs](https://valkey.io/topics/acl/).
+
+### Response-cache outage and privacy guards
+
+On configured shared-cache read errors, each request reads the authorized backend
+without a local-cache lookup or fill. This removes a second stale-cache window
+during an outage, at the cost of more database/backend load. A failed shared
+invalidation still allows stale responses through reachable replicas or after
+recovery until the original shared entry expires. This is not durable invalidation,
+strong consistency or cache HA. A valid shared miss still uses shared caching.
+
+Local and shared caches refuse responses carrying `Cache-Control: private`,
+`no-store` or `no-cache`, `Set-Cookie`, any `Vary`, `WWW-Authenticate`, `Location`,
+or `Content-Disposition`. Those responses pass through with their original headers
+and body. Bodies above 1 MiB are not cached in either path. Scoped users still
+bypass the tenant cache. These checks prevent stripping privacy/representation
+headers or sharing a variant under an incomplete cache key; they do not replace
+handler authorization or redesign user-specific cache keys.
+
+A waiting request can cancel while another request fills the same key; it does
+not wait indefinitely for that request or run a second backend handler. The fill
+itself still follows its own request context and backend behavior. Local fixtures
+test both paths, header preservation, oversized bodies, repeated outage reads and
+canceled waiters under the race detector. The real Valkey TLS regression now also
+kills the process and confirms two successive cache reads observe successive backend
+values rather than a fallback cached result. No network-partition, recovery or
+invalidation-replay guarantee follows from killing one local process.
 
 ### Shared OAuth state without an independent cache dependency
 
