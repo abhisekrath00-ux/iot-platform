@@ -238,8 +238,8 @@ services:
       MQTT_PORT: "1883"
       MQTT_TLS: "false"
       API_PORT: "8000"
-      REDIS_URL: redis://:\${REDIS_PASSWORD}@redis:6379
-      CACHE_BACKEND: redis
+      OAUTH_STATE_BACKEND: postgres
+      # Local cache only: independent node stores cannot invalidate other replicas.
       INGEST_SHARED_GROUP: hexthings
     ports: ["8001:8000"]
     depends_on: [redis, mosquitto]
