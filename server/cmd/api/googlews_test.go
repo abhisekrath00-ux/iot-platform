@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -93,7 +95,13 @@ func TestIntegrationGoogleWorkspaceConnection(t *testing.T) {
 		key[i] = byte(i + 3)
 	}
 	s.secrets = &secrets.Store{Pool: s.st.Pool, Key: key}
-	s.states = oidcstate.NewMemory()
+	s.states = oidcstate.NewPostgres(s.st.Pool)
+	otherPool, err := pgxpool.New(context.Background(), os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(otherPool.Close)
+	callbackReplica := &server{st: s.st, secrets: s.secrets, states: oidcstate.NewPostgres(otherPool)}
 	sim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"access_token": "ya29.sim", "refresh_token": "1//sim-rt", "expires_in": 3600, "token_type": "Bearer",
@@ -105,6 +113,7 @@ func TestIntegrationGoogleWorkspaceConnection(t *testing.T) {
 	p, _ := googlews.NewProvider("cid", "csecret", "https://hex.example/auth/google/callback")
 	p.TokenURL = sim.URL
 	s.google = p
+	callbackReplica.google = p
 	t.Cleanup(func() {
 		s.st.Pool.Exec(context.Background(), `DELETE FROM secrets WHERE tenant_id='itest-gws'`)
 		s.st.Pool.Exec(context.Background(), `DELETE FROM audit_log WHERE tenant_id='itest-gws'`)
@@ -144,12 +153,12 @@ func TestIntegrationGoogleWorkspaceConnection(t *testing.T) {
 
 	// 3. callback: state is single-use
 	rec = httptest.NewRecorder()
-	s.googleCallback(rec, httptest.NewRequest("GET", "/auth/google/callback?state="+state+"&code=sim-code", nil))
+	callbackReplica.googleCallback(rec, httptest.NewRequest("GET", "/auth/google/callback?state="+state+"&code=sim-code", nil))
 	if rec.Code != 302 {
 		t.Fatalf("callback: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	s.googleCallback(rec, httptest.NewRequest("GET", "/auth/google/callback?state="+state+"&code=sim-code", nil))
+	callbackReplica.googleCallback(rec, httptest.NewRequest("GET", "/auth/google/callback?state="+state+"&code=sim-code", nil))
 	if rec.Code != 403 {
 		t.Fatalf("state replay must fail: %d", rec.Code)
 	}
