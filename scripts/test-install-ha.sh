@@ -28,6 +28,9 @@ for n,ip in (("a","10.0.0.11"),("b","10.0.0.12"),("c","10.0.0.13")):
     for svc in ("etcd","patroni","haproxy","keepalived","mosquitto","redis","api","ingest","mcp","web"):
         assert svc in c["services"],(n,svc)
     assert c["services"]["haproxy"]["image"] == "haproxy:3.2.26-alpine"
+    env=c["services"]["api"]["environment"]
+    assert env["OAUTH_STATE_BACKEND"] == "postgres"
+    assert "REDIS_URL" not in env and "CACHE_BACKEND" not in env
     assert ip in " ".join(c["services"]["etcd"]["command"].split()),n
     p=yaml.safe_load(open(f"{root}/{n}/patroni.yml"))
     assert p["name"]==n and p["scope"]=="hexthings"
