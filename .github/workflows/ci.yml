@@ -62,6 +62,16 @@ jobs:
           trap 'docker ps -aq --filter label=hexthings-tls-test | xargs -r docker rm -f' EXIT
           TEST_MOSQUITTO_BINARY=/tmp/mosquitto-test go test ./internal/mqttconfig -run '^TestLocalMTLSTransport$' -count=1 -v
           TEST_MOSQUITTO_BINARY=/tmp/mosquitto-test TEST_INGEST_BINARY=/tmp/ingest-pipeline go test ./cmd/api -run '^TestIntegrationMQTTTLSPipeline$' -count=1 -v
+      - name: Real Valkey verified TLS and ACL transport
+        working-directory: server
+        run: |
+          set -euo pipefail
+          base=https://download.valkey.io/releases
+          curl -fsSLo /tmp/valkey.tar.gz "$base/valkey-9.0.7-jammy-x86_64.tar.gz"
+          echo 'bf0f19982dd464ea111617608a90f1a6eaad2c9c59b2e289cbc1591129f6d2e4  /tmp/valkey.tar.gz' | sha256sum -c -
+          mkdir -p /tmp/valkey-transport
+          tar xzf /tmp/valkey.tar.gz -C /tmp/valkey-transport
+          TEST_VALKEY_BINARY=/tmp/valkey-transport/valkey-9.0.7-jammy-x86_64/bin/valkey-server go test -race ./internal/redisx -run '^TestValkeyTransport$' -count=1 -v
       - name: vet + test edge
         working-directory: edge
         run: |
