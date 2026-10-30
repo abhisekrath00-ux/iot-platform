@@ -104,3 +104,29 @@ check private modes/custom directories, reject corrupt/missing/wrong-name and
 checksum-matching unreadable archives before destructive restore, and rotate
 sidecars with archives. This tests real database bytes and shell decisions, not
 Docker execution, Windows, clean-host recovery or HA failover. Those gates remain.
+
+## PowerShell recovery path (2026-10-30)
+
+`hexthings backup` now uses unique container/host filenames, separates `pg_dump`
+from compression so a failed dump cannot hide behind gzip success, writes a
+file-bound ASCII `.sha256` sidecar, and rotates it with the archive. Temporary
+container dump files are removed on completion/failure. File-write errors stop
+rather than printing a successful backup. Protect the host backup folder with
+Windows ACLs: this increment does not implement or verify Windows permission or
+encryption policy.
+
+`hexthings restore FILE` requires the same file-bound checksum before copying or
+stopping services, decompresses and lists the archive before confirmation, checks
+that writers stopped, and uses `pg_restore --exit-on-error`. A restore failure
+returns nonzero and leaves writers stopped with a partial-database warning. Failed
+service start/readiness is also nonzero, not a successful recovery. `-Yes` bypasses
+confirmation only, never integrity or readiness gates. The restore is not atomic.
+
+Verification: command-contract cases execute the actual two PowerShell function
+bodies under PowerShell 7.6.5 on Linux with fake Docker, covering missing/wrong-name/
+corrupt checksums; copy/decompression/list/stop/restore/start/readiness failures;
+dump/compression/copy failures; successful sidecar output and unique backup paths.
+Run `PWSH=/path/to/pwsh python3 scripts/test-recovery-powershell.py`. This is not
+native Windows/PowerShell 5.1, Docker Desktop, real database or ACL proof. Linux
+real-PG rehearsal remains separate. The runtime used for this local test was the
+hash-checked official release: https://github.com/PowerShell/PowerShell/releases/tag/v7.6.5.
