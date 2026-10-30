@@ -74,16 +74,63 @@ web test clock collision was fixed by freezing Date: a whole-page assertion for
 an old chart value of `42` could accidentally match the current response timestamp.
 The production UI is unchanged by that test-only fix.
 
-**Valkey is not configured yet.** The current generator and optional single-node
-profile still use Redis. Valkey's vendor documentation states RESP2/RESP3 and
+**Valkey is not generated as an HA service yet.** The current generator and optional single-node
+profile still use Redis. The direct client now supports verified TLS and ACL authentication
+to an explicitly supplied Redis/Valkey endpoint; that does not create a replicated service. Valkey's vendor documentation states RESP2/RESP3 and
 Redis OSS 7.2 compatibility. HexThings uses AUTH, GET, SET with EX/NX, GETDEL and
-INCR through a small direct TCP client. Command overlap is a lead, not a completed
-Valkey test or migration. The client has no TLS, Sentinel discovery or Cluster
-MOVED/ASK handling. A proxy layer would not by itself replicate independent
+INCR through a small direct TCP client. Actual Valkey 9.0.7 TLS/ACL command tests now pass locally; this is not a migration
+or failover test. The client has no Sentinel discovery or Cluster MOVED/ASK handling. A proxy layer would not by itself replicate independent
 stores or make OAuth state available on every API. The generated APIs no longer route OAuth state or response-cache invalidation
 through those independent stores. A shared, secured Valkey endpoint and its
 failover/persistence policy still need design and verification; no Valkey proxy,
 cache HA or RPO/RTO promise is made here.
+
+### Secured explicit Redis/Valkey endpoint
+
+`REDIS_URL` accepts `redis://` (plaintext) or `rediss://` (verified TLS), optional
+URL-encoded `user:password`, and `/database` (default 0). Existing bare `host:port`
+remains plaintext. Use the same endpoint and database on every replica when enabling
+`CACHE_BACKEND=redis`. This name selects the RESP cache adapter for Redis or Valkey;
+it is not a product conversion or service deployment. Query strings, fragments,
+unknown schemes, malformed ports/databases and incomplete credentials are rejected
+at startup without printing the URL or credentials.
+
+For a private CA set `REDIS_TLS_CA_FILE`. For mutual TLS supply both
+`REDIS_TLS_CERT_FILE` and `REDIS_TLS_KEY_FILE`. Certificates must match the endpoint
+hostname (or IP SAN for an IP address), and TLS 1.2 or newer is required. The system
+CA pool is used with an optional additional CA bundle. There is no insecure skip
+verification option. TLS files with a plaintext URL are rejected. A client certificate
+is transport authentication, not a substitute for ACL credentials. Configure ACLs
+for the required command/key scope on the server; the client does not create users.
+Authentication and database selection run on each short-lived connection before the
+command, under the same bounded deadline. Server error text is not returned verbatim.
+RESP bulk values are bounded to 8 MiB before allocation; cache writes remain capped
+at 1 MiB. No command is retried on another endpoint.
+
+Local proof (2026-10-30): vendor Valkey 9.0.7 Jammy x86_64 binary, SHA-256 checked
+against its official sidecar, runs on loopback with plaintext disabled, mutual TLS
+required, default user disabled and a restricted app ACL. The test covers PING,
+AUTH user/password, SELECT database isolation, GET/SET EX/NX, GETDEL single-use,
+INCR, expiration, two independent cache instances sharing hits and invalidation,
+ACL key/command denial, wrong password, untrusted CA, hostname mismatch, missing
+client certificate, cancelled context and process outage. Five race-enabled test
+repetitions passed. CI runs the same test against the pinned hash, separate from
+fake RESP tests. Run from `server/`:
+
+```
+TEST_VALKEY_BINARY=/path/to/valkey-server go test -race ./internal/redisx -run TestValkeyTransport -count=1 -v
+```
+
+This proves the direct transport and these commands, not Sentinel/Cluster,
+replication, persistence, failover, rollback or production TLS/proxy-chain behavior.
+The generated HA APIs still use Postgres OAuth state and local response caches.
+If an optional shared cache fails, local fallback and cross-node stale responses
+remain possible until TTL; failed invalidation is not a durable event. No cache
+consistency, no-loss, RPO or RTO guarantee is added.
+
+Sources: [Valkey 9.0.7 binary](https://download.valkey.io/releases/valkey-9.0.7-jammy-x86_64.tar.gz),
+[SHA-256](https://download.valkey.io/releases/valkey-9.0.7-jammy-x86_64.tar.gz.sha256),
+[TLS](https://valkey.io/topics/tls/), [ACLs](https://valkey.io/topics/acl/).
 
 ### Shared OAuth state without an independent cache dependency
 
