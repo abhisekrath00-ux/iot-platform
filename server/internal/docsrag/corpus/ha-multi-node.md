@@ -233,3 +233,22 @@ Run each node as a VM on a different Proxmox host. Do not also enable Proxmox HA
 | Date | Hardware | Failover time | Lost writes | Result |
 |---|---|---|---|---|
 | (not yet run) | | | | |
+
+### Point-catalog completeness for report pickers
+
+`GET /v1/points` now buffers and checks every Scan and iteration error before
+returning a result. It reads at most 5001 rows: up to 5000 returns the existing
+array shape, while overflow returns HTTP 422 with no partial array. Read errors
+return generic HTTP 500. Both failure paths are `no-store` and do not enter the
+response cache. A successful empty result remains `[]`. Ordering is stable by
+device name, device id and point id; tenant filtering remains unchanged.
+Customer-scoped users remain denied this endpoint by the existing allowlist.
+This is an explicit completeness limit, not pagination or support for larger
+catalogs. Large installations need a paginated/searchable catalog implementation.
+
+Reports now distinguishes catalog loading, failed reads and successful empty
+results. Retry clears old choices, validates returned rows and keeps the draft;
+a failed read no longer says to onboard a device. This does not validate the
+availability of every point already stored in an existing report. Unit fixtures
+cover Scan/iteration failures and exact-limit/overflow cases; real Postgres tests
+cover 5001-row rejection, uncached recovery, tenant isolation and database outage.
