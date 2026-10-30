@@ -4,7 +4,7 @@
 // Design limits, stated honestly:
 //   - Per process. With N API replicas a client may see data up to ttl old
 //     from any replica; TTLs are therefore short (seconds), not minutes.
-//   - Keys are tenant-scoped; only GET 200 responses are stored.
+//   - Keys are tenant-scoped; only cacheable GET 200 bodies up to 1 MiB are stored.
 //   - A per-tenant generation counter lets mutating handlers invalidate a
 //     tenant's entries in O(1).
 //   - Concurrent misses for one key share one backend call (no stampede).
@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,8 +34,8 @@ type call struct {
 }
 
 // Shared is an optional backing store (Redis) that makes the cache and its
-// invalidation visible to every API replica. When it errors, the cache falls
-// back to the per-process behaviour for that request.
+// invalidation visible to every API replica. On read errors the request bypasses
+// caching and reads its backend directly; it does not consult a local stale copy.
 type Shared interface {
 	Get(key string) (string, bool, error)
 	Set(key, val string, ttl time.Duration) error
@@ -105,7 +106,10 @@ func (c *Cache) Middleware(ttl time.Duration, tenantOf func(*http.Request) strin
 			next(w, r)
 			return
 		}
-		if c.shared != nil && c.serveShared(w, r, tenant, ttl, next) {
+		if c.shared != nil {
+			if !c.serveShared(w, r, tenant, ttl, next) {
+				next(w, r)
+			}
 			return
 		}
 		c.mu.Lock()
@@ -118,7 +122,11 @@ func (c *Cache) Middleware(ttl time.Duration, tenantOf func(*http.Request) strin
 		}
 		if f, ok := c.inflight[k]; ok {
 			c.mu.Unlock()
-			<-f.done
+			select {
+			case <-f.done:
+			case <-r.Context().Done():
+				return
+			}
 			if f.ent != nil {
 				c.Hits.Add(1)
 				write(w, f.ent, "HIT")
@@ -135,7 +143,7 @@ func (c *Cache) Middleware(ttl time.Duration, tenantOf func(*http.Request) strin
 		rec := httptest.NewRecorder()
 		next(rec, r)
 		var ent *entry
-		if rec.Code == http.StatusOK {
+		if cacheable(rec) {
 			ent = &entry{body: rec.Body.Bytes(), ctype: rec.Header().Get("Content-Type"), expires: c.now().Add(ttl)}
 		}
 		c.mu.Lock()
@@ -189,10 +197,10 @@ func (c *Cache) evictLocked() {
 }
 
 // serveShared handles one request through the shared store. It returns false
-// when the store is unreachable so the caller can use the local path instead.
+// when the store cannot be read, so the caller reads the backend without caching.
 func (c *Cache) serveShared(w http.ResponseWriter, r *http.Request, tenant string, ttl time.Duration, next http.HandlerFunc) bool {
 	gen, err := c.shared.GetInt("hx:gen:" + tenant)
-	if err != nil {
+	if err != nil || gen < 0 {
 		return false
 	}
 	sum := sha256.Sum256([]byte(r.URL.RequestURI()))
@@ -209,7 +217,11 @@ func (c *Cache) serveShared(w http.ResponseWriter, r *http.Request, tenant strin
 	c.mu.Lock()
 	if f, ok := c.inflight[k]; ok {
 		c.mu.Unlock()
-		<-f.done
+		select {
+		case <-f.done:
+		case <-r.Context().Done():
+			return true
+		}
 		if f.ent != nil {
 			c.Hits.Add(1)
 			write(w, f.ent, "HIT")
@@ -226,7 +238,7 @@ func (c *Cache) serveShared(w http.ResponseWriter, r *http.Request, tenant strin
 	rec := httptest.NewRecorder()
 	next(rec, r)
 	var ent *entry
-	if rec.Code == http.StatusOK {
+	if cacheable(rec) {
 		ent = &entry{body: rec.Body.Bytes(), ctype: rec.Header().Get("Content-Type"), expires: c.now().Add(ttl)}
 		if len(ent.body) <= maxSharedBody {
 			_ = c.shared.Set(k, ent.ctype+"\x00"+string(ent.body), ttl)
@@ -256,4 +268,29 @@ func indexNUL(s string) int {
 		}
 	}
 	return -1
+}
+
+// A cached response only preserves content type and body. Refuse headers whose
+// semantics would be lost, personalized cookies, and all Vary responses rather
+// than risk sharing a representation under an incomplete key.
+func cacheable(rec *httptest.ResponseRecorder) bool {
+	if rec.Code != http.StatusOK || rec.Body.Len() > maxSharedBody {
+		return false
+	}
+	for key, values := range rec.Header() {
+		switch strings.ToLower(key) {
+		case "set-cookie", "vary", "www-authenticate", "location", "content-disposition":
+			return false
+		case "cache-control":
+			for _, v := range values {
+				for _, directive := range strings.Split(v, ",") {
+					name := strings.TrimSpace(strings.SplitN(strings.ToLower(directive), "=", 2)[0])
+					if name == "private" || name == "no-store" || name == "no-cache" {
+						return false
+					}
+				}
+			}
+		}
+	}
+	return true
 }
