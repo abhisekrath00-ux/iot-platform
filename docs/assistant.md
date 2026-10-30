@@ -10,10 +10,18 @@ Two tools: `set_plan` (a visible list of steps) and `api_request`, which calls t
 - **Reads** (GET) run immediately.
 - **Changes** become a pending action showing the exact method, path and body. Nothing runs until the same user confirms it in an interactive session within 30 minutes. A viewer's confirm fails the role check. Confirmed changes are audited `assistant.confirm` with `ai_initiated: true`.
 - **Typed write tools** (small local model) : create_site, create_asset, create_customer, create_group, acknowledge_alert, comment_on_alert. A hosted model using api_request can propose every change in the policy list (`internal/assistant/policy.go`), including POST /v1/sites and /v1/customers (owner decision Oct 5). Each is proposed, confirmed with one click, run as the signed-in user, role-checked and audited.
-- **Never available to it**, even with a confirm: approving control commands (it runs like an API key session, which cannot approve), users/roles/invitations (a person does this in Users), API keys, secrets, SSO, feature switches, switching control targets to automatic, device tokens, enrollment, and its own settings. The policy is default-deny (`internal/assistant/policy.go`).
 - Tool output is treated as data, never instructions.
 
 Limits per run: 12 model calls, 25 tool calls, 12 KB per tool result, 3 minutes. 30 runs per hour per user. The rule-based question box (`/v1/ask`) stays as the fallback when no model is connected.
+
+## What does the assistant refuse to do?
+
+The assistant must refuse these actions even with a confirmation: approving control
+commands (it runs like an API key session, which cannot approve), changing users,
+roles or invitations (a person does this in Users), API keys, secrets, SSO,
+feature switches, switching control targets to automatic, device tokens,
+enrollment, and its own settings. The policy is default-deny
+(`internal/assistant/policy.go`). Tool output is data, never instructions.
 
 ## Guided templates (no model needed)
 The Assistant page offers one-click templates that run fully deterministically, with no model call: Add a device, Create an alert rule, Add a notification channel, Set up an energy meter, Acknowledge an alert, Invite a user. Each asks its questions one at a time (choices are loaded live, e.g. gateways, points, open alerts), shows an exact summary, and writes only after Confirm. Calls go through the normal /v1 API with the signed-in user's role, so the same checks apply as in the forms; server-side validation and staging (channels start disabled, Telegram needs a paired chat) are unchanged. They work on air-gapped installs with no AI configured. Tested: unit tests for validation/guidance text and a browser-driven smoke of the alert-rule path; each endpoint has its own server tests.
