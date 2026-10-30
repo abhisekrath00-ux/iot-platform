@@ -63,6 +63,9 @@ export default function Reports() {
   const [msg, setMsg] = useState('');
   const [points, setPoints] = useState<PointRow[]>([]);
   const [pointSearch, setPointSearch] = useState('');
+  const [pointsPending, setPointsPending] = useState(true);
+  const [pointsError, setPointsError] = useState('');
+  const pointsRequest = useRef(0);
   const filteredPoints = points.filter(p => `${p.device_name} ${p.device_id} ${p.point_id} ${p.unit}`.toLowerCase().includes(pointSearch.trim().toLowerCase()));
   function moveSection(from: number, to: number) { setSecs(rows => { if(to < 0 || to >= rows.length) return rows; const copy=[...rows]; const [row]=copy.splice(from,1); copy.splice(to,0,row); return copy; }); }
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -90,14 +93,25 @@ export default function Reports() {
       if (reportsRequest.current === request) setReportsError(String(e));
     } finally { if (reportsRequest.current === request) setReportsPending(false); }
   }
+  async function loadPoints() {
+    const request = ++pointsRequest.current;
+    setPointsPending(true); setPointsError(''); setPoints([]);
+    try {
+      const rows = await api<PointRow[]>('/v1/points');
+      if (pointsRequest.current !== request) return;
+      if (!Array.isArray(rows) || rows.some(p => !p || typeof p.device_id !== 'string' || typeof p.device_name !== 'string' || typeof p.point_id !== 'string' || typeof p.unit !== 'string')) throw new Error('The server returned an incomplete point catalog.');
+      setPoints(rows);
+    } catch (e) { if (pointsRequest.current === request) setPointsError(String(e)); }
+    finally { if (pointsRequest.current === request) setPointsPending(false); }
+  }
   const load = () => {
     void loadReports();
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
-    api<PointRow[]>('/v1/points').then(setPoints).catch(() => {});
+    void loadPoints();
     api<{ id: string; name: string }[]>('/v1/devices').then(setDevices).catch(() => {});
     api<typeof opts>('/v1/reports/options').then(setOpts).catch(() => {});
   };
-  useEffect(() => { load(); return () => { reportsRequest.current++; }; }, []);
+  useEffect(() => { load(); return () => { reportsRequest.current++; pointsRequest.current++; }; }, []);
 
   function setMetric(i: number, k: keyof Metric, v: string) {
     setMetrics(ms => ms.map((m, j) => (j === i ? { ...m, [k]: v } : m)));
@@ -224,7 +238,9 @@ export default function Reports() {
           <p className="muted">Add device points, then arrange metrics and notes using Move up / Move down. Changes affect this draft only until saved. Place notes before or after the data; this is not a free-form canvas.</p>
           <label htmlFor="report-point-search">Find a device point</label>
           <input id="report-point-search" type="search" value={pointSearch} onChange={e => setPointSearch(e.target.value)} placeholder="Device, point or unit" />
-          <p role="status" className="muted">{filteredPoints.length} of {points.length} device points match. Click or drag a point to add it.</p>
+          <button type="button" className="ghost" disabled={pointsPending} onClick={() => void loadPoints()}>{pointsPending ? 'Loading device points...' : 'Reload device points'}</button>
+          {pointsError && <p role="alert">Device points unavailable: {pointsError}. Your draft is kept; retry the catalog load before choosing a new point.</p>}
+          {!pointsPending && !pointsError && <p role="status" className="muted">{filteredPoints.length} of {points.length} device points match. Click or drag a point to add it.</p>}
           <div data-testid="palette" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
             {filteredPoints.map(p => (
               <button type="button" aria-label={`Add ${p.device_name} / ${p.point_id}`} key={`${p.device_id}|${p.point_id}`} draggable className="ghost" title="Drag onto the report, or click to add"
@@ -259,7 +275,7 @@ export default function Reports() {
               <button type="button" className="ghost" aria-label={`Remove metric ${i + 1}`} onClick={() => setMetrics(ms => ms.filter((_, j) => j !== i))} disabled={metrics.length === 1}>Remove</button>
             </div>
           ))}
-          {points.length === 0 && <p className="muted">No device points yet. Onboard a device first.</p>}
+          {!pointsPending && !pointsError && points.length === 0 && <p className="muted">No device points yet. Onboard a device first.</p>}
           <button type="button" className="ghost" onClick={() => setMetrics(ms => [...ms, { device_id: '', point_id: '' }])}>+ metric</button>
           </div>
           <label>Window</label>
