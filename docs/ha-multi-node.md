@@ -2,7 +2,7 @@
 
 Single node: `scripts/install.sh` (already built, unchanged, see docs/install.md). Multi node: `scripts/install-ha.sh` (this page). One entry point offers both: `bash scripts/setup.sh` shows a menu (1 single node, 2 multi node), or `bash scripts/setup.sh single|multi [args]`. The menu itself is tested only for the non-interactive paths; the interactive prompt has not been exercised on a terminal.
 
-**Status, stated plainly.** The generator is tested (`scripts/test-install-ha.sh`: input validation, rendering, YAML structure, secrets handling, file modes). The rendered stack (etcd, Patroni, HAProxy, keepalived, the Patroni image) has **never been started**: there is no Docker and no second machine in the build environment. Every failover claim below is a design, not a result. The drill at the end must pass on real hardware before you rely on it. The generator's own test caught two real bugs in the rendered files (an unquoted etcd host list and an invalid volume list), which is a sign the rendered files likely still hold more.
+**Status, stated plainly.** The generator is tested (`scripts/test-install-ha.sh`: input validation, rendering, YAML structure, secrets handling, file modes). The generated HTTP routing has also been exercised with a real local HAProxy 3.2.26 binary and three synthetic HTTP backends (`scripts/test-ha-http-routing.py`). This is not a rendered-stack test. The rendered stack (etcd, Patroni, HAProxy, keepalived, the Patroni image) has **never been started**: there is no Docker and no second machine in the build environment. Every failover claim below is a design, not a result. The drill at the end must pass on real hardware before you rely on it. The generator's own test caught two real bugs in the rendered files (an unquoted etcd host list and an invalid volume list), which is a sign the rendered files likely still hold more.
 
 ## What you get
 
@@ -15,10 +15,78 @@ Three nodes and one virtual IP (VIP). Every node runs the same set:
 | HAProxy | on every node | Port 5000 always goes to the node Patroni says is primary. Web 8080 and API 8000 are load-balanced across all nodes (active-active). MQTT 1883 goes to one broker, the others are backups (active-passive). |
 | keepalived | VIP floats between nodes | The VIP moves to another node if HAProxy or the node dies. |
 | api, ingest, mcp, web | active-active on all 3 | Stateless. Ingest replicas share the MQTT load with shared subscriptions (`INGEST_SHARED_GROUP`). The scheduler runs on one replica at a time (Postgres advisory lock). |
-| redis | one per node, not replicated | Cache and login/OIDC state. Losing it can sign users out; it holds no source-of-truth data. |
+| redis | one per node, not replicated or shared between nodes | Each API uses a different store. An OIDC or Google OAuth callback landing on another node fails state validation; cache invalidation does not cross nodes. This is an unresolved routing/state-store gap, not working shared-state HA. Existing tracked bearer sessions live in Postgres, not Redis. |
 | mosquitto | one per node, session files not replicated | See the MQTT limits below. |
 
 Clients use: web `http://VIP:8080`, API `http://VIP:8000`, MQTT `VIP:1883`, Postgres `VIP:5000`.
+
+## HTTP routing checks and remaining state-store gap
+
+The web and API HAProxy listeners now require an exact HTTP 200 from
+`GET /readyz`, not merely an open TCP port. Web nginx forwards that path to
+its local API; API readiness checks Postgres and, when `REDIS_URL` is set,
+a PING to the configured shared state store (including AUTH). A database-unhealthy API or broken
+web-to-API proxy therefore fails this check even while its port is listening.
+Checks run every 3 seconds, with 3 failures to remove and 2 successes to restore
+a backend. Requests can still fail during detection or an in-flight outage.
+A failed dependency returns only `not ready` with HTTP 503, never raw errors,
+addresses or secrets. The complete check has a two-second deadline and is not
+cacheable. `/healthz` retains its existing database-only behavior. The state-store
+PING proves connectivity/authentication, not writable capacity, state replication,
+or failover safety. Readiness does **not** establish MQTT, OIDC provider or scheduler
+health. The listeners stay in TCP mode; this change does not add HTTP retry or
+replay writes on a different node. TLS termination and client-address forwarding
+across the full chain remain unverified.
+
+Local reproduction (2026-10-30): the old generated configuration continued
+round-robin requests through all three open-port backends while their health
+endpoints returned 200, 503 and 302. With the new generated checks, both web and
+API listeners exclude 503/302/500 backends, restore a recovered backend to
+round-robin, refuse successful responses when all are down, and recover after
+that condition. A POST whose application response is 503 is delivered once,
+not replayed. The test rewrites only bind/backend addresses to loopback, keeping
+the rendered check paths, expected status and timing. Run:
+
+```
+bash scripts/test-install-ha.sh
+HAPROXY_BINARY=/path/to/haproxy python3 scripts/test-ha-http-routing.py
+```
+
+The binary was built from official HAProxy 3.2.26 source with its published
+SHA-256 verified. The generator now pins `haproxy:3.2.26-alpine`, replacing the
+end-of-life 2.9 branch. The vendor lists 3.2 as LTS through 2030-Q2; the binary
+reports that supported status. A real-container regression remains required
+before deployment. This local binary result does not verify that image,
+Docker networking, VIP movement or a real cluster. A separate local nginx 1.18
+exercise (`scripts/test-nginx-readiness.py`) confirms the real web config forwards
+`/readyz` and its query string, preserves API 503 and `Cache-Control: no-store`,
+recovers to 200, and leaves unrelated SPA routes intact. That is not a test of
+the production nginx image or of the complete cross-node chain.
+
+API regression tests cover database failure, shared-state failure, AUTH rejection,
+unexpected PING response, generic error output and a real local TCP connection
+that accepts a command but never answers (bounded at two seconds). Readiness
+checks do not retry or send writes. The full Go suite ran against a fresh local
+Postgres 14.24 database; vet/build and all 306 web tests/build passed. An unrelated
+web test clock collision was fixed by freezing Date: a whole-page assertion for
+an old chart value of `42` could accidentally match the current response timestamp.
+The production UI is unchanged by that test-only fix.
+
+**Valkey is not configured yet.** The current generator and optional single-node
+profile still use Redis. Valkey's vendor documentation states RESP2/RESP3 and
+Redis OSS 7.2 compatibility. HexThings uses AUTH, GET, SET with EX/NX, GETDEL and
+INCR through a small direct TCP client. Command overlap is a lead, not a completed
+Valkey test or migration. The client has no TLS, Sentinel discovery or Cluster
+MOVED/ASK handling. A proxy layer would not by itself replicate independent
+stores or make OAuth state available on every API. A shared, secured endpoint
+and its failover/persistence policy need explicit design and verification;
+no Valkey proxy, cache HA or RPO/RTO promise is made here.
+
+References: [HAProxy health checks](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/reliability/health-checks/),
+[HAProxy 3.2.26 source](https://www.haproxy.org/download/3.2/src/haproxy-3.2.26.tar.gz),
+[source SHA-256](https://www.haproxy.org/download/3.2/src/haproxy-3.2.26.tar.gz.sha256),
+[HAProxy support table](https://www.haproxy.org/),
+[Valkey compatibility](https://valkey.io/topics/migration/).
 
 ## Commands
 
