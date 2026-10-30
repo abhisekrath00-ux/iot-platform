@@ -27,6 +27,7 @@ for n,ip in (("a","10.0.0.11"),("b","10.0.0.12"),("c","10.0.0.13")):
     c=yaml.safe_load(open(f"{root}/{n}/docker-compose.yml"))
     for svc in ("etcd","patroni","haproxy","keepalived","mosquitto","redis","api","ingest","mcp","web"):
         assert svc in c["services"],(n,svc)
+    assert c["services"]["haproxy"]["image"] == "haproxy:3.2.26-alpine"
     assert ip in " ".join(c["services"]["etcd"]["command"].split()),n
     p=yaml.safe_load(open(f"{root}/{n}/patroni.yml"))
     assert p["name"]==n and p["scope"]=="hexthings"
@@ -48,6 +49,16 @@ $S render --nodes $N --vip 10.0.0.10 --out $T/o2 >/dev/null; ! cmp -s $T/o/a/.en
 grep -q "priority 100" $T/o/a/keepalived.conf && grep -q "priority 90" $T/o/b/keepalived.conf && grep -q "priority 80" $T/o/c/keepalived.conf && ok "keepalived priorities distinct" || bad "priorities"
 grep -q "interface ens18" $T/o/a/keepalived.conf && ok "interface honoured" || bad "interface"
 grep -q "option httpchk GET /primary" $T/o/a/haproxy.cfg && [ "$(grep -c 'check port 8008' $T/o/a/haproxy.cfg)" = 3 ] && ok "haproxy routes Postgres to the Patroni primary" || bad "haproxy primary check"
+python3 - "$T/o/a/haproxy.cfg" <<'PYTEST' && ok "web/api require HTTP 200 health, PG/MQTT stay TCP" || bad "HTTP health gates"
+import re,sys
+s=open(sys.argv[1]).read()
+for name in ("web", "api"):
+    block=re.search(r"(?ms)^listen "+name+r"\n(.*?)(?=^listen |\Z)",s)[1]
+    assert "option httpchk GET /readyz" in block,name
+    assert "http-check expect status 200" in block,name
+    assert "balance roundrobin" in block,name
+assert "mode http" not in s # preserve existing transport; HTTP checks do not replay writes
+PYTEST
 [ "$(grep -c ' backup$' $T/o/a/haproxy.cfg)" = 2 ] && ok "mqtt: one active broker, two backups" || bad "mqtt backup flags"
 $S render --nodes $N --vip 10.0.0.10 --out $T/o3 --sync-strict >/dev/null; grep -q "synchronous_mode_strict: true" $T/o3/a/patroni.yml && ok "--sync-strict honoured" || bad "sync strict"
 expect_fail "non-empty output dir refused" $S render --nodes $N --vip 10.0.0.10 --out $T/o
