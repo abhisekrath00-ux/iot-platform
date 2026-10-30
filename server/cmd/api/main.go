@@ -117,14 +117,11 @@ func main() {
 	}
 	var redisCli *redisx.Client
 	if ru := os.Getenv("REDIS_URL"); ru != "" {
-		// redis://[:password@]host:port - shared OIDC state for multi-replica HA
-		ru = strings.TrimPrefix(ru, "redis://")
-		pass := ""
-		if i := strings.Index(ru, "@"); i >= 0 {
-			pass = strings.TrimPrefix(ru[:i], ":")
-			ru = ru[i+1:]
+		var err error
+		redisCli, err = redisx.FromURL(ru, redisx.TLSOptions{CAFile: os.Getenv("REDIS_TLS_CA_FILE"), CertFile: os.Getenv("REDIS_TLS_CERT_FILE"), KeyFile: os.Getenv("REDIS_TLS_KEY_FILE")})
+		if err != nil {
+			log.Fatal(err)
 		}
-		redisCli = redisx.New(ru, pass)
 	}
 	stateBackend, states, err := oauthStateStore(os.Getenv("OAUTH_STATE_BACKEND"), st.Pool, redisCli)
 	if err != nil {
