@@ -1,6 +1,6 @@
 // Package oidcstate stores OIDC login state. In-memory for a single replica;
-// Redis when REDIS_URL is set so multi-replica deployments share state and a
-// callback can land on any node. The Redis client is a minimal RESP
+// Postgres when selected, or Redis when REDIS_URL is set, so API replicas
+// using the same backend can consume callbacks on any node. The Redis client is a minimal RESP
 // implementation - no external module - so the air-gapped bundle stays clean.
 package oidcstate
 
@@ -60,6 +60,8 @@ func (s *Memory) Take(state string) (string, bool) {
 // --- Redis ---
 
 type Redis struct{ c *redisx.Client }
+
+func NewRedisClient(c *redisx.Client) *Redis { return &Redis{c: c} }
 
 func NewRedis(addr, password string) *Redis { return &Redis{c: redisx.New(addr, password)} }
 
