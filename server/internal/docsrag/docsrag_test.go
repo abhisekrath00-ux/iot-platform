@@ -85,3 +85,19 @@ func TestCorpusMatchesDocs(t *testing.T) {
 		}
 	}
 }
+
+// Refusal guidance must be in the returned passage, not only somewhere in a
+// large document whose unrelated section happens to match the question.
+func TestAssistantRefusalAnswerIncludesBoundaries(t *testing.T) {
+	ix, err := Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits := ix.Search("what does the assistant refuse to do", 5)
+	for _, h := range hits {
+		if h.Doc == "assistant.md" && strings.Contains(h.Snippet, "approving control") && strings.Contains(h.Snippet, "API keys") && strings.Contains(h.Snippet, "secrets") {
+			return
+		}
+	}
+	t.Fatalf("refusal boundaries missing from retrieved passages: %+v", hits)
+}
