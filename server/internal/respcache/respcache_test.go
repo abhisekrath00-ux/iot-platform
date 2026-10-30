@@ -153,8 +153,8 @@ func TestSharedCacheAcrossReplicasAndOutage(t *testing.T) {
 	if w := get(hb, "t1", "/x?q=1"); w.Header().Get("X-Cache") != "MISS" {
 		t.Fatal("invalidation on A must reach B")
 	}
-	// shared store down: requests still succeed through the local path
-	srv.Down = true
+	// shared store down: requests still succeed by bypassing caching
+	srv.Close()
 	if w := get(ha, "t1", "/y"); w.Code != 200 || w.Body.Len() == 0 {
 		t.Fatalf("outage broke the request: %d", w.Code)
 	}
