@@ -176,4 +176,12 @@ func TestValkeyTransport(t *testing.T) {
 	if _, err := c.Cmd("PING"); err == nil {
 		t.Fatal("outage did not fail")
 	}
+	value = "after-outage"
+	if read(cache2) != "after-outage" || calls != 3 {
+		t.Fatal("outage did not bypass cache", calls)
+	}
+	value = "after-second-write"
+	if read(cache2) != "after-second-write" || calls != 4 {
+		t.Fatal("outage created a local stale cache", calls)
+	}
 }
