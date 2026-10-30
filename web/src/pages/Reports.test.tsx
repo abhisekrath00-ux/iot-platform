@@ -239,3 +239,16 @@ test('duplicate is hidden from customer-scoped viewers and disabled during saves
  vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/me')return role==='admin'?{role}:{role:'viewer',customer_id:'customer'};if(p==='/v1/reports'&&!i)return[saved];if(i?.method==='PUT')return new Promise(r=>finish=r);return reads(p,i)});
  window.scrollTo=vi.fn();await act(async()=>root.render(<Reports/>));await act(async()=>button('Edit').click());await act(async()=>box.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));expect(button('Duplicate as draft').disabled).toBe(true);await act(async()=>finish({}));role='scoped';await act(async()=>root.unmount());root=createRoot(box);await act(async()=>root.render(<Reports/>));expect(button('Duplicate as draft')).toBeUndefined();
 });
+
+test('point catalog failure is not empty success, retry clears stale points and preserves draft', async () => {
+ const base=vi.mocked(api).getMockImplementation()!;let attempt=0;let finish!: (r:unknown)=>void;
+ vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/points'){attempt++;if(attempt===1)throw Error('422: complete catalog unavailable');if(attempt===2)return[{device_id:'d1',device_name:'Meter',point_id:'power',unit:'kW'}];return new Promise(resolve=>{finish=resolve})}return base(p,i)});
+ await act(async()=>root.render(<Reports/>));
+ expect(box.textContent).toContain('Device points unavailable');expect(box.textContent).not.toContain('No device points yet');
+ await changeName('Kept draft');
+ await act(async()=>button('Reload device points').click());expect(box.textContent).toContain('1 of 1 device points match');
+ await act(async()=>button('Reload device points').click());expect(box.querySelector('[data-testid="palette"]')!.textContent).not.toContain('Meter');expect(button('Loading device points...').disabled).toBe(true);
+ await act(async()=>finish([{device_id:'broken'}]));expect(box.textContent).toContain('incomplete point catalog');expect(box.textContent).not.toContain('No device points yet');
+ expect((box.querySelector('input[placeholder="Weekly energy summary"]') as HTMLInputElement).value).toBe('Kept draft');
+ expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method)).toHaveLength(0);
+});
