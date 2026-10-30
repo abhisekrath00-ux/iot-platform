@@ -84,39 +84,71 @@ function Do-Version {
 }
 function Do-Backup { NeedDocker; $script:stepTotal = 2; Banner "backup"; BackupCore }
 function BackupCore {
+  $ErrorActionPreference = "Stop"
   Step "Dumping the database"
   New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-  $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ"); $name = "hexmon-pg-$stamp.dump.gz"; $out = Join-Path $Dir $name
-  & docker compose exec -T postgres sh -c "pg_dump -U $PgUser -Fc $PgDb | gzip -9 > /tmp/hexthings-backup.dump.gz" 2>$null
-  if ($LASTEXITCODE -ne 0) { Bad "pg_dump failed. Is HexThings running? (hexthings start)"; exit 1 }
-  & docker compose cp postgres:/tmp/hexthings-backup.dump.gz $out 2>$null
-  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $out)) { Bad "could not copy the backup out of the container"; exit 1 }
-  & docker compose exec -T postgres rm -f /tmp/hexthings-backup.dump.gz 2>$null
-  $sha = (Get-FileHash $out -Algorithm SHA256).Hash.ToLower(); $size = (Get-Item $out).Length
+  $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+  $id = [Guid]::NewGuid().ToString("N"); $temp = "/tmp/hexthings-backup-$id.dump"
+  $name = "hexmon-pg-$stamp-$id.dump.gz"; $out = Join-Path $Dir $name
+  try {
+  # Separate dump and compression: gzip success must never hide pg_dump failure.
+  & docker compose exec -T postgres pg_dump -U $PgUser -Fc -f $temp $PgDb 2>$null
+  if ($LASTEXITCODE -ne 0) { Bad "pg_dump failed; no backup published."; exit 1 }
+  & docker compose exec -T postgres gzip -9 $temp 2>$null
+  if ($LASTEXITCODE -ne 0) { Bad "backup compression failed; no backup published."; exit 1 }
+  & docker compose cp "postgres:$temp.gz" $out 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $out)) { Bad "could not copy the backup out of the container"; exit 1 }
+  & docker compose exec -T postgres rm -f "$temp.gz" 2>$null
+  $sha = (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLower(); $size = (Get-Item -LiteralPath $out).Length
+  [IO.File]::WriteAllText("$out.sha256.tmp", "$sha  $name`n", [Text.Encoding]::ASCII)
+  Move-Item -LiteralPath "$out.sha256.tmp" -Destination "$out.sha256" -Force
   Add-Content -Path (Join-Path $Dir "MANIFEST") -Value "$stamp  $sha  $size bytes"
   Ok "$out ($([math]::Round($size / 1MB, 1)) MB, sha256 $($sha.Substring(0, 12))...)"
   Step "Keeping the last 14"
-  Get-ChildItem $Dir -Filter "hexmon-pg-*.dump.gz" | Sort-Object LastWriteTime -Descending | Select-Object -Skip 14 | ForEach-Object { Remove-Item $_.FullName; Ok "rotated out $($_.Name)" }
+  Get-ChildItem $Dir -Filter "hexmon-pg-*.dump.gz" | Sort-Object LastWriteTime -Descending | Select-Object -Skip 14 | ForEach-Object { Remove-Item -LiteralPath $_.FullName; Remove-Item -LiteralPath "$($_.FullName).sha256" -ErrorAction SilentlyContinue; Ok "rotated out $($_.Name)" }
   Ok "done. Restore with: hexthings restore $out"
+  } finally {
+    & docker compose exec -T postgres rm -f $temp "$temp.gz" 2>$null
+  }
 }
 function Do-Restore {
+  $ErrorActionPreference = "Stop"
   NeedDocker; $script:stepTotal = 3; Banner "restore"
-  if (-not $Arg -or -not (Test-Path $Arg)) { Bad "usage: hexthings restore <backup.dump.gz>   (file not found: $Arg)"; exit 1 }
+  if (-not $Arg -or -not (Test-Path -LiteralPath $Arg -PathType Leaf)) { Bad "usage: hexthings restore <backup.dump.gz>"; exit 1 }
   Step "Checking the backup"
-  $sha = (Get-FileHash $Arg -Algorithm SHA256).Hash.ToLower()
-  $man = Join-Path (Split-Path -Parent (Resolve-Path $Arg)) "MANIFEST"
-  if ((Test-Path $man) -and (Select-String -Path $man -Pattern $sha -SimpleMatch -Quiet)) { Ok "checksum matches the MANIFEST" } else { Warn "checksum is not in a MANIFEST next to the file (backup from another machine?)" }
-  if (-not $Yes) { $a = Read-Host "  This REPLACES the current database with this backup. Type RESTORE to continue"; if ($a -ne "RESTORE") { Warn "cancelled, nothing changed"; exit 1 } }
+  $sidecar = "$Arg.sha256"
+  if (-not (Test-Path -LiteralPath $sidecar -PathType Leaf)) { Bad "Missing checksum sidecar; recover a trusted original checksum. Refusing restore."; exit 1 }
+  $lines = @(Get-Content -LiteralPath $sidecar)
+  if ($lines.Count -ne 1 -or $lines[0] -cnotmatch '^([0-9a-f]{64})  (.+)$') { Bad "Invalid checksum sidecar; refusing restore."; exit 1 }
+  $expected = $Matches[1]; $boundName = $Matches[2]
+  if ($boundName -cne (Split-Path -Leaf $Arg)) { Bad "Checksum filename mismatch; refusing restore."; exit 1 }
+  $sha = (Get-FileHash -LiteralPath $Arg -Algorithm SHA256).Hash.ToLower()
+  if ($sha -cne $expected) { Bad "Checksum mismatch; refusing restore."; exit 1 }
+  $temp = "/tmp/hexthings-restore-$([Guid]::NewGuid().ToString('N')).dump.gz"
+  $dump = "$temp.dump"
+  try {
+  & docker compose cp $Arg "postgres:$temp" 2>$null
+  if ($LASTEXITCODE -ne 0) { Bad "could not copy archive for preflight"; exit 1 }
+  # Listing is read-only. Only then may confirmation and stopping writers occur.
+  & docker compose exec -T postgres sh -c 'gunzip -c "$1" > "$2"' sh $temp $dump 2>$null
+  if ($LASTEXITCODE -ne 0) { Bad "Archive decompression failed; services left running, restore refused."; exit 1 }
+  & docker compose exec -T postgres pg_restore -l $dump 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) { Bad "Archive unreadable; services left running, restore refused."; exit 1 }
+  if (-not $Yes) { $a = Read-Host "  This REPLACES the database. Type RESTORE to continue"; if ($a -ne "RESTORE") { Warn "cancelled, nothing changed"; exit 1 } }
   Step "Restoring"
   & docker compose stop api ingest 2>$null | Out-Null
-  & docker compose cp $Arg postgres:/tmp/hexthings-restore.dump.gz 2>$null
-  if ($LASTEXITCODE -ne 0) { Bad "could not copy the backup into the database container"; exit 1 }
-  & docker compose exec -T postgres sh -c "gunzip -c /tmp/hexthings-restore.dump.gz | pg_restore -U $PgUser -d $PgDb --clean --if-exists --no-owner; rc=`$?; rm -f /tmp/hexthings-restore.dump.gz; exit `$rc" 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) { Bad "Could not stop writers; restore refused."; exit 1 }
+  & docker compose exec -T postgres pg_restore -U $PgUser -d $PgDb --clean --if-exists --no-owner --exit-on-error $dump 2>&1 | Out-Null
   $rc = $LASTEXITCODE
-  if ($rc -ne 0) { Warn "pg_restore reported warnings (exit $rc); often harmless with --clean. Checking the data next" } else { Ok "database restored" }
+  & docker compose exec -T postgres rm -f $temp $dump 2>$null
+  if ($rc -ne 0) { Bad "Restore failed (exit $rc). Database may be partial; writers remain stopped. Recover into a scratch database before retrying."; exit 1 }
   Step "Starting services"
   & docker compose start api ingest 2>$null | Out-Null
-  if (WaitHealthy 120) { Ok "HexThings is up again" } else { Warn "services started but the web does not answer yet; check: hexthings logs" }
+  if ($LASTEXITCODE -ne 0) { Bad "Database restored but service start failed; check hexthings logs."; exit 1 }
+  if (WaitHealthy 120) { Ok "HexThings is up again" } else { Bad "Database restored but readiness failed; check hexthings logs."; exit 1 }
+  } finally {
+    & docker compose exec -T postgres rm -f $temp $dump 2>$null
+  }
 }
 function Do-Update([string]$fromZip) {
   NeedDocker; $script:stepTotal = 5; Banner $(if ($fromZip) { "patch" } else { "update" })
