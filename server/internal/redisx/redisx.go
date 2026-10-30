@@ -5,6 +5,7 @@ package redisx
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -22,12 +23,23 @@ func New(addr, password string) *Client { return &Client{addr: addr, password: p
 
 // Cmd runs one command and returns its reply as a string. A nil bulk reply is "".
 func (r *Client) Cmd(args ...string) (string, error) {
-	conn, err := net.DialTimeout("tcp", r.addr, 5*time.Second)
+	return r.CmdContext(context.Background(), args...)
+}
+
+// CmdContext bounds dialing and I/O by the caller's cancellation and deadline.
+func (r *Client) CmdContext(ctx context.Context, args ...string) (string, error) {
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", r.addr)
 	if err != nil {
 		return "", err
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	deadline := time.Now().Add(5 * time.Second)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	conn.SetDeadline(deadline)
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
 	w := bufio.NewWriter(conn)
 	write := func(args ...string) error {
 		fmt.Fprintf(w, "*%d\r\n", len(args))
