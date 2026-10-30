@@ -6,17 +6,22 @@ package redisx
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
-	"strings"
+	"strconv"
 	"time"
 )
 
 // Client talks to one Redis server. The zero value is not usable; use New.
 type Client struct {
-	addr     string
-	password string
+	addr      string
+	password  string
+	username  string
+	database  int
+	tlsConfig *tls.Config
 }
 
 func New(addr, password string) *Client { return &Client{addr: addr, password: password} }
@@ -38,9 +43,18 @@ func (r *Client) CmdContext(ctx context.Context, args ...string) (string, error)
 		deadline = d
 	}
 	conn.SetDeadline(deadline)
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	rawConn := conn
+	stop := context.AfterFunc(ctx, func() { rawConn.Close() })
 	defer stop()
+	if r.tlsConfig != nil {
+		secure := tls.Client(conn, r.tlsConfig)
+		if err := secure.HandshakeContext(ctx); err != nil {
+			return "", errors.New("Redis TLS handshake failed")
+		}
+		conn = secure
+	}
 	w := bufio.NewWriter(conn)
+	rd := bufio.NewReader(conn)
 	write := func(args ...string) error {
 		fmt.Fprintf(w, "*%d\r\n", len(args))
 		for _, a := range args {
@@ -49,60 +63,70 @@ func (r *Client) CmdContext(ctx context.Context, args ...string) (string, error)
 		return w.Flush()
 	}
 	if r.password != "" {
-		if err := write("AUTH", r.password); err != nil {
+		auth := []string{"AUTH", r.password}
+		if r.username != "" {
+			auth = []string{"AUTH", r.username, r.password}
+		}
+		if err := write(auth...); err != nil {
 			return "", err
 		}
-		if _, err := readReply(bufio.NewReader(conn)); err != nil {
-			return "", fmt.Errorf("auth: %w", err)
+		if reply, err := readReply(rd); err != nil || reply != "OK" {
+			return "", errors.New("Redis authentication failed")
+		}
+	}
+	if r.database != 0 {
+		if err := write("SELECT", strconv.Itoa(r.database)); err != nil {
+			return "", err
+		}
+		if reply, err := readReply(rd); err != nil || reply != "OK" {
+			return "", errors.New("Redis database selection failed")
 		}
 	}
 	if err := write(args...); err != nil {
 		return "", err
 	}
-	return readReply(bufio.NewReader(conn))
+	return readReply(rd)
 }
 
 func readReply(rd *bufio.Reader) (string, error) {
-	line, err := rd.ReadString('\n')
+	// Bound both line and bulk responses before allocating memory. The product
+	// stores response bodies up to 1 MiB; 8 MiB leaves room for metadata.
+	line, err := rd.ReadSlice('\n')
 	if err != nil {
 		return "", err
 	}
-	line = strings.TrimRight(line, "\r\n")
-	if line == "" {
-		return "", errors.New("empty reply")
+	if len(line) < 3 || line[len(line)-2] != '\r' {
+		return "", errors.New("invalid Redis reply")
 	}
+	body := string(line[1 : len(line)-2])
 	switch line[0] {
 	case '+':
-		return line[1:], nil
+		return body, nil
 	case '-':
-		return "", errors.New(line[1:])
+		return "", errors.New("Redis command rejected") // never echo server-controlled text/credentials
+	case ':':
+		if _, err := strconv.ParseInt(body, 10, 64); err != nil {
+			return "", errors.New("invalid Redis integer")
+		}
+		return body, nil
 	case '$':
-		var n int
-		fmt.Sscanf(line[1:], "%d", &n)
-		if n < 0 {
-			return "", nil // nil bulk
+		n, err := strconv.Atoi(body)
+		if err != nil || n < -1 || n > 8<<20 {
+			return "", errors.New("invalid Redis bulk length")
+		}
+		if n == -1 {
+			return "", nil
 		}
 		buf := make([]byte, n+2)
-		if _, err := readFull(rd, buf); err != nil {
+		if _, err := io.ReadFull(rd, buf); err != nil {
 			return "", err
 		}
-		return string(buf[:n]), nil
-	case ':':
-		return line[1:], nil
-	}
-	return "", fmt.Errorf("unexpected reply %q", line)
-}
-
-func readFull(rd *bufio.Reader, buf []byte) (int, error) {
-	n := 0
-	for n < len(buf) {
-		m, err := rd.Read(buf[n:])
-		n += m
-		if err != nil {
-			return n, err
+		if buf[n] != '\r' || buf[n+1] != '\n' {
+			return "", errors.New("invalid Redis bulk terminator")
 		}
+		return string(buf[:n]), nil
 	}
-	return n, nil
+	return "", errors.New("unexpected Redis reply type")
 }
 
 // Get returns the value and whether the key exists.
