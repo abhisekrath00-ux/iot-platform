@@ -15,7 +15,8 @@ Three nodes and one virtual IP (VIP). Every node runs the same set:
 | HAProxy | on every node | Port 5000 always goes to the node Patroni says is primary. Web 8080 and API 8000 are load-balanced across all nodes (active-active). MQTT 1883 goes to one broker, the others are backups (active-passive). |
 | keepalived | VIP floats between nodes | The VIP moves to another node if HAProxy or the node dies. |
 | api, ingest, mcp, web | active-active on all 3 | Stateless. Ingest replicas share the MQTT load with shared subscriptions (`INGEST_SHARED_GROUP`). The scheduler runs on one replica at a time (Postgres advisory lock). |
-| redis | one per node, not replicated or shared between nodes | Each API uses a different store. An OIDC or Google OAuth callback landing on another node fails state validation; cache invalidation does not cross nodes. This is an unresolved routing/state-store gap, not working shared-state HA. Existing tracked bearer sessions live in Postgres, not Redis. |
+| OAuth state | shared Postgres, `OAUTH_STATE_BACKEND=postgres` on every API | Login and Google-connect callbacks use atomic single-use state shared across API replicas. Database outage fails closed. Existing tracked bearer sessions also live in Postgres. |
+| redis | one per node, currently unused by generated APIs | Independent stores cannot share invalidation. Generated APIs now use local response caches instead of falsely presenting those stores as shared. Cache data can remain stale for its configured TTL after a write on another replica. |
 | mosquitto | one per node, session files not replicated | See the MQTT limits below. |
 
 Clients use: web `http://VIP:8080`, API `http://VIP:8000`, MQTT `VIP:1883`, Postgres `VIP:5000`.
@@ -24,8 +25,9 @@ Clients use: web `http://VIP:8080`, API `http://VIP:8000`, MQTT `VIP:1883`, Post
 
 The web and API HAProxy listeners now require an exact HTTP 200 from
 `GET /readyz`, not merely an open TCP port. Web nginx forwards that path to
-its local API; API readiness checks Postgres and, when `REDIS_URL` is set,
-a PING to the configured shared state store (including AUTH). A database-unhealthy API or broken
+its local API; API readiness checks Postgres and, when the selected OAuth state backend is Redis,
+a PING to that store (including AUTH). With PostgreSQL OAuth state and an optional
+Redis response cache, cache failure does not remove an otherwise ready API. A database-unhealthy API or broken
 web-to-API proxy therefore fails this check even while its port is listening.
 Checks run every 3 seconds, with 3 failures to remove and 2 successes to restore
 a backend. Requests can still fail during detection or an in-flight outage.
@@ -78,9 +80,38 @@ Redis OSS 7.2 compatibility. HexThings uses AUTH, GET, SET with EX/NX, GETDEL an
 INCR through a small direct TCP client. Command overlap is a lead, not a completed
 Valkey test or migration. The client has no TLS, Sentinel discovery or Cluster
 MOVED/ASK handling. A proxy layer would not by itself replicate independent
-stores or make OAuth state available on every API. A shared, secured endpoint
-and its failover/persistence policy need explicit design and verification;
-no Valkey proxy, cache HA or RPO/RTO promise is made here.
+stores or make OAuth state available on every API. The generated APIs no longer route OAuth state or response-cache invalidation
+through those independent stores. A shared, secured Valkey endpoint and its
+failover/persistence policy still need design and verification; no Valkey proxy,
+cache HA or RPO/RTO promise is made here.
+
+### Shared OAuth state without an independent cache dependency
+
+The HA generator sets `OAUTH_STATE_BACKEND=postgres` on every API and no longer
+sets `REDIS_URL` or `CACHE_BACKEND=redis`. Migration 0089 stores only SHA-256
+hashes of random state tokens, the nonce/payload, and a database-clock expiry.
+`DELETE ... RETURNING` consumes a state once across connections/processes;
+expired states are refused and deleted. Each Put removes at most 1000 expired
+rows and refuses duplicate tokens instead of replacing an existing nonce.
+Operations have a five-second deadline, with no local fallback on errors.
+Lifetimes must be positive and no greater than 30 minutes. The application uses
+10-minute OAuth state. Expired unconsumed rows are collected by later Put calls,
+not a background sweeper; a quiet deployment can retain expired rows until its
+next login/connect attempt. Database administrators can see nonce/payload values;
+they are not encrypted. Callback errors remain generic.
+
+A real Postgres 14.24 test uses two independent pools to prove cross-replica Put/
+Take, 32 racing callbacks with exactly one winner, expiry, duplicate preservation,
+raw-state hashing, bounded expired-row collection and failed-pool behavior. The
+Google Workspace simulator flow now starts connect on one state store and
+consumes the callback through another pool, then refuses replay. No real provider,
+Patroni promotion or multi-host network has been tested by these checks.
+
+Existing deployments keep their default: absent `OAUTH_STATE_BACKEND`, Redis is
+selected when `REDIS_URL` is configured, otherwise process memory. Explicit values
+are `memory`, `redis`, `postgres`; invalid values or Redis without a URL stop startup.
+Switch all replicas together. Switching backends discards in-flight OAuth redirects;
+users must start sign-in/connect again. No state migration or cache failover is claimed.
 
 References: [HAProxy health checks](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/reliability/health-checks/),
 [HAProxy 3.2.26 source](https://www.haproxy.org/download/3.2/src/haproxy-3.2.26.tar.gz),
