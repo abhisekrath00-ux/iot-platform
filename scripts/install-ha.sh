@@ -141,10 +141,14 @@ listen postgres
 $HAP_PG
 listen web
     bind *:8080
+    option httpchk GET /readyz
+    http-check expect status 200
     balance roundrobin
 $HAP_WEB
 listen api
     bind *:8000
+    option httpchk GET /readyz
+    http-check expect status 200
     balance roundrobin
 $HAP_API
 # MQTT: one broker serves at a time; the others are backups. Broker session files are NOT replicated.
@@ -201,7 +205,7 @@ services:
     depends_on: [etcd]
     stop_grace_period: 60s
   haproxy:
-    image: haproxy:2.9-alpine
+    image: haproxy:3.2.26-alpine
     network_mode: host
     restart: always
     volumes: [./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro]
