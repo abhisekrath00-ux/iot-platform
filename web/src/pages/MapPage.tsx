@@ -39,12 +39,26 @@ export default function MapPage() {
   const [drawing, setDrawing] = useState(false);
   const [srcDev, setSrcDev] = useState(''); const [srcLat, setSrcLat] = useState(''); const [srcLon, setSrcLon] = useState('');
   const [srcPts, setSrcPts] = useState<string[]>([]);
+  const [srcPending, setSrcPending] = useState(false);
+  const [srcError, setSrcError] = useState('');
+  const [srcRefresh, setSrcRefresh] = useState(0);
   useEffect(() => {
-    if (!srcDev) { setSrcPts([]); setSrcLat(''); setSrcLon(''); return; }
-    api<{ device_id: string; point_id: string }[]>('/v1/points').then(rows => setSrcPts(rows.filter(r => r.device_id === srcDev).map(r => r.point_id))).catch(() => setSrcPts([]));
+    let dead = false;
+    setSrcPts([]); setSrcError(''); setSrcLat(''); setSrcLon('');
+    if (!srcDev) { setSrcPending(false); return; }
+    setSrcPending(true);
     const d = devices.find(x => x.id === srcDev);
-    setSrcLat(d?.lat_point ?? ''); setSrcLon(d?.lon_point ?? '');
-  }, [srcDev]);
+    api<{ device_id: string; point_id: string }[]>('/v1/points').then(rows => {
+      if (dead) return;
+      if (!Array.isArray(rows) || rows.some(r => !r || typeof r.device_id !== 'string' || typeof r.point_id !== 'string')) throw new Error('Incomplete point catalog.');
+      const points = [...new Set(rows.filter(r => r.device_id === srcDev).map(r => r.point_id))];
+      setSrcPts(points);
+      setSrcLat(d?.lat_point && points.includes(d.lat_point) ? d.lat_point : '');
+      setSrcLon(d?.lon_point && points.includes(d.lon_point) ? d.lon_point : '');
+    }).catch(e => { if (!dead) setSrcError(String(e)); })
+      .finally(() => { if (!dead) setSrcPending(false); });
+    return () => { dead = true; };
+  }, [srcDev, srcRefresh]);
   const [msg, setMsg] = useState('');
   const [cfg, setCfg] = useState<{ tiles: boolean; attribution: string }>({ tiles: false, attribution: '' });
   const [imgs, setImgs] = useState<Record<string, string>>({});
@@ -230,12 +244,15 @@ export default function MapPage() {
         <p className="muted" style={{ fontSize: 12 }}>Pick the two points that carry this device's latitude and longitude. Every accepted reading on them moves the device on the map (a config change takes up to about a minute to reach ingest). A device needs one reading on each point before it appears on the map.</p>
         <label htmlFor="ms-dev">Device</label>
         <select id="ms-dev" value={srcDev} onChange={e => setSrcDev(e.target.value)}><option value="">Select a device</option>{devices.map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}</select>
+        {srcDev && <button type="button" className="ghost" disabled={srcPending} onClick={() => setSrcRefresh(n => n + 1)}>{srcPending ? 'Loading source points...' : 'Reload source points'}</button>}
+        {srcError && <p role="alert">Source points unavailable: {srcError}. Retry before saving a position source.</p>}
+        {srcDev && !srcPending && !srcError && srcPts.length === 0 && <p role="status">No device points are available for this device.</p>}
         <label htmlFor="ms-lat">Latitude point</label>
-        <select id="ms-lat" value={srcLat} onChange={e => setSrcLat(e.target.value)} disabled={!srcDev}><option value="">Select a point</option>{srcPts.map(p => <option key={p} value={p}>{p}</option>)}</select>
+        <select id="ms-lat" value={srcLat} onChange={e => setSrcLat(e.target.value)} disabled={!srcDev || srcPending || !!srcError}><option value="">Select a point</option>{srcPts.map(p => <option key={p} value={p}>{p}</option>)}</select>
         <label htmlFor="ms-lon">Longitude point</label>
-        <select id="ms-lon" value={srcLon} onChange={e => setSrcLon(e.target.value)} disabled={!srcDev}><option value="">Select a point</option>{srcPts.map(p => <option key={p} value={p}>{p}</option>)}</select>
+        <select id="ms-lon" value={srcLon} onChange={e => setSrcLon(e.target.value)} disabled={!srcDev || srcPending || !!srcError}><option value="">Select a point</option>{srcPts.map(p => <option key={p} value={p}>{p}</option>)}</select>
         <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
-          <button disabled={!srcDev || !srcLat || !srcLon || srcLat === srcLon} onClick={() => act(() => api(`/v1/devices/${srcDev}/location-source`, { method: 'PUT', body: JSON.stringify({ lat_point: srcLat, lon_point: srcLon }) }), 'Position source saved.')}>Save source</button>
+          <button disabled={!srcDev || srcPending || !!srcError || !srcPts.includes(srcLat) || !srcPts.includes(srcLon) || srcLat === srcLon} onClick={() => act(() => api(`/v1/devices/${srcDev}/location-source`, { method: 'PUT', body: JSON.stringify({ lat_point: srcLat, lon_point: srcLon }) }), 'Position source saved.')}>Save source</button>
           <button className="ghost" disabled={!srcDev} onClick={() => act(() => api(`/v1/devices/${srcDev}/location-source`, { method: 'PUT', body: JSON.stringify({ lat_point: null, lon_point: null }) }), 'Position source cleared.').then(() => { setSrcLat(''); setSrcLon(''); })}>Clear</button>
         </div>
       </div>
