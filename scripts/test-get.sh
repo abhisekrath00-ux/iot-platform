@@ -9,7 +9,8 @@ mk() { # $1 = prereq exit code, $2 = sg works (1/0)
   printf '#!/bin/sh\necho "INSTALL-RAN $*"\n' > "$T/w/hx/scripts/install.sh"
   printf '#!/bin/sh\nexit 0\n' > "$T/w/hx/scripts/hexthings"
   printf '#!/bin/sh\nshift; [ "$1" = -c ] || exit 9\ncase "$2" in "docker info") [ %s = 1 ] || exit 1; exit 0;; *) echo "SG-RAN $2"; exit 0;; esac\n' "$2" > "$T/bin/sg"
-  chmod +x "$T/bin/sg" "$T/w/hx/scripts/"*
+  printf '#!/bin/sh\nexit 0\n' > "$T/bin/git"
+  chmod +x "$T/bin/git" "$T/bin/sg" "$T/w/hx/scripts/"*
 }
 run() { (cd "$T/w" && HOME="$T/home" PATH="$T/bin:$PATH" HEXTHINGS_DIR=hx bash get.sh "$@" > "$T/out" 2>&1 < /dev/null); rc=$?; }
 mk 0 0; run;        check "prereq 0: installs normally" '[ $rc -eq 0 ] && grep -q INSTALL-RAN "$T/out"'
@@ -17,4 +18,17 @@ mk 3 1; run;        check "prereq 3, sg works: runs the installer inside the doc
 mk 3 0; run;        check "prereq 3, sg fails: tells the user to log out/in or newgrp, exit 3" '[ $rc -eq 3 ] && grep -q "newgrp docker" "$T/out" && ! grep -q INSTALL-RAN "$T/out"'
 mk 1 1; run;        check "prereq 1: stops with exit 1" '[ $rc -eq 1 ] && ! grep -q INSTALL-RAN "$T/out"'
 mk 2 1; run;        check "prereq 2: stops with exit 2" '[ $rc -eq 2 ] && ! grep -q INSTALL-RAN "$T/out"'
+# Local path never calls git/curl, even when the checkout has .git.
+mk 0 0
+: > "$T/w/hx/docker-compose.yml"; : > "$T/w/hx/.env.example"
+printf '#!/bin/sh\necho NETWORK-CALLED >&2; exit 9\n' > "$T/bin/git"; cp "$T/bin/git" "$T/bin/curl"; chmod +x "$T/bin/curl"
+run --local-source hx --no-ai
+check "local source bypasses network and installs" '[ $rc -eq 0 ] && grep -q INSTALL-RAN "$T/out" && ! grep -q NETWORK-CALLED "$T/out"'
+mv "$T/w/hx" "$T/w/source with spaces"; run --local-source "source with spaces" --no-ai
+check "local source path with spaces" '[ $rc -eq 0 ] && grep -q INSTALL-RAN "$T/out"'
+mv "$T/w/source with spaces" "$T/w/hx"
+rm "$T/w/hx/.env.example"; run --local-source hx
+check "incomplete local source refused" '[ $rc -ne 0 ] && ! grep -q INSTALL-RAN "$T/out" && ! grep -q NETWORK-CALLED "$T/out"'
+mk 0 0; printf '#!/bin/sh\nexit 9\n' > "$T/bin/git"; run
+check "failed update never runs stale installer" '[ $rc -ne 0 ] && ! grep -q INSTALL-RAN "$T/out"'
 echo; [ $fails -eq 0 ] && echo "all get.sh checks passed" || { echo "$fails failed"; exit 1; }
