@@ -10,17 +10,63 @@ One command, the same steps online and air-gapped.
 
 Add `--yes` (`-Yes` on Windows) to accept every default and ask nothing.
 
-## One command (needs Docker)
+## Private repository: acquire source once, then run local setup
 
-Linux / macOS (Ubuntu terminal): `curl -fsSL https://raw.githubusercontent.com/abhisekrath00-ux/iot-platform/main/scripts/get.sh | bash`. It also puts a `hexthings` command on your PATH. Run `hexthings` for the animated menu, or `hexthings status | health | doctor | start | stop | restart | logs [service] | backup | upgrade | ai [status|start|stop] | open | version`. Same menu and commands as `scripts/setup.sh`, which also works directly.
+The repository is private as of 2026-10-31. Old anonymous `curl | bash` and
+`irm | iex` raw-GitHub commands no longer work. Do not paste credentials into a
+URL or command line, commit them, or make the repository public to bypass access.
 
-Windows (PowerShell): `irm https://raw.githubusercontent.com/abhisekrath00-ux/iot-platform/main/scripts/get.ps1 | iex`
+Sign in to GitHub with an account the owner has granted repository access. Use
+Code > Download ZIP, extract it, and open a terminal inside the extracted source
+folder (the one containing `docker-compose.yml`). Alternatively use an existing
+authenticated Git checkout. These scripts do not create accounts, mint tokens,
+manage Git authentication or grant repository access. Downloading source is not
+an integrity/provenance guarantee; use only the intended owner's source.
 
-Both download the source into `hexthings/`, then **check the prerequisites and install only what is missing** (`scripts/prereq.sh`, `scripts/prereq.ps1`), then run the guided installer. Already-present pieces are skipped. If something is missing the plan is printed and you are asked once (`-Yes` / `HEXTHINGS_YES=1` accepts). Check only, changing nothing: `bash scripts/prereq.sh --check` or `powershell -File scripts\prereq.ps1 -Check`.
+Linux/macOS/WSL:
 
-- Linux: Docker Engine + Compose via Docker's official script (get.docker.com), docker service start, and adding you to the `docker` group. Needs sudo and the internet. macOS: Docker Desktop via Homebrew if present, otherwise a manual link.
-- Windows: WSL2 (`wsl --install --no-distribution`), Docker Desktop (winget, else Docker's installer), then starts its engine. One Windows admin prompt. If Windows needs a restart it stops and says so; run the same command again after the restart. CPU virtualization off in BIOS, an old Windows build, or too little disk fail with the fix. Docker Desktop has its own license terms (larger companies may need a paid subscription; check docker.com/pricing).
-- Tested: the decision logic and Linux flow with fake docker/sudo/curl (`scripts/test-prereq.sh`, 11 checks) and the Windows decision logic under PowerShell 7 on Linux (`scripts/test-prereq.ps1`, 9 checks). NOT tested: Docker's real install script on a real distribution, anything on real Windows (WSL install, winget, UAC prompt, reboot flow, Docker Desktop first start/EULA), macOS, air-gapped sites (the prerequisite install needs the internet; use the bundle there). AI is offered before download; unattended shell setup skips it unless explicitly selected. They need the repo to be public (a private repo needs `git clone` with a token, then `bash scripts/install.sh`). Tested: `get.sh` syntax and the installer it calls (with a fake Docker). Never run end to end, and `get.ps1` never run at all (no Docker or Windows machine here).
+```
+bash scripts/get.sh --local-source .
+```
+
+Windows PowerShell (inside that source folder):
+
+```
+powershell -ExecutionPolicy Bypass -File scripts/get.ps1 -LocalSource .
+```
+
+The local-source mode validates required source files, does not download, pull,
+merge or copy source, and then checks prerequisites before handing over to the
+existing guided installer. It can operate on an extracted ZIP without `.git`.
+The shell mode without `--local-source` can still clone/pull with Git's already
+configured credentials; a failed pull now stops instead of installing stale files.
+PowerShell without `-LocalSource` refuses with source-access instructions, before
+any prerequisite/install changes. No new authentication flow is added.
+
+Prerequisites and source image builds may still require internet. This is **not**
+an offline deployment. Use the verified-image bundle path for air-gapped sites.
+Docker/Compose must be usable. Prerequisite helpers install only missing pieces
+after their normal confirmation, then invoke the installer. Prerequisite exit
+codes (including restart/group-access stops) are preserved. PowerShell child
+scripts use the same host executable, and the install exit code is preserved too.
+Optional AI downloads still require the existing explicit choice.
+
+Linux Docker prerequisites may need sudo/group membership; macOS may need Docker
+Desktop. Windows may need WSL2, virtualization, UAC and a restart. Docker Desktop
+has separate license terms; no license eligibility or paid plan is implied here.
+Check without changing prerequisites: `bash scripts/prereq.sh --check` or
+`powershell -File scripts/prereq.ps1 -Check`.
+
+Tested: shell command-contract tests with stub prerequisites/installers/Git,
+including no network command on the local path, incomplete-source refusal and
+failed-pull refusal. PowerShell 7.6.9 on Linux executes local-source tests for paths
+with spaces, missing-source refusal, prerequisite/install exit propagation and
+AI argument forwarding. These are not native Windows, real private GitHub
+download, Docker Desktop, prerequisite installation or full product install tests.
+
+The shell setup adds the `hexthings` command to PATH when permitted. Run it for the
+menu or use `bash scripts/setup.sh` directly. Windows menu scripts are installed
+by the guided installer, not by downloading this bootstrap alone.
 
 ## What it does
 
@@ -52,7 +98,7 @@ Tested: `scripts/test-upgrade.sh` runs the whole flow (preflight refusals, backu
 
 ## After install
 
-Change the generated password and delete `install-credentials.txt`. For production switch sign-in to your SSO and remove `LOCAL_LOGIN=1` from `.env` ([security](security.md)). Email and Slack alerts are optional settings in `.env` and Settings.
+Complete the blocking first-sign-in email/password change. Current installers do not create `install-credentials.txt`; securely remove any old legacy copy if present. For production switch sign-in to your SSO and remove `LOCAL_LOGIN=1` from `.env` ([security](security.md)). Email and Slack alerts are optional settings in `.env` and Settings.
 
 ## What is tested, and what is not
 
@@ -62,7 +108,7 @@ Change the generated password and delete `install-credentials.txt`. For producti
 
 ## The `hexthings` command (Windows PowerShell)
 
-After install, open a new terminal: `hexthings status | start | stop | restart | logs [svc] [-Follow] | version | update | patch FILE.zip | backup | restore FILE | ai | open | help`. `update` backs up first, then fetches the newest files from GitHub (needs internet), keeps `.env`, models and backups, and rebuilds. `patch` does the same from a local zip (air-gapped). Tested: PowerShell 7 on Linux against a fake `docker` (status, version, backup, restore, patch, logs). **Not run on real Windows PowerShell 5.1 or with real Docker.** On Linux/macOS use `scripts/backup.sh`, `scripts/restore.sh` and `docker compose`.
+After install, open a new terminal: `hexthings status | start | stop | restart | logs [svc] [-Follow] | version | update | patch FILE.zip | backup | restore FILE | ai | open | help`. `update` now refuses before backup or Docker changes because its old anonymous download cannot access this private repository. Sign in to GitHub, download the intended source ZIP, then use `hexthings patch FILE.zip`. The existing patch path backs up first, keeps `.env`, models and backups, and rebuilds; base images may need internet unless already cached. Patch has no signature/provenance validation or automatic rollback promise. Tested: PowerShell 7 on Linux against a fake `docker` (status, version, backup, restore, patch, logs). **Not run on real Windows PowerShell 5.1 or with real Docker.** On Linux/macOS use `scripts/backup.sh`, `scripts/restore.sh` and `docker compose`.
 
 Free the model's RAM without stopping the platform: `hexthings ai stop` (start again with `hexthings ai start`). `hexthings stop` stops everything including the model. Plain docker: `docker compose --profile ai stop ai-runtime`, `docker compose --profile ai up -d ai-runtime`, `docker compose --profile ai stop`. With the model stopped the platform is unaffected and the assistant panel reports that no model answers. Tested: PowerShell 7 parse and the commands against a fake docker (Linux); not on Windows or real Docker.
 
