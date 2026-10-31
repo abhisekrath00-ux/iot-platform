@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func TestValkeyTransport(t *testing.T) {
 	ln.Close()
 	conf := filepath.Join(dir, "valkey.conf")
 	// No plaintext listener, mTLS required, default user disabled, app ACL restricted.
-	config := fmt.Sprintf("bind 127.0.0.1\nport 0\ntls-port %d\ntls-cert-file %s\ntls-key-file %s\ntls-ca-cert-file %s\ntls-auth-clients yes\nsave \"\"\nappendonly no\nuser default off\nuser app on >local-test-only ~hx:* +ping +get +set +getdel +incr +select\n", port, certFile, keyFile, caFile)
+	config := fmt.Sprintf("bind 127.0.0.1\nport 0\ntls-port %d\ntls-cert-file %s\ntls-key-file %s\ntls-ca-cert-file %s\ntls-auth-clients yes\nsave \"\"\nappendonly no\nuser default off\nuser reader on >local-test-only ~hx:* +ping +get +select\nuser noinc on >local-test-only ~hx:* +ping +get +set +select\nuser app on >local-test-only ~hx:* +ping +get +set +getdel +incr +select +ttl\n", port, certFile, keyFile, caFile)
 	if err := os.WriteFile(conf, []byte(config), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +93,24 @@ func TestValkeyTransport(t *testing.T) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+	if err := checkCachePermissions(context.Background(), c.CmdContext, "expiry-proof"); err != nil {
+		t.Fatal("actual mTLS ACL preflight", err)
+	}
+	for _, user := range []string{"reader", "noinc"} {
+		restricted, _ := FromURL(strings.Replace(raw, "app:", user+":", 1), opt)
+		if err := restricted.CheckCachePermissions(context.Background()); err == nil {
+			t.Fatal("restricted ACL preflight passed", user)
+		}
+	}
+
+	for _, key := range []string{"hx:rc:preflight:expiry-proof", "hx:gen:preflight:expiry-proof"} {
+		ttl, e := c.Cmd("TTL", key)
+		n, parseErr := strconv.Atoi(ttl)
+		if e != nil || parseErr != nil || n < 1 || n > 30 {
+			t.Fatal("scratch TTL not preserved", ttl, e)
+		}
+	}
+
 	if err := c.Set("hx:k", "value", time.Second); err != nil {
 		t.Fatal(err)
 	}
