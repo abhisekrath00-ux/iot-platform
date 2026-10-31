@@ -6,6 +6,9 @@
 #   scripts/install-ha.sh check  --nodes ... --vip ...      (run on a node: tools, ports, clock)
 #   scripts/install-ha.sh drill  --vip 10.0.0.10            (prints and runs the failover drill steps)
 #
+# Optional --shared-cache-mtls wires one operator-managed rediss endpoint for all APIs.
+# It requires SHARED_CACHE_AUTHORITY in cache.env and cache-tls/{ca.crt,client.crt,client.key}
+# on each node. It does not deploy or fail over Valkey. See docs/ha-multi-node.md.
 # Needs exactly 3 nodes (etcd and Patroni need a majority; 2 nodes cannot tell a dead peer from a broken
 # link, so they cannot fail over safely). It renders files only; it does not log in to your servers.
 # Copy ha-out/<node> to its node (inside a checkout of this repo, or set HEXTHINGS_SRC) and run
@@ -13,7 +16,7 @@
 # the rendered stack has never been started on real machines. See docs/ha-multi-node.md.
 set -euo pipefail
 cmd="${1:-}"; [ $# -gt 0 ] && shift || true
-NODES=""; VIP=""; IFACE="eth0"; OUT="./ha-out"; STRICT=0
+NODES=""; VIP=""; IFACE="eth0"; OUT="./ha-out"; STRICT=0; SHARED_CACHE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --nodes) NODES="${2:?}"; shift ;;
@@ -21,6 +24,7 @@ while [ $# -gt 0 ]; do
     --iface) IFACE="${2:?}"; shift ;;
     --out) OUT="${2:?}"; shift ;;
     --sync-strict) STRICT=1 ;;
+    --shared-cache-mtls) SHARED_CACHE=1 ;;
     -h|--help) sed -n 2,14p "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -59,6 +63,7 @@ Plan (3 nodes + virtual IP $VIP):
   Clients use: web http://$VIP:8080, API http://$VIP:8000, MQTT $VIP:1883, Postgres $VIP:5000 (always the leader)
   Survives: loss of any ONE node. Loss of two nodes stops writes (no quorum) by design, to avoid split brain.
 P
+  [ "$SHARED_CACHE" = 0 ] || echo "  Shared cache: external rediss endpoint with required mTLS files; NOT deployed/replicated by this plan."
   for k in 0 1 2; do echo "  ${NAMES[$k]}  ${IPS[$k]}  keepalived priority $((100 - 10*k))"; done
 }
 
@@ -79,6 +84,24 @@ render() {
     HAP_MQ+="    server ${NAMES[$k]} ${IPS[$k]}:1884 check${bk}"$'\n'
   done
   CLUSTER="${CLUSTER%,}"; ETCDHOSTS="${ETCDHOSTS%,}"
+  CACHE_ENV=""; CACHE_MOUNTS=""; CACHE_ENVFILE=""
+  if [ "$SHARED_CACHE" = 1 ]; then
+    CACHE_ENVFILE='# Required on every node: URL-encoded user:password@host:port/database (NO scheme).
+# Keep the same authority/database on all nodes. TLS files belong in ./cache-tls.
+SHARED_CACHE_AUTHORITY='
+    CACHE_ENV='      REDIS_URL: rediss://${SHARED_CACHE_AUTHORITY:?Set SHARED_CACHE_AUTHORITY for the external shared TLS cache}
+      CACHE_BACKEND: redis
+      REDIS_TLS_CA_FILE: /run/cache-tls/ca.crt
+      REDIS_TLS_CERT_FILE: /run/cache-tls/client.crt
+      REDIS_TLS_KEY_FILE: /run/cache-tls/client.key'
+    CACHE_MOUNTS='    volumes:
+      - type: bind
+        source: ./cache-tls
+        target: /run/cache-tls
+        read_only: true
+        bind:
+          create_host_path: false'
+  fi
   SYNCSTRICT=false; [ "$STRICT" = 1 ] && SYNCSTRICT=true
   for k in 0 1 2; do
     n="${NAMES[$k]}"; ip="${IPS[$k]}"; d="$OUT/$n"; mkdir -p "$d"
@@ -239,8 +262,10 @@ services:
       MQTT_TLS: "false"
       API_PORT: "8000"
       OAUTH_STATE_BACKEND: postgres
-      # Local cache only: independent node stores cannot invalidate other replicas.
+      # Default is local cache; explicit shared-cache option adds one external TLS endpoint.
+$CACHE_ENV
       INGEST_SHARED_GROUP: hexthings
+$CACHE_MOUNTS
     ports: ["8001:8000"]
     depends_on: [redis, mosquitto]
   ingest:
@@ -273,7 +298,23 @@ services:
     depends_on: [api]
 volumes: {etcd: {}, pgdata: {}, mqdata: {}, redisdata: {}}
 E
-    echo "Node $n ($ip): copy this directory to the server, then: docker compose up -d --build. Start all three within a few minutes; the first to win the etcd election initialises Postgres." >"$d/README.txt"
+    if [ "$SHARED_CACHE" = 1 ]; then
+      ( umask 077; printf '%s\n' "$CACHE_ENVFILE" >"$d/cache.env" )
+      mkdir -m 700 "$d/cache-tls"
+      cat >"$d/cache-tls/README.txt" <<'CACHEINFO'
+Before starting, install ca.crt, client.crt and client.key here. Keep private key
+mode 600 and directory 700; use the same trusted endpoint and credentials/database
+in SHARED_CACHE_AUTHORITY in cache.env on all nodes. No credentials/certificates are generated.
+Start with: docker compose --env-file .env --env-file cache.env up -d --build
+cache.env is used only for interpolation, never as a container env_file.
+Compose refuses a missing directory; API refuses missing/invalid TLS files.
+Do not start until the external cache's ACLs, TLS and backup/failover policy are
+verified. This directory is mounted read-only only into API. No automatic renewal.
+CACHEINFO
+    fi
+    START='docker compose up -d --build'
+    [ "$SHARED_CACHE" = 0 ] || START='docker compose --env-file .env --env-file cache.env up -d --build (after cache.env and cache-tls setup)'
+    echo "Node $n ($ip): copy this directory to the server, then: $START. Start all three within a few minutes; the first to win the etcd election initialises Postgres." >"$d/README.txt"
   done
   echo "Rendered 3 node directories in $OUT (secrets in each .env, mode 600). Next: docs/ha-multi-node.md, then 'check' on each node, then the failover drill."
 }
