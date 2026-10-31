@@ -252,3 +252,12 @@ a failed read no longer says to onboard a device. This does not validate the
 availability of every point already stored in an existing report. Unit fixtures
 cover Scan/iteration failures and exact-limit/overflow cases; real Postgres tests
 cover 5001-row rejection, uncached recovery, tenant isolation and database outage.
+
+Map position-source setup now treats point-catalog failures as unavailable, not an
+empty list. Source selection clears on device change/reload; late responses from
+the prior device are ignored. Failed or incomplete reads show retry and block Save
+source. A successful read preselects configured latitude/longitude points only if
+they are present in that device's returned points. This guards selection, not the
+meaning/units of those points. Clear remains a separate explicit write; read/retry
+never writes. It still uses the bounded catalog endpoint, so catalogs above 5000
+rows remain unsupported here. Map data/trail failure behavior is separate.
