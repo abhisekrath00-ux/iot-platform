@@ -130,6 +130,33 @@ trust/name/expiry, outage backend load and observed cache invalidation on all th
 real APIs before use. Optional cache connectivity does not gate readiness with
 Postgres OAuth state; runtime failures bypass caching as documented below.
 
+Before starting APIs, explicitly probe each node's configured endpoint using the
+same API image and read-only TLS mount (this command writes two random scratch
+keys; do not run it against an endpoint you are not authorized to test):
+
+```
+docker compose --env-file .env --env-file cache.env run --rm --no-deps api /bin/cachecheck
+```
+
+`cachecheck` requires `rediss://` and all three TLS files. It uses the application's
+verified transport, ACL credentials and selected database. It checks PING, then
+SET EX NX / GET under random `hx:rc:preflight:` and `hx:gen:preflight:` keys, then
+INCR / GET of the seeded generation scratch key. Both keys are created with
+30-second expiry before incrementing; the probe does not touch real tenant keys,
+clear the database, retry commands, or require DEL permission. Failed checks stop
+at the first error and print a fixed phase, never the endpoint or server error.
+A successful check leaves two expiring scratch keys. A lost reply has unknown
+commit state and is not retried. Under normal server expiry semantics these
+scratch writes expire even after a later probe failure. There is no cleanup
+promise against a server with broken expiry semantics.
+
+This opt-in operator command is not part of readiness or startup. Passing proves
+only command/key permissions and transport to this endpoint at that moment, not
+capacity, cross-node identity, invalidation delivery, persistence, replication,
+rotation or failover. A PING-only ACL fails the write probe; a SET/GET-only ACL
+fails the increment probe. Real loopback Valkey mTLS tests cover these denials
+and TTL preservation, separate from the generated-container/network acceptance.
+
 This does not deploy a Valkey primary/replica, proxy, Sentinel or Cluster, discover
 a promoted primary, replicate data or establish persistence/failover/RPO/RTO.
 Those remain operator-owned prerequisites and open product work. Do not point
