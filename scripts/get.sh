@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
 # One-command HexThings setup for Linux and macOS. Checks what is needed (Docker, Compose v2, a running engine,
 # RAM, disk), installs ONLY what is missing after one yes/no question, then installs and starts HexThings:
-#   curl -fsSL https://raw.githubusercontent.com/abhisekrath00-ux/iot-platform/main/scripts/get.sh | bash
-# Downloads the source (git, or curl+tar) into ./hexthings (or $HEXTHINGS_DIR), then runs the guided installer with
+#   bash scripts/get.sh --local-source .   (inside an authorized checkout/extracted source)
+# Uses explicit local source, or authenticated Git into ./hexthings (or $HEXTHINGS_DIR), then runs the guided installer with
 # defaults (--yes): generated secrets, first workspace and administrator, prints the sign-in URL.
-# Only the download step needs the internet; the installer builds the images on this machine.
+# Local-source selection uses no network; prerequisites/images/optional AI may still need internet.
 set -euo pipefail
 REPO="${HEXTHINGS_REPO:-abhisekrath00-ux/iot-platform}"; DIR="${HEXTHINGS_DIR:-hexthings}"
-if [ -d "$DIR/.git" ]; then git -C "$DIR" pull --ff-only || true
+LOCAL_SOURCE=""
+if [ "${1:-}" = --local-source ]; then
+  [ $# -ge 2 ] && [ -n "$2" ] || { echo "--local-source needs a checkout/extracted source directory" >&2; exit 2; }
+  LOCAL_SOURCE=$2; shift 2
+  DIR=$LOCAL_SOURCE
+  for f in docker-compose.yml .env.example scripts/prereq.sh scripts/install.sh scripts/hexthings; do
+    [ -f "$DIR/$f" ] || { echo "local source is incomplete (missing $f); no download or install attempted" >&2; exit 1; }
+  done
+elif [ -d "$DIR/.git" ]; then
+  git -C "$DIR" pull --ff-only || { echo "Source update failed. Authenticate Git for this private repository, or use --local-source PATH to install the existing files deliberately." >&2; exit 1; }
 else
-  if command -v git >/dev/null 2>&1 && [ ! -e "$DIR" ]; then git clone --depth 1 "https://github.com/$REPO.git" "$DIR"
-  elif command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1; then
-    mkdir -p "$DIR"; curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/main" | tar xz -C "$DIR" --strip-components=1
-  else echo "need git, or curl and tar"; exit 1; fi
+  if command -v git >/dev/null 2>&1 && [ ! -e "$DIR" ]; then
+    git clone --depth 1 "https://github.com/$REPO.git" "$DIR" || { echo "Source access failed. Use an authorized Git login or owner-downloaded ZIP, then run bash scripts/get.sh --local-source . inside that source folder." >&2; exit 1; }
+  else echo "Use --local-source PATH for an existing checkout/extracted source, or install Git and configure authorized private-repository access." >&2; exit 1; fi
 fi
 cd "$DIR"
 # Put a `hexthings` command on PATH (menu, status, start, stop, doctor, ai ...). Best effort: never stops the install.
