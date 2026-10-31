@@ -151,6 +151,7 @@ function Do-Restore {
   }
 }
 function Do-Update([string]$fromZip) {
+  if (-not $fromZip) { Bad "Private repository: anonymous update is unavailable. Sign in to GitHub, download the source ZIP, then run: hexthings patch FILE.zip . No backup or source change was attempted."; exit 1 }
   NeedDocker; $script:stepTotal = 5; Banner $(if ($fromZip) { "patch" } else { "update" })
   if ($NoBackup) { $script:stepTotal = 4; Step "Backup"; Warn "skipped (-NoBackup)" } else { BackupCore; $script:stepTotal = 5 }
   Step "Getting the new version"
