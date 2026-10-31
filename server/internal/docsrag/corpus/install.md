@@ -92,6 +92,36 @@ Each upgrade records its starting point in `.upgrade-state`; `./scripts/upgrade.
 
 Tested: `scripts/test-upgrade.sh` runs the whole flow (preflight refusals, backup-first order, fast-forward, no-op, automatic rollback on apply and health failures, explicit `--rollback`, bundle checksum verification and refusal) against fake docker/curl programs and a real local git remote - 15 checks, no Docker needed. **Never run against the real compose stack or a real Docker host**, so the rebuild and health behavior of a true upgrade is unproven. Signed (not just checksummed) bundles are not built yet; checksums catch damage, not a forged bundle.
 
+### Windows source ZIP patch preflight
+
+The private-source patch command validates a fresh local snapshot of the ZIP
+before Docker checks, backup, source copying or restart. It requires one source
+root and core source files, rejects traversal/absolute/Windows-special paths,
+case-insensitive duplicates, links/special entries, file/directory collisions,
+and top-level runtime paths such as `.env` (except `.env.example`), `.git`,
+models, backups, certs and TLS keys. Archive size is capped at 256 MiB, expanded
+size at 512 MiB, individual files at 128 MiB, and entries at 10,000. These are
+source-patch limits, not offline-image-bundle support. Destination links and
+file/directory conflicts are refused at preflight. A fresh unique staging folder
+is removed on normal completion/failure. Hidden source files such as `.env.example`
+are copied explicitly; archive-supplied runtime secrets are never accepted.
+
+A valid archive still executes code supplied by its author: this is not a sandbox,
+signature check or source-trust decision. Use only the intended owner's source.
+The local snapshot digest identifies the bytes used, not their authenticity.
+There is no lock against a concurrent local administrator changing destination
+paths after preflight, no atomic all-files replacement, and no automatic rollback
+for copy/build/health failures. The backup protects the database only, not source
+or `.env`; keep an independent copy before maintenance. A process kill may leave
+staging files. The existing `-NoBackup` override remains explicit and risky.
+
+Tested with actual ZIP files and PowerShell 7 on Linux: safe extraction, malformed
+paths, duplicates/case collisions, runtime paths, missing core source, link entries,
+destination links/conflicts, unsafe input refusal before Docker/backup, and
+actual source copying/hidden-file preservation/backup-before-copy with Docker,
+backup and health stubbed. A simulated apply failure returns nonzero. Not
+native Windows filesystem behavior, Docker restart or complete successful patch.
+
 ## Options
 
 `--admin-email E`, `--workspace ID`, `--web-port N`, `--ai-model FILE`, `--no-ai`, `--yes`.
