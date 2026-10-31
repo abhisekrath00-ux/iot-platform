@@ -3,6 +3,18 @@
 The same container images deploy to HexThings cloud and to customer premises.
 On-prem must run fully without the vendor cloud.
 
+## Deploy the platform without internet access
+
+For an air-gapped deployment, transfer a prepared offline bundle containing the
+Compose files, container images, checksums and installer to the target machine.
+Verify its checksums before loading images, then run the bundle's installer.
+Docker and Compose must already be available offline. Source ZIP setup is not an
+offline bundle: building images and installing prerequisites may need internet.
+Keep cloud integrations off and supply any optional AI model locally. See
+[installation](install.md) and the bundle tooling; rehearse on the target platform
+before relying on an offline deployment. Checksums detect damage, not a forged
+bundle; no signed-artifact or full air-gap acceptance claim is made here.
+
 ## Topology
 
 - Single VM (small on-prem / pilot): Docker Compose (this repo's compose file,
