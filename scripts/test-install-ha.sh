@@ -77,4 +77,28 @@ printf '1\n' | bash scripts/setup.sh >/dev/null 2>&1; true
 # drift guard: the terminal look in hx-ui.sh must stay identical to install.sh's wordmark/glyph/footer
 ext() { awk '/^glyph\(\)/{p=1} /^banner\(\)/{p=0} p' "$1"; }
 [ "$(ext scripts/install.sh)" = "$(ext scripts/hx-ui.sh)" ] && ok "hx-ui.sh wordmark identical to install.sh" || bad "hx-ui.sh drifted from install.sh"
+$S render --nodes $N --vip 10.0.0.10 --out $T/shared --shared-cache-mtls >/dev/null && ok "shared TLS cache render" || bad "shared TLS cache render"
+python3 - "$T/shared" <<'PYCACHE' && ok "shared TLS cache is explicit, identical and secret-free in compose" || bad "shared TLS cache config"
+import sys,yaml,os
+root=sys.argv[1];reference=None
+for n in ('a','b','c'):
+    c=yaml.safe_load(open(f'{root}/{n}/docker-compose.yml'))
+    api=c['services']['api'];env=api['environment']
+    assert env['OAUTH_STATE_BACKEND']=='postgres'
+    assert env['CACHE_BACKEND']=='redis'
+    assert env['REDIS_URL']=='rediss://${SHARED_CACHE_AUTHORITY:?Set SHARED_CACHE_AUTHORITY for the external shared TLS cache}'
+    for k,name in [('CA','ca.crt'),('CERT','client.crt'),('KEY','client.key')]:
+        assert env[f'REDIS_TLS_{k}_FILE']=='/run/cache-tls/'+name
+    mount=api['volumes'][0]
+    assert mount==dict(type='bind',source='./cache-tls',target='/run/cache-tls',read_only=True,bind=dict(create_host_path=False))
+    assert all('volumes' not in c['services'][service] or not any('/run/cache-tls' in str(v) for v in c['services'][service]['volumes']) for service in c['services'] if service!='api')
+    text=open(f'{root}/{n}/cache.env').read()
+    assert os.stat(f'{root}/{n}/cache.env').st_mode & 0o777 == 0o600
+    assert 'SHARED_CACHE_AUTHORITY' not in open(f'{root}/{n}/.env').read()
+    assert 'SHARED_CACHE_AUTHORITY=\n' in text
+    assert os.stat(f'{root}/{n}/cache-tls').st_mode & 0o777 == 0o700
+    assert os.listdir(f'{root}/{n}/cache-tls')==['README.txt']
+    if reference is None:reference=env
+    else:assert reference==env
+PYCACHE
 [ "$fails" = 0 ] && echo "ALL PASSED" || { echo "$fails FAILED"; exit 1; }
