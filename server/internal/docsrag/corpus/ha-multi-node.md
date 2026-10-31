@@ -86,6 +86,56 @@ through those independent stores. A shared, secured Valkey endpoint and its
 failover/persistence policy still need design and verification; no Valkey proxy,
 cache HA or RPO/RTO promise is made here.
 
+### Opt-in generated external shared cache with mutual TLS
+
+Default rendering still uses Postgres OAuth state and local response caches.
+To wire all three API replicas to one already managed Redis/Valkey TLS endpoint:
+
+```
+bash scripts/install-ha.sh render --nodes n1=10.0.0.11,n2=10.0.0.12,n3=10.0.0.13 --vip 10.0.0.10 --out ha-out --shared-cache-mtls
+```
+
+On every node, set `SHARED_CACHE_AUTHORITY` in its private `cache.env` to the same
+URL-encoded `user:password@host:port/database` value, without a scheme. The generated
+URL always starts with `rediss://`; plaintext cannot be selected by this option.
+Start using `docker compose --env-file .env --env-file cache.env up -d --build`.
+`cache.env` is mode 600, is used only for Compose interpolation, and is not a
+container `env_file`. Only the API receives the assembled URL; the authority is
+not added to the common `.env` inherited by other services. Keep both files private
+and do not publish expanded `docker compose config` output, which contains secrets.
+Use a hostname covered by the server certificate. Install `ca.crt`, `client.crt`
+and `client.key` in each generated `cache-tls/` directory. They must be real operator
+supplied materials; the generator creates no identity, password or certificate.
+Keep each private key mode 600 and directory 700. A missing authority stops Compose
+interpolation; a missing directory is not auto-created by the bind mount, and
+missing, malformed or mismatched TLS files stop API startup. Only API receives
+this read-only mount. Runtime user permissions must allow API to read the files.
+
+The generated API environment explicitly selects `CACHE_BACKEND=redis` with the
+same endpoint/database for every replica, while `OAUTH_STATE_BACKEND=postgres`
+stays unchanged. This adapter works with tested Valkey RESP commands too. The
+unused node-local Redis services are still rendered and are **not** a fallback
+shared service. Existing generated directories do not change automatically.
+TLS renewal/reload needs a deliberate API restart and coordinated file replacement;
+no certificate rotation automation is added. The endpoint's ACL must allow
+`GET`, `SET`, `INCR` on `hx:*`, `PING` and `SELECT` for the configured database.
+
+Generator tests parse all three YAML files and check identical endpoint expressions,
+required interpolation, TLS paths, private directory permissions, no fabricated
+materials and API-only read-only mount. The actual Compose 5.6.1 parser also accepted all three files and refused missing
+authority locally; CI repeats the Compose validation. These are configuration
+checks, not an actual container/multi-host deployment. Earlier real Valkey mTLS/ACL command tests
+prove the client, not this network path. Verify connectivity, ACLs, certificate
+trust/name/expiry, outage backend load and observed cache invalidation on all three
+real APIs before use. Optional cache connectivity does not gate readiness with
+Postgres OAuth state; runtime failures bypass caching as documented below.
+
+This does not deploy a Valkey primary/replica, proxy, Sentinel or Cluster, discover
+a promoted primary, replicate data or establish persistence/failover/RPO/RTO.
+Those remain operator-owned prerequisites and open product work. Do not point
+replicas at different independent stores or treat the VIP/database proxy as a cache
+endpoint. Failed invalidations can still leave shared data stale until its TTL.
+
 ### Secured explicit Redis/Valkey endpoint
 
 `REDIS_URL` accepts `redis://` (plaintext) or `rediss://` (verified TLS), optional
