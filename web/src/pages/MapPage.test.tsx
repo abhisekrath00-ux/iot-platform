@@ -49,3 +49,28 @@ test('CSV export uses loaded displayed rows and disables on empty/loading/failur
  await act(async()=>{[...box.querySelectorAll('button')].find(b=>b.textContent==='Refresh')!.click()});expect(button().disabled).toBe(true);
  await act(async()=>resolve({points:[],total:0}));expect(button().disabled).toBe(true);
 });
+
+test('source catalog errors block saving, retry validates points and ignores prior device response',async()=>{
+ box=document.createElement('div');document.body.append(box);root=createRoot(box);
+ const waits:{resolve:(v:unknown)=>void;reject:(e:Error)=>void}[]=[];
+ vi.mocked(api).mockImplementation((url:string)=>{
+  if(url==='/v1/map')return Promise.resolve({devices:[],geofences:[],note:''}) as any;
+  if(url==='/v1/devices')return Promise.resolve([{id:'a',name:'A',lat_point:'lat',lon_point:'lon'},{id:'b',name:'B',lat_point:'north',lon_point:'east'}]) as any;
+  if(url==='/v1/points')return new Promise((resolve,reject)=>waits.push({resolve,reject})) as any;
+  return Promise.resolve({tiles:false,attribution:''}) as any;
+ });
+ await act(async()=>root.render(<MapPage/>));
+ const select=async(id:string,value:string)=>act(async()=>{const s=box.querySelector(id)!;Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value')!.set!.call(s,value);s.dispatchEvent(new Event('change',{bubbles:true}))});
+ const save=()=>[...box.querySelectorAll('button')].find(b=>b.textContent==='Save source')!;
+ await select('#ms-dev','a');expect(save().disabled).toBe(true);
+ await select('#ms-dev','b');await act(async()=>waits[1].reject(Error('422: complete catalog unavailable')));
+ expect(box.textContent).toContain('Source points unavailable');expect(save().disabled).toBe(true);
+ await act(async()=>waits[0].resolve([{device_id:'a',point_id:'lat'},{device_id:'a',point_id:'lon'}]));
+ expect((box.querySelector('#ms-lat') as HTMLSelectElement).options.length).toBe(1);
+ await act(async()=>[...box.querySelectorAll('button')].find(b=>b.textContent==='Reload source points')!.click());
+ await act(async()=>waits[2].resolve([{device_id:'b',point_id:'north'},{device_id:'b',point_id:'east'}]));
+ expect(save().disabled).toBe(false);expect((box.querySelector('#ms-lat') as HTMLSelectElement).value).toBe('north');
+ await act(async()=>[...box.querySelectorAll('button')].find(b=>b.textContent==='Reload source points')!.click());expect(save().disabled).toBe(true);
+ await act(async()=>waits[3].resolve({bad:true}));expect(box.textContent).toContain('Incomplete point catalog');expect(save().disabled).toBe(true);
+ expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method)).toHaveLength(0);
+});
