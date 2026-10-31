@@ -152,20 +152,15 @@ function Do-Restore {
 }
 function Do-Update([string]$fromZip) {
   if (-not $fromZip) { Bad "Private repository: anonymous update is unavailable. Sign in to GitHub, download the source ZIP, then run: hexthings patch FILE.zip . No backup or source change was attempted."; exit 1 }
-  NeedDocker; $script:stepTotal = 5; Banner $(if ($fromZip) { "patch" } else { "update" })
+  $ErrorActionPreference = "Stop"
+  . (Join-Path $PSScriptRoot "patch-source.ps1")
+  $prepared = Prepare-PatchSource $fromZip $Root
+  try {
+  NeedDocker; $script:stepTotal = 5; Banner "patch"
   if ($NoBackup) { $script:stepTotal = 4; Step "Backup"; Warn "skipped (-NoBackup)" } else { BackupCore; $script:stepTotal = 5 }
-  Step "Getting the new version"
-  $newVer = $null
-  if ($fromZip) { if (-not (Test-Path $fromZip)) { Bad "file not found: $fromZip"; exit 1 }; $zip = (Resolve-Path $fromZip).Path; $newVer = "patch " + (Get-FileHash $zip -Algorithm SHA256).Hash.Substring(0, 12).ToLower() + " " + (Get-Date -Format s) }
-  else {
-    $zip = Join-Path ([IO.Path]::GetTempPath()) "hexthings-update.zip"
-    try { Invoke-WebRequest -UseBasicParsing "https://codeload.github.com/$Repo/zip/refs/heads/main" -OutFile $zip } catch { Bad "download failed: $($_.Exception.Message). Offline? Use: hexthings patch FILE.zip"; exit 1 }
-    $newVer = LatestCommit; if (-not $newVer) { $newVer = "main " + (Get-Date -Format s) }
-  }
-  $src = DownloadSource $zip (Join-Path ([IO.Path]::GetTempPath()) "hexthings-update-src")
-  if (-not $src -or -not (Test-Path (Join-Path $src "docker-compose.yml"))) { Bad "that archive does not look like HexThings (no docker-compose.yml)"; exit 1 }
-  # Your data stays: .env, models, backups, install.log and credentials are not in the archive and are never deleted.
-  Copy-Item -Path (Join-Path $src "*") -Destination $Root -Recurse -Force
+  Step "Applying validated source"
+  $newVer = "patch " + $prepared.Digest.Substring(0, 12) + " " + (Get-Date -Format s)
+  Get-ChildItem -LiteralPath $prepared.Source -Force | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $Root -Recurse -Force -ErrorAction Stop }
   Ok "files updated (your .env, models and backups are untouched)"
   Step "Rebuilding and restarting"
   $code = Dc up -d --build
@@ -173,6 +168,7 @@ function Do-Update([string]$fromZip) {
   Set-Content -Path $VersionFile -Value $newVer
   Step "Checking it came back"
   if (WaitHealthy 180) { Ok "HexThings answers at http://localhost:$WebPort, now at $newVer" } else { Bad "it did not become healthy in 3 minutes. Run: hexthings logs   (restore the backup with: hexthings restore <file>)"; exit 1 }
+  } finally { Remove-Item -LiteralPath $prepared.Stage -Recurse -Force -ErrorAction SilentlyContinue }
 }
 function Do-Ai {
   if ($Arg -eq "choose" -or $Arg -eq "models") {
