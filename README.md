@@ -7,6 +7,16 @@ which serves a web dashboard, rules/flows, alerts, reports, fleet rollout and
 AI-assisted diagnosis via MCP. The same container stack deploys to cloud, customer
 premises, or fully air-gapped sites.
 
+## Private source access
+
+This repository is private. Sign in with an authorized GitHub account and download
+Code > Download ZIP, or use an authenticated Git checkout. In the source folder:
+`bash scripts/get.sh --local-source .` (Linux/macOS/WSL), or
+`powershell -ExecutionPolicy Bypass -File scripts/get.ps1 -LocalSource .` (Windows).
+Old anonymous raw-download commands no longer work. See [installation](docs/install.md)
+for prerequisite/network needs, updates and tested-vs-unverified limits. Do not put
+tokens in commands or make the repository public to install it.
+
 Project tracking: [Trello board](https://trello.com/b/ErbxnFXn/hexmon-iot-platform)
 
 ## Feature checklist
