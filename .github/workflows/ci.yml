@@ -107,6 +107,18 @@ jobs:
     permissions: { contents: write }
     steps:
       - uses: actions/checkout@v4
+      - name: Validate generated external shared-cache Compose contract
+        run: |
+          set -euo pipefail
+          out=$(mktemp -d)
+          bash scripts/install-ha.sh render --nodes a=10.0.0.11,b=10.0.0.12,c=10.0.0.13 --vip 10.0.0.10 --out "$out" --shared-cache-mtls
+          for node in a b c; do
+            if docker compose --project-directory "$out/$node" -f "$out/$node/docker-compose.yml" config > /dev/null 2>&1; then
+              echo 'missing shared authority was accepted'; exit 1
+            fi
+            SHARED_CACHE_AUTHORITY='fixture:dummy@cache.example.invalid:6379/2' docker compose --project-directory "$out/$node" -f "$out/$node/docker-compose.yml" config --quiet
+          done
+          rm -rf "$out"
       - name: build and boot the stack
         run: |
           set -o pipefail
