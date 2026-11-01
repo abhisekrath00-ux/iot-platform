@@ -167,13 +167,9 @@ func main() {
 
 	// Authenticated API (all tenant-scoped).
 	api := http.NewServeMux()
-	s.cache = newCache()
-	if os.Getenv("CACHE_BACKEND") == "redis" { // opt-in: one cache and one invalidation for every replica
-		if redisCli == nil {
-			log.Fatalf("CACHE_BACKEND=redis needs REDIS_URL")
-		}
-		s.cache.UseShared(redisCli)
-		log.Printf("response cache: shared via redis")
+	s.cache, err = responseCache(os.Getenv("CACHE_BACKEND"), redisCli)
+	if err != nil {
+		log.Fatal(err)
 	}
 	api.HandleFunc("PUT /v1/flow-fragments/{id}", s.updateFragment)
 	api.HandleFunc("GET /v1/flow-fragments/{id}/usage", s.fragmentUsage)
