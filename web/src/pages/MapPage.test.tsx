@@ -56,7 +56,7 @@ test('source catalog errors block saving, retry validates points and ignores pri
  vi.mocked(api).mockImplementation((url:string)=>{
   if(url==='/v1/map')return Promise.resolve({devices:[],geofences:[],note:''}) as any;
   if(url==='/v1/devices')return Promise.resolve([{id:'a',name:'A',lat_point:'lat',lon_point:'lon'},{id:'b',name:'B',lat_point:'north',lon_point:'east'}]) as any;
-  if(url==='/v1/points')return new Promise((resolve,reject)=>waits.push({resolve,reject})) as any;
+  if(url.startsWith('/v1/points?'))return new Promise((resolve,reject)=>waits.push({resolve,reject})) as any;
   return Promise.resolve({tiles:false,attribution:''}) as any;
  });
  await act(async()=>root.render(<MapPage/>));
@@ -65,12 +65,12 @@ test('source catalog errors block saving, retry validates points and ignores pri
  await select('#ms-dev','a');expect(save().disabled).toBe(true);
  await select('#ms-dev','b');await act(async()=>waits[1].reject(Error('422: complete catalog unavailable')));
  expect(box.textContent).toContain('Source points unavailable');expect(save().disabled).toBe(true);
- await act(async()=>waits[0].resolve([{device_id:'a',point_id:'lat'},{device_id:'a',point_id:'lon'}]));
+ await act(async()=>waits[0].resolve({items:[{device_id:'a',device_name:'A',point_id:'lat',unit:'deg'},{device_id:'a',device_name:'A',point_id:'lon',unit:'deg'}]}));
  expect((box.querySelector('#ms-lat') as HTMLSelectElement).options.length).toBe(1);
  await act(async()=>[...box.querySelectorAll('button')].find(b=>b.textContent==='Reload source points')!.click());
- await act(async()=>waits[2].resolve([{device_id:'b',point_id:'north'},{device_id:'b',point_id:'east'}]));
+ await act(async()=>waits[2].resolve({items:[{device_id:'b',device_name:'B',point_id:'north',unit:'deg'},{device_id:'b',device_name:'B',point_id:'east',unit:'deg'}]}));
  expect(save().disabled).toBe(false);expect((box.querySelector('#ms-lat') as HTMLSelectElement).value).toBe('north');
  await act(async()=>[...box.querySelectorAll('button')].find(b=>b.textContent==='Reload source points')!.click());expect(save().disabled).toBe(true);
- await act(async()=>waits[3].resolve({bad:true}));expect(box.textContent).toContain('Incomplete point catalog');expect(save().disabled).toBe(true);
+ await act(async()=>waits[3].resolve({bad:true}));expect(box.textContent).toContain('incomplete point catalog');expect(save().disabled).toBe(true);
  expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method)).toHaveLength(0);
 });
