@@ -43,7 +43,11 @@ func TestIntegrationLocationSourceFreshness(t *testing.T) {
 		}
 		return
 	}
-	ts := func(d time.Duration) string { return time.Now().Add(d).UTC().Format(time.RFC3339) }
+	// Anchor every fixture reading to one clock instant. Calling time.Now for
+	// each replay can cross a second boundary and produce two distinct
+	// (event_id, observed_at) keys, which is not a duplicate replay.
+	base := time.Now().UTC().Truncate(time.Second)
+	ts := func(d time.Duration) string { return base.Add(d).Format(time.RFC3339) }
 
 	// A fix pairs and publishes.
 	post(fmt.Sprintf(`{"device_id":%q,"readings":[{"point":"lat","value":10,"ts":%q},{"point":"lon","value":20,"ts":%q}]}`, dev, ts(-30*time.Second), ts(-20*time.Second)))
