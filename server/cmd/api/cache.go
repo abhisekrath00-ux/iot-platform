@@ -2,12 +2,11 @@ package main
 
 import (
 	"errors"
-	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/redisx"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/respcache"
 )
 
@@ -65,22 +64,22 @@ func (w *statusWriter) WriteHeader(c int) { w.code = c; w.ResponseWriter.WriteHe
 // Unwrap lets http.ResponseController reach the real writer (flush, deadlines), which streaming needs.
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// newCache applies the configured mode before routes are registered. Shared
-// transport validation and attachment stay in main, after this initial cache.
-func newCache() *respcache.Cache {
-	c, err := responseCache(os.Getenv("CACHE_BACKEND"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	return c
-}
+func newCache() *respcache.Cache { return respcache.New(2000) }
 
-func responseCache(backend string) (*respcache.Cache, error) {
+// responseCache selects the mode before API routes are registered.
+func responseCache(backend string, shared *redisx.Client) (*respcache.Cache, error) {
 	switch backend {
 	case "off":
 		return nil, nil
-	case "", "local", "redis":
-		return respcache.New(2000), nil
+	case "", "local":
+		return newCache(), nil
+	case "redis":
+		if shared == nil {
+			return nil, errors.New("CACHE_BACKEND=redis needs REDIS_URL")
+		}
+		c := newCache()
+		c.UseShared(shared)
+		return c, nil
 	default:
 		return nil, errors.New("invalid CACHE_BACKEND (use off, local or redis)")
 	}
