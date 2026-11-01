@@ -113,7 +113,7 @@ machine and install offline per `docs/airgap.md`.
 
 ## Status
 
-Working software, CI-green: the full telemetry path (edge -> MQTT -> ingest ->
+Working software; current hosted CI is blocked before job execution by the account billing/spending gate (last checked November 1, 2026), so this is not a green-CI claim: the full telemetry path (edge -> MQTT -> ingest ->
 Postgres -> API -> web) plus control gating, dashboards, flows, reports, fleet
 rollout and MCP are implemented and covered by automated tests. Items labeled
 **Pilot** above need the first real gateway, meters and site rollout before they
