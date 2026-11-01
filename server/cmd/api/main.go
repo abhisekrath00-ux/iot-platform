@@ -2018,10 +2018,16 @@ func (s *server) downloadReport(w http.ResponseWriter, r *http.Request) {
 	if site, asset := qget("site"), qget("asset"); site != "" || asset != "" {
 		// cascading parameters: site, then asset inside it, then device inside both
 		devs, derr := s.cascadeDevices(r.Context(), auth.Tenant(r))
-		var ids []string
-		if derr == nil {
-			ids, derr = resolveCascade(devs, site, asset, qget("device"))
+		if derr != nil {
+			w.Header().Set("Cache-Control", "no-store")
+			if errors.Is(derr, errCascadeLimit) {
+				http.Error(w, derr.Error(), 422)
+			} else {
+				dbErr(w, derr)
+			}
+			return
 		}
+		ids, derr := resolveCascade(devs, site, asset, qget("device"))
 		if derr != nil {
 			http.Error(w, derr.Error(), 400)
 			return
