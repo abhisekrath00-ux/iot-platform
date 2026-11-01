@@ -85,3 +85,20 @@ Large catalogs still use browser-side filtering and rendering after traversal,
 not a server-side search UI; the row cap is a safety bound, not a performance
 promise. Native installs, full Docker/HA and real multihost tests
 remain separate acceptance work.
+
+## Report parameter option completeness
+
+Site/asset/device download options remain bounded to5000 tenant devices. The
+server now queries one extra row and returns422/no-store on overflow rather
+than returning a successful partial option set. Parameterized downloads using
+site/asset selection use the same guard. Database failures (including site or
+asset label reads, Scan and iteration errors) return generic500, not empty
+successful labels or raw SQL errors. Empty successful device lists are arrays.
+These reads are current views, not a transactionally consistent configuration
+snapshot; refresh after configuration edits.
+
+Reports clears stale selector data while refreshing, disables site/asset/device
+changes on loading/failure, validates the whole response, and offers retry.
+Existing overrides and drafts remain unchanged; downloads still use the existing
+server validation and can fail if configuration changes. This is fail-closed
+completeness, not parameter-option pagination, server search or report parity.
