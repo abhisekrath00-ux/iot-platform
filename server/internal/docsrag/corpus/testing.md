@@ -113,3 +113,8 @@ Embedded summaries distinguish a successful empty telemetry read from an unavail
 ### HA response-cache mode
 
 `TestResponseCacheModes` checks explicit off/local/shared modes, missing shared endpoint and invalid values. `TestIntegrationOffCacheReplicasReadDatabaseWrites` checks two API handlers over real PostgreSQL see subsequent database writes without response-cache hits and do not serve old success after database outage. `scripts/test-install-ha.sh` checks both render modes omit the unused independent Redis service/volume/password, keep PostgreSQL OAuth state, and quote the cache-off YAML string. These checks do not prove multihost capacity or failover.
+
+
+### OIDC callback across API replicas
+
+`TestIntegrationOIDCCrossReplicaCallback` uses real PostgreSQL through two independent pools and a local synthetic issuer with signed RSA/JWKS tokens. It exercises start-on-A/finish-on-B, platform JWT/session persistence, a 16-callback race with one issuer exchange, replay/expiry, bad nonce, unknown user and state-store outage. Rejected identity checks cannot create sessions or auto-provision users. Run with `TEST_DATABASE_URL` and `go test ./cmd/api -run '^TestIntegrationOIDCCrossReplicaCallback$' -count=1`. This is local application evidence, not external-provider, browser or multihost failover certification.
