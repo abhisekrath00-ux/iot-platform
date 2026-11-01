@@ -1,7 +1,10 @@
 package main
 
 import (
+	"errors"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
@@ -62,4 +65,23 @@ func (w *statusWriter) WriteHeader(c int) { w.code = c; w.ResponseWriter.WriteHe
 // Unwrap lets http.ResponseController reach the real writer (flush, deadlines), which streaming needs.
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-func newCache() *respcache.Cache { return respcache.New(2000) }
+// newCache applies the configured mode before routes are registered. Shared
+// transport validation and attachment stay in main, after this initial cache.
+func newCache() *respcache.Cache {
+	c, err := responseCache(os.Getenv("CACHE_BACKEND"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	return c
+}
+
+func responseCache(backend string) (*respcache.Cache, error) {
+	switch backend {
+	case "off":
+		return nil, nil
+	case "", "local", "redis":
+		return respcache.New(2000), nil
+	default:
+		return nil, errors.New("invalid CACHE_BACKEND (use off, local or redis)")
+	}
+}
