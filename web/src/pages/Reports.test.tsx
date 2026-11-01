@@ -253,3 +253,17 @@ test('point catalog failure is not empty success, retry clears stale points and 
  expect((box.querySelector('input[placeholder="Weekly energy summary"]') as HTMLInputElement).value).toBe('Kept draft');
  expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method)).toHaveLength(0);
 });
+
+test('parameter options failure disables selectors and retry validates rows',async()=>{
+ const saved={id:'options-r',name:'Options test',version:1,definition:{metrics:[{device_id:'d1',point_id:'p'}],window_hours:24,group_by:'hour'}};
+ const base=vi.mocked(api).getMockImplementation()!;let attempt=0;let finish!:(r:unknown)=>void;
+ vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/reports'&&!i)return[saved];if(p==='/v1/reports/options'){attempt++;if(attempt===1)throw Error('422: complete options unavailable');if(attempt===2)return {sites:[{id:'s1',name:'Site'}],assets:[],devices:[{id:'d1',name:'Meter',site_id:'s1',asset_id:null}]};return new Promise(r=>finish=r)}return base(p,i)});
+ await act(async()=>root.render(<Reports/>));
+ const site=()=>box.querySelector<HTMLSelectElement>('[aria-label="Site parameter"]')!;
+ expect(site().disabled).toBe(true);expect(box.textContent).toContain('Parameter options unavailable');
+ await act(async()=>button('Reload parameter options').click());expect(site().disabled).toBe(false);expect(site().options.length).toBe(2);
+ await act(async()=>{site().value='s1';site().dispatchEvent(new Event('change',{bubbles:true}))});
+ await act(async()=>button('Reload parameter options').click());expect(site().disabled).toBe(true);expect(site().options.length).toBe(1);
+ await act(async()=>finish({sites:[],assets:[],devices:[{id:'bad'}]}));expect(box.textContent).toContain('Incomplete report parameter options');expect(site().disabled).toBe(true);
+ expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method)).toHaveLength(0);
+});
