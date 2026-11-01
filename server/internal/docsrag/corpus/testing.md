@@ -102,3 +102,9 @@ changes on loading/failure, validates the whole response, and offers retry.
 Existing overrides and drafts remain unchanged; downloads still use the existing
 server validation and can fail if configuration changes. This is fail-closed
 completeness, not parameter-option pagination, server search or report parity.
+
+### Embedded report summary integrity
+
+Embedded summaries distinguish a successful empty telemetry read from an unavailable read. A failed aggregation produces one unavailable note, never a partial summary or "no readings" claim. Missing/cross-tenant report IDs remain unavailable without exposing another tenant's name. Database lookup failures leave availability unknown; invalid saved definitions produce an invalid-definition note. These are explicit notes inside an otherwise usable parent report, not a guarantee that every embedded report succeeded.
+
+`TestIntegrationSubreportUnavailableNotEmpty` exercises a second-metric failure after a successful first read, an empty result, valid summary math, tenant isolation, an invalid definition, and a closed database pool.
