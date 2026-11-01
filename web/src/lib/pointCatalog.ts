@@ -22,5 +22,5 @@ export async function loadPointCatalog(): Promise<CatalogPoint[]> {
     if (!r.items.length || cursors.has(r.next_cursor)) throw new Error('The server repeated a point catalog cursor.');
     cursors.add(r.next_cursor); after = r.next_cursor;
   }
-  throw new Error('The point catalog exceeds 100000 rows. A complete browser catalog is unavailable.');
+  throw new Error('The point catalog needs more than 100 pages (up to 100000 rows). A complete browser catalog is unavailable.');
 }
