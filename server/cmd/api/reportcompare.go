@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"strings"
 	"time"
 
@@ -105,12 +108,17 @@ func (s *server) subSummaries(ctx context.Context, tenant string, def report.Def
 		var name string
 		var raw []byte
 		err := s.st.Pool.QueryRow(ctx, `SELECT name, definition FROM reports WHERE id=$1 AND tenant_id=$2`, ref.ReportID, tenant).Scan(&name, &raw)
-		var sub report.Definition
-		if err == nil {
-			err = json.Unmarshal(raw, &sub)
+		if errors.Is(err, pgx.ErrNoRows) {
+			def.SubSummaries = append(def.SubSummaries, report.Section{Title: "Subreport", Body: "This report is not available (deleted, or not in this workspace)."})
+			continue
 		}
 		if err != nil {
-			def.SubSummaries = append(def.SubSummaries, report.Section{Title: "Subreport", Body: "This report is not available (deleted, or not in this workspace)."})
+			def.SubSummaries = append(def.SubSummaries, report.Section{Title: "Subreport", Body: "This report could not be read. Its availability is unknown; try again later."})
+			continue
+		}
+		var sub report.Definition
+		if json.Unmarshal(raw, &sub) != nil || report.Validate(sub) != nil {
+			def.SubSummaries = append(def.SubSummaries, report.Section{Title: "Subreport", Body: "This report's saved definition is invalid; no summary was calculated."})
 			continue
 		}
 		sub.Subreports, sub.Sections = nil, nil
@@ -121,7 +129,8 @@ func (s *server) subSummaries(ctx context.Context, tenant string, def report.Def
 		}
 		var lines []string
 		if serr != nil {
-			lines = append(lines, "The data for this report could not be read.")
+			def.SubSummaries = append(def.SubSummaries, report.Section{Title: title, Body: "The data for this report could not be read; no summary was calculated. Try again later."})
+			continue
 		}
 		for _, m := range sub.Metrics {
 			avg, mn, mx, sum, n := report.Summary(series[m])
