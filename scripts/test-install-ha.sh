@@ -25,12 +25,15 @@ import sys,yaml
 root=sys.argv[1]
 for n,ip in (("a","10.0.0.11"),("b","10.0.0.12"),("c","10.0.0.13")):
     c=yaml.safe_load(open(f"{root}/{n}/docker-compose.yml"))
-    for svc in ("etcd","patroni","haproxy","keepalived","mosquitto","redis","api","ingest","mcp","web"):
+    for svc in ("etcd","patroni","haproxy","keepalived","mosquitto","api","ingest","mcp","web"):
         assert svc in c["services"],(n,svc)
     assert c["services"]["haproxy"]["image"] == "haproxy:3.2.26-alpine"
     env=c["services"]["api"]["environment"]
     assert env["OAUTH_STATE_BACKEND"] == "postgres"
-    assert "REDIS_URL" not in env and "CACHE_BACKEND" not in env
+    assert "REDIS_URL" not in env and env["CACHE_BACKEND"] == "off"
+    assert "redis" not in c["services"] and "redisdata" not in c["volumes"]
+    assert c["services"]["api"]["depends_on"] == ["mosquitto"]
+    assert "REDIS_PASSWORD" not in open(f"{root}/{n}/.env").read()
     assert ip in " ".join(c["services"]["etcd"]["command"].split()),n
     p=yaml.safe_load(open(f"{root}/{n}/patroni.yml"))
     assert p["name"]==n and p["scope"]=="hexthings"
@@ -65,7 +68,7 @@ PYTEST
 [ "$(grep -c ' backup$' $T/o/a/haproxy.cfg)" = 2 ] && ok "mqtt: one active broker, two backups" || bad "mqtt backup flags"
 $S render --nodes $N --vip 10.0.0.10 --out $T/o3 --sync-strict >/dev/null; grep -q "synchronous_mode_strict: true" $T/o3/a/patroni.yml && ok "--sync-strict honoured" || bad "sync strict"
 expect_fail "non-empty output dir refused" $S render --nodes $N --vip 10.0.0.10 --out $T/o
-P=$($S plan --nodes $N --vip 10.0.0.10); echo "$P" | grep -q "any ONE node" && ok "plan prints survivability" || bad "plan"
+P=$($S plan --nodes $N --vip 10.0.0.10); echo "$P" | grep -q "Design target (UNVERIFIED)" && ok "plan labels unverified target" || bad "plan"
 D=$($S drill --vip 10.0.0.10); echo "$D" | grep -q "marker" && ok "drill prints steps" || bad "drill"
 # entry point: single hands over to install.sh untouched, multi to install-ha.sh
 bash -n scripts/setup.sh && ok "setup.sh syntax" || bad "setup.sh syntax"
@@ -85,6 +88,8 @@ for n in ('a','b','c'):
     c=yaml.safe_load(open(f'{root}/{n}/docker-compose.yml'))
     api=c['services']['api'];env=api['environment']
     assert env['OAUTH_STATE_BACKEND']=='postgres'
+    assert 'redis' not in c['services'] and 'redisdata' not in c['volumes']
+    assert 'REDIS_PASSWORD' not in open(f'{root}/{n}/.env').read()
     assert env['CACHE_BACKEND']=='redis'
     assert env['REDIS_URL']=='rediss://${SHARED_CACHE_AUTHORITY:?Set SHARED_CACHE_AUTHORITY for the external shared TLS cache}'
     for k,name in [('CA','ca.crt'),('CERT','client.crt'),('KEY','client.key')]:
