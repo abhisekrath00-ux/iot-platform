@@ -16,7 +16,7 @@ Three nodes and one virtual IP (VIP). Every node runs the same set:
 | keepalived | VIP floats between nodes | The VIP moves to another node if HAProxy or the node dies. |
 | api, ingest, mcp, web | active-active on all 3 | Stateless. Ingest replicas share the MQTT load with shared subscriptions (`INGEST_SHARED_GROUP`). The scheduler runs on one replica at a time (Postgres advisory lock). |
 | OAuth state | shared Postgres, `OAUTH_STATE_BACKEND=postgres` on every API | Login and Google-connect callbacks use atomic single-use state shared across API replicas. Database outage fails closed. Existing tracked bearer sessions also live in Postgres. |
-| redis | one per node, currently unused by generated APIs | Independent stores cannot share invalidation. Generated APIs now use local response caches instead of falsely presenting those stores as shared. Cache data can remain stale for its configured TTL after a write on another replica. |
+| Response cache | off by default (`CACHE_BACKEND=off`) | Every request reads its backend. No node-local response entry can survive a write on another API. This costs backend load; it is not a cross-query snapshot guarantee. Independent unused Redis services are no longer rendered. |
 | mosquitto | one per node, session files not replicated | See the MQTT limits below. |
 
 Clients use: web `http://VIP:8080`, API `http://VIP:8000`, MQTT `VIP:1883`, Postgres `VIP:5000`.
@@ -75,8 +75,7 @@ web test clock collision was fixed by freezing Date: a whole-page assertion for
 an old chart value of `42` could accidentally match the current response timestamp.
 The production UI is unchanged by that test-only fix.
 
-**Valkey is not generated as an HA service yet.** The current generator and optional single-node
-profile still use Redis. The direct client now supports verified TLS and ACL authentication
+**Valkey is not generated as an HA service yet.** The optional single-node profile still uses Redis; the HA generator no longer starts unused independent Redis services. The direct client now supports verified TLS and ACL authentication
 to an explicitly supplied Redis/Valkey endpoint; that does not create a replicated service. Valkey's vendor documentation states RESP2/RESP3 and
 Redis OSS 7.2 compatibility. HexThings uses AUTH, GET, SET with EX/NX, GETDEL and
 INCR through a small direct TCP client. Actual Valkey 9.0.7 TLS/ACL command tests now pass locally; this is not a migration
@@ -88,7 +87,7 @@ cache HA or RPO/RTO promise is made here.
 
 ### Opt-in generated external shared cache with mutual TLS
 
-Default rendering still uses Postgres OAuth state and local response caches.
+Default rendering uses Postgres OAuth state and disables response caching (`CACHE_BACKEND=off`).
 To wire all three API replicas to one already managed Redis/Valkey TLS endpoint:
 
 ```
@@ -113,9 +112,7 @@ this read-only mount. Runtime user permissions must allow API to read the files.
 
 The generated API environment explicitly selects `CACHE_BACKEND=redis` with the
 same endpoint/database for every replica, while `OAUTH_STATE_BACKEND=postgres`
-stays unchanged. This adapter works with tested Valkey RESP commands too. The
-unused node-local Redis services are still rendered and are **not** a fallback
-shared service. Existing generated directories do not change automatically.
+stays unchanged. This adapter works with tested Valkey RESP commands too. No node-local Redis service, Redis data volume or unused Redis password is rendered in either mode. Existing generated directories do not change automatically. Do not delete old volumes as part of this update; inspect ownership and contents first.
 TLS renewal/reload needs a deliberate API restart and coordinated file replacement;
 no certificate rotation automation is added. The endpoint's ACL must allow
 `GET`, `SET`, `INCR` on `hx:*`, `PING` and `SELECT` for the configured database.
@@ -201,7 +198,7 @@ TEST_VALKEY_BINARY=/path/to/valkey-server go test -race ./internal/redisx -run T
 
 This proves the direct transport and these commands, not Sentinel/Cluster,
 replication, persistence, failover, rollback or production TLS/proxy-chain behavior.
-The generated HA APIs still use Postgres OAuth state and local response caches.
+The generated HA APIs use Postgres OAuth state with response caching off by default.
 If an optional shared-cache read fails, the request now bypasses caching and reads
 the backend directly. No local fallback cache is read or filled on that request.
 A failed invalidation is still not a durable event: a replica that can reach an old
@@ -338,3 +335,10 @@ they are present in that device's returned points. This guards selection, not th
 meaning/units of those points. Clear remains a separate explicit write; read/retry
 never writes. It still uses the bounded catalog endpoint, so catalogs above 5000
 rows remain unsupported here. Map data/trail failure behavior is separate.
+
+
+### Cache-off HA default (2026-11-01)
+
+`CACHE_BACKEND=off` leaves the API response cache unset, bypassing both middleware and invalidation. Empty or `local` retains the single-process cache for existing installations; `redis` requires an explicit endpoint; unsupported values fail startup. This removes default node-local stale response entries, not every source of staleness: database visibility, client caches, ingestion timing and derived data still have their own semantics. Turning caching off raises database load. Capacity and multi-host acceptance remain unmeasured. The external mTLS cache option still selects `redis` explicitly and keeps its documented TTL/invalidation-failure limits.
+
+Regression tests create two API handler instances over a real PostgreSQL database, confirm neither caches a successful point list, write a new point through that database, and read it on both handlers. After closing the database pool, both fail rather than serve a cached success. Generator tests check both modes contain no unused Redis service/volume/password, PostgreSQL OAuth state remains selected, and the default `off` value stays a string in YAML. This is not a real proxy/multi-host failover test. The printed plan labels one-node survival as an unverified design target.
