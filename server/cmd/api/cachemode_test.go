@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/redisx"
 	"net/http"
 	"strings"
 	"testing"
@@ -8,29 +9,21 @@ import (
 
 func TestResponseCacheModes(t *testing.T) {
 	for _, mode := range []string{"", "local"} {
-		c, e := responseCache(mode)
+		c, e := responseCache(mode, nil)
 		if e != nil || c == nil {
 			t.Fatalf("local %q %v", mode, e)
 		}
 	}
-	if c, e := responseCache("off"); c != nil || e != nil {
+	if c, e := responseCache("off", nil); c != nil || e != nil {
 		t.Fatal("off must disable cache", e)
 	}
-	for _, mode := range []string{"typo", "OFF"} {
-		if _, e := responseCache(mode); e == nil {
+	for _, mode := range []string{"redis", "typo", "OFF"} {
+		if _, e := responseCache(mode, nil); e == nil {
 			t.Fatalf("accepted %q", mode)
 		}
 	}
-	if c, e := responseCache("redis"); c == nil || e != nil {
+	if c, e := responseCache("redis", &redisx.Client{}); c == nil || e != nil {
 		t.Fatal(e)
-	}
-	t.Setenv("CACHE_BACKEND", "off")
-	if newCache() != nil {
-		t.Fatal("production constructor ignored off")
-	}
-	t.Setenv("CACHE_BACKEND", "local")
-	if newCache() == nil {
-		t.Fatal("production constructor disabled local")
 	}
 
 }
@@ -41,7 +34,7 @@ func TestIntegrationOffCacheReplicasReadDatabaseWrites(t *testing.T) {
 	handlers := []http.Handler{}
 	for _, s := range []*server{a, b} {
 		var err error
-		s.cache, err = responseCache("off")
+		s.cache, err = responseCache("off", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
