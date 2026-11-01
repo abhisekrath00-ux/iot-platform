@@ -64,3 +64,24 @@ This acceptance does not prove deployment certificate provisioning, certificate
 revocation, broker reload, atomic replacement of multiple files, real equipment,
 or lossless delivery during a disconnected clean session. CI runs this test
 separately so a missing test binary cannot be mistaken for a transport pass.
+
+## Large point catalogs
+
+`GET /v1/points` keeps its legacy all-or-error array response, with a 5000-row
+limit. Opt in to keyset pages with `?page_size=1000` (1-1000) and pass the returned
+`next_cursor` as URL-encoded `after` on the next request. The response is
+`{"items":[...],"next_cursor":"..."}`; absent `next_cursor` means complete.
+Pages sort by device ID then point ID using C collation, not display name. Each
+page is tenant-filtered and `no-store`; customer-scoped users remain refused by
+the existing route allowlist. Cursors are positions, not credentials or signed
+proof, and cannot grant access to another tenant.
+
+This is not a snapshot across requests. Configuration edits during traversal
+can add/remove rows or change labels; refresh after edits. Reports and map-source
+pickers buffer pages and reject failed/malformed/duplicate/cycling responses
+instead of showing a successful partial catalog. They cap work at 100 pages
+(up to 100000 points); overflow is an explicit error, not silent truncation.
+Large catalogs still use browser-side filtering and rendering after traversal,
+not a server-side search UI; the row cap is a safety bound, not a performance
+promise. Native installs, full Docker/HA and real multihost tests
+remain separate acceptance work.
