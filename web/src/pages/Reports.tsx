@@ -1,3 +1,4 @@
+import { loadPointCatalog } from '../lib/pointCatalog';
 import { useEffect, useRef, useState } from 'react';
 import { api, download } from '../lib/api';
 import ReportHistory from '../components/ReportHistory';
@@ -97,7 +98,7 @@ export default function Reports() {
     const request = ++pointsRequest.current;
     setPointsPending(true); setPointsError(''); setPoints([]);
     try {
-      const rows = await api<PointRow[]>('/v1/points');
+      const rows = await loadPointCatalog();
       if (pointsRequest.current !== request) return;
       if (!Array.isArray(rows) || rows.some(p => !p || typeof p.device_id !== 'string' || typeof p.device_name !== 'string' || typeof p.point_id !== 'string' || typeof p.unit !== 'string')) throw new Error('The server returned an incomplete point catalog.');
       setPoints(rows);
