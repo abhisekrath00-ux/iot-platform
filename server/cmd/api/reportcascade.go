@@ -26,21 +26,39 @@ type cascadeDevice struct {
 func (s *server) cascadeDevices(ctx context.Context, tenant string) ([]cascadeDevice, error) {
 	rows, err := s.st.Pool.Query(ctx, `SELECT d.id, d.name, COALESCE(g.site_id,''), d.asset_id
 		FROM devices d LEFT JOIN gateways g ON g.id=d.gateway_id AND g.tenant_id=d.tenant_id
-		WHERE d.tenant_id=$1 ORDER BY d.id LIMIT 5000`, tenant)
+		WHERE d.tenant_id=$1 ORDER BY d.id LIMIT 5001`, tenant)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []cascadeDevice
+	return readCascadeDevices(rows)
+}
+
+type cascadeRows interface {
+	Next() bool
+	Scan(...any) error
+	Err() error
+}
+
+func readCascadeDevices(rows cascadeRows) ([]cascadeDevice, error) {
+	out := make([]cascadeDevice, 0)
 	for rows.Next() {
 		var d cascadeDevice
 		if err := rows.Scan(&d.ID, &d.Name, &d.SiteID, &d.AssetID); err != nil {
 			return nil, err
 		}
+		if len(out) == 5000 {
+			return nil, errCascadeLimit
+		}
 		out = append(out, d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
+
+var errCascadeLimit = errors.New("report parameter catalog exceeds 5000 devices; complete options unavailable")
 
 var errCascade = errors.New("cascade")
 
@@ -97,6 +115,7 @@ func resolveCascade(devs []cascadeDevice, site, asset, device string) ([]string,
 // with their site and asset. Tenant-scoped; customer-scoped users cannot change parameters, so
 // they get nothing.
 func (s *server) reportOptions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if scopeOf(r) != "" {
 		http.Error(w, "customer-scoped users cannot change report parameters", 403)
 		return
@@ -104,26 +123,42 @@ func (s *server) reportOptions(w http.ResponseWriter, r *http.Request) {
 	tenant := auth.Tenant(r)
 	devs, err := s.cascadeDevices(r.Context(), tenant)
 	if err != nil {
-		dbErr(w, err)
+		if errors.Is(err, errCascadeLimit) {
+			http.Error(w, err.Error(), 422)
+		} else {
+			dbErr(w, err)
+		}
 		return
 	}
-	names := func(q string) map[string]string {
+	names := func(q string) (map[string]string, error) {
 		m := map[string]string{}
 		rows, err := s.st.Pool.Query(r.Context(), q, tenant)
 		if err != nil {
-			return m
+			return nil, err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var id, n string
-			if rows.Scan(&id, &n) == nil {
-				m[id] = n
+			if err := rows.Scan(&id, &n); err != nil {
+				return nil, err
 			}
+			m[id] = n
 		}
-		return m
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return m, nil
 	}
-	siteNames := names(`SELECT id, name FROM sites WHERE tenant_id=$1`)
-	assetNames := names(`SELECT id, name FROM assets WHERE tenant_id=$1`)
+	siteNames, err := names(`SELECT id, name FROM sites WHERE tenant_id=$1`)
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
+	assetNames, err := names(`SELECT id, name FROM assets WHERE tenant_id=$1`)
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
 	siteSeen := map[string]bool{}
 	assetSites := map[string]map[string]bool{}
 	for _, d := range devs {
