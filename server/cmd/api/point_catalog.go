@@ -47,6 +47,10 @@ func readPointCatalog(rows pointCatalogRows) ([]pointCatalogRow, error) {
 // listPoints feeds unscoped report/dashboard pickers. customerScope's allowlist
 // still refuses this route for customer-scoped users; do not expand that grant.
 func (s *server) listPoints(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Has("page_size") || r.URL.Query().Has("after") {
+		s.listPointsPage(w, r)
+		return
+	}
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT d.id,d.name,p.id,COALESCE(p.unit,'') FROM devices d JOIN points p ON p.device_id=d.id
  WHERE d.tenant_id=$1 ORDER BY d.name,d.id,p.id LIMIT 5001`, auth.Tenant(r))
