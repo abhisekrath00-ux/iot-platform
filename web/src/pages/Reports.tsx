@@ -52,6 +52,9 @@ export default function Reports() {
   const [computed, setComputed] = useState<{ name: string; expr: string }[]>([]);
   const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
   const [pw, setPw] = useState<Record<string, { w?: string; g?: string; d?: string; s?: string; a?: string }>>({});
+  const [optionsPending,setOptionsPending]=useState(true);
+  const [optionsError,setOptionsError]=useState('');
+  const optionsRequest=useRef(0);
   const [opts, setOpts] = useState<{ sites: { id: string; name: string }[]; assets: { id: string; name: string; site_ids: string[] }[]; devices: { id: string; name: string; site_id: string; asset_id: string | null }[] }>({ sites: [], assets: [], devices: [] });
   const [cron, setCron] = useState('');
   const [editingId, setEditingId] = useState('');
@@ -105,14 +108,28 @@ export default function Reports() {
     } catch (e) { if (pointsRequest.current === request) setPointsError(String(e)); }
     finally { if (pointsRequest.current === request) setPointsPending(false); }
   }
+  async function loadOptions() {
+    const request=++optionsRequest.current;
+    setOptionsPending(true);setOptionsError('');setOpts({sites:[],assets:[],devices:[]});
+    try {
+      const rows=await api<typeof opts>('/v1/reports/options');
+      if(request!==optionsRequest.current)return;
+      if(!rows || !Array.isArray(rows.sites) || !Array.isArray(rows.assets) || !Array.isArray(rows.devices) ||
+        rows.sites.some(x=>!x||typeof x.id!=='string'||typeof x.name!=='string') ||
+        rows.assets.some(x=>!x||typeof x.id!=='string'||typeof x.name!=='string'||!Array.isArray(x.site_ids)||x.site_ids.some(id=>typeof id!=='string')) ||
+        rows.devices.some(x=>!x||typeof x.id!=='string'||typeof x.name!=='string'||typeof x.site_id!=='string'||(x.asset_id!==null&&typeof x.asset_id!=='string'))) throw new Error('Incomplete report parameter options.');
+      setOpts(rows);
+    }catch(e){if(request===optionsRequest.current)setOptionsError(String(e));}
+    finally{if(request===optionsRequest.current)setOptionsPending(false);}
+  }
   const load = () => {
     void loadReports();
     api<Channel[]>('/v1/notifications/channels').then(setChannels).catch(() => {});
     void loadPoints();
     api<{ id: string; name: string }[]>('/v1/devices').then(setDevices).catch(() => {});
-    api<typeof opts>('/v1/reports/options').then(setOpts).catch(() => {});
+    void loadOptions();
   };
-  useEffect(() => { load(); return () => { reportsRequest.current++; pointsRequest.current++; }; }, []);
+  useEffect(() => { load(); return () => { reportsRequest.current++; pointsRequest.current++; optionsRequest.current++; }; }, []);
 
   function setMetric(i: number, k: keyof Metric, v: string) {
     setMetrics(ms => ms.map((m, j) => (j === i ? { ...m, [k]: v } : m)));
@@ -450,17 +467,19 @@ export default function Reports() {
               <option value="">{r.definition.group_by}</option><option value="15min">15 minutes</option><option value="hour">Hour</option><option value="day">Day</option><option value="week">Week</option>
             </select>
 {singleDevice(r.definition) && <>
-              <select style={{ width: 160 }} aria-label="Site parameter" value={pw[r.id]?.s ?? ''} onChange={e => setP(r.id, { s: e.target.value, a: '', d: '' })}>
+              <button type="button" className="ghost" disabled={optionsPending} onClick={()=>void loadOptions()}>{optionsPending?'Loading parameter options...':'Reload parameter options'}</button>
+              {optionsError && <span role="alert">Parameter options unavailable: {optionsError}. Existing download overrides are kept; retry before changing site, asset or device.</span>}
+              <select style={{ width: 160 }} disabled={optionsPending || !!optionsError} aria-label="Site parameter" value={pw[r.id]?.s ?? ''} onChange={e => setP(r.id, { s: e.target.value, a: '', d: '' })}>
                 <option value="">All sites</option>
                 {opts.sites.map(x => <option key={x.id} value={x.id}>{x.name || x.id}</option>)}
               </select>
-              <select style={{ width: 160 }} aria-label="Asset parameter" value={pw[r.id]?.a ?? ''} onChange={e => setP(r.id, { a: e.target.value, d: '' })}>
+              <select style={{ width: 160 }} disabled={optionsPending || !!optionsError} aria-label="Asset parameter" value={pw[r.id]?.a ?? ''} onChange={e => setP(r.id, { a: e.target.value, d: '' })}>
                 <option value="">All assets{pw[r.id]?.s ? ' in site' : ''}</option>
                 {opts.assets.filter(x => !pw[r.id]?.s || x.site_ids.includes(pw[r.id].s!)).map(x => <option key={x.id} value={x.id}>{x.name || x.id}</option>)}
               </select>
-              <select style={{ width: 240 }} aria-label="Device override" value={pw[r.id]?.d ?? ''} onChange={e => setP(r.id, { d: e.target.value })}>
+              <select style={{ width: 240 }} disabled={optionsPending || !!optionsError} aria-label="Device override" value={pw[r.id]?.d ?? ''} onChange={e => setP(r.id, { d: e.target.value })}>
                 <option value="">{pw[r.id]?.s || pw[r.id]?.a ? `All ${cascadeDevices(r.id).length} matching devices` : r.definition.metrics[0].device_id}</option>
-                {(pw[r.id]?.s || pw[r.id]?.a ? cascadeDevices(r.id) : devices.filter(d => d.id !== r.definition.metrics[0].device_id)).map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
+                {(pw[r.id]?.s || pw[r.id]?.a ? cascadeDevices(r.id) : opts.devices.filter(d => d.id !== r.definition.metrics[0].device_id)).map(d => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
               </select>
               {(pw[r.id]?.s || pw[r.id]?.a) && !pw[r.id]?.d && cascadeDevices(r.id).length > 10 && <span className="muted" role="alert">More than 10 devices match: pick one or narrow the choice.</span>}
             </>}
@@ -487,4 +506,4 @@ export default function Reports() {
       ))}
     </>
   );
-}
+            }
