@@ -1,3 +1,4 @@
+import { loadPointCatalog } from '../lib/pointCatalog';
 import { useEffect, useMemo, useState } from 'react';
 import Empty from '../components/Empty';
 import { downloadTrailCsv } from '../lib/trailCsv';
@@ -48,7 +49,7 @@ export default function MapPage() {
     if (!srcDev) { setSrcPending(false); return; }
     setSrcPending(true);
     const d = devices.find(x => x.id === srcDev);
-    api<{ device_id: string; point_id: string }[]>('/v1/points').then(rows => {
+    loadPointCatalog().then(rows => {
       if (dead) return;
       if (!Array.isArray(rows) || rows.some(r => !r || typeof r.device_id !== 'string' || typeof r.point_id !== 'string')) throw new Error('Incomplete point catalog.');
       const points = [...new Set(rows.filter(r => r.device_id === srcDev).map(r => r.point_id))];
