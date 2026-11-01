@@ -13,6 +13,7 @@ beforeEach(() => {
   vi.mocked(api).mockReset();
   vi.mocked(api).mockImplementation(async (path: string) => {
     if (path === '/v1/reports/preview') return new Promise((resolve, reject) => pending.push({ resolve, reject }));
+    if (path.startsWith('/v1/points?')) return {items:[]};
     if (path === '/v1/me') return { role: 'admin' };
     if (path === '/v1/reports/options') return { sites: [], assets: [], devices: [] };
     return [];
@@ -200,7 +201,7 @@ test('a late earlier report list cannot replace a newer refresh and malformed li
 test('searchable keyboard point palette and explicit metric/section ordering reach preview and version-bound save', async () => {
   const data={id:'r',name:'Ordering test',version:7,definition:{metrics:[{device_id:'d1',point_id:'power'},{device_id:'d2',point_id:'energy'}],window_hours:24,group_by:'hour',sections:[{title:'Method',body:'First',page_break:true},{title:'Caveat',body:'Second'}]},channel_id:null,schedule_cron:null,last_run_at:null};
   const base=vi.mocked(api).getMockImplementation()!;
-  vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/reports'&&!i)return[data];if(p==='/v1/points')return[{device_id:'d1',device_name:'Meter A',point_id:'power',unit:'kW'},{device_id:'d2',device_name:'Meter B',point_id:'energy',unit:'kWh'}];if(i?.method==='PUT')return{};return base(p,i)});
+  vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/reports'&&!i)return[data];if(p.startsWith('/v1/points?'))return{items:[{device_id:'d1',device_name:'Meter A',point_id:'power',unit:'kW'},{device_id:'d2',device_name:'Meter B',point_id:'energy',unit:'kWh'}]};if(i?.method==='PUT')return{};return base(p,i)});
   await act(async()=>root.render(<Reports/>));
   const a=(label:string)=>box.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
   const search=box.querySelector('input[type="search"]')!;
@@ -224,7 +225,7 @@ test('searchable keyboard point palette and explicit metric/section ordering rea
 test('duplicate confirmation copies supported fields into a channel-less unscheduled new draft without writes',async()=>{
  const saved={id:'original',name:'Weekly source',version:12,customer_id:'customer-a',channel_id:'c1',schedule_cron:'0 9 * * *',definition:{metrics:[{device_id:'d1',point_id:'p1'}],window_hours:168,group_by:'day',chart:'bar',sections:[{title:'Intro',body:'Method',position:'before_data',page_break:true}],subreports:[{report_id:'sub1'}]}};
  const reads=vi.mocked(api).getMockImplementation()!;let savedBody:any;
- vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/reports'&&!i)return[saved];if(p==='/v1/notifications/channels')return[{id:'c1',type:'email',target:'synthetic@example.invalid',enabled:true}];if(p==='/v1/points')return[{device_id:'d1',device_name:'Meter',point_id:'p1',unit:'kW'}];if(p==='/v1/reports'&&i?.method==='POST'){savedBody=JSON.parse(i.body as string);return{id:'new-id'}};return reads(p,i)});
+ vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/reports'&&!i)return[saved];if(p==='/v1/notifications/channels')return[{id:'c1',type:'email',target:'synthetic@example.invalid',enabled:true}];if(p.startsWith('/v1/points?'))return{items:[{device_id:'d1',device_name:'Meter',point_id:'p1',unit:'kW'}]};if(p==='/v1/reports'&&i?.method==='POST'){savedBody=JSON.parse(i.body as string);return{id:'new-id'}};return reads(p,i)});
  window.scrollTo=vi.fn();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
  await act(async()=>root.render(<Reports/>));await changeName('Unfinished draft');await act(async()=>button('Duplicate as draft').click());expect((box.querySelector('input[placeholder="Weekly energy summary"]') as HTMLInputElement).value).toBe('Unfinished draft');
  confirm.mockReturnValue(true);await act(async()=>button('Edit').click());await act(async()=>button('Preview').click());await act(async()=>pending[0].resolve({html:'<h1>Old preview</h1>',rows:1}));expect(box.querySelector('iframe')).not.toBeNull();
@@ -242,13 +243,13 @@ test('duplicate is hidden from customer-scoped viewers and disabled during saves
 
 test('point catalog failure is not empty success, retry clears stale points and preserves draft', async () => {
  const base=vi.mocked(api).getMockImplementation()!;let attempt=0;let finish!: (r:unknown)=>void;
- vi.mocked(api).mockImplementation(async(p,i)=>{if(p==='/v1/points'){attempt++;if(attempt===1)throw Error('422: complete catalog unavailable');if(attempt===2)return[{device_id:'d1',device_name:'Meter',point_id:'power',unit:'kW'}];return new Promise(resolve=>{finish=resolve})}return base(p,i)});
+ vi.mocked(api).mockImplementation(async(p,i)=>{if(p.startsWith('/v1/points?')){attempt++;if(attempt===1)throw Error('422: complete catalog unavailable');if(attempt===2)return{items:[{device_id:'d1',device_name:'Meter',point_id:'power',unit:'kW'}]};return new Promise(resolve=>{finish=resolve})}return base(p,i)});
  await act(async()=>root.render(<Reports/>));
  expect(box.textContent).toContain('Device points unavailable');expect(box.textContent).not.toContain('No device points yet');
  await changeName('Kept draft');
  await act(async()=>button('Reload device points').click());expect(box.textContent).toContain('1 of 1 device points match');
  await act(async()=>button('Reload device points').click());expect(box.querySelector('[data-testid="palette"]')!.textContent).not.toContain('Meter');expect(button('Loading device points...').disabled).toBe(true);
- await act(async()=>finish([{device_id:'broken'}]));expect(box.textContent).toContain('incomplete point catalog');expect(box.textContent).not.toContain('No device points yet');
+ await act(async()=>finish({items:[{device_id:'broken'}]}));expect(box.textContent).toContain('invalid point catalog row');expect(box.textContent).not.toContain('No device points yet');
  expect((box.querySelector('input[placeholder="Weekly energy summary"]') as HTMLInputElement).value).toBe('Kept draft');
  expect(vi.mocked(api).mock.calls.filter(c=>c[1]?.method)).toHaveLength(0);
 });
