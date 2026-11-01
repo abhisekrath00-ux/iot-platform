@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# HexThings multi-node (high availability) installer. Generates one ready-to-run directory per node.
+# HexThings multi-node (high availability) installer. Generates one configuration directory per node. Failover is an unverified design target.
 #
 #   scripts/install-ha.sh plan   --nodes n1=10.0.0.11,n2=10.0.0.12,n3=10.0.0.13 --vip 10.0.0.10
 #   scripts/install-ha.sh render --nodes ... --vip ... [--iface eth0] [--out ./ha-out] [--sync-strict]
@@ -58,10 +58,12 @@ plan() {
   parse_nodes
   cat <<P
 Plan (3 nodes + virtual IP $VIP):
-  every node: etcd member, Patroni+Postgres, HAProxy, keepalived, api, ingest, mcp, web, mosquitto, redis
+  every node: etcd member, Patroni+Postgres, HAProxy, keepalived, api, ingest, mcp, web, mosquitto
   Postgres: 1 leader, 2 replicas; automatic promotion; synchronous replication$( [ "$STRICT" = 1 ] && echo " STRICT (writes stop rather than lose data)" || echo " (falls back to async if every replica is down)")
   Clients use: web http://$VIP:8080, API http://$VIP:8000, MQTT $VIP:1883, Postgres $VIP:5000 (always the leader)
-  Survives: loss of any ONE node. Loss of two nodes stops writes (no quorum) by design, to avoid split brain.
+  Design target (UNVERIFIED): tolerate loss of any ONE node; requires real multi-host drills.
+  Two-node loss is intended to stop database writes without quorum; not a measured guarantee.
+  OAuth state: shared Postgres. Response cache: $( [ "$SHARED_CACHE" = 0 ] && echo "OFF (no node-local stale response entries)" || echo "external shared cache, operator-managed" ).
 P
   [ "$SHARED_CACHE" = 0 ] || echo "  Shared cache: external rediss endpoint with required mTLS files; NOT deployed/replicated by this plan."
   for k in 0 1 2; do echo "  ${NAMES[$k]}  ${IPS[$k]}  keepalived priority $((100 - 10*k))"; done
@@ -72,7 +74,7 @@ render() {
   [ ! -e "$OUT" ] || [ -z "$(ls -A "$OUT" 2>/dev/null)" ] || die "$OUT is not empty; refusing to overwrite (move it or pick --out)"
   mkdir -p "$OUT"; chmod 700 "$OUT"
   PGSU=$(secret); PGREP=$(secret); PGAPP=$(secret); JWT=$(secret); SECKEY=$( (command -v openssl >/dev/null && openssl rand -base64 32) || head -c 32 /dev/urandom | base64 ); KA=$(secret | head -c 8)
-  RESTPW=$(secret); REDISPW=$(secret)
+  RESTPW=$(secret)
   CLUSTER=""; ETCDHOSTS=""; PGSERVERS=""; HAP_PG=""; HAP_WEB=""; HAP_API=""; HAP_MQ=""
   for k in 0 1 2; do
     CLUSTER+="${NAMES[$k]}=http://${IPS[$k]}:2380,"
@@ -84,7 +86,7 @@ render() {
     HAP_MQ+="    server ${NAMES[$k]} ${IPS[$k]}:1884 check${bk}"$'\n'
   done
   CLUSTER="${CLUSTER%,}"; ETCDHOSTS="${ETCDHOSTS%,}"
-  CACHE_ENV=""; CACHE_MOUNTS=""; CACHE_ENVFILE=""
+  CACHE_ENV="      CACHE_BACKEND: 'off'"; CACHE_MOUNTS=""; CACHE_ENVFILE=""
   if [ "$SHARED_CACHE" = 1 ]; then
     CACHE_ENVFILE='# Required on every node: URL-encoded user:password@host:port/database (NO scheme).
 # Keep the same authority/database on all nodes. TLS files belong in ./cache-tls.
@@ -114,7 +116,6 @@ POSTGRES_APP_PASSWORD=$PGAPP
 PATRONI_REST_PASSWORD=$RESTPW
 JWT_SIGNING_SECRET=$JWT
 SECRETS_KEY=$SECKEY
-REDIS_PASSWORD=$REDISPW
 VRRP_AUTH_PASS=$KA
 HEXTHINGS_SRC=../..
 E
@@ -244,11 +245,6 @@ services:
     restart: always
     ports: ["1884:1883"]
     volumes: ["\${HEXTHINGS_SRC}/deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro", "mqdata:/mosquitto/data"]
-  redis:
-    image: redis:7-alpine
-    restart: always
-    command: ["redis-server", "--requirepass", "\${REDIS_PASSWORD}", "--appendonly", "yes"]
-    volumes: [redisdata:/data]
   api:
     build: \${HEXTHINGS_SRC}/server
     command: ["/bin/api"]
@@ -262,12 +258,12 @@ services:
       MQTT_TLS: "false"
       API_PORT: "8000"
       OAUTH_STATE_BACKEND: postgres
-      # Default is local cache; explicit shared-cache option adds one external TLS endpoint.
+      # Cache disabled by default; shared-cache option adds one external TLS endpoint.
 $CACHE_ENV
       INGEST_SHARED_GROUP: hexthings
 $CACHE_MOUNTS
     ports: ["8001:8000"]
-    depends_on: [redis, mosquitto]
+    depends_on: [mosquitto]
   ingest:
     build: \${HEXTHINGS_SRC}/server
     command: ["/bin/ingest"]
@@ -296,7 +292,7 @@ $CACHE_MOUNTS
     restart: always
     ports: ["8081:80"]
     depends_on: [api]
-volumes: {etcd: {}, pgdata: {}, mqdata: {}, redisdata: {}}
+volumes: {etcd: {}, pgdata: {}, mqdata: {}}
 E
     if [ "$SHARED_CACHE" = 1 ]; then
       ( umask 077; printf '%s\n' "$CACHE_ENVFILE" >"$d/cache.env" )
