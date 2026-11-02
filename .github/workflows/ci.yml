@@ -29,9 +29,14 @@ jobs:
       # enables the API integration tests (real SQL, tenant isolation)
       TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/hexmon_test?sslmode=disable
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.26', check-latest: true }
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          check-latest: true
+          cache-dependency-path: |
+            server/go.sum
+            edge/go.sum
       - name: vet + test server
         working-directory: server
         run: |
@@ -93,8 +98,8 @@ jobs:
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with: { node-version: '22' }
       - working-directory: web
         run: |
@@ -106,7 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Validate generated external shared-cache Compose contract
         run: |
           set -euo pipefail
@@ -170,9 +175,14 @@ jobs:
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.26', check-latest: true }
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          check-latest: true
+          cache-dependency-path: |
+            server/go.sum
+            edge/go.sum
       - name: gofmt check
         run: |
           unformatted=$(gofmt -l server edge)
@@ -182,7 +192,7 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           (cd server && govulncheck ./...)
           (cd edge && govulncheck ./...)
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: '22' }
       - name: Update npm (registry retired legacy audit endpoint)
         run: npm install -g npm@latest
