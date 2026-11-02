@@ -130,3 +130,8 @@ Official action references: [checkout v6](https://github.com/actions/checkout/tr
 ### HA HTTP checkpoint tests
 
 `python3 scripts/test-check-ha-http.py` starts only local synthetic HTTP servers. It checks exact GET paths/one request per target, readiness200, one primary200/two503, redirect/error rejection, unknown primary state, refused connection, malformed status, stalled/trickled header deadlines and input validation. Main CI runs it in compose-smoke before stack setup. This tests the probe, not a real multihost deployment.
+
+
+### Generated etcd mutual-TLS contract
+
+`bash scripts/test-install-ha.sh` covers `--etcd-mtls` alone and combined with `--shared-cache-mtls`: HTTPS client/peer/member URLs, required certificate auth/CA paths, Patroni HTTPS/client identity, private instruction-only TLS directories and service-specific mounts. CI compose-smoke parses all six node outputs. No certificate identity is generated. These are syntax/contract checks, not real etcd/Patroni transport, election or failover acceptance.
