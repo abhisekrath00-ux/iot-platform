@@ -115,6 +115,7 @@ root,mode=sys.argv[1:]
 for n,ip in [('a','10.0.0.11'),('b','10.0.0.12'),('c','10.0.0.13')]:
     c=yaml.safe_load(open(f'{root}/{n}/docker-compose.yml'))
     p=yaml.safe_load(open(f'{root}/{n}/patroni.yml'))
+    assert c['services']['etcd']['image']=='gcr.io/etcd-development/etcd:v3.5.35'
     cmd=c['services']['etcd']['command']
     assert 'http://' not in cmd
     assert f'--listen-client-urls https://{ip}:2379' in cmd
