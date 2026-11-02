@@ -135,3 +135,7 @@ Official action references: [checkout v6](https://github.com/actions/checkout/tr
 ### Generated etcd mutual-TLS contract
 
 `bash scripts/test-install-ha.sh` covers `--etcd-mtls` alone and combined with `--shared-cache-mtls`: HTTPS client/peer/member URLs, required certificate auth/CA paths, Patroni HTTPS/client identity, private instruction-only TLS directories and service-specific mounts. CI compose-smoke parses all six node outputs. No certificate identity is generated. These are syntax/contract checks, not real etcd/Patroni transport, election or failover acceptance.
+
+### Generated etcd mutual-TLS local-binary regression
+
+Run `ETCD_BINARY=/trusted/path/to/etcd python3 scripts/test-ha-etcd-tls.py` with Python3/PyYAML/OpenSSL. Three disposable loopback members reuse rendered TLS flags and temporary synthetic PKI. The test checks all-member health, authenticated v3 gateway write/readback, HTTPS membership URLs, rejection of absent/untrusted client identities (client and peer), wrong trust/SAN and unavailable-certificate no-plaintext behavior. CI verifies the pinned3.5.14 fixture checksum. It does not establish supported-version status, container mounts, Patroni TLS, multihost SAN behavior or failover. See [HA scope and limitations](ha-multi-node.md#local-etcd-tls-transport-regression).
