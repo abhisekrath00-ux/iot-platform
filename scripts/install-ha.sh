@@ -6,6 +6,7 @@
 #   scripts/install-ha.sh check  --nodes ... --vip ...      (run on a node: tools, ports, clock)
 #   scripts/install-ha.sh drill  --vip 10.0.0.10            (prints and runs the failover drill steps)
 #
+# Optional --etcd-mtls secures etcd client/peer traffic with operator-supplied certificates.
 # Optional --shared-cache-mtls wires one operator-managed rediss endpoint for all APIs.
 # It requires SHARED_CACHE_AUTHORITY in cache.env and cache-tls/{ca.crt,client.crt,client.key}
 # on each node. It does not deploy or fail over Valkey. See docs/ha-multi-node.md.
@@ -16,7 +17,7 @@
 # the rendered stack has never been started on real machines. See docs/ha-multi-node.md.
 set -euo pipefail
 cmd="${1:-}"; [ $# -gt 0 ] && shift || true
-NODES=""; VIP=""; IFACE="eth0"; OUT="./ha-out"; STRICT=0; SHARED_CACHE=0
+NODES=""; VIP=""; IFACE="eth0"; OUT="./ha-out"; STRICT=0; SHARED_CACHE=0; ETCD_MTLS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --nodes) NODES="${2:?}"; shift ;;
@@ -25,6 +26,7 @@ while [ $# -gt 0 ]; do
     --out) OUT="${2:?}"; shift ;;
     --sync-strict) STRICT=1 ;;
     --shared-cache-mtls) SHARED_CACHE=1 ;;
+    --etcd-mtls) ETCD_MTLS=1 ;;
     -h|--help) sed -n 2,14p "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -65,6 +67,7 @@ Plan (3 nodes + virtual IP $VIP):
   Two-node loss is intended to stop database writes without quorum; not a measured guarantee.
   OAuth state: shared Postgres. Response cache: $( [ "$SHARED_CACHE" = 0 ] && echo "OFF (no node-local stale response entries)" || echo "external shared cache, operator-managed" ).
 P
+  [ "$ETCD_MTLS" = 0 ] || echo "  etcd: explicit member/client mTLS; operator-supplied CA and separate member/Patroni certs required. Other transports unchanged."
   [ "$SHARED_CACHE" = 0 ] || echo "  Shared cache: external rediss endpoint with required mTLS files; NOT deployed/replicated by this plan."
   for k in 0 1 2; do echo "  ${NAMES[$k]}  ${IPS[$k]}  keepalived priority $((100 - 10*k))"; done
 }
@@ -75,9 +78,10 @@ render() {
   mkdir -p "$OUT"; chmod 700 "$OUT"
   PGSU=$(secret); PGREP=$(secret); PGAPP=$(secret); JWT=$(secret); SECKEY=$( (command -v openssl >/dev/null && openssl rand -base64 32) || head -c 32 /dev/urandom | base64 ); KA=$(secret | head -c 8)
   RESTPW=$(secret)
+  ETCD_SCHEME=http; [ "$ETCD_MTLS" = 0 ] || ETCD_SCHEME=https
   CLUSTER=""; ETCDHOSTS=""; PGSERVERS=""; HAP_PG=""; HAP_WEB=""; HAP_API=""; HAP_MQ=""
   for k in 0 1 2; do
-    CLUSTER+="${NAMES[$k]}=http://${IPS[$k]}:2380,"
+    CLUSTER+="${NAMES[$k]}=$ETCD_SCHEME://${IPS[$k]}:2380,"
     ETCDHOSTS+="${IPS[$k]}:2379,"
     HAP_PG+="    server ${NAMES[$k]} ${IPS[$k]}:5432 maxconn 200 check port 8008"$'\n'
     HAP_WEB+="    server ${NAMES[$k]} ${IPS[$k]}:8081 check"$'\n'
@@ -104,9 +108,36 @@ SHARED_CACHE_AUTHORITY='
         bind:
           create_host_path: false'
   fi
+  ETCD_FLAGS=""; ETCD_MOUNT=""; PATRONI_ETCD='etcd3: {hosts: "'"$ETCDHOSTS"'"}'; PATRONI_MOUNT=""
+  if [ "$ETCD_MTLS" = 1 ]; then
+    ETCD_FLAGS='--client-cert-auth=true --trusted-ca-file=/run/etcd-tls/ca.crt
+      --cert-file=/run/etcd-tls/member.crt --key-file=/run/etcd-tls/member.key
+      --peer-client-cert-auth=true --peer-trusted-ca-file=/run/etcd-tls/ca.crt
+      --peer-cert-file=/run/etcd-tls/member.crt --peer-key-file=/run/etcd-tls/member.key'
+    ETCD_MOUNT='
+      - type: bind
+        source: ./etcd-tls
+        target: /run/etcd-tls
+        read_only: true
+        bind:
+          create_host_path: false'
+    PATRONI_ETCD='etcd3:
+  hosts: "'"$ETCDHOSTS"'"
+  protocol: https
+  cacert: /run/patroni-etcd-tls/ca.crt
+  cert: /run/patroni-etcd-tls/client.crt
+  key: /run/patroni-etcd-tls/client.key'
+    PATRONI_MOUNT='
+      - type: bind
+        source: ./patroni-etcd-tls
+        target: /run/patroni-etcd-tls
+        read_only: true
+        bind:
+          create_host_path: false'
+  fi
   SYNCSTRICT=false; [ "$STRICT" = 1 ] && SYNCSTRICT=true
   for k in 0 1 2; do
-    n="${NAMES[$k]}"; ip="${IPS[$k]}"; d="$OUT/$n"; mkdir -p "$d"
+    n="${NAMES[$k]}"; ip="${IPS[$k]}"; ETCD_LISTEN=0.0.0.0; [ "$ETCD_MTLS" = 0 ] || ETCD_LISTEN="$ip"; d="$OUT/$n"; mkdir -p "$d"
     ( umask 077
     cat >"$d/.env" <<E
 # Secrets shared by all nodes. Mode 600. Keep one copy in your password manager.
@@ -124,7 +155,7 @@ E
 scope: hexthings
 name: $n
 restapi: {listen: 0.0.0.0:8008, connect_address: $ip:8008}
-etcd3: {hosts: "$ETCDHOSTS"}
+$PATRONI_ETCD
 bootstrap:
   dcs:
     ttl: 30
@@ -210,10 +241,12 @@ services:
     restart: always
     command: >
       etcd --name $n --data-dir /etcd-data
-      --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://$ip:2379
-      --listen-peer-urls http://0.0.0.0:2380 --initial-advertise-peer-urls http://$ip:2380
+      --listen-client-urls $ETCD_SCHEME://$ETCD_LISTEN:2379 --advertise-client-urls $ETCD_SCHEME://$ip:2379
+      --listen-peer-urls $ETCD_SCHEME://$ETCD_LISTEN:2380 --initial-advertise-peer-urls $ETCD_SCHEME://$ip:2380
       --initial-cluster $CLUSTER --initial-cluster-state new --initial-cluster-token hexthings
-    volumes: [etcd:/etcd-data]
+      $ETCD_FLAGS
+    volumes:
+      - etcd:/etcd-data$ETCD_MOUNT
   patroni:
     build: \${HEXTHINGS_SRC}/deploy/ha/patroni
     network_mode: host
@@ -225,7 +258,9 @@ services:
       PATRONI_REPLICATION_PASSWORD: \${POSTGRES_REPLICATION_PASSWORD}
       PATRONI_RESTAPI_USERNAME: patroni
       PATRONI_RESTAPI_PASSWORD: \${PATRONI_REST_PASSWORD}
-    volumes: [pgdata:/var/lib/postgresql/data, ./patroni.yml:/etc/patroni/patroni.yml:ro]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./patroni.yml:/etc/patroni/patroni.yml:ro$PATRONI_MOUNT
     depends_on: [etcd]
     stop_grace_period: 60s
   haproxy:
@@ -294,6 +329,27 @@ $CACHE_MOUNTS
     depends_on: [api]
 volumes: {etcd: {}, pgdata: {}, mqdata: {}}
 E
+    if [ "$ETCD_MTLS" = 1 ]; then
+      mkdir -m 700 "$d/etcd-tls" "$d/patroni-etcd-tls"
+      cat >"$d/etcd-tls/README.txt" <<'ETCDINFO'
+Install operator-managed ca.crt, member.crt and member.key here before startup.
+Member certificate must cover this node's advertised IP in its IP SAN, and support
+both serverAuth and clientAuth for client-listener and peer connections. Use one
+member identity per node. Private key mode 600, directory 700. Mount is read-only.
+No CA, private key, certificate or user identity is generated. No insecure fallback.
+Renewal/reload and revocation policy remain operator responsibilities.
+ETCDINFO
+      cat >"$d/patroni-etcd-tls/README.txt" <<'PATRONIINFO'
+Install ca.crt, client.crt and client.key trusted by the etcd CA here.
+Use a separate Patroni client identity with clientAuth, not the member private key.
+The non-root Patroni container must be able to read these files. Directory 700 and
+private key 600; set ownership for its runtime UID. Do not make keys world-readable.
+Only Patroni mounts this directory; it does not receive the member private key.
+This option authenticates TLS clients at etcd, not etcd RBAC users/roles. Patroni
+uses etcd3's gRPC gateway; do not assume certificate CN maps to an etcd RBAC user.
+Missing/invalid files must be fixed before starting. No identities are generated.
+PATRONIINFO
+    fi
     if [ "$SHARED_CACHE" = 1 ]; then
       ( umask 077; printf '%s\n' "$CACHE_ENVFILE" >"$d/cache.env" )
       mkdir -m 700 "$d/cache-tls"
@@ -310,7 +366,7 @@ CACHEINFO
     fi
     START='docker compose up -d --build'
     [ "$SHARED_CACHE" = 0 ] || START='docker compose --env-file .env --env-file cache.env up -d --build (after cache.env and cache-tls setup)'
-    echo "Node $n ($ip): copy this directory to the server, then: $START. Start all three within a few minutes; the first to win the etcd election initialises Postgres." >"$d/README.txt"
+    echo "Node $n ($ip): copy this directory to the server, then: $START. If --etcd-mtls was selected, provision both TLS directories and verify trust/SAN/permissions first. Start all three within a few minutes; the first to win the etcd election initialises Postgres." >"$d/README.txt"
   done
   echo "Rendered 3 node directories in $OUT (secrets in each .env, mode 600). Next: docs/ha-multi-node.md, then 'check' on each node, then the failover drill."
 }
