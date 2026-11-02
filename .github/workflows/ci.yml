@@ -139,6 +139,15 @@ jobs:
             done
             rm -rf "$out"
           done
+      - name: Exercise generated etcd TLS flags on disposable loopback members
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          curl --fail --location --silent --show-error https://storage.googleapis.com/etcd/v3.5.14/etcd-v3.5.14-linux-amd64.tar.gz -o "$tmp/etcd.tar.gz"
+          echo "b0b34298f53f6830f08e7ddc57fc74dc45563216a66e94d9e6b0b9e0b0281b34  $tmp/etcd.tar.gz" | sha256sum --check --strict
+          tar -xzf "$tmp/etcd.tar.gz" -C "$tmp" --strip-components=1
+          ETCD_BINARY="$tmp/etcd" python3 scripts/test-ha-etcd-tls.py
       - name: build and boot the stack
         run: |
           set -o pipefail
