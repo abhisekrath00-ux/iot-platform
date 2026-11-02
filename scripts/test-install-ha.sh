@@ -106,4 +106,35 @@ for n in ('a','b','c'):
     if reference is None:reference=env
     else:assert reference==env
 PYCACHE
+for shared in plain shared; do
+  extra=(); [ "$shared" = plain ] || extra+=(--shared-cache-mtls)
+  $S render --nodes $N --vip 10.0.0.10 --out "$T/etcd-$shared" --etcd-mtls "${extra[@]}" >/dev/null || bad "etcd TLS render $shared"
+  python3 - "$T/etcd-$shared" "$shared" <<'PYETCD' && ok "etcd mTLS structure $shared" || bad "etcd mTLS structure $shared"
+import sys,yaml,os
+root,mode=sys.argv[1:]
+for n,ip in [('a','10.0.0.11'),('b','10.0.0.12'),('c','10.0.0.13')]:
+    c=yaml.safe_load(open(f'{root}/{n}/docker-compose.yml'))
+    p=yaml.safe_load(open(f'{root}/{n}/patroni.yml'))
+    cmd=c['services']['etcd']['command']
+    assert 'http://' not in cmd
+    assert f'--listen-client-urls https://{ip}:2379' in cmd
+    assert f'--listen-peer-urls https://{ip}:2380' in cmd
+    for peer,pip in [('a','10.0.0.11'),('b','10.0.0.12'),('c','10.0.0.13')]:
+        assert f'{peer}=https://{pip}:2380' in cmd
+    for flag in ['--client-cert-auth=true','--peer-client-cert-auth=true','--trusted-ca-file=/run/etcd-tls/ca.crt','--peer-trusted-ca-file=/run/etcd-tls/ca.crt','--cert-file=/run/etcd-tls/member.crt','--key-file=/run/etcd-tls/member.key','--peer-cert-file=/run/etcd-tls/member.crt','--peer-key-file=/run/etcd-tls/member.key']:
+        assert flag in cmd,flag
+    assert p['etcd3']==dict(hosts='10.0.0.11:2379,10.0.0.12:2379,10.0.0.13:2379',protocol='https',cacert='/run/patroni-etcd-tls/ca.crt',cert='/run/patroni-etcd-tls/client.crt',key='/run/patroni-etcd-tls/client.key')
+    for service,folder,target in [('etcd','etcd-tls','/run/etcd-tls'),('patroni','patroni-etcd-tls','/run/patroni-etcd-tls')]:
+        mounts=[m for m in c['services'][service]['volumes'] if isinstance(m,dict)]
+        assert mounts==[dict(type='bind',source='./'+folder,target=target,read_only=True,bind=dict(create_host_path=False))]
+        assert os.stat(f'{root}/{n}/{folder}').st_mode & 0o777 == 0o700
+        assert os.listdir(f'{root}/{n}/{folder}')==['README.txt']
+        for other in c['services']:
+            if other!=service:assert target not in str(c['services'][other].get('volumes',[]))
+    env=c['services']['api']['environment']
+    assert env['OAUTH_STATE_BACKEND']=='postgres'
+    assert env['CACHE_BACKEND']==('off' if mode=='plain' else 'redis')
+    assert 'redis' not in c['services']
+PYETCD
+ done
 [ "$fails" = 0 ] && echo "ALL PASSED" || { echo "$fails FAILED"; exit 1; }
