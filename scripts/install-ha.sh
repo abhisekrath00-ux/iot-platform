@@ -163,10 +163,11 @@ bootstrap:
     retry_timeout: 10
     maximum_lag_on_failover: 1048576
     synchronous_mode: true
+    synchronous_node_count: 1
     synchronous_mode_strict: $SYNCSTRICT
     postgresql:
       use_pg_rewind: true
-      parameters: {wal_level: replica, hot_standby: "on", max_wal_senders: 10, max_replication_slots: 10, wal_log_hints: "on", max_connections: 300}
+      parameters: {synchronous_commit: "on", wal_level: replica, hot_standby: "on", max_wal_senders: 10, max_replication_slots: 10, wal_log_hints: "on", max_connections: 300}
   initdb: [encoding: UTF8, data-checksums]
   pg_hba: ["host replication replicator 0.0.0.0/0 scram-sha-256", "host all all 0.0.0.0/0 scram-sha-256"]
 postgresql:
@@ -391,7 +392,7 @@ Failover drill (run only in a maintenance window; this stops one node's database
     python3 scripts/check-ha-http.py --nodes <three-name=IPv4-entries> --vip $VIP
  2. Write a marker through the VIP, e.g. create the table drill_marker and insert the current time via psql on $VIP:5000.
  3. On the leader node: docker compose stop patroni   (or power the VM off for the harder test)
- 4. Within about 30-45 seconds one replica should become leader. Re-run step 1.
+ 4. Observe whether a replica becomes leader; 30-45 seconds is an unmeasured target, not a deadline or guarantee. Re-run step 1.
  5. Read drill_marker through $VIP:5000: the marker must still be there. If it is missing the replica was not synchronous: record that as a failure.
  6. Start the stopped node again; it should rejoin as a replica (pg_rewind runs automatically).
  7. Record the measured failover time and any lost writes in docs/ha-multi-node.md.
