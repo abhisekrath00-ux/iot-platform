@@ -12,7 +12,7 @@ Three nodes and one virtual IP (VIP). Every node runs the same set:
 |---|---|---|
 | etcd | 3-member cluster | Holds the "who is the Postgres leader" lease. Needs 2 of 3 up. |
 | Patroni + Postgres 16 | 1 leader, 2 replicas, synchronous replication | Leader lease expires (about 30 s), a replica that has all committed data is promoted, the old leader is rewound with pg_rewind when it returns. |
-| HAProxy | on every node | Port 5000 always goes to the node Patroni says is primary. Web 8080 and API 8000 are load-balanced across all nodes (active-active). MQTT 1883 goes to one broker, the others are backups (active-passive). |
+| HAProxy | on every node | Port 5000 selects a node passing Patroni primary checks; check lag and existing sessions are not fencing. Web 8080 and API 8000 are load-balanced across all nodes (active-active). MQTT 1883 goes to one broker, the others are backups (active-passive). |
 | keepalived | VIP floats between nodes | The VIP moves to another node if HAProxy or the node dies. |
 | api, ingest, mcp, web | active-active on all 3 | Stateless. Ingest replicas share the MQTT load with shared subscriptions (`INGEST_SHARED_GROUP`). The scheduler runs on one replica at a time (Postgres advisory lock). |
 | OAuth state | shared Postgres, `OAUTH_STATE_BACKEND=postgres` on every API | Login and Google-connect callbacks use atomic single-use state shared across API replicas. Database outage fails closed. Existing tracked bearer sessions also live in Postgres. |
@@ -285,16 +285,19 @@ Render refuses a non-empty output folder, generates fresh secrets (shared by the
 
 ## Real tradeoffs
 
-**Data loss vs availability (the main choice).**
-- Default (synchronous replication, not strict): a committed write is on the leader and one replica. If one node dies, no committed write is lost. If both replicas are down, Patroni falls back to asynchronous so the system keeps running, and during that window a leader failure can lose recent writes.
-- `--sync-strict`: writes stop (the database becomes read-only for writers) rather than ever run without a synchronous replica. Zero data loss, lower availability. Pick this if losing a write is worse than a short outage.
-- Cost of synchronous replication: each commit waits for a replica, so write latency rises by one network round trip and ingest throughput drops. Not measured here.
+**Data loss vs availability (an operator decision, not a measured guarantee).**
+- New output explicitly requests `synchronous_mode: true`, one synchronous standby (`synchronous_node_count: 1`) and PostgreSQL `synchronous_commit: "on"`. These make the intended settings visible rather than relying on defaults. Patroni owns `synchronous_standby_names`; the generator does not hard-code members. These are bootstrap settings, not an update to an already initialized cluster's dynamic configuration.
+- Default, not strict: Patroni can disable synchronous replication when no suitable standby is available so the primary can continue accepting local writes. Those writes are not guaranteed to exist on another node. In that state Patroni may refuse automatic promotion after primary loss, leaving writes unavailable until that primary returns or an operator intervenes. A manual failover can lose transactions. Do not treat this as automatic asynchronous failover with bounded loss.
+- `--sync-strict` asks Patroni not to disable synchronous replication when no synchronous candidate exists. Commits normally wait for a suitable standby, reducing availability. It does not make every request read-only, guarantee an outage duration or promise zero lost transactions. Sessions can explicitly reduce `synchronous_commit`; cancellation while waiting for replication can expose changes that are not yet replicated and may be lost on promotion. These cases and simultaneous failures need explicit application and operator acceptance.
+- Synchronous commit can increase write latency and reduce throughput. Neither that cost nor a durability bound has been measured on this stack. No zero-loss, RPO or RTO commitment follows from these settings.
 
-**Split brain.** Only the node holding the etcd lease may be primary, and etcd needs a majority, so a node cut off from the other two demotes itself. This is why exactly 3 nodes are required: two nodes cannot tell a dead peer from a broken link, so they cannot fail over safely without a third voter. Two-node setups are not offered. Losing two nodes stops writes by design. Add a hardware or Proxmox watchdog for fencing a hung node: recommended, not configured here. The VIP can briefly sit on two nodes during a network partition; the database stays safe because HAProxy only sends port 5000 traffic to the Patroni primary.
+**Split brain and fencing.** The intended design uses an etcd majority lease and Patroni demotion/promotion rules. A majority lease is not a hardware fence: a stuck Patroni process, failed PostgreSQL shutdown or delayed network state can break the intended write-leader invariant. A node should demote on loss of the DCS lease, but that behavior has not been tested here. Three nodes provide a majority-voting design; this generator supports exactly three and offers no two-node deployment. Loss of two voters is intended to prevent automatic promotion, not a measured proof that every possible writer is stopped. No watchdog is configured or validated. A watchdog/fencing design and real partition/pause/stop-failure drills remain prerequisites for deployment. VRRP can expose the VIP on more than one node during a partition. HAProxy primary checks lag reality and cannot prove a stale primary is fenced, so they do not establish database partition safety.
+
+Source: [Patroni replication modes](https://patroni.readthedocs.io/en/latest/replication_modes.html). This guide explains the intended mode using current vendor semantics; the pinned Patroni image and real cluster still need runtime validation.
 
 **MQTT is the weak spot.** Brokers are not clustered. After a broker failover, persistent sessions and queued QoS 1/2 messages for offline subscribers on the old broker are lost. Telemetry from HexThings edge agents is protected by their local store-and-forward buffer (the agent reconnects and resends), but third-party publishers without a buffer can lose messages in that window. A real broker cluster (EMQX or similar) is the fix; it is not built.
 
-**Not covered.** Elasticsearch/search HA, the optional AI runtime, TLS between nodes and to etcd, etcd authentication, off-site backups (use docs/backup-restore.md and Patroni's WAL archiving, not configured), and rolling-upgrade procedure. Stateful volumes live on each node's local disk.
+**Not covered.** Elasticsearch/search HA, the optional AI runtime, PostgreSQL/REST/API TLS, etcd RBAC, off-site backups and a tested rolling-upgrade procedure. Opt-in etcd transport mTLS is rendered and locally tested separately below; default etcd remains plaintext. WAL archiving and validated snapshot recovery are not configured. Stateful volumes live on each node's local disk.
 
 ## Proxmox notes
 
@@ -302,7 +305,7 @@ Run each node as a VM on a different Proxmox host. Do not also enable Proxmox HA
 
 ## Failover drill (must be run on real hardware)
 
-`bash scripts/install-ha.sh drill --vip ...` prints the steps: write a marker through the VIP, stop the leader (then the harder test: power the VM off), expect a new leader in about 30 to 45 seconds, read the marker back, restart the old node and confirm it rejoins as a replica, then record the measured time and any lost write here. Until a result is recorded below, this feature is **untested end to end**.
+`bash scripts/install-ha.sh drill --vip ...` prints the steps: write a marker through the VIP, stop the leader (then the harder test: power the VM off), observe whether a new leader appears (30 to 45 seconds is an unmeasured target, not a guarantee), read the marker back, restart the old node and confirm it rejoins as a replica, then record the measured time and any lost write here. Until a result is recorded below, this feature is **untested end to end**.
 
 | Date | Hardware | Failover time | Lost writes | Result |
 |---|---|---|---|---|
