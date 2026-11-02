@@ -330,7 +330,9 @@ drill() {
   [ -n "$VIP" ] || die "--vip required"
   cat <<D
 Failover drill (run only in a maintenance window; this stops one node's database):
- 1. Note the leader:   curl -s http://$VIP:8008/cluster   (or: docker compose exec patroni /opt/patroni/bin/patronictl -c /etc/patroni/patroni.yml list)
+ 1. On a node, note the leader: docker compose exec patroni /opt/patroni/bin/patronictl -c /etc/patroni/patroni.yml list
+    Do not use VIP:8008: the generated proxy does not expose that port. Run the read-only HTTP checkpoint separately:
+    python3 scripts/check-ha-http.py --nodes <three-name=IPv4-entries> --vip $VIP
  2. Write a marker through the VIP, e.g. create the table drill_marker and insert the current time via psql on $VIP:5000.
  3. On the leader node: docker compose stop patroni   (or power the VM off for the harder test)
  4. Within about 30-45 seconds one replica should become leader. Re-run step 1.
