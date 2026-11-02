@@ -118,3 +118,10 @@ Embedded summaries distinguish a successful empty telemetry read from an unavail
 ### OIDC callback across API replicas
 
 `TestIntegrationOIDCCrossReplicaCallback` uses real PostgreSQL through two independent pools and a local synthetic issuer with signed RSA/JWKS tokens. It exercises start-on-A/finish-on-B, platform JWT/session persistence, a 16-callback race with one issuer exchange, replay/expiry, bad nonce, unknown user and state-store outage. Rejected identity checks cannot create sessions or auto-provision users. Run with `TEST_DATABASE_URL` and `go test ./cmd/api -run '^TestIntegrationOIDCCrossReplicaCallback$' -count=1`. This is local application evidence, not external-provider, browser or multihost failover certification.
+
+
+### CI action runtime and module-cache paths (2026-11-02)
+
+The main CI workflow uses the Node24-based `actions/checkout@v6`, `actions/setup-go@v6` and `actions/setup-node@v6`, replacing action versions whose Node20 runtime produced deprecation warnings. This changes the action runtime, not the web application's selected Node22 build version. Both Go setup steps explicitly hash `server/go.sum` and `edge/go.sum`; there is no root `go.sum` in this repository. Hosted `ubuntu-latest` runners are used. These actions require recent runner versions; self-hosted runners must meet the official requirements before adopting them. The separate edge-release workflow is unchanged and is not covered by this CI maintenance result.
+
+Official action references: [checkout v6](https://github.com/actions/checkout/tree/v6), [setup-go v6](https://github.com/actions/setup-go/tree/v6), [setup-node v6](https://github.com/actions/setup-node/tree/v6). A green run must still be checked at the exact published commit. Updating action declarations alone does not prove warnings are gone.
