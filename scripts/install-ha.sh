@@ -236,7 +236,7 @@ E
 # Node $n ($ip). Run: docker compose up -d --build   (from inside a HexThings checkout, see HEXTHINGS_SRC)
 services:
   etcd:
-    image: quay.io/coreos/etcd:v3.5.14
+    image: gcr.io/etcd-development/etcd:v3.5.35
     network_mode: host
     restart: always
     command: >
