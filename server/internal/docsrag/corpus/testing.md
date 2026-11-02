@@ -125,3 +125,8 @@ Embedded summaries distinguish a successful empty telemetry read from an unavail
 The main CI workflow uses the Node24-based `actions/checkout@v6`, `actions/setup-go@v6` and `actions/setup-node@v6`, replacing action versions whose Node20 runtime produced deprecation warnings. This changes the action runtime, not the web application's selected Node22 build version. Both Go setup steps explicitly hash `server/go.sum` and `edge/go.sum`; there is no root `go.sum` in this repository. Hosted `ubuntu-latest` runners are used. These actions require recent runner versions; self-hosted runners must meet the official requirements before adopting them. The separate edge-release workflow is unchanged and is not covered by this CI maintenance result.
 
 Official action references: [checkout v6](https://github.com/actions/checkout/tree/v6), [setup-go v6](https://github.com/actions/setup-go/tree/v6), [setup-node v6](https://github.com/actions/setup-node/tree/v6). A green run must still be checked at the exact published commit. Updating action declarations alone does not prove warnings are gone.
+
+
+### HA HTTP checkpoint tests
+
+`python3 scripts/test-check-ha-http.py` starts only local synthetic HTTP servers. It checks exact GET paths/one request per target, readiness200, one primary200/two503, redirect/error rejection, unknown primary state, refused connection, malformed status, stalled/trickled header deadlines and input validation. Main CI runs it in compose-smoke before stack setup. This tests the probe, not a real multihost deployment.
