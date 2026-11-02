@@ -37,6 +37,8 @@ for n,ip in (("a","10.0.0.11"),("b","10.0.0.12"),("c","10.0.0.13")):
     assert ip in " ".join(c["services"]["etcd"]["command"].split()),n
     p=yaml.safe_load(open(f"{root}/{n}/patroni.yml"))
     assert p["name"]==n and p["scope"]=="hexthings"
+    assert p["bootstrap"]["dcs"]["synchronous_node_count"] == 1
+    assert p["bootstrap"]["dcs"]["postgresql"]["parameters"]["synchronous_commit"] == "on"
     assert p["bootstrap"]["dcs"]["synchronous_mode"] is True
     assert p["bootstrap"]["dcs"]["synchronous_mode_strict"] is False
     assert "password" not in str(p["postgresql"]["authentication"]).lower()
@@ -67,6 +69,15 @@ assert "mode http" not in s # preserve existing transport; HTTP checks do not re
 PYTEST
 [ "$(grep -c ' backup$' $T/o/a/haproxy.cfg)" = 2 ] && ok "mqtt: one active broker, two backups" || bad "mqtt backup flags"
 $S render --nodes $N --vip 10.0.0.10 --out $T/o3 --sync-strict >/dev/null; grep -q "synchronous_mode_strict: true" $T/o3/a/patroni.yml && ok "--sync-strict honoured" || bad "sync strict"
+python3 - "$T/o3" <<'PYSYNC' && ok "strict sync contract on all nodes" || bad "strict sync contract"
+import sys,yaml
+for n in 'abc':
+    d=yaml.safe_load(open(f'{sys.argv[1]}/{n}/patroni.yml'))['bootstrap']['dcs']
+    assert d['synchronous_mode'] is True and d['synchronous_mode_strict'] is True
+    assert d['synchronous_node_count']==1
+    assert d['postgresql']['parameters']['synchronous_commit']=='on'
+    assert 'synchronous_standby_names' not in d['postgresql']['parameters']
+PYSYNC
 expect_fail "non-empty output dir refused" $S render --nodes $N --vip 10.0.0.10 --out $T/o
 P=$($S plan --nodes $N --vip 10.0.0.10); echo "$P" | grep -q "Design target (UNVERIFIED)" && ok "plan labels unverified target" || bad "plan"
 D=$($S drill --vip 10.0.0.10); echo "$D" | grep -q "marker" && ok "drill prints steps" || bad "drill"
