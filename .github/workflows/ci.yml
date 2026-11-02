@@ -126,6 +126,19 @@ jobs:
             SHARED_CACHE_AUTHORITY='fixture:dummy@cache.example.invalid:6379/2' docker compose --project-directory "$out/$node" -f "$out/$node/docker-compose.yml" config --quiet
           done
           rm -rf "$out"
+      - name: Validate generated etcd mutual-TLS Compose contracts
+        run: |
+          set -euo pipefail
+          for mode in default shared; do
+            out=$(mktemp -d)
+            args=()
+            if [ "$mode" = shared ]; then args+=(--shared-cache-mtls); fi
+            bash scripts/install-ha.sh render --nodes a=10.0.0.11,b=10.0.0.12,c=10.0.0.13 --vip 10.0.0.10 --out "$out" --etcd-mtls "${args[@]}"
+            for node in a b c; do
+              SHARED_CACHE_AUTHORITY='fixture:dummy@cache.example.invalid:6379/2' docker compose --project-directory "$out/$node" -f "$out/$node/docker-compose.yml" config --quiet
+            done
+            rm -rf "$out"
+          done
       - name: build and boot the stack
         run: |
           set -o pipefail
