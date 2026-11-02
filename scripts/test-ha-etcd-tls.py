@@ -33,6 +33,7 @@ def port():
 
 def context(root, identity='client', ca='ca.crt'):
     ctx = ssl.create_default_context(cafile=str(root / ca))
+    ctx.verify_flags |= ssl.VERIFY_X509_STRICT
     if identity:
         ctx.load_cert_chain(str(root / (identity + '.crt')), str(root / (identity + '.key')))
     return ctx
@@ -66,12 +67,15 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
         # Synthetic test PKI only, removed with the temporary directory.
         for ca in ('ca', 'rogue-ca'):
             run('openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
-                '-subj', '/CN=disposable-' + ca, '-keyout', str(root / (ca + '.key')),
+                '-subj', '/CN=disposable-' + ca,
+                '-addext', 'basicConstraints=critical,CA:TRUE',
+                '-addext', 'keyUsage=critical,keyCertSign,cRLSign', '-keyout', str(root / (ca + '.key')),
                 '-out', str(root / (ca + '.crt')))
         for identity in ('a', 'b', 'c', 'client', 'rogue'):
             ca = 'rogue-ca' if identity == 'rogue' else 'ca'
             ext = root / 'extensions'
-            ext.write_text('subjectAltName=IP:127.0.0.1\nextendedKeyUsage=' +
+            ext.write_text('basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n'
+                           'subjectAltName=IP:127.0.0.1\nextendedKeyUsage=' +
                            ('clientAuth' if identity in ('client', 'rogue') else 'serverAuth,clientAuth') + '\n')
             run('openssl', 'req', '-newkey', 'rsa:2048', '-nodes', '-subj', '/CN=fixture-' + identity,
                 '-keyout', str(root / (identity + '.key')), '-out', str(root / (identity + '.csr')))
