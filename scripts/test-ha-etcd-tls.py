@@ -110,8 +110,14 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
                 health = [request(url + '/health', ctx) for url in urls]
                 assert all(item.get('health') == 'true' for item in health)
                 break
-            except (OSError, ValueError, AssertionError):
+            except (OSError, ValueError, AssertionError) as error:
                 if any(p.poll() is not None for p in processes) or time.monotonic() > deadline:
+                    print('Disposable fixture health failure:', type(error).__name__, str(error), flush=True)
+                    for name, proc, log in zip('abc', processes, logs):
+                        log.flush()
+                        log.seek(0)
+                        print('Fixture member', name, 'exit', proc.poll(), flush=True)
+                        print(''.join(log.readlines()[-40:]), flush=True)
                     raise AssertionError('TLS cluster did not become healthy') from None
                 time.sleep(0.2)
         key = base64.b64encode(b'fixture-key').decode()
