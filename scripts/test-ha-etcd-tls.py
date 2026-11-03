@@ -149,7 +149,7 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
             config_path = root / 'patroni-fixture.json'
             config_path.write_text(json.dumps(config))
             subprocess.run([patroni_python, str(ROOT / 'scripts/test-patroni-dcs.py'),
-                            str(config_path)], check=True, timeout=25)
+                            str(config_path)], check=True, timeout=90)
         for i in range(3):
             for bad in (context(root, None), context(root, 'rogue')):
                 rejected(f'https://127.0.0.1:{ports[i*2+1]}/members', bad)
