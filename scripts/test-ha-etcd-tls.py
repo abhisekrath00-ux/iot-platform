@@ -183,6 +183,52 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
                     raise AssertionError('Restarted etcd member failed to recover committed fixture value') from None
                 time.sleep(0.2)
         print('PASS: one etcd TLS member stop preserves majority writes/reads; restarted member recovers committed value')
+        # Lose quorum while leaving an authenticated listener available. A
+        # serializable read is explicitly stale-capable, never a quorum proof.
+        for i in (0, 1):
+            processes[i].terminate()
+            processes[i].wait(timeout=8)
+        assert request(urls[2] + '/v3/kv/range', ctx,
+                       dict(key=key, serializable=True))['kvs'][0]['value'] == outage_value
+        uncertain_key = base64.b64encode(b'fixture-quorum-timeout').decode()
+        try:
+            request(urls[2] + '/v3/kv/put', ctx, dict(key=uncertain_key, value=value))
+        except urllib.error.HTTPError as error:
+            assert error.code in (503, 504), f'Unexpected quorum-loss HTTP response: {error.code}'
+        except TimeoutError:
+            pass
+        except urllib.error.URLError as error:
+            assert isinstance(error.reason, TimeoutError), f'Unexpected transport failure: {error.reason}'
+        else:
+            raise AssertionError('A member without quorum acknowledged a write')
+        # Still reachable after the failed write; generic connection refusal is
+        # deliberately not an accepted result for the quorum assertion.
+        assert request(urls[2] + '/v3/kv/range', ctx,
+                       dict(key=key, serializable=True))['kvs'][0]['value'] == outage_value
+        processes[1] = subprocess.Popen(commands[1], stdout=logs[1], stderr=logs[1])
+        recovered_value = base64.b64encode(b'fixture-quorum-restored').decode()
+        deadline = time.monotonic() + 20
+        while True:
+            try:
+                request(urls[2] + '/v3/kv/put', ctx, dict(key=key, value=recovered_value))
+                assert request(urls[1] + '/v3/kv/range', ctx, dict(key=key))['kvs'][0]['value'] == recovered_value
+                break
+            except (OSError, ValueError, AssertionError):
+                if time.monotonic() >= deadline:
+                    raise AssertionError('Restored two-member majority failed new writes/readback') from None
+                time.sleep(0.2)
+        processes[0] = subprocess.Popen(commands[0], stdout=logs[0], stderr=logs[0])
+        deadline = time.monotonic() + 20
+        while True:
+            try:
+                assert request(urls[0] + '/v3/kv/range', ctx, dict(key=key))['kvs'][0]['value'] == recovered_value
+                break
+            except (OSError, ValueError, AssertionError):
+                if time.monotonic() >= deadline:
+                    raise AssertionError('Final restarted member failed quorum-restored readback') from None
+                time.sleep(0.2)
+        print('PASS: two stopped etcd members prevent write acknowledgement while serializable reads work; restored quorum commits new writes')
+
         for i in range(3):
             for bad in (context(root, None), context(root, 'rogue')):
                 rejected(f'https://127.0.0.1:{ports[i*2+1]}/members', bad)
