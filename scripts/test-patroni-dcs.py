@@ -35,6 +35,10 @@ empty = b.get_cluster()
 assert empty.initialize is None and empty.config is None
 assert empty.is_unlocked()
 
+if len(sys.argv) > 2:
+    assert sys.argv[2:] == ['--config-only']
+    raise SystemExit(0)
+
 # Non-patronictl mode starts the real DCS watch cache and grants etcd leases.
 # This is still only the DCS component, not a Patroni daemon or PostgreSQL test.
 
