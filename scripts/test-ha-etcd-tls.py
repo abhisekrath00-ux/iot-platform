@@ -150,6 +150,39 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
             config_path.write_text(json.dumps(config))
             subprocess.run([patroni_python, str(ROOT / 'scripts/test-patroni-dcs.py'),
                             str(config_path)], check=True, timeout=90)
+        # Stop the first advertised endpoint. The surviving majority must keep
+        # committing and Patroni must discover survivors from its original list.
+        processes[0].terminate()
+        processes[0].wait(timeout=8)
+        outage_value = base64.b64encode(b'fixture-after-member-stop').decode()
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                request(urls[1] + '/v3/kv/put', ctx, dict(key=key, value=outage_value))
+                for url in urls[1:]:
+                    assert request(url + '/v3/kv/range', ctx, dict(key=key))['kvs'][0]['value'] == outage_value
+                break
+            except (OSError, ValueError, AssertionError):
+                if time.monotonic() >= deadline:
+                    raise AssertionError('Surviving etcd majority failed to commit/read after one member stopped') from None
+                time.sleep(0.2)
+        if patroni_python:
+            subprocess.run([patroni_python, str(ROOT / 'scripts/test-patroni-dcs.py'),
+                            str(config_path), '--config-only'], check=True, timeout=25)
+            print('PASS: real Patroni config clients read/write with first advertised etcd endpoint stopped')
+        # Restart with the same data and rendered flags, not a replacement member.
+        processes[0] = subprocess.Popen(commands[0], stdout=logs[0], stderr=logs[0])
+        deadline = time.monotonic() + 20
+        while True:
+            try:
+                assert request(urls[0] + '/health', ctx)['health'] == 'true'
+                assert request(urls[0] + '/v3/kv/range', ctx, dict(key=key))['kvs'][0]['value'] == outage_value
+                break
+            except (OSError, ValueError, AssertionError):
+                if processes[0].poll() is not None or time.monotonic() >= deadline:
+                    raise AssertionError('Restarted etcd member failed to recover committed fixture value') from None
+                time.sleep(0.2)
+        print('PASS: one etcd TLS member stop preserves majority writes/reads; restarted member recovers committed value')
         for i in range(3):
             for bad in (context(root, None), context(root, 'rogue')):
                 rejected(f'https://127.0.0.1:{ports[i*2+1]}/members', bad)
