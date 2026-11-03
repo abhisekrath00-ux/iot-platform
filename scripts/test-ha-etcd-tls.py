@@ -137,6 +137,19 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
             for bad in (context(root, None), context(root, 'rogue')):
                 rejected(url + '/v3/kv/range', bad, dict(key=key))
             rejected(url + '/v3/kv/range', context(root, ca='rogue-ca.crt'), dict(key=key))
+        patroni_python = os.environ.get('PATRONI_PYTHON')
+        if patroni_python:
+            # Exercise Patroni's real DCS implementation, not a replacement HTTP client.
+            config = yaml.safe_load((output / 'a' / 'patroni.yml').read_text())
+            config['etcd3']['hosts'] = ','.join('127.0.0.1:' + str(ports[i*2]) for i in range(3))
+            for field, filename in [('cacert', 'ca.crt'), ('cert', 'client.crt'), ('key', 'client.key')]:
+                config['etcd3'][field] = str(root / filename)
+            config.update(scope='disposable-patroni-fixture', namespace='/fixture/', patronictl=True,
+                          ttl=30, loop_wait=10, retry_timeout=3)
+            config_path = root / 'patroni-fixture.json'
+            config_path.write_text(json.dumps(config))
+            subprocess.run([patroni_python, str(ROOT / 'scripts/test-patroni-dcs.py'),
+                            str(config_path)], check=True, timeout=25)
         for i in range(3):
             for bad in (context(root, None), context(root, 'rogue')):
                 rejected(f'https://127.0.0.1:{ports[i*2+1]}/members', bad)
