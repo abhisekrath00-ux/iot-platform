@@ -201,7 +201,9 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
         # Lose quorum while leaving an authenticated listener available. A
         # serializable read is explicitly stale-capable, never a quorum proof.
         for i in (0, 1):
-            processes[i].terminate()
+            # Active gRPC watches can delay graceful shutdown. Intentionally
+            # kill these disposable members, rather than mislabel a timeout.
+            processes[i].kill()
             processes[i].wait(timeout=8)
         assert request(urls[2] + '/v3/kv/range', ctx,
                        dict(key=key, serializable=True))['kvs'][0]['value'] == outage_value
