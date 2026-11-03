@@ -63,6 +63,7 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
     root = Path(temp)
     processes = []
     logs = []
+    quorum_client = None
     try:
         # Synthetic test PKI only, removed with the temporary directory.
         for ca in ('ca', 'rogue-ca'):
@@ -183,6 +184,20 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
                     raise AssertionError('Restarted etcd member failed to recover committed fixture value') from None
                 time.sleep(0.2)
         print('PASS: one etcd TLS member stop preserves majority writes/reads; restarted member recovers committed value')
+        if patroni_python:
+            control = root / 'quorum-control'
+            control.mkdir()
+            quorum_client = subprocess.Popen([patroni_python, str(ROOT / 'scripts/test-patroni-quorum.py'),
+                                               str(config_path), str(control)])
+
+            def wait_client(name):
+                deadline = time.monotonic() + 25
+                while not (control / name).exists():
+                    if quorum_client.poll() is not None or time.monotonic() >= deadline:
+                        raise AssertionError('Patroni quorum helper failed handshake: ' + name)
+                    time.sleep(0.1)
+
+            wait_client('ready')
         # Lose quorum while leaving an authenticated listener available. A
         # serializable read is explicitly stale-capable, never a quorum proof.
         for i in (0, 1):
@@ -190,6 +205,9 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
             processes[i].wait(timeout=8)
         assert request(urls[2] + '/v3/kv/range', ctx,
                        dict(key=key, serializable=True))['kvs'][0]['value'] == outage_value
+        if patroni_python:
+            (control / 'lost').touch()
+            wait_client('rejected')
         uncertain_key = base64.b64encode(b'fixture-quorum-timeout').decode()
         try:
             request(urls[2] + '/v3/kv/put', ctx, dict(key=uncertain_key, value=value))
@@ -217,6 +235,9 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
                 if time.monotonic() >= deadline:
                     raise AssertionError('Restored two-member majority failed new writes/readback') from None
                 time.sleep(0.2)
+        if patroni_python:
+            (control / 'restored').touch()
+            assert quorum_client.wait(timeout=25) == 0
         processes[0] = subprocess.Popen(commands[0], stdout=logs[0], stderr=logs[0])
         deadline = time.monotonic() + 20
         while True:
@@ -267,6 +288,13 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
             raise AssertionError('Missing certificate enabled plaintext')
         print('PASS: missing member certificate serves neither authenticated health nor plaintext health')
     finally:
+        if quorum_client is not None and quorum_client.poll() is None:
+            quorum_client.terminate()
+            try:
+                quorum_client.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                quorum_client.kill()
+                quorum_client.wait()
         for proc in processes:
             if proc.poll() is None:
                 proc.terminate()
