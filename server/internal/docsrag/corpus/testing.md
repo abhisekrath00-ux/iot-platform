@@ -145,3 +145,7 @@ The TLS fixture explicitly enables X509 strict verification and supplies CA/leaf
 ### HA synchronous-mode intent contract
 
 Generator tests check all three nodes in both default and `--sync-strict` modes for explicit one-standby synchronous mode and `synchronous_commit: "on"`, with no hard-coded synchronous member list. This is rendered bootstrap configuration evidence, not runtime application, transaction durability, fencing or a zero-loss/failover guarantee. Existing dynamic configuration is not changed. The HA guide records cancellation/session-override and unavailable-standby limits from Patroni's vendor documentation.
+
+### Actual Patroni DCS TLS client checkpoint
+
+`ETCD_BINARY=/trusted/etcd PATRONI_PYTHON=/venv-with-patroni4.1.5/bin/python python3 scripts/test-ha-etcd-tls.py` adds two independent real Patroni4.1.5 DCS clients to the disposable three-member fixture. It checks HTTPS discovery, cross-client initialization/config writes/reads and fixture namespace cleanup using rendered TLS settings. CI requires it with the same Patroni pin as the image. It does not start a Patroni daemon/PostgreSQL or test leases, watchers, image/PG16 behavior, upgrade, replication or failover. The base TLS check can run without Patroni; its output must not be mistaken for this optional checkpoint. Python dependencies are not transitively hash-locked yet.
