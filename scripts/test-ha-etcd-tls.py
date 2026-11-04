@@ -149,6 +149,8 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
                           ttl=30, loop_wait=10, retry_timeout=3)
             config_path = root / 'patroni-fixture.json'
             config_path.write_text(json.dumps(config))
+            subprocess.run([patroni_python, str(ROOT / 'scripts/test-patroni-tls-rejection.py'),
+                            str(config_path)], check=True, timeout=25)
             subprocess.run([patroni_python, str(ROOT / 'scripts/test-patroni-dcs.py'),
                             str(config_path)], check=True, timeout=90)
         # Stop the first advertised endpoint. The surviving majority must keep
