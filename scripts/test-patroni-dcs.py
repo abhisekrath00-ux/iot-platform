@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Internal helper for disposable TLS fixture only. No daemon or PostgreSQL is started."""
 import copy
+from concurrent.futures import ThreadPoolExecutor
 import importlib.metadata
 import json
 import sys
 import time
+from threading import Barrier
 
 from patroni.dcs import get_dcs
 
@@ -16,6 +18,20 @@ assert config['namespace'] == '/fixture/' and config['patronictl'] is True
 assert config['etcd3']['protocol'] == 'https'
 assert all(host.startswith('127.0.0.1:') and host.split(':')[1].isdigit()
            for host in config['etcd3']['hosts'].split(','))
+def compete(first_write, second_write):
+    # Release independent clients from one gate, not sequential fake winners.
+    gate = Barrier(3, timeout=5)
+
+    def write(action):
+        gate.wait()
+        return action()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = [pool.submit(write, action) for action in (first_write, second_write)]
+        gate.wait()
+        return [job.result(timeout=10) for job in jobs]
+
+
 # Independent DCS clients share the same isolated fixture namespace.
 a = get_dcs(copy.deepcopy(config))
 b = get_dcs(copy.deepcopy(config))
@@ -55,6 +71,32 @@ try:
     assert a.get_cluster().sync == updated_sync
     assert a.delete_sync_state(version=updated_sync.version)
     assert b.get_cluster().sync.leader is None
+    # Competing writers use the SAME observed revision but distinct payloads.
+    # Repeat both keys to avoid accepting a single accidental happy path.
+    for round_number in range(3):
+        current = a.get_cluster().config
+        values = [{'ttl': 30, 'fixture_race': f'{round_number}-{name}'} for name in ('a', 'b')]
+        outcomes = compete(lambda: a.set_config_value(json.dumps(values[0]), version=current.version),
+                           lambda: b.set_config_value(json.dumps(values[1]), version=current.version))
+        assert outcomes in ([True, False], [False, True]), f'Config CAS race outcomes: {outcomes}'
+        winner = outcomes.index(True)
+        for observer in (a, b):
+            committed = observer.get_cluster().config
+            assert committed.version != current.version and committed.data == values[winner]
+
+        initial = a.write_sync_state('fixture-leader', ['fixture-initial'], 0, version='0')
+        assert initial and initial.version
+        outcomes = compete(lambda: a.write_sync_state('fixture-leader', ['fixture-a'], 0, version=initial.version),
+                           lambda: b.write_sync_state('fixture-leader', ['fixture-b'], 0, version=initial.version))
+        successes = [item for item in outcomes if item is not None]
+        assert len(successes) == 1, f'Sync CAS race outcomes: {outcomes}'
+        winner = successes[0]
+        assert winner.version != initial.version
+        assert winner.sync_standby in ('fixture-a', 'fixture-b')
+        assert a.get_cluster().sync == winner and b.get_cluster().sync == winner
+        assert a.delete_sync_state(version=winner.version)
+        assert b.get_cluster().sync.leader is None
+    print('PASS: three real concurrent config and sync-state CAS rounds each commit exactly one writer payload', flush=True)
     print('PASS: real Patroni config and sync-state revision guards reject stale mutation/deletion and accept current revision', flush=True)
     print('PASS: Patroni4.1.5 real etcd3 DCS discovery and cross-client config read/write over rendered TLS keys', flush=True)
 finally:
