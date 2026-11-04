@@ -133,6 +133,25 @@ try:
     assert a.touch_member({'state': 'running', 'role': 'replica'})
     assert b.touch_member({'state': 'running', 'role': 'replica'})
     eventually(a, lambda c: c.has_member('fixture-a') and c.has_member('fixture-b'))
+    for round_number in range(3):
+        outcomes = compete(a.attempt_to_acquire_leader, b.attempt_to_acquire_leader)
+        assert all(isinstance(item, dict) for item in outcomes), f'Unexpected leader result type: {outcomes}'
+        assert [bool(item) for item in outcomes] in ([True, False], [False, True]), f'Leader race outcomes: {outcomes}'
+        successful = next(item for item in outcomes if item)
+        assert successful.get('succeeded') is True and successful.get('header', {}).get('revision')
+        winner, loser = (a, b) if outcomes[0] else (b, a)
+        name = 'fixture-a' if outcomes[0] else 'fixture-b'
+        leader = eventually(loser, lambda c: c.leader_name == name).leader
+        assert leader.session
+        assert eventually(winner, lambda c: c.leader_name == name).leader.session == leader.session
+        assert not loser.attempt_to_acquire_leader(), 'loser replaced occupied leader key'
+        assert not loser.delete_leader(leader), 'loser deleted race winner leader key'
+        assert winner.update_leader(winner.get_cluster(), None)
+        assert eventually(loser, lambda c: c.leader_name == name).leader.session == leader.session
+        assert winner.delete_leader(leader)
+        eventually(a, lambda c: c.is_unlocked())
+        eventually(b, lambda c: c.is_unlocked())
+    print('PASS: three competing real Patroni leader acquisitions each have one lease owner with loser deletion rejected', flush=True)
     assert a.attempt_to_acquire_leader()
     first = eventually(b, lambda c: c.leader_name == 'fixture-a').leader
     assert first.session
