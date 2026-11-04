@@ -28,6 +28,34 @@ try:
     assert cluster.config.data['ttl'] == 30
     assert b.set_config_value(json.dumps({'ttl': 30, 'synchronous_mode': True, 'synchronous_node_count': 1}))
     assert a.get_cluster().config.data['synchronous_node_count'] == 1
+    # Read two actual etcd revisions, then reject a stale writer rather than
+    # allowing an old observer to overwrite the newer configuration.
+    first = a.get_cluster().config
+    assert first and first.version
+    second_value = {'ttl': 30, 'synchronous_mode': True, 'fixture_revision': 'second'}
+    assert b.set_config_value(json.dumps(second_value), version=first.version)
+    second = a.get_cluster().config
+    assert second.version != first.version and second.data == second_value
+    assert a.set_config_value(json.dumps({'fixture_revision': 'stale'}), version=first.version) is False
+    unchanged = b.get_cluster().config
+    assert unchanged.version == second.version and unchanged.data == second_value
+    assert a.set_config_value(json.dumps({'ttl': 30, 'fixture_revision': 'third'}), version=second.version)
+    assert b.get_cluster().config.data['fixture_revision'] == 'third'
+
+    # /sync is DCS metadata, not evidence of actual PostgreSQL replication.
+    initial_sync = a.write_sync_state('fixture-a', ['fixture-b'], 0, version='0')
+    assert initial_sync and initial_sync.version
+    assert b.write_sync_state('fixture-x', ['fixture-y'], 0, version='0') is None
+    seen = b.get_cluster().sync
+    assert seen == initial_sync
+    updated_sync = b.write_sync_state('fixture-a', ['fixture-c'], 0, version=seen.version)
+    assert updated_sync and updated_sync.version != seen.version
+    assert a.write_sync_state('fixture-old', ['fixture-b'], 0, version=seen.version) is None
+    assert a.delete_sync_state(version=seen.version) == {}
+    assert a.get_cluster().sync == updated_sync
+    assert a.delete_sync_state(version=updated_sync.version)
+    assert b.get_cluster().sync.leader is None
+    print('PASS: real Patroni config and sync-state revision guards reject stale mutation/deletion and accept current revision', flush=True)
     print('PASS: Patroni4.1.5 real etcd3 DCS discovery and cross-client config read/write over rendered TLS keys', flush=True)
 finally:
     assert a.delete_cluster()
