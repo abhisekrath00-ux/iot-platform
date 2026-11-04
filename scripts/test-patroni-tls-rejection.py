@@ -5,6 +5,7 @@ import importlib.metadata
 import io
 import json
 import logging
+import socket
 from pathlib import Path
 import sys
 
@@ -37,12 +38,20 @@ def transport(params):
 control = transport(copy.deepcopy(base))
 assert len(control.machines) == 3
 control.http.clear()
-for label in ('missing-client', 'untrusted-client', 'untrusted-server'):
+for label in ('missing-client', 'untrusted-client', 'untrusted-server', 'wrong-server-san'):
     params = copy.deepcopy(base)
     if label == 'missing-client':
         params.pop('cert')
     elif label == 'untrusted-client':
         params['cert'] = (str(root / 'rogue.crt'), str(root / 'rogue.key'))
+    elif label == 'wrong-server-san':
+        # The real loopback listener remains reachable through this alias, but
+        # certificates contain IP:127.0.0.1 only, never DNS:localhost.
+        assert all(item[4][0] in ('127.0.0.1', '::1') for item in socket.getaddrinfo('localhost', None))
+        params['hosts'] = [url.replace('127.0.0.1', 'localhost') for url in base['hosts']]
+        for host in hosts:
+            with socket.create_connection(('localhost', int(host.split(':')[1])), timeout=2):
+                pass
     else:
         params['ca_cert'] = str(root / 'rogue-ca.crt')
     captured = io.StringIO()
@@ -60,7 +69,12 @@ for label in ('missing-client', 'untrusted-client', 'untrusted-server'):
             failures = evidence.splitlines()
             assert len(failures) == 3 and all('SSLError' in line for line in failures), \
                 'Each endpoint must fail in the TLS handshake: ' + evidence
-            assert all(host in evidence for host in hosts)
+            expected = [url.split('://')[1] for url in params['hosts']]
+            assert all(host in evidence for host in expected)
+            if label == 'wrong-server-san':
+                assert all('CERTIFICATE_VERIFY_FAILED' in line and
+                           ('Hostname mismatch' in line or 'not valid for' in line or "doesn't match" in line)
+                           for line in failures), 'Expected explicit hostname mismatch on every endpoint: ' + evidence
             assert not any(term in evidence for term in ('Connection refused', 'Read timed out', 'ConnectTimeoutError'))
             assert any(term in evidence for term in ('CERTIFICATE_VERIFY_FAILED', 'TLSV13_ALERT_CERTIFICATE_REQUIRED',
                                                      'SSLV3_ALERT_BAD_CERTIFICATE', 'TLSV1_ALERT_UNKNOWN_CA', 'SSLEOFError')), \
