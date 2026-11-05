@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Internal helper for disposable TLS fixture only. No daemon or PostgreSQL is started."""
 import copy
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 import importlib.metadata
 import json
@@ -110,6 +111,33 @@ try:
         assert a.get_cluster().sync == winner and b.get_cluster().sync == winner
         assert a.delete_sync_state(version=winner.version)
         assert b.get_cluster().sync.leader is None
+    # Synthetic metadata only: no HA loop consumes these requests.
+    scheduled = datetime(2030, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    assert a.manual_failover('fixture-leader', 'fixture-initial', scheduled)
+    initial_request = b.get_cluster().failover
+    assert initial_request and initial_request.version
+    assert (initial_request.leader, initial_request.candidate, initial_request.scheduled_at) == (
+        'fixture-leader', 'fixture-initial', scheduled)
+    for round_number in range(3):
+        current = a.get_cluster().failover
+        candidates = [f'fixture-request-{round_number}-{name}' for name in ('a', 'b')]
+        outcomes = compete(lambda: a.manual_failover('fixture-leader', candidates[0], scheduled, current.version),
+                           lambda: b.manual_failover('fixture-leader', candidates[1], scheduled, current.version))
+        assert outcomes in ([True, False], [False, True]), f'Failover metadata CAS outcomes: {outcomes}'
+        winning = b.get_cluster().failover
+        assert winning.version != current.version
+        assert (winning.leader, winning.candidate, winning.scheduled_at) == (
+            'fixture-leader', candidates[outcomes.index(True)], scheduled)
+        assert a.get_cluster().failover == winning
+        assert a.manual_failover(None, None, version=current.version) is False
+        assert b.manual_failover('fixture-stale', 'fixture-stale', scheduled, current.version) is False
+        assert a.get_cluster().failover == winning and b.get_cluster().failover == winning
+    assert a.manual_failover(None, None, version=winning.version)
+    cleared = b.get_cluster().failover
+    assert cleared.version != winning.version
+    assert cleared.leader is None and cleared.candidate is None and cleared.scheduled_at is None
+    assert a.get_cluster().failover == cleared
+    print('PASS: real Patroni scheduled failover metadata serializes, races one winner, rejects stale update/clear, and conditionally clears', flush=True)
     print('PASS: three real concurrent config and sync-state CAS rounds each commit exactly one writer payload', flush=True)
     print('PASS: real Patroni config and sync-state revision guards reject stale mutation/deletion and accept current revision', flush=True)
     print('PASS: Patroni4.1.5 real etcd3 DCS discovery and cross-client config read/write over rendered TLS keys', flush=True)
