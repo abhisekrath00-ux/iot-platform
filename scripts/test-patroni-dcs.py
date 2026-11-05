@@ -161,7 +161,8 @@ try:
     assert a.delete_leader(first)
     eventually(b, lambda c: c.is_unlocked())
     assert b.attempt_to_acquire_leader()
-    second = eventually(a, lambda c: c.leader_name == 'fixture-b').leader
+    prior_owner_cluster = eventually(a, lambda c: c.leader_name == 'fixture-b')
+    second = prior_owner_cluster.leader
     assert second.session and second.session != first.session
     assert not a.delete_leader(first), 'old owner deleted a new owner leader key'
     assert b.update_leader(b.get_cluster(), None)
@@ -169,7 +170,20 @@ try:
     # member entry and leader key; a sees this through its watch-backed cache.
     eventually(a, lambda c: c.is_unlocked() and not c.has_member('fixture-b'), seconds=45)
     assert a.attempt_to_acquire_leader()
-    eventually(b, lambda c: c.leader_name == 'fixture-a')
+    replacement = eventually(b, lambda c: c.leader_name == 'fixture-a').leader
+    assert replacement.session and replacement.session != second.session
+    # b still holds its captured prior-owner Leader, but its actual lease expired.
+    # Force the public renewal path to discover expiry and attempt recovery while
+    # a owns the key. No database daemon or fencing action is involved.
+    assert b.update_leader(prior_owner_cluster, None) is False, 'expired owner renewed over replacement leader'
+    assert not b.delete_leader(second), 'expired owner deleted replacement leader'
+    for observer in (a, b):
+        retained = eventually(observer, lambda c: c.leader_name == 'fixture-a').leader
+        assert retained.session == replacement.session and retained.version == replacement.version
+    assert a.update_leader(a.get_cluster(), None)
+    retained = eventually(b, lambda c: c.leader_name == 'fixture-a').leader
+    assert retained.session == replacement.session and retained.version == replacement.version
+    print('PASS: expired real Patroni lease owner cannot renew/delete replacement leader; owner session/revision retained', flush=True)
     print('PASS: real Patroni DCS watch visibility, exclusive leader key, keepalive, ownership guards and lease expiry/reacquisition', flush=True)
 finally:
     assert a.delete_cluster()
