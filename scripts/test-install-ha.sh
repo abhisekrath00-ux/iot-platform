@@ -7,6 +7,13 @@ S="bash scripts/install-ha.sh"; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; fails=0
 ok() { echo "ok   $1"; }; bad() { echo "FAIL $1"; fails=$((fails+1)); }
 expect_fail() { local m="$1"; shift; if "$@" >/dev/null 2>&1; then bad "$m (should have failed)"; else ok "$m"; fi; }
 N=a=10.0.0.11,b=10.0.0.12,c=10.0.0.13
+python3 - <<'PYPIN' && ok "Patroni PostgreSQL base index digest pinned" || bad "Patroni PostgreSQL base digest"
+from pathlib import Path
+lines = Path('deploy/ha/patroni/Dockerfile').read_text().splitlines()
+assert [line for line in lines if line.startswith('FROM ')] == [
+    'FROM postgres:16-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9']
+PYPIN
+
 bash -n scripts/install-ha.sh && ok "bash syntax" || bad "bash syntax"
 expect_fail "two nodes refused"      $S render --nodes a=10.0.0.11,b=10.0.0.12 --vip 10.0.0.10 --out $T/x1
 expect_fail "four nodes refused"     $S render --nodes a=10.0.0.11,b=10.0.0.12,c=10.0.0.13,d=10.0.0.14 --vip 10.0.0.10 --out $T/x2
