@@ -36,6 +36,20 @@ def compete(first_write, second_write):
 a = get_dcs(copy.deepcopy(config))
 b = get_dcs(copy.deepcopy(config))
 try:
+    for round_number in range(3):
+        ids = [f'fixture-bootstrap-a-{round_number}', f'fixture-bootstrap-b-{round_number}']
+        outcomes = compete(lambda: a.initialize(sysid=ids[0]), lambda: b.initialize(sysid=ids[1]))
+        assert all(isinstance(item, dict) for item in outcomes), f'Unexpected initialization result: {outcomes}'
+        assert [bool(item) for item in outcomes] in ([True, False], [False, True]), f'Bootstrap race outcomes: {outcomes}'
+        successful = next(item for item in outcomes if item)
+        assert successful.get('succeeded') is True and successful.get('header', {}).get('revision')
+        winner_id = ids[0] if outcomes[0] else ids[1]
+        assert a.get_cluster().initialize == winner_id and b.get_cluster().initialize == winner_id
+        assert not b.initialize(sysid='fixture-bootstrap-late'), 'late bootstrap overwrote existing system ID'
+        assert a.get_cluster().initialize == winner_id and b.get_cluster().initialize == winner_id
+        assert a.cancel_initialization()
+        assert a.get_cluster().initialize is None and b.get_cluster().initialize is None
+    print('PASS: three real Patroni competing create-only bootstrap markers select one system ID and reject overwrite', flush=True)
     assert a.initialize(sysid='fixture-system-id')
     assert a.set_config_value(json.dumps({'ttl': 30, 'synchronous_mode': True}))
     cluster = b.get_cluster()
