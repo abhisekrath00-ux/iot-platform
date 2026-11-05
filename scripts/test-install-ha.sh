@@ -26,6 +26,7 @@ ci = Path('.github/workflows/ci.yml').read_text()
 assert '--require-hashes -r deploy/ha/patroni/build-requirements.lock' in ci
 assert '--require-hashes --no-build-isolation -r deploy/ha/patroni/requirements.lock' in ci
 PYPIN
+python3 scripts/test-patroni-locks.py && ok "individual hash locks and offline tamper refusal" || bad "Patroni lock integrity"
 
 bash -n scripts/install-ha.sh && ok "bash syntax" || bad "bash syntax"
 expect_fail "two nodes refused"      $S render --nodes a=10.0.0.11,b=10.0.0.12 --vip 10.0.0.10 --out $T/x1
