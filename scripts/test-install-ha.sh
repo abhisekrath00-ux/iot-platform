@@ -12,6 +12,19 @@ from pathlib import Path
 lines = Path('deploy/ha/patroni/Dockerfile').read_text().splitlines()
 assert [line for line in lines if line.startswith('FROM ')] == [
     'FROM postgres:16-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9']
+import re
+for name in ('requirements.lock', 'build-requirements.lock'):
+    text = Path('deploy/ha/patroni/' + name).read_text()
+    entries = [line for line in text.splitlines() if line and not line.startswith(('#', ' '))]
+    assert entries and all(re.fullmatch(r'[A-Za-z0-9_.-]+(?:\[etcd3\])?==[A-Za-z0-9_.-]+ \\', line) for line in entries)
+    assert text.count('--hash=sha256:') >= len(entries)
+    assert all(re.fullmatch(r'    --hash=sha256:[a-f0-9]{64}(?: \\)?', line) for line in text.splitlines() if line.startswith(' '))
+docker = '\n'.join(lines)
+assert 'COPY build-requirements.lock requirements.lock /tmp/patroni-lock/' in docker
+assert docker.count('--require-hashes') == 2 and '--no-build-isolation' in docker
+ci = Path('.github/workflows/ci.yml').read_text()
+assert '--require-hashes -r deploy/ha/patroni/build-requirements.lock' in ci
+assert '--require-hashes --no-build-isolation -r deploy/ha/patroni/requirements.lock' in ci
 PYPIN
 
 bash -n scripts/install-ha.sh && ok "bash syntax" || bad "bash syntax"
