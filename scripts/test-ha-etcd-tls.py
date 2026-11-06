@@ -72,12 +72,13 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
                 '-addext', 'basicConstraints=critical,CA:TRUE',
                 '-addext', 'keyUsage=critical,keyCertSign,cRLSign', '-keyout', str(root / (ca + '.key')),
                 '-out', str(root / (ca + '.crt')))
-        for identity in ('a', 'b', 'c', 'client', 'rogue'):
+        for identity in ('a', 'b', 'c', 'client', 'rogue', 'server-only'):
             ca = 'rogue-ca' if identity == 'rogue' else 'ca'
             ext = root / 'extensions'
             ext.write_text('basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n'
                            'subjectAltName=IP:127.0.0.1\nextendedKeyUsage=' +
-                           ('clientAuth' if identity in ('client', 'rogue') else 'serverAuth,clientAuth') + '\n')
+                           ('serverAuth' if identity == 'server-only' else
+                            'clientAuth' if identity in ('client', 'rogue') else 'serverAuth,clientAuth') + '\n')
             run('openssl', 'req', '-newkey', 'rsa:2048', '-nodes', '-subj', '/CN=fixture-' + identity,
                 '-keyout', str(root / (identity + '.key')), '-out', str(root / (identity + '.csr')))
             run('openssl', 'x509', '-req', '-in', str(root / (identity + '.csr')), '-CA', str(root / (ca + '.crt')),
