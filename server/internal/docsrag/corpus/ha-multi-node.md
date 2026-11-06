@@ -503,3 +503,12 @@ A clean Python3.10 environment installed these hash-required inputs, passed depe
 A separate offline test creates a tiny synthetic wheel, installs it to a temporary target with pip's `--no-index --no-cache-dir --require-hashes` path, then changes the wheel bytes without updating the lock. The intact wheel must install; the changed wheel must fail with an explicit hash-mismatch diagnostic and no package directory in the rejected target. No third-party package code or network source is used for that test, and the temporary files are removed.
 
 This is a bounded pip integrity negative test, not proof of package safety, signature verification, source-to-wheel reproducibility, hostile-index resilience or every pip/version/platform behavior. The production locks still rely on PyPI release provenance and environment-supplied pip. Image build/run, Python3.11/arm64 execution, Apt pinning and database HA remain separate checkpoints.
+
+
+### Expired client identity through the real Patroni transport
+
+The disposable TLS fixture now issues an additional client certificate with a fixed past validity window (January1-2,2000), signed by the trusted synthetic CA and using the same client key. OpenSSL verification must report expiry; separate verification with time checking disabled must accept its chain and client purpose. That disabled-time check is an isolated diagnostic only. Patroni transport verification remains enabled and unchanged.
+
+The actual Patroni4.1.5 discovery client must reject this identity at all three endpoints with SSL-handshake diagnostics, then fresh valid-identity discovery must succeed. This passed with Python3.11.17 and etcd3.5.35 using the hash-locked Python environment. A generic connection refusal, timeout, unrelated exception or accepted discovery fails the test. As with the existing missing/untrusted-client cases, TLS EOF can be a server-side handshake rejection; this test does not claim every runtime produces an explicit expiry alert. Controlled identity, independent expiry/chain checks and valid-identity controls bound the evidence.
+
+No production certificates, trust settings or deployments change. This covers expired-client discovery rejection only, not certificate rotation/reload, revocation, server-certificate expiry, PostgreSQL TLS or the Patroni HA loop. Full Docker/PG16-image and arm64 execution remain unproven. The Python3.11 result is standalone fixture evidence, not image execution.
