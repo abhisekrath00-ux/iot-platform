@@ -83,6 +83,20 @@ with tempfile.TemporaryDirectory(prefix='hex-etcd-tls-') as temp:
             run('openssl', 'x509', '-req', '-in', str(root / (identity + '.csr')), '-CA', str(root / (ca + '.crt')),
                 '-CAkey', str(root / (ca + '.key')), '-CAcreateserial', '-days', '1', '-extfile', str(ext),
                 '-out', str(root / (identity + '.crt')))
+        # Explicit past validity, signed by the trusted fixture CA. Wall-clock
+        # changes cannot turn this into the missing/untrusted-CA test instead.
+        (root / 'expired-index').touch()
+        (root / 'expired-serial').write_text('1000\n')
+        (root / 'expired-ca.cnf').write_text(
+            '[ca]\ndefault_ca=fixture\n[fixture]\ndatabase=' + str(root / 'expired-index') +
+            '\nserial=' + str(root / 'expired-serial') + '\nnew_certs_dir=' + str(root) +
+            '\ncertificate=' + str(root / 'ca.crt') + '\nprivate_key=' + str(root / 'ca.key') +
+            '\ndefault_md=sha256\npolicy=policy\nx509_extensions=client\n[policy]\ncommonName=supplied\n' +
+            '[client]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n' +
+            'extendedKeyUsage=clientAuth\n')
+        run('openssl', 'ca', '-batch', '-config', str(root / 'expired-ca.cnf'),
+            '-in', str(root / 'client.csr'), '-out', str(root / 'expired-client.crt'),
+            '-startdate', '20000101000000Z', '-enddate', '20000102000000Z')
         output = root / 'render'
         run('bash', str(ROOT / 'scripts/install-ha.sh'), 'render', '--nodes',
             'a=10.0.0.11,b=10.0.0.12,c=10.0.0.13', '--vip', '10.0.0.10',
