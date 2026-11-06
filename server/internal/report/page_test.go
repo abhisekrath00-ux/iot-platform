@@ -12,17 +12,19 @@ func TestPageSetup(t *testing.T) {
 	m := Metric{DeviceID: "d", PointID: "p"}
 	rows := cb(120, func(i int) float64 { return 10 + math.Sin(float64(i)) })
 	series := map[Metric][]Bucket{m: rows}
+	// Byte comparisons must use one timestamp, even across a wall-clock second.
+	generated := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	mk := func(page string) string {
 		d := Definition{Metrics: []Metric{m}, WindowHours: 24, GroupBy: "hour", Page: page, Header: "H", Footer: "F"}
 		if err := Validate(d); err != nil {
 			t.Fatal(err)
 		}
-		return string(RenderPDF("T", d, series, time.Now()))
+		return string(RenderPDF("T", d, series, generated))
 	}
 	box := regexp.MustCompile(`/MediaBox \[0 0 (\d+) (\d+)\]`)
 	pages := func(s string) int { return strings.Count(s, "/Type /Page /Parent") }
 	def, a4, land, letter := mk(""), mk("a4"), mk("a4-landscape"), mk("letter")
-	if def != strings.Replace(a4, "", "", 0) || box.FindStringSubmatch(def)[1] != "595" || box.FindStringSubmatch(def)[2] != "842" {
+	if def != a4 || box.FindStringSubmatch(def)[1] != "595" || box.FindStringSubmatch(def)[2] != "842" {
 		t.Fatal("default must stay A4 portrait and equal explicit a4")
 	}
 	if g := box.FindStringSubmatch(land); g[1] != "842" || g[2] != "595" {
