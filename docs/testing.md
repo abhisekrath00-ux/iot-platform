@@ -194,3 +194,10 @@ The disposable TLS fixture now issues an additional client certificate with a fi
 The actual Patroni4.1.5 discovery client must reject this identity at all three endpoints with SSL-handshake diagnostics, then fresh valid-identity discovery must succeed. This passed with Python3.11.17 and etcd3.5.35 using the hash-locked Python environment. A generic connection refusal, timeout, unrelated exception or accepted discovery fails the test. As with the existing missing/untrusted-client cases, TLS EOF can be a server-side handshake rejection; this test does not claim every runtime produces an explicit expiry alert. Controlled identity, independent expiry/chain checks and valid-identity controls bound the evidence.
 
 No production certificates, trust settings or deployments change. This covers expired-client discovery rejection only, not certificate rotation/reload, revocation, server-certificate expiry, PostgreSQL TLS or the Patroni HA loop. Full Docker/PG16-image and arm64 execution remain unproven. The Python3.11 result is standalone fixture evidence, not image execution.
+
+
+### Client certificate purpose rejection
+
+The disposable transport fixture also issues a trusted, currently valid certificate with serverAuth only, never clientAuth. OpenSSL verification must accept its chain for sslserver and reject sslclient with a certificate-purpose diagnostic. Actual Patroni discovery using that certificate/key must then fail TLS on all three healthy endpoints. Valid client discovery still succeeds before and after the negative cases. This passed with Patroni4.1.5, Python3.11.17 and etcd3.5.35.
+
+This isolates extended-key-usage rejection from missing identity, untrusted CA and expiry. It does not establish server-side subject/RBAC authorization, revocation, rotation/reload, full daemon startup or database HA. TLS EOF remains a permitted handshake diagnostic under the controlled-identity checks; the test does not require a named purpose alert from every runtime. No production trust material or settings change; Docker/PG16-image and arm64 execution remain unproven.
