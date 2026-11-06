@@ -8,6 +8,7 @@ import logging
 import socket
 from pathlib import Path
 import sys
+import subprocess
 
 import etcd
 from patroni.dcs.etcd import DnsCachingResolver
@@ -38,12 +39,22 @@ def transport(params):
 control = transport(copy.deepcopy(base))
 assert len(control.machines) == 3
 control.http.clear()
-for label in ('missing-client', 'untrusted-client', 'untrusted-server', 'wrong-server-san'):
+for label in ('missing-client', 'untrusted-client', 'untrusted-server', 'wrong-server-san', 'expired-client'):
     params = copy.deepcopy(base)
     if label == 'missing-client':
         params.pop('cert')
     elif label == 'untrusted-client':
         params['cert'] = (str(root / 'rogue.crt'), str(root / 'rogue.key'))
+    elif label == 'expired-client':
+        params['cert'] = (str(root / 'expired-client.crt'), settings['key'])
+        # Prove expiry independently; the chain and purpose verify when time checking alone is disabled.
+        verified = subprocess.run(['openssl', 'verify', '-no_check_time', '-CAfile',
+                                   settings['cacert'], '-purpose', 'sslclient', str(root / 'expired-client.crt')],
+                                  capture_output=True, text=True)
+        assert verified.returncode == 0, verified.stdout + verified.stderr
+        expired = subprocess.run(['openssl', 'verify', '-CAfile', settings['cacert'],
+                                  str(root / 'expired-client.crt')], capture_output=True, text=True)
+        assert expired.returncode != 0 and 'certificate has expired' in expired.stdout + expired.stderr
     elif label == 'wrong-server-san':
         # The real loopback listener remains reachable through this alias, but
         # certificates contain IP:127.0.0.1 only, never DNS:localhost.
@@ -77,7 +88,7 @@ for label in ('missing-client', 'untrusted-client', 'untrusted-server', 'wrong-s
                            for line in failures), 'Expected explicit hostname mismatch on every endpoint: ' + evidence
             assert not any(term in evidence for term in ('Connection refused', 'Read timed out', 'ConnectTimeoutError'))
             assert any(term in evidence for term in ('CERTIFICATE_VERIFY_FAILED', 'TLSV13_ALERT_CERTIFICATE_REQUIRED',
-                                                     'SSLV3_ALERT_BAD_CERTIFICATE', 'TLSV1_ALERT_UNKNOWN_CA', 'SSLEOFError')), \
+                                                     'SSLV3_ALERT_BAD_CERTIFICATE', 'TLSV1_ALERT_UNKNOWN_CA', 'SSLV3_ALERT_CERTIFICATE_EXPIRED', 'SSLEOFError')), \
                 'No recognized TLS handshake rejection: ' + evidence
         else:
             unexpected.http.clear()
