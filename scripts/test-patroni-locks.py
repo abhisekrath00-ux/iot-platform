@@ -50,15 +50,37 @@ def validate(text):
 
 valid = 'fixture==1.0 \\\n    --hash=sha256:' + 'a' * 64 + '\n'
 assert validate(valid) == {'fixture': ('a' * 64,)}
-for invalid in ('', 'fixture>=1.0\n', 'fixture==1.0 \\\n',
-                valid + 'other==1.0 \\\n', valid.replace('a' * 64, 'x' * 64),
-                valid + valid, valid.replace('\n', '\n    --index-url=https://invalid/\n', 1)):
+# Exercise each refusal independently and check its reason, so one early
+# parser failure cannot accidentally stand in for another invariant.
+continued = valid.rstrip('\n') + ' \\\n    --hash=sha256:' + 'b' * 64 + '\n'
+assert validate(continued) == {'fixture': ('a' * 64, 'b' * 64)}
+assert validate(valid.replace('fixture', 'Fixture_Name')) == {'fixture-name': ('a' * 64,)}
+invalid_cases = {
+    'empty': ('', 'Empty lock'),
+    'unpinned': ('fixture>=1.0\n', 'Unpinned or unsupported'),
+    'trailing-continuation': ('fixture==1.0 \\\n', 'Trailing continuation'),
+    'missing-hash': (valid + 'other==1.0 \\\n', 'Trailing continuation'),
+    'bad-hash': (valid.replace('a' * 64, 'x' * 64), 'Malformed hash'),
+    'duplicate-name': (valid + valid, 'Duplicate requirement'),
+    'canonical-collision': (valid.replace('fixture', 'Fixture_Name') +
+                            valid.replace('fixture', 'fixture.name'), 'Duplicate requirement'),
+    'duplicate-hash': (continued.replace('b' * 64, 'a' * 64), 'Duplicate hash'),
+    'orphan-hash': ('    --hash=sha256:' + 'a' * 64 + '\n', 'Orphan hash'),
+    'hash-after-end': (valid + '    --hash=sha256:' + 'b' * 64 + '\n', 'Orphan hash'),
+    'new-requirement-before-end': (continued.replace('    --hash=sha256:' + 'b' * 64,
+                                                   'other==1.0 \\'), 'Requirement started before'),
+    'blank-during-continuation': (continued.replace('    --hash=sha256:' + 'b' * 64,
+                                                  '\n    --hash=sha256:' + 'b' * 64), 'Unfinished continuation'),
+    'injected-option': (valid.replace('\n', '\n    --index-url=https://invalid/\n', 1), 'Malformed hash'),
+}
+for label, (invalid, reason) in invalid_cases.items():
     try:
         validate(invalid)
-    except AssertionError:
-        pass
+    except AssertionError as error:
+        assert reason in str(error), f'{label}: wrong refusal: {error}'
     else:
-        raise AssertionError('Malformed fixture accepted')
+        raise AssertionError('Malformed fixture accepted: ' + label)
+print(f'PASS: {len(invalid_cases)} labeled malformed-lock refusals and valid canonical/continuation controls', flush=True)
 
 for name in ('requirements.lock', 'build-requirements.lock'):
     entries = validate((ROOT / 'deploy/ha/patroni' / name).read_text())
