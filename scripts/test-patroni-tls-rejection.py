@@ -39,12 +39,23 @@ def transport(params):
 control = transport(copy.deepcopy(base))
 assert len(control.machines) == 3
 control.http.clear()
-for label in ('missing-client', 'untrusted-client', 'untrusted-server', 'wrong-server-san', 'expired-client'):
+for label in ('missing-client', 'untrusted-client', 'untrusted-server', 'wrong-server-san', 'expired-client', 'wrong-client-purpose'):
     params = copy.deepcopy(base)
     if label == 'missing-client':
         params.pop('cert')
     elif label == 'untrusted-client':
         params['cert'] = (str(root / 'rogue.crt'), str(root / 'rogue.key'))
+    elif label == 'wrong-client-purpose':
+        certificate = str(root / 'server-only.crt')
+        params['cert'] = (certificate, str(root / 'server-only.key'))
+        trusted = subprocess.run(['openssl', 'verify', '-CAfile', settings['cacert'],
+                                  '-purpose', 'sslserver', certificate], capture_output=True, text=True)
+        assert trusted.returncode == 0, trusted.stdout + trusted.stderr
+        wrong = subprocess.run(['openssl', 'verify', '-CAfile', settings['cacert'],
+                                '-purpose', 'sslclient', certificate], capture_output=True, text=True)
+        diagnostic = wrong.stdout + wrong.stderr
+        assert wrong.returncode != 0 and any(reason in diagnostic for reason in
+                                           ('unsuitable certificate purpose', 'unsupported certificate purpose')), diagnostic
     elif label == 'expired-client':
         params['cert'] = (str(root / 'expired-client.crt'), settings['key'])
         # Prove expiry independently; the chain and purpose verify when time checking alone is disabled.
