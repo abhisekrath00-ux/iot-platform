@@ -152,6 +152,21 @@ jobs:
           "$tmp/patroni/bin/pip" install --disable-pip-version-check --require-hashes --no-build-isolation -r deploy/ha/patroni/requirements.lock
           "$tmp/patroni/bin/pip" check
           ETCD_BINARY="$tmp/etcd" PATRONI_PYTHON="$tmp/patroni/bin/python" python3 scripts/test-ha-etcd-tls.py
+      - name: Build pinned Patroni image and check non-root runtime
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          image=hexthings-patroni-ci:${GITHUB_SHA}
+          docker build --pull --tag "$image" deploy/ha/patroni
+          test "$(docker image inspect --format '{{.Config.User}}' "$image")" = postgres
+          docker run --rm --network none --entrypoint /bin/sh "$image" -ec '
+            test "$(id -un)" = postgres
+            test "$(id -u)" != 0
+            postgres --version | grep -E "PostgreSQL\) 16\."
+            /opt/patroni/bin/python -c "import sys, importlib.metadata as m; assert sys.version_info[:2] == (3, 11); assert m.version(\"patroni\") == \"4.1.5\"; import patroni.dcs.etcd3, psycopg2"
+            /opt/patroni/bin/pip check
+            test -x /entrypoint.sh
+          '
       - name: build and boot the stack
         run: |
           set -o pipefail
