@@ -25,12 +25,13 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 docker volume create --label hexthings.disposable=postgres-image-smoke "$volume" >/dev/null
-for phase in initialize reopen; do
+for phase in initialize reopen crash recover; do
   docker run --rm -i --name "$name" --network none \
     --mount "type=volume,source=$volume,target=/var/lib/postgresql/data" \
     --entrypoint /bin/sh "$image" -s -- "$phase" <<'CONTAINER'
 set -eu
 phase=$1
+export LC_ALL=C
 test "$(id -un)" = postgres
 test "$(id -u)" != 0
 test "$PGDATA" = /var/lib/postgresql/data
@@ -63,10 +64,28 @@ INSERT INTO image_checkpoint VALUES (1, 'synthetic-volume-checkpoint');
 SQL
 fi
 test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c 'SHOW server_version_num')" -ge 160000
-test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c 'SELECT count(*) FROM image_checkpoint')" = 1
+expected_count=1
+if [ "$phase" = recover ]; then expected_count=2; fi
+test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c 'SELECT count(*) FROM image_checkpoint')" = "$expected_count"
 test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c 'SELECT value FROM image_checkpoint WHERE id = 1')" = synthetic-volume-checkpoint
-pg_ctl -D "$PGDATA" -m fast -w -t 30 stop
+if [ "$phase" = crash ]; then
+  # Confirm the ordinary durability settings rather than assuming defaults.
+  for setting in fsync synchronous_commit full_page_writes; do
+    test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c "SHOW $setting")" = on
+  done
+  psql -X -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c "INSERT INTO image_checkpoint VALUES (2, 'synthetic-before-immediate-stop')"
+  pg_ctl -D "$PGDATA" -m immediate -w -t 30 stop
+  # An immediate stop must leave a crash state, not a clean-shutdown fixture.
+  pg_controldata "$PGDATA" | grep -E '^Database cluster state: +in production$'
+else
+  if [ "$phase" = recover ]; then
+    test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c 'SELECT value FROM image_checkpoint WHERE id = 2')" = synthetic-before-immediate-stop
+    grep -F 'database system was interrupted' /tmp/postgres.log
+    grep -F 'redo starts at' /tmp/postgres.log
+  fi
+  pg_ctl -D "$PGDATA" -m fast -w -t 30 stop
+fi
 printf 'PostgreSQL16 disposable volume phase passed: %s\n' "$phase"
 CONTAINER
 done
-printf 'PostgreSQL16 non-root initialization and clean-restart persistence passed\n'
+printf 'PostgreSQL16 non-root clean-restart and immediate-stop recovery passed\n'
