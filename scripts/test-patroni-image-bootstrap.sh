@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Single-node entrypoint fixture only. No production data, ports, or HA claim.
+set -euo pipefail
+if [[ $# != 2 || -z $1 || ! -x $2 ]]; then
+  echo 'usage: bash scripts/test-patroni-image-bootstrap.sh LOCAL_IMAGE ETCD_BINARY' >&2
+  exit 2
+fi
+image=$1
+etcd_binary=$(realpath "$2")
+work=$(mktemp -d)
+chmod 755 "$work"
+name=hexthings-patroni-${work##*/}
+network=$name-net
+volume=$name-data
+etcd=$name-etcd
+cleanup() {
+  status=$?
+  trap - EXIT INT TERM
+  if [[ $status != 0 ]]; then
+    docker logs "$name" 2>&1 || true
+    docker logs "$etcd" 2>&1 || true
+  fi
+  docker rm -f -v "$name" "$etcd" >/dev/null 2>&1 || true
+  docker volume rm "$volume" >/dev/null || status=1
+  docker network rm "$network" >/dev/null || status=1
+  rm -rf "$work"
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+cat > "$work/patroni.yml" <<'YAML'
+scope: disposable-image-bootstrap
+namespace: /fixture/
+name: fixture-a
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: fixture-a:8008
+etcd3:
+  hosts: fixture-etcd:2379
+bootstrap:
+  dcs:
+    ttl: 20
+    loop_wait: 2
+    retry_timeout: 3
+    # One member only. Never substitute this for production synchronous policy.
+    synchronous_mode: false
+    postgresql:
+      parameters:
+        wal_level: replica
+        max_wal_senders: 5
+        max_replication_slots: 5
+        wal_log_hints: 'on'
+  initdb: [encoding: UTF8, data-checksums]
+  pg_hba: ['local all all trust', 'host all all 0.0.0.0/0 scram-sha-256', 'host replication replicator 0.0.0.0/0 scram-sha-256']
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: fixture-a:5432
+  data_dir: /var/lib/postgresql/data/pgdata
+  authentication:
+    superuser: {username: postgres}
+    replication: {username: replicator}
+tags: {nofailover: false, noloadbalance: false, clonefrom: false}
+YAML
+chmod 644 "$work/patroni.yml"
+docker network create --internal "$network" >/dev/null
+docker volume create --label hexthings.disposable=patroni-bootstrap "$volume" >/dev/null
+# Reuse the already-built image to run the checksum-verified static etcd binary.
+docker run -d --name "$etcd" --network "$network" --network-alias fixture-etcd \
+  --mount "type=bind,source=$etcd_binary,target=/fixture-etcd,readonly" \
+  --entrypoint /fixture-etcd "$image" --name fixture-etcd --data-dir /tmp/etcd-data \
+  --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://fixture-etcd:2379 \
+  --listen-peer-urls http://0.0.0.0:2380 --initial-advertise-peer-urls http://fixture-etcd:2380 \
+  --initial-cluster fixture-etcd=http://fixture-etcd:2380 >/dev/null
+start_patroni() {
+  # Do not override entrypoint: this is the shipped /entrypoint.sh path.
+  docker run -d --name "$name" --network "$network" --network-alias fixture-a \
+    --mount "type=volume,source=$volume,target=/var/lib/postgresql/data" \
+    --mount "type=bind,source=$work/patroni.yml,target=/etc/patroni/patroni.yml,readonly" \
+    --env PATRONI_SUPERUSER_PASSWORD=synthetic-fixture-only \
+    --env PATRONI_REPLICATION_PASSWORD=synthetic-replication-only "$image" >/dev/null
+}
+wait_primary() {
+  for ((attempt=0; attempt<90; attempt++)); do
+    if docker exec "$name" /opt/patroni/bin/python -c 'import json,urllib.request; r=urllib.request.urlopen("http://127.0.0.1:8008/primary",timeout=1); d=json.load(r); assert r.status==200 and d["state"]=="running" and d["role"] in ("primary","master")' 2>/dev/null; then
+      return
+    fi
+    test "$(docker inspect --format '{{.State.Running}}' "$name")" = true
+    sleep 1
+  done
+  echo 'single-node Patroni did not become primary before deadline' >&2
+  return 1
+}
+sql() {
+  docker exec "$name" psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres -c "$1"
+}
+start_patroni
+wait_primary
+test "$(docker exec "$name" id -un)" = postgres
+test "$(sql 'SHOW server_version_num')" -ge 160000
+test "$(sql 'SELECT pg_is_in_recovery()')" = f
+system_id=$(sql 'SELECT system_identifier FROM pg_control_system()')
+[[ $system_id =~ ^[0-9]+$ ]]
+sql "CREATE TABLE patroni_image_checkpoint (id integer PRIMARY KEY, value text NOT NULL); INSERT INTO patroni_image_checkpoint VALUES (1, 'synthetic-entrypoint-restart')" >/dev/null
+printf 'Patroni actual entrypoint bootstrap and primary SQL passed\n'
+docker stop --time 30 "$name" >/dev/null
+docker rm -v "$name" >/dev/null
+start_patroni
+wait_primary
+test "$(sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 1
+test "$(sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 1')" = synthetic-entrypoint-restart
+test "$(sql 'SELECT pg_is_in_recovery()')" = f
+printf 'Patroni actual entrypoint restart retained system identifier and committed row\n'
+docker stop --time 30 "$name" >/dev/null
+printf 'Single-node Patroni image bootstrap/restart checkpoint passed\n'
