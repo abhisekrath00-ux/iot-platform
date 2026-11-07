@@ -174,9 +174,12 @@ assert a._client._kv_cache is not None and b._client._kv_cache is not None
 try:
     assert a.touch_member({'state': 'running', 'role': 'replica'})
     assert b.touch_member({'state': 'running', 'role': 'replica'})
-    eventually(a, lambda c: c.has_member('fixture-a') and c.has_member('fixture-b'))
-    first_member = b.get_cluster().get_member('fixture-a', fallback_to_leader=False)
-    other_member = a.get_cluster().get_member('fixture-b', fallback_to_leader=False)
+    # Independent watch caches can lag separately. Wait for BOTH observers
+    # before capturing the baseline; convergence of a says nothing about b.
+    observed = [eventually(observer, lambda c: c.has_member('fixture-a') and c.has_member('fixture-b'))
+                for observer in (a, b)]
+    first_member = observed[1].get_member('fixture-a', fallback_to_leader=False)
+    other_member = observed[0].get_member('fixture-b', fallback_to_leader=False)
     assert first_member and first_member.session and first_member.version
     assert other_member and other_member.session and other_member.version
     original_data = {'state': 'running', 'role': 'replica'}
