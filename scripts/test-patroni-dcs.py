@@ -175,6 +175,34 @@ try:
     assert a.touch_member({'state': 'running', 'role': 'replica'})
     assert b.touch_member({'state': 'running', 'role': 'replica'})
     eventually(a, lambda c: c.has_member('fixture-a') and c.has_member('fixture-b'))
+    first_member = b.get_cluster().get_member('fixture-a', fallback_to_leader=False)
+    other_member = a.get_cluster().get_member('fixture-b', fallback_to_leader=False)
+    assert first_member and first_member.session and first_member.version
+    assert other_member and other_member.session and other_member.version
+    original_data = {'state': 'running', 'role': 'replica'}
+    # Prime the local observer too: touch_member uses its cached cluster to
+    # avoid rewriting unchanged metadata, while still refreshing the lease.
+    eventually(a, lambda c: c.get_member('fixture-a', fallback_to_leader=False) == first_member)
+    assert a.touch_member(original_data)
+    for observer in (a, b):
+        seen = observer.get_cluster().get_member('fixture-a', fallback_to_leader=False)
+        assert seen == first_member, 'unchanged member heartbeat rewrote metadata or lease'
+    changed_data = dict(original_data, tags={'nofailover': True}, fixture_revision='changed')
+    assert a.touch_member(changed_data)
+    for observer in (a, b):
+        changed_cluster = eventually(observer, lambda c: c.get_member('fixture-a', fallback_to_leader=False)
+                                     and c.get_member('fixture-a', fallback_to_leader=False).data == changed_data)
+        changed = changed_cluster.get_member('fixture-a', fallback_to_leader=False)
+        assert changed.session == first_member.session and changed.version != first_member.version
+        assert changed_cluster.get_member('fixture-b', fallback_to_leader=False) == other_member
+    assert a.touch_member(original_data)
+    for observer in (a, b):
+        restored = eventually(observer, lambda c: c.get_member('fixture-a', fallback_to_leader=False)
+                              and c.get_member('fixture-a', fallback_to_leader=False).data == original_data)
+        member = restored.get_member('fixture-a', fallback_to_leader=False)
+        assert member.session == first_member.session and member.version != changed.version
+        assert restored.get_member('fixture-b', fallback_to_leader=False) == other_member
+    print('PASS: real Patroni unchanged member heartbeat retains revision; updates/restoration keep lease and other member', flush=True)
     for round_number in range(3):
         outcomes = compete(a.attempt_to_acquire_leader, b.attempt_to_acquire_leader)
         assert all(isinstance(item, dict) for item in outcomes), f'Unexpected leader result type: {outcomes}'
