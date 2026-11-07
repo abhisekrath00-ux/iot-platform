@@ -545,3 +545,10 @@ Read the exact commit's step log before claiming success. Docker is unavailable 
 ### Independent member-watch readiness
 
 CI1498 failed before the image/database steps: the member metadata fixture waited for observer-a to see both members, then immediately read observer-b without waiting for its independent watch cache. The baseline capture now waits for both observers separately, within the existing convergence deadline. Missing member/session/revision and later metadata/lease invariants still fail; no runtime assertion or TLS check is removed. This fixes test readiness, not a production cache-consistency guarantee. CI1498 does not prove the skipped PostgreSQL volume checkpoint.
+
+
+### PostgreSQL16 immediate-stop recovery checkpoint
+
+The disposable image fixture now keeps the existing initialize/clean-reopen checks and adds two more network-disabled non-root containers against the same named volume. The crash phase verifies fsync, synchronous_commit and full_page_writes are on, commits a second synthetic row, and calls `pg_ctl -m immediate`. It requires pg_controldata to show the unclean "in production" state. The recovery phase must reopen without initialization, read both committed rows and exact row count, and show PostgreSQL interruption and redo-start diagnostics before a clean stop. All four phases remain inside the three-minute CI deadline; container and volume cleanup still run.
+
+This is a checkpoint definition, not a claim that an uninspected CI run passed. Read the exact tip's step log for all four phase markers and recovery diagnostics. Local fake-Docker/shell tests are only orchestration checks. Even a passing run covers an immediate PostgreSQL server stop with the runner and storage still alive, not host/container kill, power loss, storage faults, corruption, production bind mounts, sustained workload, upgrades, replication, PostgreSQL TLS, Patroni startup/HA-loop/fencing/failover or arm64. The entrypoint remains overridden, and trust authentication remains confined to the disposable network-disabled fixture. No production state or registry changes.
