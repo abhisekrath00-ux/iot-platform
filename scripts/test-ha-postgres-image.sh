@@ -74,12 +74,38 @@ if [ "$phase" = crash ]; then
     test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c "SHOW $setting")" = on
   done
   psql -X -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c "INSERT INTO image_checkpoint VALUES (2, 'synthetic-before-immediate-stop')"
+  # Keep row3 in a live transaction. The marker is emitted only after INSERT.
+  psql -X -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres > /tmp/uncommitted.log 2>&1 <<'SQL' &
+BEGIN;
+INSERT INTO image_checkpoint VALUES (3, 'synthetic-uncommitted');
+\echo uncommitted-insert-ready
+SELECT pg_sleep(60);
+ROLLBACK;
+SQL
+  transaction_pid=$!
+  attempts=0
+  until grep -Fx 'uncommitted-insert-ready' /tmp/uncommitted.log >/dev/null; do
+    kill -0 "$transaction_pid"
+    attempts=$((attempts + 1))
+    test "$attempts" -le 100
+    sleep 0.1
+  done
+  # A different connection must not see the open transaction's row.
+  test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c 'SELECT count(*) FROM image_checkpoint WHERE id = 3')" = 0
+  kill -0 "$transaction_pid"
   pg_ctl -D "$PGDATA" -m immediate -w -t 30 stop
+  if wait "$transaction_pid"; then
+    echo 'open transaction unexpectedly completed before immediate stop' >&2
+    exit 1
+  fi
+  grep -E 'terminating connection|server closed the connection' /tmp/uncommitted.log
   # An immediate stop must leave a crash state, not a clean-shutdown fixture.
   pg_controldata "$PGDATA" | grep -E '^Database cluster state: +in production$'
 else
   if [ "$phase" = recover ]; then
     test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c 'SELECT value FROM image_checkpoint WHERE id = 2')" = synthetic-before-immediate-stop
+    test "$(psql -X -A -t -v ON_ERROR_STOP=1 -h /tmp -U postgres -d postgres -c 'SELECT count(*) FROM image_checkpoint WHERE id = 3')" = 0
+    printf 'PostgreSQL16 recovered committed rows and excluded uncommitted row\n'
     grep -F 'database system was interrupted' /tmp/postgres.log
     grep -F 'redo starts at' /tmp/postgres.log
   fi
