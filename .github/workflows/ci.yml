@@ -167,6 +167,9 @@ jobs:
             /opt/patroni/bin/pip check
             test -x /entrypoint.sh
           '
+      - name: PostgreSQL16 non-root disposable volume restart
+        timeout-minutes: 3
+        run: bash scripts/test-ha-postgres-image.sh "hexthings-patroni-ci:${GITHUB_SHA}"
       - name: build and boot the stack
         run: |
           set -o pipefail
