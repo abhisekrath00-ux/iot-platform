@@ -170,6 +170,16 @@ jobs:
       - name: PostgreSQL16 non-root disposable volume restart
         timeout-minutes: 3
         run: bash scripts/test-ha-postgres-image.sh "hexthings-patroni-ci:${GITHUB_SHA}"
+      - name: Single-node Patroni actual entrypoint bootstrap and restart
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          curl --fail --location --silent --show-error https://storage.googleapis.com/etcd/v3.5.35/etcd-v3.5.35-linux-amd64.tar.gz -o "$tmp/etcd.tar.gz"
+          echo "ca9f94cdc80be66923ef571d82b128819d0f5f3aa9f01522bafd991618ee29d1  $tmp/etcd.tar.gz" | sha256sum --check --strict
+          tar -xzf "$tmp/etcd.tar.gz" -C "$tmp" --strip-components=1
+          bash scripts/test-patroni-image-bootstrap.sh "hexthings-patroni-ci:${GITHUB_SHA}" "$tmp/etcd"
       - name: build and boot the stack
         run: |
           set -o pipefail
