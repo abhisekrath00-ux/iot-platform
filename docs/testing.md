@@ -208,3 +208,10 @@ This isolates extended-key-usage rejection from missing identity, untrusted CA a
 Two independent runtime DCS clients now check member heartbeat metadata. After both observe fixture-a and fixture-b, an unchanged fixture-a heartbeat must preserve its member object, key revision and lease session. Updating synthetic tags/metadata must become visible to both watch-backed observers with a new key revision and the same lease session. Restoring the original metadata must advance the revision again and retain that session. Fixture-b's member object must remain unchanged throughout.
 
 This passed with Patroni4.1.5, Python3.11.17 and the disposable etcd3.5.35 TLS cluster. It verifies bounded member-key/cache behavior, not database state, member liveness, collision handling for duplicate names, tag effects in the HA loop or production discovery. Existing lease-expiry, leader ownership, TLS and quorum checks still run afterward. No PostgreSQL daemon or production state is involved.
+
+
+### Pinned Patroni image build/runtime checkpoint
+
+The Compose-smoke CI job now attempts a Docker build of the pinned `deploy/ha/patroni` recipe and a network-disabled runtime smoke check. It requires the image's declared user and actual process user to be non-root `postgres`, PostgreSQL major16, Python3.11, Patroni4.1.5, importable etcd3/psycopg2 modules, `pip check` success and an executable entrypoint. The step has a12-minute deadline and uses only a local runner image tag, with no registry push.
+
+This checkpoint is not a claim that an uninspected run passed. Read the exact commit's CI job before using its result. Docker is unavailable in the local test environment; local YAML/shell validation does not prove the image builds. A successful checkpoint would cover the runner's native architecture only, not arm64, entrypoint startup, configuration/volume permissions, PostgreSQL initialization/replication, Patroni's HA loop, promotion/demotion, fencing or failover. The runtime command overrides the entrypoint and starts no database daemon. No production deployment or trust material changes.
