@@ -201,3 +201,10 @@ No production certificates, trust settings or deployments change. This covers ex
 The disposable transport fixture also issues a trusted, currently valid certificate with serverAuth only, never clientAuth. OpenSSL verification must accept its chain for sslserver and reject sslclient with a certificate-purpose diagnostic. Actual Patroni discovery using that certificate/key must then fail TLS on all three healthy endpoints. Valid client discovery still succeeds before and after the negative cases. This passed with Patroni4.1.5, Python3.11.17 and etcd3.5.35.
 
 This isolates extended-key-usage rejection from missing identity, untrusted CA and expiry. It does not establish server-side subject/RBAC authorization, revocation, rotation/reload, full daemon startup or database HA. TLS EOF remains a permitted handshake diagnostic under the controlled-identity checks; the test does not require a named purpose alert from every runtime. No production trust material or settings change; Docker/PG16-image and arm64 execution remain unproven.
+
+
+### Watch-backed member metadata fixture
+
+Two independent runtime DCS clients now check member heartbeat metadata. After both observe fixture-a and fixture-b, an unchanged fixture-a heartbeat must preserve its member object, key revision and lease session. Updating synthetic tags/metadata must become visible to both watch-backed observers with a new key revision and the same lease session. Restoring the original metadata must advance the revision again and retain that session. Fixture-b's member object must remain unchanged throughout.
+
+This passed with Patroni4.1.5, Python3.11.17 and the disposable etcd3.5.35 TLS cluster. It verifies bounded member-key/cache behavior, not database state, member liveness, collision handling for duplicate names, tag effects in the HA loop or production discovery. Existing lease-expiry, leader ownership, TLS and quorum checks still run afterward. No PostgreSQL daemon or production state is involved.
