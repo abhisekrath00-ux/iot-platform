@@ -255,22 +255,37 @@ for ((attempt=0; attempt<60; attempt++)); do
   sleep 1
 done
 test "$demoted" = true
-# HTTP503 must be from the live REST API, not a connection/parse error.
-docker exec "$name" /opt/patroni/bin/python -c 'import urllib.request,urllib.error
-try:
-    urllib.request.urlopen("http://127.0.0.1:8008/primary",timeout=2)
-except urllib.error.HTTPError as e:
-    assert e.code==503
-else:
-    raise AssertionError("former primary remains eligible")'
-if sql "INSERT INTO patroni_image_checkpoint VALUES (5, 'must-not-write-dcs-down')" > "$work/outage-write-rejection.log" 2>&1; then
-  echo 'former primary accepted INSERT with DCS stopped' >&2
-  exit 1
-fi
-grep -F 'cannot execute INSERT in a read-only transaction' "$work/outage-write-rejection.log" >/dev/null
-test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
-test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
-printf 'Patroni sole-DCS outage demoted former primary and rejected INSERT as read-only\n'
+# Three independent rounds, separated by waits, not one transient snapshot.
+for round in 1 2 3; do
+  test "$(docker inspect --format '{{.State.Running}}' "$etcd")" = false
+  test "$(sql 'SELECT pg_is_in_recovery()')" = t
+  test "$(sql 'SHOW transaction_read_only')" = on
+  test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
+  test "$(replica_sql 'SHOW transaction_read_only')" = on
+  # HTTP503 must be from the live REST API, not a connection/parse error.
+  docker exec "$name" /opt/patroni/bin/python -c 'import urllib.request,urllib.error
+  try:
+      urllib.request.urlopen("http://127.0.0.1:8008/primary",timeout=2)
+  except urllib.error.HTTPError as e:
+      assert e.code==503
+  else:
+      raise AssertionError("former primary remains eligible")'
+  if sql "INSERT INTO patroni_image_checkpoint VALUES (5, 'must-not-write-dcs-down')" > "$work/outage-write-rejection.log" 2>&1; then
+    echo 'former primary accepted INSERT with DCS stopped' >&2
+    exit 1
+  fi
+  grep -F 'cannot execute INSERT in a read-only transaction' "$work/outage-write-rejection.log" >/dev/null
+  test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
+  test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
+  if replica_sql "INSERT INTO patroni_image_checkpoint VALUES (5, 'must-not-write-standby-dcs-down')" > "$work/standby-outage-rejection.log" 2>&1; then
+    echo 'standby accepted INSERT with DCS stopped' >&2
+    exit 1
+  fi
+  grep -F 'cannot execute INSERT in a read-only transaction' "$work/standby-outage-rejection.log" >/dev/null
+  printf 'Patroni stopped-DCS read-only/write-refusal round %s passed for both members\n' "$round"
+  if [[ $round != 3 ]]; then sleep 3; fi
+done
+printf 'Patroni sole-DCS outage retained both read-only roles through three rounds\n'
 docker start "$etcd" >/dev/null
 wait_primary
 wait_replica
@@ -291,9 +306,13 @@ done
 test "$outage_replayed" = true
 test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 5
 test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 5
-test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 5')" = synthetic-after-dcs-outage
+# Check every expected value on both nodes, not just total row count.
+expected_values=synthetic-entrypoint-restart,synthetic-after-replica-join,synthetic-while-replica-offline,synthetic-after-dcs-restart,synthetic-after-dcs-outage
+value_query="SELECT string_agg(value, ',' ORDER BY id) FROM patroni_image_checkpoint"
+test "$(sql "$value_query")" = "$expected_values"
+test "$(replica_sql "$value_query")" = "$expected_values"
 test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
 printf 'Patroni sole-DCS restore recovered original primary and replayed fifth row\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
-printf 'Patroni image restart and sole-DCS fail-closed recovery checkpoint passed\n'
+printf 'Patroni image restart and repeated sole-DCS fail-closed recovery checkpoint passed\n'
