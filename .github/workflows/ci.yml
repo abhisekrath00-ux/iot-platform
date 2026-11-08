@@ -170,7 +170,7 @@ jobs:
       - name: PostgreSQL16 non-root disposable volume restart
         timeout-minutes: 3
         run: bash scripts/test-ha-postgres-image.sh "hexthings-patroni-ci:${GITHUB_SHA}"
-      - name: Patroni actual restart and sole-DCS fail-closed recovery
+      - name: Patroni actual repeated sole-DCS read-only recovery
         timeout-minutes: 5
         run: |
           set -euo pipefail
