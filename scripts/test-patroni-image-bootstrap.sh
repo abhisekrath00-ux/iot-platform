@@ -240,6 +240,60 @@ test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
 test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
 test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 4')" = synthetic-after-dcs-restart
 printf 'Patroni short same-container etcd restart recovered health and replayed fourth primary row\n'
+# The sole fixture DCS is unavailable. Failsafe is not enabled and the
+# standby is nofailover. Require the former primary to become read-only.
+docker stop --time 10 "$etcd" >/dev/null
+test "$(docker inspect --format '{{.State.Running}}' "$etcd")" = false
+demoted=false
+for ((attempt=0; attempt<60; attempt++)); do
+  if [[ $(sql 'SELECT pg_is_in_recovery()' 2>/dev/null || true) == t ]] && \
+     [[ $(sql 'SHOW transaction_read_only' 2>/dev/null || true) == on ]]; then
+    demoted=true
+    break
+  fi
+  test "$(docker inspect --format '{{.State.Running}}' "$name")" = true
+  sleep 1
+done
+test "$demoted" = true
+# HTTP503 must be from the live REST API, not a connection/parse error.
+docker exec "$name" /opt/patroni/bin/python -c 'import urllib.request,urllib.error
+try:
+    urllib.request.urlopen("http://127.0.0.1:8008/primary",timeout=2)
+except urllib.error.HTTPError as e:
+    assert e.code==503
+else:
+    raise AssertionError("former primary remains eligible")'
+if sql "INSERT INTO patroni_image_checkpoint VALUES (5, 'must-not-write-dcs-down')" > "$work/outage-write-rejection.log" 2>&1; then
+  echo 'former primary accepted INSERT with DCS stopped' >&2
+  exit 1
+fi
+grep -F 'cannot execute INSERT in a read-only transaction' "$work/outage-write-rejection.log" >/dev/null
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
+printf 'Patroni sole-DCS outage demoted former primary and rejected INSERT as read-only\n'
+docker start "$etcd" >/dev/null
+wait_primary
+wait_replica
+test "$(sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(replica_sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(sql 'SELECT pg_is_in_recovery()')" = f
+sql "INSERT INTO patroni_image_checkpoint VALUES (5, 'synthetic-after-dcs-outage')" >/dev/null
+recovery_lsn=$(sql 'SELECT pg_current_wal_lsn()')
+[[ $recovery_lsn =~ ^[0-9A-F]+/[0-9A-F]+$ ]]
+outage_replayed=false
+for ((attempt=0; attempt<60; attempt++)); do
+  if [[ $(replica_sql "SELECT pg_last_wal_replay_lsn() >= '$recovery_lsn'::pg_lsn") == t ]]; then
+    outage_replayed=true
+    break
+  fi
+  sleep 1
+done
+test "$outage_replayed" = true
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 5
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 5
+test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 5')" = synthetic-after-dcs-outage
+test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
+printf 'Patroni sole-DCS restore recovered original primary and replayed fifth row\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
-printf 'Patroni image primary/replica and short DCS restart checkpoint passed\n'
+printf 'Patroni image restart and sole-DCS fail-closed recovery checkpoint passed\n'
