@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single-node entrypoint fixture only. No production data, ports, or HA claim.
+# Synthetic entrypoint/restart and asynchronous replica fixture. No HA claim.
 set -euo pipefail
 if [[ $# != 2 || -z $1 || ! -x $2 ]]; then
   echo 'usage: bash scripts/test-patroni-image-bootstrap.sh LOCAL_IMAGE ETCD_BINARY' >&2
@@ -12,6 +12,8 @@ chmod 755 "$work"
 name=hexthings-patroni-${work##*/}
 network=$name-net
 volume=$name-data
+replica=$name-replica
+replica_volume=$name-replica-data
 etcd=$name-etcd
 cleanup() {
   status=$?
@@ -19,9 +21,10 @@ cleanup() {
   if [[ $status != 0 ]]; then
     docker logs "$name" 2>&1 || true
     docker logs "$etcd" 2>&1 || true
+    docker logs "$replica" 2>&1 || true
   fi
-  docker rm -f -v "$name" "$etcd" >/dev/null 2>&1 || true
-  docker volume rm "$volume" >/dev/null || status=1
+  docker rm -f -v "$name" "$replica" "$etcd" >/dev/null 2>&1 || true
+  docker volume rm "$volume" "$replica_volume" >/dev/null || status=1
   docker network rm "$network" >/dev/null || status=1
   rm -rf "$work"
   exit "$status"
@@ -65,6 +68,7 @@ YAML
 chmod 644 "$work/patroni.yml"
 docker network create --internal "$network" >/dev/null
 docker volume create --label hexthings.disposable=patroni-bootstrap "$volume" >/dev/null
+docker volume create --label hexthings.disposable=patroni-bootstrap "$replica_volume" >/dev/null
 # Reuse the already-built image to run the checksum-verified static etcd binary.
 docker run -d --name "$etcd" --network "$network" --network-alias fixture-etcd \
   --mount "type=bind,source=$etcd_binary,target=/fixture-etcd,readonly" \
@@ -112,5 +116,64 @@ test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 1
 test "$(sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 1')" = synthetic-entrypoint-restart
 test "$(sql 'SELECT pg_is_in_recovery()')" = f
 printf 'Patroni actual entrypoint restart retained system identifier and committed row\n'
+# The second member has its own empty volume. Never reuse primary PGDATA.
+sed -e 's/name: fixture-a/name: fixture-b/' \
+  -e 's/fixture-a:/fixture-b:/g' \
+  -e 's/nofailover: false/nofailover: true/' "$work/patroni.yml" > "$work/replica.yml"
+chmod 644 "$work/replica.yml"
+docker run -d --name "$replica" --network "$network" --network-alias fixture-b \
+  --mount "type=volume,source=$replica_volume,target=/var/lib/postgresql/data" \
+  --mount "type=bind,source=$work/replica.yml,target=/etc/patroni/patroni.yml,readonly" \
+  --env PATRONI_SUPERUSER_PASSWORD=synthetic-fixture-only \
+  --env PATRONI_REPLICATION_PASSWORD=synthetic-replication-only "$image" >/dev/null
+wait_replica() {
+  for ((attempt=0; attempt<90; attempt++)); do
+    if docker exec "$replica" /opt/patroni/bin/python -c 'import json,urllib.request; r=urllib.request.urlopen("http://127.0.0.1:8008/replica",timeout=1); d=json.load(r); assert r.status==200 and d["state"]=="running" and d["role"]=="replica"' 2>/dev/null; then
+      return
+    fi
+    test "$(docker inspect --format '{{.State.Running}}' "$replica")" = true
+    sleep 1
+  done
+  echo 'Patroni replica did not become ready before deadline' >&2
+  return 1
+}
+replica_sql() {
+  docker exec "$replica" psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres -c "$1"
+}
+wait_replica
+test "$(docker exec "$replica" id -un)" = postgres
+test "$(replica_sql 'SHOW server_version_num')" -ge 160000
+test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
+test "$(replica_sql 'SHOW transaction_read_only')" = on
+test "$(replica_sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 1')" = synthetic-entrypoint-restart
+printf 'Patroni separate-volume replica joined with same system identifier and base row\n'
+# A row written after replica readiness cannot be explained by initial base backup.
+sql "INSERT INTO patroni_image_checkpoint VALUES (2, 'synthetic-after-replica-join')" >/dev/null
+target_lsn=$(sql 'SELECT pg_current_wal_lsn()')
+[[ $target_lsn =~ ^[0-9A-F]+/[0-9A-F]+$ ]]
+replayed=false
+for ((attempt=0; attempt<60; attempt++)); do
+  if [[ $(replica_sql "SELECT pg_last_wal_replay_lsn() >= '$target_lsn'::pg_lsn") == t ]]; then
+    replayed=true
+    break
+  fi
+  sleep 1
+done
+test "$replayed" = true
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 2
+test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 2')" = synthetic-after-replica-join
+# Assert the actual database refusal, not just REST role or a read-only setting.
+if replica_sql "INSERT INTO patroni_image_checkpoint VALUES (3, 'must-not-write')" > "$work/write-rejection.log" 2>&1; then
+  echo 'standby accepted an INSERT' >&2
+  exit 1
+fi
+grep -F 'cannot execute INSERT in a read-only transaction' "$work/write-rejection.log" >/dev/null
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 2
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 2
+test "$(sql 'SELECT pg_is_in_recovery()')" = f
+test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
+printf 'Patroni post-join WAL replay and standby INSERT rejection passed\n'
+docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
-printf 'Single-node Patroni image bootstrap/restart checkpoint passed\n'
+printf 'Patroni image bootstrap/restart and asynchronous replica checkpoint passed\n'
