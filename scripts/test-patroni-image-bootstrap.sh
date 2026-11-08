@@ -264,12 +264,12 @@ for round in 1 2 3; do
   test "$(replica_sql 'SHOW transaction_read_only')" = on
   # HTTP503 must be from the live REST API, not a connection/parse error.
   docker exec "$name" /opt/patroni/bin/python -c 'import urllib.request,urllib.error
-  try:
-      urllib.request.urlopen("http://127.0.0.1:8008/primary",timeout=2)
-  except urllib.error.HTTPError as e:
-      assert e.code==503
-  else:
-      raise AssertionError("former primary remains eligible")'
+try:
+    urllib.request.urlopen("http://127.0.0.1:8008/primary",timeout=2)
+except urllib.error.HTTPError as e:
+    assert e.code==503
+else:
+    raise AssertionError("former primary remains eligible")'
   if sql "INSERT INTO patroni_image_checkpoint VALUES (5, 'must-not-write-dcs-down')" > "$work/outage-write-rejection.log" 2>&1; then
     echo 'former primary accepted INSERT with DCS stopped' >&2
     exit 1
