@@ -121,11 +121,13 @@ sed -e 's/name: fixture-a/name: fixture-b/' \
   -e 's/fixture-a:/fixture-b:/g' \
   -e 's/nofailover: false/nofailover: true/' "$work/patroni.yml" > "$work/replica.yml"
 chmod 644 "$work/replica.yml"
-docker run -d --name "$replica" --network "$network" --network-alias fixture-b \
-  --mount "type=volume,source=$replica_volume,target=/var/lib/postgresql/data" \
-  --mount "type=bind,source=$work/replica.yml,target=/etc/patroni/patroni.yml,readonly" \
-  --env PATRONI_SUPERUSER_PASSWORD=synthetic-fixture-only \
-  --env PATRONI_REPLICATION_PASSWORD=synthetic-replication-only "$image" >/dev/null
+start_replica() {
+  docker run -d --name "$replica" --network "$network" --network-alias fixture-b \
+    --mount "type=volume,source=$replica_volume,target=/var/lib/postgresql/data" \
+    --mount "type=bind,source=$work/replica.yml,target=/etc/patroni/patroni.yml,readonly" \
+    --env PATRONI_SUPERUSER_PASSWORD=synthetic-fixture-only \
+    --env PATRONI_REPLICATION_PASSWORD=synthetic-replication-only "$image" >/dev/null
+}
 wait_replica() {
   for ((attempt=0; attempt<90; attempt++)); do
     if docker exec "$replica" /opt/patroni/bin/python -c 'import json,urllib.request; r=urllib.request.urlopen("http://127.0.0.1:8008/replica",timeout=1); d=json.load(r); assert r.status==200 and d["state"]=="running" and d["role"]=="replica"' 2>/dev/null; then
@@ -140,6 +142,7 @@ wait_replica() {
 replica_sql() {
   docker exec "$replica" psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres -c "$1"
 }
+start_replica
 wait_replica
 test "$(docker exec "$replica" id -un)" = postgres
 test "$(replica_sql 'SHOW server_version_num')" -ge 160000
@@ -174,6 +177,34 @@ test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 2
 test "$(sql 'SELECT pg_is_in_recovery()')" = f
 test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
 printf 'Patroni post-join WAL replay and standby INSERT rejection passed\n'
+# Replace only the standby. The primary remains online and must not change roles.
+docker stop --time 30 "$replica" >/dev/null
+docker rm -v "$replica" >/dev/null
+sql "INSERT INTO patroni_image_checkpoint VALUES (3, 'synthetic-while-replica-offline')" >/dev/null
+offline_lsn=$(sql 'SELECT pg_current_wal_lsn()')
+[[ $offline_lsn =~ ^[0-9A-F]+/[0-9A-F]+$ ]]
+start_replica
+wait_replica
+test "$(replica_sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
+test "$(replica_sql 'SHOW transaction_read_only')" = on
+caught_up=false
+for ((attempt=0; attempt<60; attempt++)); do
+  if [[ $(replica_sql "SELECT pg_last_wal_replay_lsn() >= '$offline_lsn'::pg_lsn") == t ]]; then
+    caught_up=true
+    break
+  fi
+  sleep 1
+done
+test "$caught_up" = true
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 3
+test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 1')" = synthetic-entrypoint-restart
+test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 2')" = synthetic-after-replica-join
+test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 3')" = synthetic-while-replica-offline
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 3
+test "$(sql 'SELECT pg_is_in_recovery()')" = f
+test "$(sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+printf 'Patroni same-volume replica replacement replayed offline primary write and retained all three rows\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
-printf 'Patroni image bootstrap/restart and asynchronous replica checkpoint passed\n'
+printf 'Patroni image primary/replica restart and asynchronous catch-up checkpoint passed\n'
