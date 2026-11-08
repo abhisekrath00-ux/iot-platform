@@ -205,6 +205,41 @@ test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 3
 test "$(sql 'SELECT pg_is_in_recovery()')" = f
 test "$(sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
 printf 'Patroni same-volume replica replacement replayed offline primary write and retained all three rows\n'
+# Restart the same DCS container so its existing data directory is retained.
+# This intentionally does not simulate a prolonged outage or a lost quorum.
+docker restart --time 10 "$etcd" >/dev/null
+dcs_healthy=false
+for ((attempt=0; attempt<30; attempt++)); do
+  if docker exec "$name" /opt/patroni/bin/python -c 'import json,urllib.request; r=urllib.request.urlopen("http://fixture-etcd:2379/health",timeout=1); d=json.load(r); assert r.status==200 and d["health"] in (True,"true")' 2>/dev/null; then
+    dcs_healthy=true
+    break
+  fi
+  test "$(docker inspect --format '{{.State.Running}}' "$etcd")" = true
+  sleep 1
+done
+test "$dcs_healthy" = true
+wait_primary
+wait_replica
+test "$(sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(replica_sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(sql 'SELECT pg_is_in_recovery()')" = f
+test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
+sql "INSERT INTO patroni_image_checkpoint VALUES (4, 'synthetic-after-dcs-restart')" >/dev/null
+dcs_lsn=$(sql 'SELECT pg_current_wal_lsn()')
+[[ $dcs_lsn =~ ^[0-9A-F]+/[0-9A-F]+$ ]]
+dcs_replayed=false
+for ((attempt=0; attempt<60; attempt++)); do
+  if [[ $(replica_sql "SELECT pg_last_wal_replay_lsn() >= '$dcs_lsn'::pg_lsn") == t ]]; then
+    dcs_replayed=true
+    break
+  fi
+  sleep 1
+done
+test "$dcs_replayed" = true
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 4
+test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 4')" = synthetic-after-dcs-restart
+printf 'Patroni short same-container etcd restart recovered health and replayed fourth primary row\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
-printf 'Patroni image primary/replica restart and asynchronous catch-up checkpoint passed\n'
+printf 'Patroni image primary/replica and short DCS restart checkpoint passed\n'
