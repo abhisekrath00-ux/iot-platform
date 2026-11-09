@@ -131,6 +131,20 @@ check_tcp_auth() {
   test "$(docker exec "$client" env PGCONNECT_TIMEOUT=3 PGPASSFILE=/tmp/no-fixture-pgpass \
     PGPASSWORD=synthetic-fixture-only LC_ALL=C \
     psql -X -w -A -t -v ON_ERROR_STOP=1 -h "$host" -U postgres -d postgres -c "$privilege_query")" = t
+  # Prove the login works before interpreting a permission-denied query.
+  local replica_identity="SELECT current_user = 'replicator' AND inet_client_addr() IS NOT NULL"
+  test "$(docker exec "$client" env PGCONNECT_TIMEOUT=3 PGPASSFILE=/tmp/no-fixture-pgpass \
+    PGPASSWORD=synthetic-replication-only LC_ALL=C \
+    psql -X -w -A -t -v ON_ERROR_STOP=1 -h "$host" -U replicator -d postgres -c "$replica_identity")" = t
+  if docker exec "$client" env PGCONNECT_TIMEOUT=3 PGPASSFILE=/tmp/no-fixture-pgpass \
+    PGPASSWORD=synthetic-replication-only LC_ALL=C \
+    psql -X -w -A -t -v ON_ERROR_STOP=1 -h "$host" -U replicator -d postgres \
+    -c 'SELECT value FROM public.patroni_image_checkpoint LIMIT 1' \
+    > "$work/replicator-select-rejection.log" 2>&1; then
+    echo 'replication user read superuser-owned fixture table' >&2
+    return 1
+  fi
+  grep -F 'permission denied for table patroni_image_checkpoint' "$work/replicator-select-rejection.log" >/dev/null
 }
 start_patroni
 wait_primary
@@ -187,7 +201,7 @@ test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 1')" 
 printf 'Patroni separate-volume replica joined with same system identifier and base row\n'
 check_tcp_auth "$replica" fixture-a
 check_tcp_auth "$name" fixture-b
-printf 'Patroni cross-member TCP valid password and wrong/absent credential refusals, SCRAM verifier and replication role flag checks passed for both members\n'
+printf 'Patroni cross-member TCP valid password and wrong/absent credential refusals, SCRAM verifier and replication role flag and checkpoint SELECT refusal checks passed for both members\n'
 # A row written after replica readiness cannot be explained by initial base backup.
 sql "INSERT INTO patroni_image_checkpoint VALUES (2, 'synthetic-after-replica-join')" >/dev/null
 target_lsn=$(sql 'SELECT pg_current_wal_lsn()')
@@ -352,7 +366,7 @@ test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
 printf 'Patroni sole-DCS restore recovered original primary and replayed fifth row\n'
 check_tcp_auth "$replica" fixture-a
 check_tcp_auth "$name" fixture-b
-printf 'Patroni restored cross-member TCP authentication and credential refusals, SCRAM verifier and replication role flag checks passed for both members\n'
+printf 'Patroni restored cross-member TCP authentication and credential refusals, SCRAM verifier and replication role flag and checkpoint SELECT refusal checks passed for both members\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
 printf 'Patroni image restart and repeated sole-DCS fail-closed recovery checkpoint passed\n'
