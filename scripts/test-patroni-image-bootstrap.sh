@@ -367,6 +367,43 @@ printf 'Patroni sole-DCS restore recovered original primary and replayed fifth r
 check_tcp_auth "$replica" fixture-a
 check_tcp_auth "$name" fixture-b
 printf 'Patroni restored cross-member TCP authentication and credential refusals, SCRAM verifier and replication role flag and checkpoint SELECT refusal checks passed for both members\n'
+# Abruptly stop the original primary only after five committed values have
+# been verified on both members. The standby stays nofailover throughout.
+docker kill --signal KILL "$name" >/dev/null
+test "$(docker inspect --format '{{.State.Running}}' "$name")" = false
+test "$(docker inspect --format '{{.State.ExitCode}}' "$name")" = 137
+docker rm -v "$name" >/dev/null
+start_patroni
+wait_primary
+wait_replica
+test "$(sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(replica_sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(sql 'SELECT pg_is_in_recovery()')" = f
+test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 5
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 5
+test "$(sql "$value_query")" = "$expected_values"
+test "$(replica_sql "$value_query")" = "$expected_values"
+sql "INSERT INTO patroni_image_checkpoint VALUES (6, 'synthetic-after-primary-sigkill')" >/dev/null
+crash_lsn=$(sql 'SELECT pg_current_wal_lsn()')
+[[ $crash_lsn =~ ^[0-9A-F]+/[0-9A-F]+$ ]]
+crash_replayed=false
+for ((attempt=0; attempt<60; attempt++)); do
+  if [[ $(replica_sql "SELECT pg_last_wal_replay_lsn() >= '$crash_lsn'::pg_lsn") == t ]]; then
+    crash_replayed=true
+    break
+  fi
+  sleep 1
+done
+test "$crash_replayed" = true
+expected_values=$expected_values,synthetic-after-primary-sigkill
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 6
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 6
+test "$(sql "$value_query")" = "$expected_values"
+test "$(replica_sql "$value_query")" = "$expected_values"
+check_tcp_auth "$replica" fixture-a
+check_tcp_auth "$name" fixture-b
+printf 'Patroni primary SIGKILL same-volume recovery retained five values and replayed sixth row; both-member TCP/role/SELECT-refusal checks passed\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
 printf 'Patroni image restart and repeated sole-DCS fail-closed recovery checkpoint passed\n'
