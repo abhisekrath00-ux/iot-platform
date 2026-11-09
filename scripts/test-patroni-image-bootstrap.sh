@@ -98,6 +98,31 @@ wait_primary() {
 sql() {
   docker exec "$name" psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres -c "$1"
 }
+# Run the client in the opposite member so this cannot use local socket trust.
+# Synthetic credentials only; no ports are published on the internal network.
+check_tcp_auth() {
+  local client=$1 host=$2
+  local query="SELECT current_user = 'postgres' AND inet_client_addr() IS NOT NULL"
+  test "$(docker exec "$client" env PGCONNECT_TIMEOUT=3 PGPASSFILE=/tmp/no-fixture-pgpass \
+    PGPASSWORD=synthetic-fixture-only LC_ALL=C \
+    psql -X -w -A -t -v ON_ERROR_STOP=1 -h "$host" -U postgres -d postgres -c "$query")" = t
+  if docker exec "$client" env PGCONNECT_TIMEOUT=3 PGPASSFILE=/tmp/no-fixture-pgpass \
+    PGPASSWORD=synthetic-deliberately-wrong LC_ALL=C \
+    psql -X -w -A -t -v ON_ERROR_STOP=1 -h "$host" -U postgres -d postgres -c "$query" \
+    > "$work/tcp-wrong-password.log" 2>&1; then
+    echo 'TCP SQL accepted an incorrect password' >&2
+    return 1
+  fi
+  grep -F 'password authentication failed for user "postgres"' "$work/tcp-wrong-password.log" >/dev/null
+  if docker exec "$client" env PGCONNECT_TIMEOUT=3 PGPASSFILE=/tmp/no-fixture-pgpass \
+    PGPASSWORD= LC_ALL=C \
+    psql -X -w -A -t -v ON_ERROR_STOP=1 -h "$host" -U postgres -d postgres -c "$query" \
+    > "$work/tcp-no-password.log" 2>&1; then
+    echo 'TCP SQL accepted an absent password' >&2
+    return 1
+  fi
+  grep -F 'no password supplied' "$work/tcp-no-password.log" >/dev/null
+}
 start_patroni
 wait_primary
 test "$(docker exec "$name" id -un)" = postgres
@@ -151,6 +176,9 @@ test "$(replica_sql 'SHOW transaction_read_only')" = on
 test "$(replica_sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
 test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 1')" = synthetic-entrypoint-restart
 printf 'Patroni separate-volume replica joined with same system identifier and base row\n'
+check_tcp_auth "$replica" fixture-a
+check_tcp_auth "$name" fixture-b
+printf 'Patroni cross-member TCP valid password and wrong/absent credential refusals passed for both members\n'
 # A row written after replica readiness cannot be explained by initial base backup.
 sql "INSERT INTO patroni_image_checkpoint VALUES (2, 'synthetic-after-replica-join')" >/dev/null
 target_lsn=$(sql 'SELECT pg_current_wal_lsn()')
@@ -313,6 +341,9 @@ test "$(sql "$value_query")" = "$expected_values"
 test "$(replica_sql "$value_query")" = "$expected_values"
 test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
 printf 'Patroni sole-DCS restore recovered original primary and replayed fifth row\n'
+check_tcp_auth "$replica" fixture-a
+check_tcp_auth "$name" fixture-b
+printf 'Patroni restored cross-member TCP authentication and credential refusals passed for both members\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
 printf 'Patroni image restart and repeated sole-DCS fail-closed recovery checkpoint passed\n'
