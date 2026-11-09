@@ -122,6 +122,15 @@ check_tcp_auth() {
     return 1
   fi
   grep -F 'no password supplied' "$work/tcp-no-password.log" >/dev/null
+  # Return booleans only. Never select or print the password verifier itself.
+  local role_query="SELECT count(*) = 2 AND bool_and(rolcanlogin AND COALESCE(rolpassword LIKE 'SCRAM-SHA-256\$%', false)) FROM pg_authid WHERE rolname IN ('postgres', 'replicator')"
+  test "$(docker exec "$client" env PGCONNECT_TIMEOUT=3 PGPASSFILE=/tmp/no-fixture-pgpass \
+    PGPASSWORD=synthetic-fixture-only LC_ALL=C \
+    psql -X -w -A -t -v ON_ERROR_STOP=1 -h "$host" -U postgres -d postgres -c "$role_query")" = t
+  local privilege_query="SELECT count(*) = 1 AND bool_and(rolcanlogin AND rolreplication AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolbypassrls) FROM pg_roles WHERE rolname = 'replicator'"
+  test "$(docker exec "$client" env PGCONNECT_TIMEOUT=3 PGPASSFILE=/tmp/no-fixture-pgpass \
+    PGPASSWORD=synthetic-fixture-only LC_ALL=C \
+    psql -X -w -A -t -v ON_ERROR_STOP=1 -h "$host" -U postgres -d postgres -c "$privilege_query")" = t
 }
 start_patroni
 wait_primary
@@ -178,7 +187,7 @@ test "$(replica_sql 'SELECT value FROM patroni_image_checkpoint WHERE id = 1')" 
 printf 'Patroni separate-volume replica joined with same system identifier and base row\n'
 check_tcp_auth "$replica" fixture-a
 check_tcp_auth "$name" fixture-b
-printf 'Patroni cross-member TCP valid password and wrong/absent credential refusals passed for both members\n'
+printf 'Patroni cross-member TCP valid password and wrong/absent credential refusals, SCRAM verifier and replication role flag checks passed for both members\n'
 # A row written after replica readiness cannot be explained by initial base backup.
 sql "INSERT INTO patroni_image_checkpoint VALUES (2, 'synthetic-after-replica-join')" >/dev/null
 target_lsn=$(sql 'SELECT pg_current_wal_lsn()')
@@ -343,7 +352,7 @@ test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
 printf 'Patroni sole-DCS restore recovered original primary and replayed fifth row\n'
 check_tcp_auth "$replica" fixture-a
 check_tcp_auth "$name" fixture-b
-printf 'Patroni restored cross-member TCP authentication and credential refusals passed for both members\n'
+printf 'Patroni restored cross-member TCP authentication and credential refusals, SCRAM verifier and replication role flag checks passed for both members\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
 printf 'Patroni image restart and repeated sole-DCS fail-closed recovery checkpoint passed\n'
