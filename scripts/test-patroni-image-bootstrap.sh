@@ -445,6 +445,54 @@ test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 7
 check_tcp_auth "$replica" fixture-a
 check_tcp_auth "$name" fixture-b
 printf 'Patroni replica SIGKILL same-volume recovery replayed offline seventh row and refused INSERT; both-member TCP/role/SELECT-refusal checks passed\n'
+# Both database containers are absent together, but DCS and volumes survive.
+docker kill --signal KILL "$name" "$replica" >/dev/null
+for member in "$name" "$replica"; do
+  test "$(docker inspect --format '{{.State.Running}}' "$member")" = false
+  test "$(docker inspect --format '{{.State.ExitCode}}' "$member")" = 137
+done
+test "$(docker inspect --format '{{.State.Running}}' "$etcd")" = true
+docker rm -v "$name" "$replica" >/dev/null
+start_patroni
+wait_primary
+start_replica
+wait_replica
+test "$(sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(replica_sql 'SELECT system_identifier FROM pg_control_system()')" = "$system_id"
+test "$(sql 'SELECT pg_is_in_recovery()')" = f
+test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
+test "$(replica_sql 'SHOW transaction_read_only')" = on
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 7
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 7
+test "$(sql "$value_query")" = "$expected_values"
+test "$(replica_sql "$value_query")" = "$expected_values"
+sql "INSERT INTO patroni_image_checkpoint VALUES (8, 'synthetic-after-both-sigkill')" >/dev/null
+both_crash_lsn=$(sql 'SELECT pg_current_wal_lsn()')
+[[ $both_crash_lsn =~ ^[0-9A-F]+/[0-9A-F]+$ ]]
+both_crash_replayed=false
+for ((attempt=0; attempt<60; attempt++)); do
+  if [[ $(replica_sql "SELECT pg_last_wal_replay_lsn() >= '$both_crash_lsn'::pg_lsn") == t ]]; then
+    both_crash_replayed=true
+    break
+  fi
+  sleep 1
+done
+test "$both_crash_replayed" = true
+expected_values=$expected_values,synthetic-after-both-sigkill
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 8
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 8
+test "$(sql "$value_query")" = "$expected_values"
+test "$(replica_sql "$value_query")" = "$expected_values"
+if replica_sql "INSERT INTO patroni_image_checkpoint VALUES (9, 'must-not-write-after-both-sigkill')" > "$work/both-crash-write-rejection.log" 2>&1; then
+  echo 'restarted standby accepted INSERT after both-container SIGKILL' >&2
+  exit 1
+fi
+grep -F 'cannot execute INSERT in a read-only transaction' "$work/both-crash-write-rejection.log" >/dev/null
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 8
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 8
+check_tcp_auth "$replica" fixture-a
+check_tcp_auth "$name" fixture-b
+printf 'Patroni both-container SIGKILL same-volume recovery retained seven values and replayed eighth row; standby INSERT refusal and both-member auth checks passed\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
 printf 'Patroni image restart and repeated sole-DCS fail-closed recovery checkpoint passed\n'
