@@ -115,7 +115,9 @@ jobs:
       - name: Patroni embedded Python syntax and indentation regression
         run: python3 scripts/test-patroni-embedded-python.py
       - name: Ubuntu server bootstrap contract
-        run: bash scripts/test-ubuntu-server.sh
+        run: |
+          bash scripts/test-ubuntu-server.sh
+          python3 scripts/test-ubuntu-menu.py
       - name: HA HTTP checkpoint loopback regression
         run: python3 scripts/test-check-ha-http.py
       - name: Validate generated external shared-cache Compose contract
