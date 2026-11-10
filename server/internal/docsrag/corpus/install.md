@@ -1,18 +1,29 @@
 # Installing
 
-One command, the same steps online and air-gapped.
+Server installation is separate from the lightweight [edge agent](edge-install.md).
+Source installation needs internet for dependencies and image builds. An air-gapped
+bundle must already contain the required verified images.
 
 | Where | Command |
 |---|---|
 | Linux, macOS, WSL, source checkout | `bash scripts/install.sh` |
 | Linux, macOS, WSL, air-gapped bundle | `./install.sh` (inside the extracted bundle) |
-| Windows (Docker Desktop, WSL2) | double-click `install.bat`, or `powershell -ExecutionPolicy Bypass -File install.ps1` |
+| Windows11 x64, public bootstrap | `powershell -NoProfile -ExecutionPolicy Bypass -File windows-desktop.ps1` (download below) |
+| Windows, extracted source | `powershell -ExecutionPolicy Bypass -File scripts/get.ps1 -LocalSource .` |
 
-Add `--yes` (`-Yes` on Windows) to accept every default and ask nothing.
+Add `--yes` (`-Yes` on Windows) for installer defaults. Windows prerequisite installation, Docker terms and restart requirements remain separate checkpoints; this does not accept a license or authorize a purchase.
 
 ## Ubuntu Server: checked single-server bootstrap
 
-`scripts/ubuntu-server.sh` is a standalone bootstrap intended for a public source download. Once the repository is public, download that file, inspect it, and run `sudo bash ubuntu-server.sh`. It asks before changes; `--yes` accepts the displayed plan and installer defaults, and `--check` performs local checks only. It requires a fresh destination (default `/opt/hexthings`), Ubuntu 22.04/24.04/26.04/26.10 amd64, at least 4000MiB RAM and 10GiB free disk. Those Ubuntu versions match Docker's current supported list, not a claim that this product has run on every version. arm64 is refused by this bootstrap pending actual installer verification.
+The repository is public. Download and inspect the standalone Ubuntu bootstrap:
+
+```bash
+curl -fL https://github.com/abhisekrath00-ux/iot-platform/raw/refs/heads/main/scripts/ubuntu-server.sh -o ubuntu-server.sh
+# Inspect the file, then:
+sudo bash ubuntu-server.sh
+```
+
+It asks before changes; `--yes` accepts the displayed plan and installer defaults, and `--check` performs local checks only. It requires a fresh destination (default `/opt/hexthings`), Ubuntu 22.04/24.04/26.04/26.10 amd64, at least 4000MiB RAM and 10GiB free disk. Those Ubuntu versions match Docker's current supported list, not a claim that this product has run on every version. arm64 is refused by this bootstrap pending actual installer verification.
 
 It checks root rights, resources, existing destination, port conflicts, existing Docker/Compose and distribution-package conflicts before changes. Missing curl, Git, tar/gzip, iproute2, Python3 and CA certificates are installed with apt. For a host without Docker, it configures Docker's official Ubuntu apt repository and installs Engine, Buildx and Compose. It does not remove conflicting packages, replace an existing Docker lacking Compose, add users to the Docker group, change firewall rules or install paid services. Starting/enabling Docker changes the host; Docker has root-equivalent access. Failed later steps may leave dependencies or source installed, and a partially started stack must be inspected rather than assumed rolled back. Source builds require internet. AI is explicitly off.
 
@@ -22,22 +33,53 @@ After a successful guided install on an interactive terminal, the bootstrap now 
 
 From your laptop, use `ssh -L 8080:127.0.0.1:8080 YOUR_SSH_USER@YOUR_SERVER`, then open `http://localhost:8080`. Complete the required first-sign-in email/password change. No public domain, certificate or TLS endpoint is configured by this bootstrap. Changing access requires a separate reviewed ingress setup.
 
-Test boundaries: bootstrap tests cover supported/refused OS/architecture, resource boundaries, unsafe/mixed/host-network bindings, source binding contract, and stubbed main paths for successful source handoff, check-only, existing destination, busy ports and failed clone. Existing get/prerequisite/installer tests use stubs. CI additionally attempts the actual guided installer on a disposable Ubuntu runner, validates six live loopback host bindings, health/workspace creation, mode600 secrets and secret-preserving rerun. Read the exact run before calling that attempt passed. Fresh-host apt installation and every Ubuntu release remain unverified until exercised on such hosts; HA recovery fixtures do not prove this installer.
+Test boundaries: actual Ubuntu Desktop24.04.5 LTS amd64 minimal GNOME VM,
+8GiB RAM/42GiB disk, no Docker beforehand: apt Docker/Compose install, all seven
+services, workspace/admin creation, web health, six loopback bindings, and automatic
+animated-menu handoff passed. [Desktop run5](https://github.com/abhisekrath00-ux/iot-platform/actions/runs/42785598056).
+This is not proof of every Ubuntu release, physical-PC hardware, offline bundles,
+AI setup, real sensors or production HA. Pure/stub contracts also cover OS/resource
+refusals and safe source/menu handoff. The measured Desktop test had more than the
+stated 4000MiB/10GiB bootstrap minimum.
 
 Docker installation source: https://docs.docker.com/engine/install/ubuntu/
 
-## Private-source fallback: acquire source once, then run local setup
+## Windows11: public server bootstrap
 
-The repository is private as of 2026-10-31. Old anonymous `curl | bash` and
-`irm | iex` raw-GitHub commands no longer work. Do not paste credentials into a
-URL or command line, commit them, or make the repository public to bypass access.
+Download the standalone script in PowerShell (not Command Prompt):
 
-Sign in to GitHub with an account the owner has granted repository access. Use
-Code > Download ZIP, extract it, and open a terminal inside the extracted source
-folder (the one containing `docker-compose.yml`). Alternatively use an existing
-authenticated Git checkout. These scripts do not create accounts, mint tokens,
-manage Git authentication or grant repository access. Downloading source is not
-an integrity/provenance guarantee; use only the intended owner's source.
+```powershell
+Invoke-WebRequest -UseBasicParsing 'https://github.com/abhisekrath00-ux/iot-platform/raw/refs/heads/main/scripts/windows-desktop.ps1' -OutFile "$env:TEMP\windows-desktop.ps1"
+# Inspect the file, then:
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\windows-desktop.ps1"
+```
+
+Requires Windows11 client23H2/build22631 or newer, Intel/AMD x64,8GiB system RAM,
+20GiB free space, virtualization and internet. Windows Server, older Windows and
+ARM are refused by this server bootstrap. It defaults to `%LOCALAPPDATA%\HexThings`,
+refuses unrelated existing folders and supports rerunning its own source after a
+requested restart. It does not reboot automatically, change machine-wide execution
+policy, buy a subscription or accept Docker Desktop terms. Check Docker's
+[Windows requirements](https://docs.docker.com/desktop/setup/install/windows-install)
+and [license terms](https://docs.docker.com/subscription-billing/desktop-license).
+AI remains off; all service ports remain loopback. Interactive success opens the
+PowerShell menu; `-Yes` and noninteractive runs do not block on it.
+
+Native parsing and pure script contracts passed on Windows Server2025 in PowerShell5.1
+and7: [contract run1](https://github.com/abhisekrath00-ux/iot-platform/actions/runs/42792052432).
+These checks do not install the product on Server. Full Windows11/WSL2/Docker
+Desktop installation, the actual Windows menu and the Windows edge service remain
+unverified. General [CI1549](https://github.com/abhisekrath00-ux/iot-platform/actions/runs/42792052397)
+passed all four jobs at d276fb6; those Linux CI jobs are not Windows client acceptance.
+
+## Local-source fallback: acquire source once, then run local setup
+
+Public source can be cloned or downloaded with Code > Download ZIP. If access is
+restricted in another deployment, use an authorized Git checkout or owner-provided
+ZIP instead. These scripts do not manage accounts, mint tokens or grant access.
+Open a terminal inside the source folder containing `docker-compose.yml`.
+Source availability and checksums do not establish authenticity; use only the
+intended owner's source. Do not paste credentials into commands or commit them.
 
 Linux/macOS/WSL:
 
@@ -54,9 +96,9 @@ powershell -ExecutionPolicy Bypass -File scripts/get.ps1 -LocalSource .
 The local-source mode validates required source files, does not download, pull,
 merge or copy source, and then checks prerequisites before handing over to the
 existing guided installer. It can operate on an extracted ZIP without `.git`.
-The shell mode without `--local-source` can still clone/pull with Git's already
-configured credentials; a failed pull now stops instead of installing stale files.
-PowerShell without `-LocalSource` refuses with source-access instructions, before
+The shell mode without `--local-source` can clone/pull the public repository (or use
+Git's configured credentials where needed); a failed pull now stops instead of installing stale files.
+PowerShell `get.ps1` without `-LocalSource` refuses with local-source/public-bootstrap instructions, before
 any prerequisite/install changes. No new authentication flow is added.
 
 Prerequisites and source image builds may still require internet. This is **not**
@@ -110,7 +152,7 @@ Tested: `scripts/test-upgrade.sh` runs the whole flow (preflight refusals, backu
 
 ### Windows source ZIP patch preflight
 
-The private-source patch command validates a fresh local snapshot of the ZIP
+The explicit source-ZIP patch command validates a fresh local snapshot of the ZIP
 before Docker checks, backup, source copying or restart. It requires one source
 root and core source files, rejects traversal/absolute/Windows-special paths,
 case-insensitive duplicates, links/special entries, file/directory collisions,
@@ -149,12 +191,12 @@ Complete the blocking first-sign-in email/password change. Current installers do
 ## What is tested, and what is not
 
 - **Tested:** `scripts/test-install.sh` runs `install.sh` against fake `docker` and `curl` programs: Docker-down stops cleanly, generated secrets and file modes, no overwrite on re-run, no second administrator on re-run, the password never appears in a command line, bad names refused, the AI profile.
-- **Installer-specific limit:** the local development machine has no Docker. Separate CI stack/image/HA checks exist, but do not by themselves prove guided installation. The new actual guided-installer CI step above must be read on the exact tip. Fresh-host apt provisioning, offline bundles, AI installation and native Windows remain separate unverified paths.
-- Memory: a 4 GB host is the stated minimum; this was not measured.
+- **Installer-specific evidence:** the actual Ubuntu Desktop and native Windows script checks are bounded above. Offline bundles, AI installation and full Windows client installation remain separate unverified paths. CI stack/image/HA checks alone do not establish installer acceptance.
+- Memory: Ubuntu bootstrap minimum is4000MiB, not a measured capacity guarantee. The accepted Desktop VM used8GiB. Windows server bootstrap requires8GiB.
 
 ## The `hexthings` command (Windows PowerShell)
 
-After install, open a new terminal: `hexthings status | start | stop | restart | logs [svc] [-Follow] | version | update | patch FILE.zip | backup | restore FILE | ai | open | help`. `update` now refuses before backup or Docker changes because its old anonymous download cannot access this private repository. Sign in to GitHub, download the intended source ZIP, then use `hexthings patch FILE.zip`. The existing patch path backs up first, keeps `.env`, models and backups, and rebuilds; base images may need internet unless already cached. Patch has no signature/provenance validation or automatic rollback promise. Tested: PowerShell 7 on Linux against a fake `docker` (status, version, backup, restore, patch, logs). **Not run on real Windows PowerShell 5.1 or with real Docker.** On Linux/macOS use `scripts/backup.sh`, `scripts/restore.sh` and `docker compose`.
+After install, open a new terminal: `hexthings status | start | stop | restart | logs [svc] [-Follow] | version | update | patch FILE.zip | backup | restore FILE | ai | open | help`. `update` intentionally refuses before backup or Docker changes; its source-download path has not been restored merely because the repository is public. Download the intended source ZIP, then use `hexthings patch FILE.zip`. The existing patch path backs up first, keeps `.env`, models and backups, and rebuilds; base images may need internet unless already cached. Patch has no signature/provenance validation or automatic rollback promise. Tested: PowerShell 7 on Linux against a fake `docker` (status, version, backup, restore, patch, logs). **Not run on real Windows PowerShell 5.1 or with real Docker.** On Linux/macOS use `scripts/backup.sh`, `scripts/restore.sh` and `docker compose`.
 
 Free the model's RAM without stopping the platform: `hexthings ai stop` (start again with `hexthings ai start`). `hexthings stop` stops everything including the model. Plain docker: `docker compose --profile ai stop ai-runtime`, `docker compose --profile ai up -d ai-runtime`, `docker compose --profile ai stop`. With the model stopped the platform is unaffected and the assistant panel reports that no model answers. Tested: PowerShell 7 parse and the commands against a fake docker (Linux); not on Windows or real Docker.
 
@@ -167,7 +209,7 @@ Running `hexthings` with no arguments opens an interactive menu (arrow keys, Ent
 - `dash` is a live view: per-service CPU (bar and sparkline) and memory from `docker stats`, database size and alert counts from the database, web health. It shows only what those sources return.
 - Plain fallback: with `NO_COLOR`, redirected output or no interactive console the banner is plain text and `hexthings` prints the help instead of the menu. A console that is not UTF-8 draws `#` blocks and `<3` instead of the heart. Set `HEXTHINGS_ASCII=1` to force that, `HEXTHINGS_NO_ANIM=1` to skip the reveal.
 
-Tested: parsed with PowerShell 7 and run on Linux against a fake `docker` (menu navigation, diagnostics, support bundle redaction, dashboard rendering, plain and ASCII fallbacks). NOT run on Windows PowerShell 5.1 or against a real Docker. The Linux/macOS installer (`install.sh`) has the same wordmark; there is no `hexthings` menu for Linux/macOS yet.
+Tested: parsed with PowerShell 7 and run on Linux against a fake `docker` (menu navigation, diagnostics, support bundle redaction, dashboard rendering, plain and ASCII fallbacks). NOT run on Windows PowerShell 5.1 or against a real Docker. The Linux/macOS installer (`install.sh`) has the same wordmark, and `scripts/hexthings` provides the Bash management menu. The accepted Ubuntu Desktop test above inspected its actual pixels; no equivalent Windows menu acceptance is claimed.
 
 ### Choose a local AI size
 
