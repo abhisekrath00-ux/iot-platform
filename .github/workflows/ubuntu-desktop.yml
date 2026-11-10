@@ -1,0 +1,24 @@
+name: Ubuntu Desktop 24.04 acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ubuntu-desktop-24-acceptance
+  cancel-in-progress: false
+jobs:
+  actual-desktop-vm:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v6
+      - name: Boot official Desktop ISO and test fresh guided setup
+        run: bash scripts/test-ubuntu-desktop-vm.sh
+      - name: Preserve desktop framebuffer and non-secret acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ubuntu-desktop-24-evidence
+          path: desktop-evidence/
+          retention-days: 7
