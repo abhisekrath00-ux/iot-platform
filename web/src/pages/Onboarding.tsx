@@ -1,3 +1,4 @@
+import EdgeDownloads from '../components/EdgeDownloads';
 import { useEffect, useRef, useState } from 'react';
 import { SiteSelect } from '../components/SiteSelect';
 import QRCode from 'qrcode';
@@ -141,6 +142,7 @@ export default function Onboarding() {
   return (
     <>
       <h1>Commission a sensor</h1>
+      <EdgeDownloads />
       <ol className="steps">{STEPS.map((s, i) => <li key={s} className={i === step ? 'current' : i < step ? 'done' : ''}>{s}</li>)}</ol>
       <p className="muted" style={{ marginTop: -8, maxWidth: 640 }}>Step {step + 1} of {STEPS.length}. {HINTS[step]}</p>
 
@@ -162,7 +164,7 @@ export default function Onboarding() {
           {session.claim_code && (
             <details open>
               <summary>Install the edge app on the gateway</summary>
-              <p className="muted">Get the package for the gateway's system (built by <code>scripts/build-edge.sh</code> or the edge release; no internet is needed after that). Server address below is this page's address; change it if the gateway reaches the platform another way.</p>
+              <p className="muted">Download the installer above. These archive commands are advanced alternatives. The server address below is this page's address, not proof it is reachable from the edge PC. Check Server addresses before enrollment.</p>
               <p><b>Ubuntu / Linux</b> (as root, in the unpacked folder):</p>
               <pre style={{ overflowX: 'auto' }}>{`sudo ./install.sh --server ${window.location.origin} --code ${session.claim_code} --serial ${session.serial} --yes`}</pre>
               <p><b>Windows</b> (elevated PowerShell, in the unpacked folder):</p>
@@ -224,6 +226,15 @@ export default function Onboarding() {
         </form>
       )}
 
+      {session && step >= 3 && (
+        <div className="card" style={{ margin: '16px 0' }}>
+          <h3>Import the assigned gateway configuration before starting</h3>
+          <p>Download this full gateway YAML, review the broker address/TLS and physical sensor settings, then import it in the installed edge manager. Choose boot startup if wanted and Start the service. Return here for the read-only port test and first live reading.</p>
+          <button type="button" onClick={() => download(`/v1/gateways/${session.gateway_id}/edge-config`, 'edge-agent.yaml').catch(e => setMsg(String(e)))}>Download edge-agent.yaml</button>
+          <p className="muted">This download does not start the agent or change the server network. Re-download after adding devices. A loopback broker address is not a remote connection.</p>
+        </div>
+      )}
+
       {step === 3 && (
         <div>
           <h2>Port test (read-only)</h2>
@@ -274,11 +285,7 @@ export default function Onboarding() {
       {step === 4 && (
         <div>
           <h2>Live preview</h2>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <b>Gateway config</b>
-            <p className="muted">Download the generated agent config and install it on the gateway (Ubuntu or Windows). Re-download after adding devices, or push it as a fleet config release.</p>
-            <button className="ghost" onClick={() => download(`/v1/gateways/${session!.gateway_id}/edge-config`, 'edge-agent.yaml').catch(e => setMsg(String(e)))}>Download edge-agent.yaml</button>
-          </div>
+
           {preview.length === 0
             ? <p className="muted">No readings yet. The gateway publishes on its poll interval; this refreshes every 5s.</p>
             : <table><thead><tr><th>Point</th><th>Value</th><th>Unit</th><th>Quality</th><th>Observed</th></tr></thead>
