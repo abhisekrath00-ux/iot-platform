@@ -3,7 +3,7 @@
 #   .\install.ps1 -Server https://api.example -Code CODE -Serial SERIAL -Yes
 # Checks the machine, tests that your server answers and the clock is close, then runs install-windows.ps1.
 # Works air-gapped: the agent .exe is in this folder and only your own HexThings server is contacted.
-# NOT TESTED: no Windows machine was available when this was written.
+# Native command-exit regression tested; full Windows service install remains unverified.
 param([string]$Server = "", [string]$Code = "", [string]$Serial = "", [switch]$Yes, [switch]$SkipNetCheck)
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -50,6 +50,8 @@ if ($Server) {
 
 Step "3/4" "Installing the service"
 $a = @{}; if ($Server -and $Code) { $a.ClaimApi = $Server; $a.ClaimCode = $Code; if ($Serial) { $a.ClaimSerial = $Serial } }
+# Low-level installer throws on enrollment/permission failures. Let that stop this
+# script before any success message; never suppress it with a success exit code.
 & (Join-Path $here "install-windows.ps1") @a
 Ok "service installed"
 
