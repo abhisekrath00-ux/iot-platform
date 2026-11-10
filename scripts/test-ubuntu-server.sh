@@ -64,3 +64,12 @@ main --check --dir "$T/check" > "$T/check.out"
 if TEST_CLONE_FAIL=1 main --yes --dir "$T/download-failed" > /dev/null 2>&1; then exit 1; fi
 [[ ! -e "$T/download-failed" && $(grep -c '^install ' "$TEST_INSTALL_LOG") == 1 ]]
 printf 'Stubbed fresh install/check-only/existing destination/busy port/clone refusal checks passed\n'
+
+# Noninteractive completion must not launch the menu, including guided mode.
+mkdir -p "$T/menu/scripts"
+printf '#!/bin/bash\necho menu >> "$TEST_INSTALL_LOG"\n' > "$T/menu/scripts/hexthings"
+finish_setup "$T/menu" 0 > "$T/menu-out"
+finish_setup "$T/menu" 1 >> "$T/menu-out"
+! grep -q '^menu$' "$TEST_INSTALL_LOG"
+grep -q 'Open the HexThings terminal menu later' "$T/menu-out"
+printf 'Noninteractive menu handoff stays nonblocking\n'
