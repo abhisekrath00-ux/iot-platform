@@ -2,7 +2,7 @@ name: Windows installer contracts
 on:
   push:
     branches: [main]
-    paths: ['scripts/*ps1', '.github/workflows/windows-installer.yml']
+    paths: ['scripts/*ps1', 'edge/packaging/*ps1', '.github/workflows/windows-installer.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,8 +20,10 @@ jobs:
           & ./scripts/test-windows-desktop.ps1
           & ./scripts/test-prereq.ps1
           & ./scripts/test-remove-hexthings-windows.ps1
+          & ./scripts/test-edge-windows-exits.ps1
       - name: PowerShell7 pure contracts (no WSL/Docker installation)
         shell: pwsh
         run: |
           ./scripts/test-windows-desktop.ps1
           ./scripts/test-remove-hexthings-windows.ps1
+          ./scripts/test-edge-windows-exits.ps1
