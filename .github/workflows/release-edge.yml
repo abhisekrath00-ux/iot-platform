@@ -12,7 +12,10 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: '1.26', check-latest: true }
       - name: build edge packages (linux+windows, amd64+arm64)
-        run: scripts/build-edge.sh "${GITHUB_REF_NAME:-dev}"
+        run: |
+          ver=0.2.0
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then ver="$GITHUB_REF_NAME"; fi
+          bash scripts/build-edge.sh "$ver"
       - uses: actions/upload-artifact@v4
         with: { name: edge-packages, path: dist/edge/* }
       - name: attach to release
