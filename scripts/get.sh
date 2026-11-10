@@ -2,7 +2,7 @@
 # One-command HexThings setup for Linux and macOS. Checks what is needed (Docker, Compose v2, a running engine,
 # RAM, disk), installs ONLY what is missing after one yes/no question, then installs and starts HexThings:
 #   bash scripts/get.sh --local-source .   (inside an authorized checkout/extracted source)
-# Uses explicit local source, or authenticated Git into ./hexthings (or $HEXTHINGS_DIR), then runs the guided installer with
+# Uses explicit local source, or public/configured Git into ./hexthings (or $HEXTHINGS_DIR), then runs the guided installer with
 # defaults (--yes): generated secrets, first workspace and administrator, prints the sign-in URL.
 # Local-source selection uses no network; prerequisites/images/optional AI may still need internet.
 set -euo pipefail
@@ -16,11 +16,11 @@ if [ "${1:-}" = --local-source ]; then
     [ -f "$DIR/$f" ] || { echo "local source is incomplete (missing $f); no download or install attempted" >&2; exit 1; }
   done
 elif [ -d "$DIR/.git" ]; then
-  git -C "$DIR" pull --ff-only || { echo "Source update failed. Authenticate Git for this private repository, or use --local-source PATH to install the existing files deliberately." >&2; exit 1; }
+  git -C "$DIR" pull --ff-only || { echo "Source update failed. Check network/repository access and Git authentication if needed, or use --local-source PATH to install the existing files deliberately." >&2; exit 1; }
 else
   if command -v git >/dev/null 2>&1 && [ ! -e "$DIR" ]; then
     git clone --depth 1 "https://github.com/$REPO.git" "$DIR" || { echo "Source access failed. Use an authorized Git login or owner-downloaded ZIP, then run bash scripts/get.sh --local-source . inside that source folder." >&2; exit 1; }
-  else echo "Use --local-source PATH for an existing checkout/extracted source, or install Git and configure authorized private-repository access." >&2; exit 1; fi
+  else echo "Use --local-source PATH for an existing checkout/extracted source, or install Git and check repository access." >&2; exit 1; fi
 fi
 cd "$DIR"
 # Put a `hexthings` command on PATH (menu, status, start, stop, doctor, ai ...). Best effort: never stops the install.
