@@ -61,10 +61,10 @@ if [ -n "$SERVER" ]; then
   else
     for a in "${addrs[@]}"; do
       a="${a// /}"
-      if command -v curl >/dev/null 2>&1 && curl -fsS -m 8 -o /dev/null -k "${a%/}/healthz" 2>/dev/null; then ok "server answers at $a"; REACH="$a"; break; else warn "no answer from $a"; fi
+      if command -v curl >/dev/null 2>&1 && curl -fsS -m 8 -o /dev/null "${a%/}/healthz" 2>/dev/null; then ok "server answers at $a"; REACH="$a"; break; else warn "no answer from $a"; fi
     done
     if [ -z "$REACH" ]; then bad "cannot reach any server address ($SERVER); check the address, network and firewall"; exit 1; fi
-    d="$(curl -sI -m 8 -k "${REACH%/}/healthz" 2>/dev/null | sed -n 's/^[Dd]ate: *//p' | head -1 | tr -d '\r')"
+    d="$(curl -sI -m 8 "${REACH%/}/healthz" 2>/dev/null | sed -n 's/^[Dd]ate: *//p' | head -1 | tr -d '\r')"
     if [ -n "$d" ]; then
       diff=$(( $(date +%s) - $(date -d "$d" +%s 2>/dev/null || date +%s) )); diff=${diff#-}
       if [ "$diff" -gt 300 ]; then warn "clock differs from the server by ${diff}s; fix the time or certificates and tokens may fail"; else ok "clock is in sync with the server"; fi
@@ -79,6 +79,22 @@ if [ -n "$SERVER" ] && [ -n "$CODE" ]; then args=(-claim-api "$SERVER" -claim-co
 
 step "4/4" "Done"
 ok "HexThings edge agent is installed"
-echo "  Start:   sudo systemctl start hexmon-edge"
+if [ "$YES" = 0 ] && [ "${HEXMON_SKIP_SYSTEMD:-0}" != 1 ]; then
+  read -r -p 'Start automatically when this PC boots, after config is ready? [y/N]: ' boot
+  pref="${HEXMON_ETC:-/etc/hexmon}/start-on-boot"
+  if [[ "$boot" =~ ^[Yy]$ ]]; then
+    printf 'yes\n' > "$pref"; chmod 640 "$pref"
+    echo 'Boot preference saved. It will be activated after a real config passes checks in the manager.'
+  else
+    rm -f "$pref"; systemctl disable hexmon-edge
+    echo 'Manual startup selected.'
+  fi
+fi
+echo "  Manage:  sudo hexthings-edge (import config, startup choice, Start/Stop/Health)"
+if [ "$YES" = 0 ] && [ "${HEXMON_SKIP_SYSTEMD:-0}" != 1 ]; then
+  echo 'Installation is complete. Configuration and startup are separate steps.'
+  read -r -p 'Open the local manager now to import config and choose boot startup? [y/N]: ' manage
+  if [[ "$manage" =~ ^[Yy]$ ]]; then "${HEXMON_PREFIX:-/usr/local/bin}/hexthings-edge"; fi
+fi
 echo "  Logs:    journalctl -u hexmon-edge -f"
 echo "  Health:  edge-agent -health"
