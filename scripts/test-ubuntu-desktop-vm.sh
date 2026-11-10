@@ -39,6 +39,7 @@ import json,pathlib
 key=pathlib.Path('key.pub').read_text().strip()
 config={'autoinstall':{'version':1,'source':{'id':'ubuntu-desktop-minimal'},'locale':'en_US.UTF-8','keyboard':{'layout':'us'},'identity':{'hostname':'hex-desktop-ci','username':'hextest','realname':'HexThings Desktop CI','password':'!'},'storage':{'layout':{'name':'direct'}},'ssh':{'install-server':True,'allow-pw':False,'authorized-keys':[key]},'packages':['openssh-server','python3-pexpect','gnome-terminal'],'updates':'security','shutdown':'poweroff','late-commands':["printf '[daemon]\\nAutomaticLoginEnable=true\\nAutomaticLogin=hextest\\nWaylandEnable=false\\n' > /target/etc/gdm3/custom.conf","printf 'hextest ALL=(ALL) NOPASSWD:ALL\\n' > /target/etc/sudoers.d/90-hextest-ci","chmod 440 /target/etc/sudoers.d/90-hextest-ci"]}}
 pathlib.Path('seed/user-data').write_text('#cloud-config\n'+json.dumps(config))
+pathlib.Path('seed/vendor-data').write_text('#cloud-config\n{}\n')
 pathlib.Path('seed/meta-data').write_text('instance-id: hex-desktop-ci\nlocal-hostname: hex-desktop-ci\n')
 PY
 python3 -m http.server 8765 --bind 127.0.0.1 --directory seed > "$base/seed-http.log" 2>&1 & seed_pid=$!
@@ -46,7 +47,7 @@ qemu-img create -f qcow2 desktop.qcow2 42G
 qmp_capture() {
   python3 - "$work/qmp.sock" "$base/$1" <<'PY'
 import json,socket,sys
-s=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1]);f=s.makefile('rwb',buffering=0);f.readline()
+s=socket.socket(socket.AF_UNIX);s.settimeout(15);s.connect(sys.argv[1]);f=s.makefile('rwb',buffering=0);f.readline()
 for cmd in [{'execute':'qmp_capabilities'},{'execute':'screendump','arguments':{'filename':sys.argv[2]}}]:
  f.write((json.dumps(cmd)+'\n').encode())
  while True:
@@ -55,15 +56,16 @@ for cmd in [{'execute':'qmp_capabilities'},{'execute':'screendump','arguments':{
   if 'error' in r:raise RuntimeError(r)
 PY
 }
-qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -m 8192 -drive file=desktop.qcow2,format=qcow2,if=virtio -cdrom "$iso" -kernel vmlinuz -initrd initrd -append 'boot=casper autoinstall ds=nocloud-net;s=http://10.0.2.2:8765/ console=ttyS0' -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22 -vga std -display none -qmp unix:"$work/qmp.sock",server=on,wait=off -serial file:"$base/installer-serial.log" -daemonize -pidfile "$work/vm.pid" -no-reboot
+qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -m 8192 -drive file=desktop.qcow2,format=qcow2,if=virtio,cache=unsafe -cdrom "$iso" -kernel vmlinuz -initrd initrd -append 'boot=casper autoinstall ds=nocloud-net;s=http://10.0.2.2:8765/ console=ttyS0' -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22 -vga std -display none -qmp unix:"$work/qmp.sock",server=on,wait=off -serial file:"$base/installer-serial.log" -daemonize -pidfile "$work/vm.pid" -no-reboot
 # Desktop autoinstall must actually power off; a timeout is not a pass.
-for n in $(seq 1 180); do
+for n in $(seq 1 300); do
   kill -0 "$(cat "$work/vm.pid")" 2>/dev/null || break
-  if (( n==180 )); then qmp_capture installer-timeout.ppm || true; echo 'Desktop installation timed out'; exit 1; fi
+  if (( n%30==0 )); then echo "Desktop installer checkpoint: $((n/6)) minutes"; qmp_capture "installer-checkpoint-$n.ppm" || true; tail -8 "$base/installer-serial.log"; fi
+  if (( n==300 )); then qmp_capture installer-timeout.ppm || true; echo 'Desktop installation timed out'; exit 1; fi
   sleep 10
 done
 rm -f "$work/qmp.sock" "$work/vm.pid"
-qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -m 8192 -drive file=desktop.qcow2,format=qcow2,if=virtio -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22 -vga std -display none -qmp unix:"$work/qmp.sock",server=on,wait=off -serial file:"$base/desktop-serial.log" -daemonize -pidfile "$work/vm.pid"
+qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -m 8192 -drive file=desktop.qcow2,format=qcow2,if=virtio,cache=unsafe -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22 -vga std -display none -qmp unix:"$work/qmp.sock",server=on,wait=off -serial file:"$base/desktop-serial.log" -daemonize -pidfile "$work/vm.pid"
 ssh_args=(-i "$work/key" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5)
 guest() { ssh "${ssh_args[@]}" hextest@127.0.0.1 "$@"; }
 for n in $(seq 1 90); do guest true 2>/dev/null && break; (( n<90 )) || { qmp_capture boot-timeout.ppm; exit 1; }; sleep 5; done
