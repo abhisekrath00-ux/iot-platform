@@ -12,8 +12,9 @@ $ErrorActionPreference = "Continue"; $ProgressPreference = "SilentlyContinue"
 # Pure decision logic: facts in, list of steps out. No side effects, so it can be tested anywhere.
 function Get-Plan($f) {
   $plan = @(); $fail = @()
-  if ($f.Build -lt 19041) { $fail += "This Windows version (build $($f.Build)) is too old for WSL2 and Docker Desktop. Windows 10 version 2004 (build 19041) or newer is needed." }
-  if ($f.DiskMB -lt 5000) { $fail += "Only $($f.DiskMB) MB free on the system drive; at least 5 GB is needed." }
+  if ($f.Build -lt 22631) { $fail += "This Windows version (build $($f.Build)) is too old for WSL2 and Docker Desktop. Windows 11 23H2 (build 22631) or newer is needed." }
+  if ($f.DiskMB -lt 20480) { $fail += "Only $($f.DiskMB) MB free on the system drive; at least 20 GiB is needed." }
+  if ($f.MemMB -lt 8192) { $fail += "At least 8GiB system RAM is required for Docker Desktop." }
   if (-not $f.Virtualization -and -not $f.DockerOk) { $fail += "CPU virtualization is turned off. Turn on Intel VT-x / AMD SVM in the BIOS/UEFI, then run this again. (This cannot be done from software.)" }
   if ($fail.Count -gt 0) { return @{ Fail = $fail; Plan = @() } }
   if (-not $f.DockerOk) {
@@ -37,7 +38,7 @@ function Warn($m) { Write-Host "  warn  $m" -ForegroundColor Yellow }
 function Bad($m) { Write-Host "  FAIL  $m" -ForegroundColor Red }
 function Finish($code, $msg) { if ($ResultFile) { Set-Content -Path $ResultFile -Value "$code|$msg" }; if ($Elevated) { Read-Host "Press Enter to close this window" | Out-Null }; exit $code }
 function IsAdmin { ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
-function DockerCmd { $env:Path = $env:Path + ";$env:ProgramFiles\Docker\Docker\resources\bin"; [bool](Get-Command docker -ErrorAction SilentlyContinue) }
+function DockerCmd { $env:Path = $env:Path + ";$env:ProgramFiles\Docker\Docker\resources\bin;$env:LOCALAPPDATA\Programs\DockerDesktop\resources\bin"; [bool](Get-Command docker -ErrorAction SilentlyContinue) }
 function EngineUp { if (-not (DockerCmd)) { return $false }; & docker info *> $null; return ($LASTEXITCODE -eq 0) }
 function WslOk { if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { return $false }; & wsl.exe --status *> $null; return ($LASTEXITCODE -eq 0) }
 
@@ -61,24 +62,23 @@ function Install-Wsl {
 }
 function Install-Docker {
   $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
-  if (Get-Command winget -ErrorAction SilentlyContinue) {
-    Say "  Installing Docker Desktop with winget..."
-    & winget install -e --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements --silent
-    $code = $LASTEXITCODE
-  } else {
-    $exe = Join-Path $env:TEMP "DockerDesktopInstaller.exe"
-    Say "  Downloading Docker Desktop installer..."
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    try { Invoke-WebRequest -UseBasicParsing "https://desktop.docker.com/win/main/$arch/Docker%20Desktop%20Installer.exe" -OutFile $exe } catch { Bad "download failed: $($_.Exception.Message). Offline? Install Docker Desktop by hand, then run this again."; return "fail" }
-    $p = Start-Process -FilePath $exe -ArgumentList "install", "--quiet", "--accept-license" -Wait -PassThru; $code = $p.ExitCode
-  }
+  $exe = Join-Path $env:TEMP ("DockerDesktopInstaller-" + [guid]::NewGuid() + ".exe")
+  Say "  Downloading Docker Desktop installer (you approve its license in its own UI)..."
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  try {
+    Invoke-WebRequest -UseBasicParsing "https://desktop.docker.com/win/main/$arch/Docker%20Desktop%20Installer.exe" -OutFile $exe
+    $signature = Get-AuthenticodeSignature -FilePath $exe
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Docker Inc\.?[, ]') { throw 'Docker installer publisher signature was not verified.' }
+    $p = Start-Process -FilePath $exe -ArgumentList "install", "--user" -Wait -PassThru; $code = $p.ExitCode
+  } catch { Bad "Docker installer failed: $($_.Exception.Message)"; return "fail" }
+  finally { Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue }
   if ($code -eq 3010) { return "reboot" }
   if ($code -ne 0) { Bad "Docker Desktop installer exit code $code"; return "fail" }
   return "ok"
 }
 function Start-DockerDesktop {
   $exe = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
-  if (-not (Test-Path $exe)) { return $false }
+  if (-not (Test-Path $exe)) { $exe = Join-Path $env:LOCALAPPDATA "Programs\DockerDesktop\Docker Desktop.exe" }; if (-not (Test-Path $exe)) { return $false }
   Start-Process $exe | Out-Null
   Say "  Waiting for the Docker engine (up to 4 minutes)..."
   for ($i = 0; $i -lt 120; $i++) { if (EngineUp) { return $true }; Start-Sleep -Seconds 2 }
@@ -93,7 +93,10 @@ function Run-Steps($steps) {   # runs in the (elevated) window; returns "ok" | "
   return "ok"
 }
 
-Say "HexThings prerequisite check (Windows)"
+Say "HexThings prerequisite check (Windows 11 x64)"
+$osType = Get-CimInstance Win32_OperatingSystem
+if ($osType.ProductType -ne 1 -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { Bad 'Windows client x64 required; Windows Server and ARM refused.'; Finish 1 'unsupported OS' }
+Say 'Docker Desktop has separate license terms. Larger organizations and government may need a paid subscription. No subscription is purchased and no license is accepted automatically.' 
 $f = Get-Facts
 if ($f.MemMB -ge 4000) { Ok "memory $($f.MemMB) MB" } else { Warn "memory $($f.MemMB) MB; about 4 GB is recommended, it may be slow" }
 Ok "Windows build $($f.Build), free disk $($f.DiskMB) MB"
@@ -109,7 +112,7 @@ if (-not $Yes) {
   if ([Console]::IsInputRedirected) { Say "Cannot ask here (no console). Run again with -Yes to accept the plan above."; Finish 2 "cannot ask" }
   $a = Read-Host "Go ahead? [y/N]"; if ($a -notmatch "^(y|yes)$") { Say "Declined. Nothing was changed."; Finish 2 "declined" }
 }
-$installSteps = @($d.Plan | Where-Object { $_ -ne "start" })
+$installSteps = @($d.Plan | Where-Object { $_ -eq "wsl" })
 if ($installSteps.Count -gt 0) {
   if (IsAdmin) { $r = Run-Steps $installSteps }
   else {
@@ -126,6 +129,12 @@ if ($installSteps.Count -gt 0) {
   if ($r -eq "fail") { Bad "an install step failed (details above). Nothing else was changed. Install Docker Desktop by hand from https://www.docker.com/products/docker-desktop/ and run this again."; Finish 1 "install failed" }
 }
 if ($Elevated) { Finish 0 "installed" }   # the parent window starts the engine and continues as the normal user
+if ($d.Plan -contains "docker") {
+  # Keep per-user Docker installation in the original user's session, not the elevated WSL helper.
+  $dockerResult = Install-Docker
+  if ($dockerResult -eq "reboot") { Say 'Restart Windows, then rerun the same command.'; Finish 10 'reboot' }
+  if ($dockerResult -ne "ok") { Finish 1 'Docker installation failed or declined' }
+}
 if (-not (EngineUp)) {
   if (-not (Start-DockerDesktop)) {
     Bad "Docker Desktop is installed but its engine did not start. Open Docker Desktop once, accept its terms, wait until it says it is running, then run the same command again. If it says the user is not in the docker-users group, sign out of Windows and in again."
