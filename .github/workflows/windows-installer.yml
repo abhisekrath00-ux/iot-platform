@@ -1,0 +1,24 @@
+name: Windows installer contracts
+on:
+  push:
+    branches: [main]
+    paths: ['scripts/*ps1', '.github/workflows/windows-installer.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-windows-powershell-contracts:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Windows PowerShell5.1 parsing and pure contracts (no WSL/Docker installation)
+        shell: powershell
+        run: |
+          $PSVersionTable
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, ProductType
+          & ./scripts/test-windows-desktop.ps1
+          & ./scripts/test-prereq.ps1
+      - name: PowerShell7 pure contracts (no WSL/Docker installation)
+        shell: pwsh
+        run: ./scripts/test-windows-desktop.ps1
