@@ -7,15 +7,28 @@ which serves a web dashboard, rules/flows, alerts, reports, fleet rollout and
 AI-assisted diagnosis via MCP. The same container stack deploys to cloud, customer
 premises, or fully air-gapped sites.
 
-## Private source access
+## Install the server or connect an edge device
 
-This repository is private. Sign in with an authorized GitHub account and download
-Code > Download ZIP, or use an authenticated Git checkout. In the source folder:
-`bash scripts/get.sh --local-source .` (Linux/macOS/WSL), or
-`powershell -ExecutionPolicy Bypass -File scripts/get.ps1 -LocalSource .` (Windows).
-Old anonymous raw-download commands no longer work. See [installation](docs/install.md)
-for prerequisite/network needs, updates and tested-vs-unverified limits. Do not put
-tokens in commands or make the repository public to install it.
+This repository is public. For a fresh server installation use
+`scripts/ubuntu-server.sh` (Ubuntu Server or Desktop, verified on Desktop24.04.5
+amd64) or `scripts/windows-desktop.ps1` (Windows11 x64). See
+[installation](docs/install.md) for download commands, requirements and test limits.
+The server bootstraps build the container stack with AI off and ports restricted
+to this machine. A separate edge box needs a reviewed network/TLS setup; replacing
+`localhost` with the server's LAN IP does not make these ports reachable.
+
+The **edge agent is different from the server**. Linux and Windows edge packages
+contain a lightweight agent, not Docker or WSL. See [edge installation](docs/edge-install.md).
+Packages can be built with `scripts/build-edge.sh`; no GitHub release packages were
+published as of 2026-11-10. There is no ready-to-flash ESP32 agent or firmware.
+ESP32 integration needs firmware that sends readings by serial or a configured
+network telemetry path; real board verification remains a pilot task.
+
+For an existing checkout or extracted source ZIP, explicit local-source setup is
+still available: `bash scripts/get.sh --local-source .` or
+`powershell -ExecutionPolicy Bypass -File scripts/get.ps1 -LocalSource .`.
+These commands do not fetch or update source. Use only the intended owner's
+source; no token belongs in a URL or command line.
 
 Project tracking: [Trello board](https://trello.com/b/ErbxnFXn/hexmon-iot-platform)
 
