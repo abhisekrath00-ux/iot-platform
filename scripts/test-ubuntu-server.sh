@@ -48,7 +48,7 @@ git() {
   echo clone >> "$TEST_INSTALL_LOG"
   [[ ${TEST_CLONE_FAIL:-0} == 0 ]] || return 1
   local dest=${!#}; mkdir -p "$dest/scripts"; : > "$dest/.env.example"
-  printf '#!/bin/bash\nprintf "install %%s\\n" "$*" >> "$TEST_INSTALL_LOG"\n' > "$dest/scripts/install.sh"
+  printf '#!/bin/bash\nprintf "install %%s\\n" "$*" >> "$TEST_INSTALL_LOG"\nexit "${TEST_INSTALL_FAIL:-0}"\n' > "$dest/scripts/install.sh"
 }
 main --yes --dir "$T/installed" > "$T/success.out"
 grep -Fx 'clone' "$TEST_INSTALL_LOG"
@@ -73,3 +73,12 @@ finish_setup "$T/menu" 1 >> "$T/menu-out"
 ! grep -q '^menu$' "$TEST_INSTALL_LOG"
 grep -q 'Open the HexThings terminal menu later' "$T/menu-out"
 printf 'Noninteractive menu handoff stays nonblocking\n'
+
+# Installation failure must propagate, with no successful handoff message.
+set +e
+TEST_INSTALL_FAIL=17 main --yes --dir "$T/install-failed" > "$T/install-failed.out" 2>&1
+rc=$?
+set -e
+[[ $rc == 17 ]]
+! grep -q 'terminal menu later\|Setup succeeded' "$T/install-failed.out"
+printf 'Install failure propagates without menu handoff\n'
