@@ -37,3 +37,6 @@ try {
   Write-Host 'PASS guided installer success follows checked low-level installer'
 } finally { Remove-Item -LiteralPath $tmp -Recurse -Force }
 Write-Host 'Native process/branch contract only: no Docker, live enrollment, service install or sensor test.'
+
+# Expected failing child exits above must not leak into the CI host wrapper.
+$global:LASTEXITCODE=0
