@@ -2,7 +2,7 @@ name: Windows installer contracts
 on:
   push:
     branches: [main]
-    paths: ['scripts/*ps1', 'edge/packaging/*ps1', 'edge/cmd/edge-setup/**', 'scripts/build-edge.sh', '.github/workflows/windows-installer.yml']
+    paths: ['scripts/*ps1', 'scripts/test-edge-native-linux.sh', 'edge/packaging/**', 'edge/packaging/*ps1', 'edge/cmd/edge-setup/**', 'scripts/build-edge.sh', '.github/workflows/windows-installer.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -38,3 +38,29 @@ jobs:
         with:
           name: windows-edge-setup-form
           path: ${{ runner.temp }}/hexthings-edge-setup.png
+
+  native-windows-edge-service:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: edge/go.sum
+      - name: Disposable native service lifecycle (not UAC, GUI click, reboot or telemetry)
+        shell: powershell
+        run: ./scripts/test-edge-native-windows.ps1
+  native-ubuntu-edge-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: edge/go.sum
+      - name: Build actual executable installer packages
+        run: bash scripts/build-edge.sh 0.0.0-native
+      - name: Disposable systemd lifecycle from the .run (not desktop, reboot or telemetry)
+        run: sudo -E bash scripts/test-edge-native-linux.sh
