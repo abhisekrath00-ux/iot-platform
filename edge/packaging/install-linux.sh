@@ -20,6 +20,9 @@ SKIP_USER="${HEXMON_SKIP_USER:-0}"
 
 [ "$(id -u)" = 0 ] || [ "$SKIP_SYSTEMD" = 1 ] || { echo "run as root (sudo)"; exit 1; }
 here="$(cd "$(dirname "$0")" && pwd)"
+if [ "$PREFIX" = /usr/local/bin ] && [ -x /usr/bin/edge-agent ] && command -v dpkg-query >/dev/null && dpkg-query -W -f='${Status}' hexmon-edge 2>/dev/null | grep -q 'install ok installed'; then
+  echo 'The Debian package is installed. Upgrade with .deb; do not mix run/archive installation.' >&2;exit 1
+fi
 case "$(uname -m)" in
   x86_64|amd64) bin=edge-agent-linux-amd64 ;;
   aarch64|arm64) bin=edge-agent-linux-arm64 ;;
@@ -33,7 +36,7 @@ new_ver="$("$here/$bin" -version 2>/dev/null || echo unknown)"
 "$here/$bin" -version >/dev/null || { echo "this binary does not run on this machine"; exit 1; }
 
 if [ "$SKIP_USER" != 1 ]; then
-  id hexmon >/dev/null 2>&1 || useradd --system --home "$STATE" --shell /usr/sbin/nologin hexmon
+  id hexmon >/dev/null 2>&1 || useradd --system --user-group --home "$STATE" --shell /usr/sbin/nologin hexmon
   usermod -aG dialout hexmon 2>/dev/null || true   # serial port access
 fi
 install -d -m 750 "$STATE" ; [ "$SKIP_USER" = 1 ] || chown hexmon:hexmon "$STATE"
@@ -60,6 +63,9 @@ case "${1:-}" in
     else sudo -u hexmon "$PREFIX/edge-agent" -identity-dir "$STATE" "$@"; fi ;;
 esac
 
+if [ -f "$here/edge-manager.sh" ]; then install -m 755 "$here/edge-manager.sh" "$PREFIX/hexthings-edge"; fi
+if [ -f "$here/uninstall-linux.sh" ]; then install -m 755 "$here/uninstall-linux.sh" "$PREFIX/hexthings-edge-uninstall"; fi
+install -m 640 "$here/edge-agent.example.yaml" "$ETC/edge-agent.example.yaml"
 if [ "$SKIP_SYSTEMD" = 1 ]; then echo "installed to $PREFIX (systemd step skipped)"; exit 0; fi
 
 cat > "$UNIT_DIR/hexmon-edge.service" <<UNIT
@@ -85,8 +91,23 @@ ReadWritePaths=$STATE $ETC
 [Install]
 WantedBy=multi-user.target
 UNIT
+# The installed app opens a terminal operator menu, not an agent tied to a user login.
+if [ "$PREFIX" = /usr/local/bin ]; then
+  install -d /usr/share/applications
+  cat > /usr/share/applications/hexthings-edge.desktop <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=HexThings Edge
+Comment=Configure and manage the HexThings edge service
+Exec=sudo /usr/local/bin/hexthings-edge
+Terminal=true
+Icon=applications-internet
+Categories=System;Network;
+DESKTOP
+fi
 systemctl daemon-reload
-systemctl enable hexmon-edge >/dev/null
+# Fresh installs are Manual until the operator finishes configuration and chooses boot startup.
+if [ "$upgrading" = 0 ]; then systemctl disable hexmon-edge >/dev/null; fi
 
 rollback() {
   echo "new version is not healthy; restoring the previous binary"
