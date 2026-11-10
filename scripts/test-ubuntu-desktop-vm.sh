@@ -38,7 +38,7 @@ python3 - <<'PY'
 import json,pathlib
 key=pathlib.Path('key.pub').read_text().strip()
 diagnostic="sh -c '(while :; do echo HEX-DESKTOP-DIAGNOSTIC; date; ps -eo pid,etime,args | grep -E \"apt-get|curtin|subiquity\" | tail -12; for f in /var/log/installer/subiquity-server-debug.log /var/log/installer/curtin-install.log; do test ! -f \"$f\" || { echo \"LOG:$f\"; tail -35 \"$f\"; }; done; sleep 60; done) >>/dev/ttyS0 2>&1 </dev/null &'"
-config={'autoinstall':{'version':1,'early-commands':[diagnostic],'apt':{'geoip':False,'mirror-selection':{'primary':[{'uri':'https://archive.ubuntu.com/ubuntu','arches':['amd64']}]},'fallback':'abort','conf':'Acquire::ForceIPv4 "true"; Acquire::Retries "2"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";'},'source':{'id':'ubuntu-desktop-minimal'},'locale':'en_US.UTF-8','keyboard':{'layout':'us'},'identity':{'hostname':'hex-desktop-ci','username':'hextest','realname':'HexThings Desktop CI','password':'!'},'storage':{'layout':{'name':'direct'}},'ssh':{'install-server':True,'allow-pw':False,'authorized-keys':[key]},'packages':['openssh-server','python3-pexpect','gnome-terminal'],'updates':'security','shutdown':'poweroff','late-commands':["printf '[daemon]\\nAutomaticLoginEnable=true\\nAutomaticLogin=hextest\\nWaylandEnable=false\\n' > /target/etc/gdm3/custom.conf","printf 'hextest ALL=(ALL) NOPASSWD:ALL\\n' > /target/etc/sudoers.d/90-hextest-ci","chmod 440 /target/etc/sudoers.d/90-hextest-ci"]}}
+config={'autoinstall':{'version':1,'early-commands':[diagnostic],'apt':{'geoip':False,'mirror-selection':{'primary':[{'uri':'https://archive.ubuntu.com/ubuntu','arches':['amd64']}]},'fallback':'abort','conf':'Acquire::ForceIPv4 "true"; Acquire::Retries "2"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";'},'source':{'id':'ubuntu-desktop-minimal'},'locale':'en_US.UTF-8','keyboard':{'layout':'us'},'identity':{'hostname':'hex-desktop-ci','username':'hextest','realname':'HexThings Desktop CI','password':'!'},'storage':{'layout':{'name':'direct'}},'ssh':{'install-server':True,'allow-pw':False,'authorized-keys':[key]},'packages':['openssh-server','python3-pexpect','gnome-terminal','wmctrl','xdotool'],'updates':'security','shutdown':'poweroff','late-commands':["printf '[daemon]\\nAutomaticLoginEnable=true\\nAutomaticLogin=hextest\\nWaylandEnable=false\\n' > /target/etc/gdm3/custom.conf","printf 'hextest ALL=(ALL) NOPASSWD:ALL\\n' > /target/etc/sudoers.d/90-hextest-ci","chmod 440 /target/etc/sudoers.d/90-hextest-ci"]}}
 pathlib.Path('seed/user-data').write_text('#cloud-config\n'+json.dumps(config))
 pathlib.Path('seed/vendor-data').write_text('#cloud-config\n{}\n')
 pathlib.Path('seed/meta-data').write_text('instance-id: hex-desktop-ci\nlocal-hostname: hex-desktop-ci\n')
@@ -74,13 +74,17 @@ guest 'set -eu; . /etc/os-release; test "$VERSION_ID" = 24.04; test "$(uname -m)
 for n in $(seq 1 60); do guest 'pgrep -u hextest gnome-shell' >/dev/null 2>&1 && break; (( n<60 )) || { qmp_capture gnome-timeout.ppm; exit 1; }; sleep 5; done
 scp -i "$work/key" -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$GITHUB_WORKSPACE/scripts/ubuntu-server.sh" "$GITHUB_WORKSPACE/scripts/desktop-guest.py" hextest@127.0.0.1:/home/hextest/
 guest 'DISPLAY=:0 xrandr --output $(DISPLAY=:0 xrandr | awk '\''/ connected/ {print $1; exit}'\'') --mode 1280x1024'
-guest 'DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus gnome-terminal --geometry=145x45 -- bash -c "python3 /home/hextest/desktop-guest.py > >(tee /home/hextest/desktop-test.log) 2>&1; exec bash"'
+guest 'DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus gnome-terminal --title=HexThings-Acceptance --geometry=120x40 -- bash -c "python3 /home/hextest/desktop-guest.py > >(tee /home/hextest/desktop-test.log) 2>&1; exec bash"'
 for n in $(seq 1 180); do
   if guest 'test -f acceptance/menu-ready' 2>/dev/null; then break; fi
   if guest 'test -f acceptance/failed' 2>/dev/null; then guest 'cat desktop-test.log' > "$base/desktop-test.log"; qmp_capture failed.ppm; exit 1; fi
   (( n<180 )) || { guest 'cat desktop-test.log' > "$base/desktop-test.log"; qmp_capture bootstrap-timeout.ppm; exit 1; }
   sleep 10
 done
+# The first-run welcome/upgrade windows can obscure a background terminal.
+# Focus and maximize the actual acceptance terminal, then record window state.
+guest 'export DISPLAY=:0; wmctrl -l; id=$(xdotool search --name HexThings-Acceptance | head -1); test -n "$id"; wmctrl -ir "$id" -b add,maximized_vert,maximized_horz; xdotool windowactivate --sync "$id"; xdotool getactivewindow getwindowname' > "$base/window-state.txt"
+sleep 3
 qmp_capture desktop-menu.ppm
 guest 'touch acceptance/screenshot-taken'
 sleep 5
