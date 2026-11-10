@@ -151,7 +151,7 @@ function Do-Restore {
   }
 }
 function Do-Update([string]$fromZip) {
-  if (-not $fromZip) { Bad "Private repository: anonymous update is unavailable. Sign in to GitHub, download the source ZIP, then run: hexthings patch FILE.zip . No backup or source change was attempted."; exit 1 }
+  if (-not $fromZip) { Bad "Automatic source download is disabled. Download the intended source ZIP, then run: hexthings patch FILE.zip . No backup or source change was attempted."; exit 1 }
   $ErrorActionPreference = "Stop"
   . (Join-Path $PSScriptRoot "patch-source.ps1")
   $prepared = Prepare-PatchSource $fromZip $Root
