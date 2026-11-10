@@ -17,7 +17,7 @@ Check "docker installed, engine stopped, wsl off: wsl then start" (($p.Plan -joi
 $p = Get-Plan (F @{ Build = 18363 })
 Check "old Windows build fails with a reason" ($p.Fail.Count -eq 1 -and $p.Fail[0] -match "too old")
 $p = Get-Plan (F @{ DiskMB = 3000 })
-Check "low disk fails" ($p.Fail.Count -eq 1 -and $p.Fail[0] -match "5 GB")
+Check "low disk fails" ($p.Fail.Count -eq 1 -and $p.Fail[0] -match "20 GiB")
 $p = Get-Plan (F @{ Virtualization = $false; DockerInstalled = $false; EngineUp = $false; DockerOk = $false })
 Check "virtualization off and docker missing fails with BIOS hint" ($p.Fail.Count -eq 1 -and $p.Fail[0] -match "BIOS")
 $p = Get-Plan (F @{ Virtualization = $false })
