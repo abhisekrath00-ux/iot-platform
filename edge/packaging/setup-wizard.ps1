@@ -13,6 +13,10 @@ function Assert-ReadyConfig {
   & $exe -check-config -config $config -identity-dir "$dir\data"
   Assert-SetupExit $LASTEXITCODE 'Configuration check'
 }
+function Invoke-SetupInstall([hashtable]$Parameters) {
+  & (Join-Path $here 'install-windows.ps1') @Parameters
+  Assert-SetupExit $LASTEXITCODE 'Agent installation'
+}
 function Set-SetupBoot([bool]$Enabled) {
   if ($Enabled) { Assert-ReadyConfig }
   if ($Enabled) { Set-Content -Path "$dir\start-on-boot" -Value 'yes' } elseif (Test-Path "$dir\start-on-boot") { Remove-Item "$dir\start-on-boot" -Force }
@@ -47,7 +51,7 @@ function Button($text,$x,$y,$width,[scriptblock]$action) { $b=New-Object System.
 Button 'Install / upgrade' 22 338 190 { Run-Action {
   if (($server.Text -or $code.Text -or $serial.Text) -and -not ($server.Text -and $code.Text -and $serial.Text)) { throw 'Provide server, code and serial together, or leave all blank for install-only.' }
   $args=@{};if ($server.Text) { if ($server.Text -notmatch '^https?://') { throw 'Server address must start with http:// or https://' };$args.ClaimApi=$server.Text.Trim();$args.ClaimCode=$code.Text.Trim();$args.ClaimSerial=$serial.Text.Trim() }
-  & (Join-Path $here 'install-windows.ps1') @args
+  Invoke-SetupInstall $args
   # Keep a durable local manager. On a new install startup remains Manual until configuration.
   Copy-Item (Join-Path $here 'uninstall-windows.ps1') $dir -Force
   Copy-Item (Join-Path $here 'setup-wizard.ps1') $dir -Force
