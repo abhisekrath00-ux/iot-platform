@@ -12,14 +12,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
 
   mosquitto:
     image: eclipse-mosquitto:2
     volumes:
       - ./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     ports:
-      - "1883:1883"   # lab only; production uses 8883 with mTLS
+      - "127.0.0.1:1883:1883"   # lab only; production uses 8883 with mTLS
 
   api:
     build: ./server
@@ -46,7 +46,7 @@ services:
       postgres: {condition: service_healthy}
       elasticsearch: {condition: service_started}
       mosquitto: {condition: service_started}
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
 
   ingest:
     build: ./server
@@ -68,7 +68,7 @@ services:
       ES_JAVA_OPTS: -Xms512m -Xmx512m
     volumes:
       - esdata:/usr/share/elasticsearch/data
-    ports: ["9200:9200"]
+    ports: ["127.0.0.1:9200:9200"]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS localhost:9200/_cluster/health || exit 1"]
       interval: 10s
@@ -83,7 +83,7 @@ services:
       JWT_SIGNING_SECRET: ${JWT_SIGNING_SECRET}
     depends_on:
       postgres: {condition: service_healthy}
-    ports: ["8100:8100"]
+    ports: ["127.0.0.1:8100:8100"]
 
   # Optional local AI model (docs/ai-runtime.md). Off unless started with: docker compose --profile ai up
   ai-runtime:
@@ -115,7 +115,7 @@ services:
 
   web:
     build: ./web
-    ports: ["8080:80"]
+    ports: ["127.0.0.1:${WEB_PORT:-8080}:80"]
     depends_on: [api]
 
 volumes:
