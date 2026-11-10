@@ -1,4 +1,4 @@
-# One-command HexThings setup for Windows 10/11. Checks what is needed (WSL2, Docker Desktop, a running engine, RAM, disk),
+# Explicit local-source HexThings setup for Windows11 x64. Checks what is needed (WSL2, Docker Desktop, a running engine, RAM, disk),
 # installs ONLY what is missing after one yes/no question (one Windows admin prompt), then installs and starts HexThings. In PowerShell:
 #   powershell -ExecutionPolicy Bypass -File scripts/get.ps1 -LocalSource .
 # Uses an explicit authorized checkout/extracted source without downloading or updating files.
@@ -12,7 +12,7 @@ if ($LocalSource) {
     if (-not (Test-Path -LiteralPath (Join-Path $dir $file) -PathType Leaf)) { throw "Local source is incomplete (missing $file); no download or install attempted" }
   }
 } else {
-  throw 'This repository is private. Sign in to GitHub and download/extract its source ZIP, or use an authorized Git checkout. Then run: powershell -ExecutionPolicy Bypass -File scripts/get.ps1 -LocalSource . . No token is requested by this script.'
+  throw 'This entry point requires explicit local source. Download/extract the intended source ZIP or use a Git checkout. For a fresh public Windows11 x64 server install use scripts/windows-desktop.ps1. For this local source run: powershell -ExecutionPolicy Bypass -File scripts/get.ps1 -LocalSource . . No token is requested by this script.'
 }
 Set-Location $dir
 # Prerequisites: skips whatever is present, asks once before installing anything missing.
