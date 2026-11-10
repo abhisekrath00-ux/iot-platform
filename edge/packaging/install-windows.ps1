@@ -23,6 +23,10 @@ $dir = Join-Path $env:ProgramData "Hexmon\edge"
 $exe = "$dir\edge-agent.exe"; $prev = "$dir\edge-agent.prev.exe"
 New-Item -ItemType Directory -Force -Path $dir, "$dir\data", "$dir\data\logs" | Out-Null
 $svc = Get-Service HexmonEdge -ErrorAction SilentlyContinue
+if ($svc) {
+  $installed = Get-CimInstance Win32_Service -Filter "Name='HexmonEdge'"
+  if (-not $installed -or $installed.PathName -notlike ('"' + $exe + '" *')) { throw 'HexmonEdge is owned by another service path. Refusing replacement.' }
+}
 $upgrading = [bool]$svc -and (Test-Path $exe)
 $wasRunning = $upgrading -and $svc.Status -eq "Running"
 if ($upgrading) { Write-Host "upgrading $(& $exe -version) -> $newVer" }
@@ -41,7 +45,7 @@ if ($ClaimCode) {
 }
 
 if (-not $svc) {
-  New-Service -Name HexmonEdge -DisplayName "HexThings Edge Agent" -BinaryPathName "`"$exe`" -config `"$dir\edge-agent.yaml`" -identity-dir `"$dir\data`"" -StartupType Automatic -Description "Hexmon edge gateway agent" | Out-Null
+  New-Service -Name HexmonEdge -DisplayName "HexThings Edge Agent" -BinaryPathName "`"$exe`" -config `"$dir\edge-agent.yaml`" -identity-dir `"$dir\data`"" -StartupType Manual -Description "Hexmon edge gateway agent" | Out-Null
   sc.exe failure HexmonEdge reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
   Assert-EdgeNativeSuccess $LASTEXITCODE 'Service recovery configuration'
 }
