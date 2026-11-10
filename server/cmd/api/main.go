@@ -178,6 +178,8 @@ func main() {
 	api.HandleFunc("POST /v1/roles", s.createRole)
 	api.HandleFunc("PUT /v1/roles/{id}", s.updateRole)
 	api.HandleFunc("DELETE /v1/roles/{id}", s.deleteRole)
+	api.HandleFunc("GET /v1/edge-packages", s.edgePackages)
+	api.HandleFunc("GET /v1/edge-packages/{package}", s.edgePackages)
 	api.HandleFunc("GET /v1/me", s.me)
 	api.HandleFunc("POST /v1/me/sessions/revoke", s.revokeOwnSessions)
 	api.HandleFunc("GET /v1/me/sessions", s.listOwnSessions)
