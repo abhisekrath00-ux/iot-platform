@@ -22,7 +22,7 @@ services:
       - "127.0.0.1:1883:1883"   # lab only; production uses 8883 with mTLS
 
   api:
-    build: ./server
+    build: {context: ., dockerfile: server/Dockerfile}
     command: ["/bin/api"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
@@ -49,7 +49,7 @@ services:
     ports: ["127.0.0.1:8000:8000"]
 
   ingest:
-    build: ./server
+    build: {context: ., dockerfile: server/Dockerfile}
     command: ["/bin/ingest"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
@@ -76,7 +76,7 @@ services:
       retries: 12
 
   mcp:
-    build: ./server
+    build: {context: ., dockerfile: server/Dockerfile}
     command: ["/bin/mcp"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
