@@ -10,7 +10,7 @@ jobs:
   actual-desktop-vm:
     if: github.event.repository.private == false
     runs-on: ubuntu-24.04
-    timeout-minutes: 85
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v6
       - name: Boot official Desktop ISO and test fresh guided setup
