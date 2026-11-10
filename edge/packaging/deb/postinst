@@ -6,7 +6,8 @@ if [ "$1" = configure ]; then
   install -d -o hexmon -g hexmon -m 750 /var/lib/hexmon-edge
   chown root:hexmon /etc/hexmon/edge-agent.yaml; chmod 640 /etc/hexmon/edge-agent.yaml
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl enable hexmon-edge >/dev/null 2>&1 || true
+  # Manual on first installation; upgrades keep the existing startup choice.
+  if [ -z "$2" ]; then systemctl disable hexmon-edge >/dev/null 2>&1 || true; fi
   if [ -n "$2" ] && systemctl is-active --quiet hexmon-edge 2>/dev/null; then
     systemctl restart hexmon-edge || true   # upgrade: restart only if it was running
   else
