@@ -99,10 +99,22 @@ main() {
   docker compose --env-file .env.example config --format json | loopback_binding_check
   local install_args=(--no-ai)
   [[ $yes == 0 ]] || install_args+=(--yes)
-  bash scripts/install.sh "${install_args[@]}"
+  bash scripts/install.sh "${install_args[@]}" || return $?
   echo 'On your laptop: ssh -L 8080:127.0.0.1:8080 YOUR_SSH_USER@YOUR_SERVER'
   echo 'Then open http://localhost:8080 and complete the required first-sign-in change.'
   echo "Source and install.log: $dir. No public HTTP/TLS endpoint was configured."
+  finish_setup "$dir" "$yes"
+}
+finish_setup() {
+  local source_dir=$1 unattended=$2
+  echo "Open the HexThings terminal menu later: sudo bash $source_dir/scripts/hexthings"
+  if [[ $unattended == 0 && -t 0 && -t 1 ]]; then
+    echo 'Setup succeeded. Opening the HexThings terminal menu (q to quit).'
+    # Menu failure must not turn a completed installation into a failed install.
+    if ! bash "$source_dir/scripts/hexthings"; then
+      echo 'HexThings is installed, but the terminal menu exited with an error. Use the command above to reopen it.' >&2
+    fi
+  fi
 }
 loopback_binding_check() {
   python3 -c 'import json,sys
