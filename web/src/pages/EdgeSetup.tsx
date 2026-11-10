@@ -1,3 +1,4 @@
+import EdgeDownloads from '../components/EdgeDownloads';
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { DeviceInput, EDGE_TEMPLATES, deviceYaml, validateDevice } from '../lib/edgeSetup';
@@ -50,6 +51,7 @@ export default function EdgeSetup() {
     <div>
       <h2>Set up an edge device</h2>
       <p className="muted">Describe the device, download its settings, install the edge agent on the box next to it, plug the sensor in. The platform then shows the data.</p>
+      <EdgeDownloads />
       <div style={{ marginBottom: 12 }}>{step(1, 'Describe', !!serial && !errs.length)}{step(2, 'Get claim code', !!minted)}{step(3, 'Install and connect', gw?.status === 'active' || gw?.status === 'online')}</div>
 
       <div className="card">
@@ -139,7 +141,7 @@ export default function EdgeSetup() {
         <h3>3. Install on the edge box, then plug in the sensor</h3>
         {warns.map((w) => <p key={w} role="alert" style={{ color: '#dc2626' }}>{w} Set it under Settings, Server addresses.</p>)}
         {minted?.fallback_urls?.length ? <p className="muted">Fallback addresses are included in the commands above (comma separated). The installer and the claim step try them in order if the first cannot be reached.</p> : null}
-        <p>Download the edge package for the box from your release page (<code>hexmon-edge-&lt;ver&gt;-&lt;os&gt;-&lt;arch&gt;</code>) and verify <code>SHA256SUMS</code>. The agent needs only your server, no internet.</p>
+        <p>Use the installer download above. The commands below are an advanced path for unpacked archives, not required by the Windows setup application.</p>
         <p><b>Linux:</b></p><pre style={{ overflowX: 'auto' }}>{lin}</pre>
         <p><b>Windows (elevated PowerShell):</b></p><pre style={{ overflowX: 'auto' }}>{win}</pre>
         <p className="muted">Append the downloaded devices block to <code>/etc/hexmon/edge-agent.yaml</code>, run <code>edge-agent -check-config</code>, then start the service.</p>
