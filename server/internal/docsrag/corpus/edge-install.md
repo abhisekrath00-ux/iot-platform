@@ -1,5 +1,13 @@
 # Installing the edge agent (Ubuntu and Windows, x86_64 and arm64)
 
+For the dashboard-delivered Windows setup EXE and Ubuntu executable/application
+packages, see [Edge application downloads and lifecycle](edge-app-installers.md).
+The dashboard offers OS/CPU selection and authenticated local downloads after the
+server image is rebuilt. Windows has a setup/manager window; Ubuntu currently
+has guided terminal setup/manager. Boot startup is optional and configuration-gated.
+The archive commands below are the advanced install path, not required for the
+Windows setup application.
+
 Packages are built by `scripts/build-edge.sh` (or the `release-edge` workflow on a
 `v*` tag): `hexmon-edge-<ver>-<os>-<arch>.{tar.gz,zip}` plus `SHA256SUMS`.
 The agent is one static Go binary: no runtime, no CGO, nothing to install. Verify
@@ -121,7 +129,7 @@ page, with `edge-agent -discoveries`, and on the dashboard Scan page. `edge-agen
 
 ## Connecting a gateway from the UI
 
-Add device (Commission) creates a one-time claim code for a site and serial and now shows the exact install command for Ubuntu/Linux and for Windows. Run it on the gateway; the page advances by itself when the gateway claims, then you assign a profile, test the port and watch live values. Getting the package onto the gateway is still manual (build with `scripts/build-edge.sh` or take the release from the edge release workflow); the platform does not host edge packages yet.
+Add device (Commission) creates a one-time claim code for a site and serial and now shows the exact install command for Ubuntu/Linux and for Windows. Run it on the gateway; the page advances by itself when the gateway claims, then you assign a profile, test the port and watch live values. Use the dashboard download panel for locally bundled installers after rebuilding the server image. Offline archives remain available as an advanced path. The download is separate from claim/config/start acceptance.
 
 ## What the edge collects and sends (checked Oct 5)
 
