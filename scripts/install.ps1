@@ -9,7 +9,7 @@ $Log = "install.log"; Set-Content -Path $Log -Value ""
 function Say($m) { Write-Host $m; Add-Content -Path $Log -Value $m }
 function Ok($m) { Say "  ok    $m" }
 function Warn($m) { Say "  warn  $m"; $script:Warnings++ }
-function Fail($m) { Say "  FAIL  $m"; Say ""; Say "Nothing was started. Fix the line above and run the installer again; it is safe to re-run."; exit 1 }
+function Fail($m) { Say "  FAIL  $m"; Say ""; Say "Installation stopped. Some services may already be running. Inspect docker compose ps and install.log before retrying."; exit 1 }
 $script:Warnings = 0
 function Ask($q, $d) { if ($Yes) { return $d }; $a = Read-Host "$q [$d]"; if ($a) { return $a } else { return $d } }
 # Windows PowerShell 5.1 (.NET Framework) has no RandomNumberGenerator.GetInt32/Fill: use the older provider.
@@ -166,7 +166,7 @@ if ($aiProfile.Count -gt 0) {
 try { Set-Content -Path ".hexthings-version" -Value ($(if ($env:HEXTHINGS_VERSION) { $env:HEXTHINGS_VERSION } else { "installed " + (Get-Date -Format s) })) } catch { }
 try {
   $bin = Join-Path (Get-Location) "scripts"
-  $up = [Environment]::GetEnvironmentVariable("Path", "User")
+  $up = [string][Environment]::GetEnvironmentVariable("Path", "User")
   if (-not $up -or ($up -split ";") -notcontains $bin) { [Environment]::SetEnvironmentVariable("Path", ($up.TrimEnd(";") + ";" + $bin).TrimStart(";"), "User"); Ok "added the hexthings command to your PATH (open a new terminal, then try: hexthings status)" }
   else { Ok "hexthings command is on your PATH" }
 } catch { Warn "could not add hexthings to PATH; run scripts\hexthings.ps1 instead" }
