@@ -53,7 +53,7 @@ plain() { printf '%s\n' "$(printf '%s' "$*" | sed $'s/\033\\[[0-9;]*m//g')" >> "
 say()  { printf '%s\n' "$*"; plain "$*"; }
 ok()   { say "  ${G}${I_OK}${N}  $*"; }
 warn() { say "  ${Y}${I_WARN}${N}  $*"; WARNINGS=$((WARNINGS+1)); }
-fail() { say "  ${R}${I_FAIL}${N}  $*"; say ""; say "Nothing was started. Fix the line above and run the installer again; it is safe to re-run."; exit 1; }
+fail() { say "  ${R}${I_FAIL}${N}  $*"; say ""; say "Installation stopped. If services already started, they may still be running. Check docker compose ps and install.log before retrying."; exit 1; }
 WARNINGS=0
 TOTAL_STEPS=4; STEP=0
 bar() { local n=$1 t=$2 w=20 i out=""; for ((i=0;i<w;i++)); do if [ $((i*t)) -lt $((n*w)) ]; then out+="$BAR_ON"; else out+="$BAR_OFF"; fi; done; printf '%s' "$out"; }
