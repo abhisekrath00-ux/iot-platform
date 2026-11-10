@@ -282,7 +282,7 @@ services:
     ports: ["1884:1883"]
     volumes: ["\${HEXTHINGS_SRC}/deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro", "mqdata:/mosquitto/data"]
   api:
-    build: \${HEXTHINGS_SRC}/server
+    build: {context: "\${HEXTHINGS_SRC}", dockerfile: server/Dockerfile}
     command: ["/bin/api"]
     restart: always
     env_file: .env
@@ -301,7 +301,7 @@ $CACHE_MOUNTS
     ports: ["8001:8000"]
     depends_on: [mosquitto]
   ingest:
-    build: \${HEXTHINGS_SRC}/server
+    build: {context: "\${HEXTHINGS_SRC}", dockerfile: server/Dockerfile}
     command: ["/bin/ingest"]
     restart: always
     env_file: .env
@@ -314,7 +314,7 @@ $CACHE_MOUNTS
       INGEST_SHARED_GROUP: hexthings
     depends_on: [mosquitto]
   mcp:
-    build: \${HEXTHINGS_SRC}/server
+    build: {context: "\${HEXTHINGS_SRC}", dockerfile: server/Dockerfile}
     command: ["/bin/mcp"]
     restart: always
     env_file: .env
