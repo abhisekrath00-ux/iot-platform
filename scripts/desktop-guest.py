@@ -9,7 +9,7 @@ try:
     c.expect(r'Name for your first workspace[^\r\n]*: ');c.sendline('desktop-ci')
     c.expect(r'Administrator email[^\r\n]*: ');c.sendline('desktop-ci@example.invalid')
     c.expect_exact('Opening the HexThings terminal menu (q to quit).')
-    c.expect_exact('Health check')
+    c.expect_exact('0. Quit')
     (out/'menu-ready').touch()
     # Host takes a QEMU framebuffer screenshot of the real desktop and terminal.
     deadline=time.monotonic()+120
