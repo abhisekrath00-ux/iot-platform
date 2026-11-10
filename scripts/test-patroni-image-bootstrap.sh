@@ -445,6 +445,31 @@ test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 7
 check_tcp_auth "$replica" fixture-a
 check_tcp_auth "$name" fixture-b
 printf 'Patroni replica SIGKILL same-volume recovery replayed offline seventh row and refused INSERT; both-member TCP/role/SELECT-refusal checks passed\n'
+# Keep a transaction open in the primary container until both containers die.
+# This is a disposable row, not a production transaction or durability promise.
+docker exec -i "$name" psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres \
+  > "$work/both-crash-open-transaction.log" 2>&1 <<'SQL' &
+BEGIN;
+INSERT INTO patroni_image_checkpoint VALUES (9001, 'synthetic-uncommitted-both-crash');
+\echo both-crash-uncommitted-insert-ready
+SELECT pg_sleep(60);
+ROLLBACK;
+SQL
+transaction_pid=$!
+transaction_ready=false
+for ((attempt=0; attempt<100; attempt++)); do
+  if grep -Fx 'both-crash-uncommitted-insert-ready' "$work/both-crash-open-transaction.log" >/dev/null; then
+    transaction_ready=true
+    break
+  fi
+  kill -0 "$transaction_pid"
+  sleep 0.1
+done
+test "$transaction_ready" = true
+# Separate connections must not see the row before the crash.
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint WHERE id = 9001')" = 0
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint WHERE id = 9001')" = 0
+kill -0 "$transaction_pid"
 # Both database containers are absent together, but DCS and volumes survive.
 docker kill --signal KILL "$name" "$replica" >/dev/null
 for member in "$name" "$replica"; do
@@ -452,6 +477,15 @@ for member in "$name" "$replica"; do
   test "$(docker inspect --format '{{.State.ExitCode}}' "$member")" = 137
 done
 test "$(docker inspect --format '{{.State.Running}}' "$etcd")" = true
+if wait "$transaction_pid"; then
+  echo 'open transaction client completed before both-container SIGKILL' >&2
+  exit 1
+fi
+# Its client was killed with the container. Do not claim a server diagnostic.
+if grep -Fx 'ROLLBACK' "$work/both-crash-open-transaction.log" >/dev/null; then
+  echo 'open transaction rolled back before the crash' >&2
+  exit 1
+fi
 docker rm -v "$name" "$replica" >/dev/null
 start_patroni
 wait_primary
@@ -462,6 +496,8 @@ test "$(replica_sql 'SELECT system_identifier FROM pg_control_system()')" = "$sy
 test "$(sql 'SELECT pg_is_in_recovery()')" = f
 test "$(replica_sql 'SELECT pg_is_in_recovery()')" = t
 test "$(replica_sql 'SHOW transaction_read_only')" = on
+test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint WHERE id = 9001')" = 0
+test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint WHERE id = 9001')" = 0
 test "$(sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 7
 test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 7
 test "$(sql "$value_query")" = "$expected_values"
@@ -493,6 +529,7 @@ test "$(replica_sql 'SELECT count(*) FROM patroni_image_checkpoint')" = 8
 check_tcp_auth "$replica" fixture-a
 check_tcp_auth "$name" fixture-b
 printf 'Patroni both-container SIGKILL same-volume recovery retained seven values and replayed eighth row; standby INSERT refusal and both-member auth checks passed\n'
+printf 'Patroni both-container SIGKILL interrupted open transaction and excluded uncommitted row on both recovered members\n'
 docker stop --time 30 "$replica" >/dev/null
 docker stop --time 30 "$name" >/dev/null
 printf 'Patroni image restart and repeated sole-DCS fail-closed recovery checkpoint passed\n'
