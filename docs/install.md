@@ -10,7 +10,21 @@ One command, the same steps online and air-gapped.
 
 Add `--yes` (`-Yes` on Windows) to accept every default and ask nothing.
 
-## Private repository: acquire source once, then run local setup
+## Ubuntu Server: checked single-server bootstrap
+
+`scripts/ubuntu-server.sh` is a standalone bootstrap intended for a public source download. Once the repository is public, download that file, inspect it, and run `sudo bash ubuntu-server.sh`. It asks before changes; `--yes` accepts the displayed plan and installer defaults, and `--check` performs local checks only. It requires a fresh destination (default `/opt/hexthings`), Ubuntu 22.04/24.04/26.04/26.10 amd64, at least 4000MiB RAM and 10GiB free disk. Those Ubuntu versions match Docker's current supported list, not a claim that this product has run on every version. arm64 is refused by this bootstrap pending actual installer verification.
+
+It checks root rights, resources, existing destination, port conflicts, existing Docker/Compose and distribution-package conflicts before changes. Missing curl, Git, tar/gzip, iproute2, Python3 and CA certificates are installed with apt. For a host without Docker, it configures Docker's official Ubuntu apt repository and installs Engine, Buildx and Compose. It does not remove conflicting packages, replace an existing Docker lacking Compose, add users to the Docker group, change firewall rules or install paid services. Starting/enabling Docker changes the host; Docker has root-equivalent access. Failed later steps may leave dependencies or source installed, and a partially started stack must be inspected rather than assumed rolled back. Source builds require internet. AI is explicitly off.
+
+All six default published ports now bind only to `127.0.0.1`: web8080, API8000, MQTT1883, PostgreSQL5432, Elasticsearch9200 and MCP8100. `WEB_PORT` now controls the web binding. This deliberately changes the prior all-interface defaults, including on reapply of an existing source installation. Remote gateways cannot use loopback MQTT; do not expose plaintext1883 as a workaround. Plan authenticated/TLS ingress separately. Docker-published ports may bypass ufw, so firewall-only advice is not a substitute for these bindings.
+
+From your laptop, use `ssh -L 8080:127.0.0.1:8080 YOUR_SSH_USER@YOUR_SERVER`, then open `http://localhost:8080`. Complete the required first-sign-in email/password change. No public domain, certificate or TLS endpoint is configured by this bootstrap. Changing access requires a separate reviewed ingress setup.
+
+Test boundaries: bootstrap tests cover supported/refused OS/architecture, resource boundaries, unsafe/mixed/host-network bindings, source binding contract, and stubbed main paths for successful source handoff, check-only, existing destination, busy ports and failed clone. Existing get/prerequisite/installer tests use stubs. CI additionally attempts the actual guided installer on a disposable Ubuntu runner, validates six live loopback host bindings, health/workspace creation, mode600 secrets and secret-preserving rerun. Read the exact run before calling that attempt passed. Fresh-host apt installation and every Ubuntu release remain unverified until exercised on such hosts; HA recovery fixtures do not prove this installer.
+
+Docker installation source: https://docs.docker.com/engine/install/ubuntu/
+
+## Private-source fallback: acquire source once, then run local setup
 
 The repository is private as of 2026-10-31. Old anonymous `curl | bash` and
 `irm | iex` raw-GitHub commands no longer work. Do not paste credentials into a
@@ -133,7 +147,7 @@ Complete the blocking first-sign-in email/password change. Current installers do
 ## What is tested, and what is not
 
 - **Tested:** `scripts/test-install.sh` runs `install.sh` against fake `docker` and `curl` programs: Docker-down stops cleanly, generated secrets and file modes, no overwrite on re-run, no second administrator on re-run, the password never appears in a command line, bad names refused, the AI profile.
-- **Not run:** the real stack. There is no Docker on the development machine, so `docker compose up`, the image builds (including the new `tenantctl` binary in the API image), the bundle script and the AI image have never been run end to end. **`install.ps1` and `install.bat` have never been run, not even with a shim.**
+- **Installer-specific limit:** the local development machine has no Docker. Separate CI stack/image/HA checks exist, but do not by themselves prove guided installation. The new actual guided-installer CI step above must be read on the exact tip. Fresh-host apt provisioning, offline bundles, AI installation and native Windows remain separate unverified paths.
 - Memory: a 4 GB host is the stated minimum; this was not measured.
 
 ## The `hexthings` command (Windows PowerShell)
