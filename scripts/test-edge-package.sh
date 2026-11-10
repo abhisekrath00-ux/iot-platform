@@ -27,4 +27,20 @@ for z in windows-amd64 windows-arm64; do
   unzip -l "$zip" | grep "edge-agent.exe" >/dev/null || fail "$z zip has no edge-agent.exe"
 done
 
-echo "edge package checks passed"
+for arch in amd64 arm64; do
+  run="$out/hexmon-edge-0.0.0-pkgtest-linux-$arch.run"
+  [ -x "$run" ] || fail "executable Linux installer missing"
+  "$run" --verify >/dev/null || fail "Linux self-extractor payload corrupt"
+  setup="$out/hexmon-edge-0.0.0-pkgtest-windows-$arch-setup.exe"
+  [ -f "$setup" ] || fail "Windows setup executable missing"
+  [ "$(head -c2 "$setup")" = MZ ] || fail "setup file is not a PE executable"
+done
+python3 - "$out" <<'PYTEST'
+import hashlib,json,pathlib,sys
+out=pathlib.Path(sys.argv[1]);manifest=json.loads((out/'manifest.json').read_text())
+assert len(manifest['packages'])==10
+for p in manifest['packages']:
+ data=(out/p['filename']).read_bytes();assert len(data)==p['size'];assert hashlib.sha256(data).hexdigest()==p['sha256']
+assert {p['id'] for p in manifest['packages']} >= {'windows-amd64-exe','linux-amd64-run','linux-amd64-deb'}
+PYTEST
+echo "edge package checks passed (10-artifact inventory, hashes, PE headers and self-extractor verification; not native installation)"
