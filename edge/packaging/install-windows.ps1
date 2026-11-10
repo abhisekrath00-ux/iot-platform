@@ -4,6 +4,10 @@
 # identity are not touched, and if the new version is not healthy within 60 s the old exe is restored.
 param([string]$ClaimApi = "", [string]$ClaimCode = "", [string]$ClaimSerial = "")
 $ErrorActionPreference = "Stop"
+# Windows PowerShell5.1 does not turn native nonzero exits into exceptions.
+function Assert-EdgeNativeSuccess([int]$Code, [string]$Step) {
+  if ($Code -ne 0) { throw "$Step failed (exit $Code). Setup did not complete; do not start the service." }
+}
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "Run this in an elevated (Administrator) PowerShell." }
 
@@ -29,12 +33,17 @@ Copy-Item $src $exe -Force
 if (-not (Test-Path "$dir\edge-agent.yaml")) { Copy-Item (Join-Path $here "edge-agent.example.yaml") "$dir\edge-agent.yaml" }
 # Identity and keys live here: restrict to SYSTEM and Administrators.
 icacls $dir /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
+Assert-EdgeNativeSuccess $LASTEXITCODE 'Identity folder permission setup'
 
-if ($ClaimCode) { & $exe -claim-api $ClaimApi -claim-code $ClaimCode -claim-serial $ClaimSerial }
+if ($ClaimCode) {
+  & $exe -identity-dir "$dir\data" -claim-api $ClaimApi -claim-code $ClaimCode -claim-serial $ClaimSerial
+  Assert-EdgeNativeSuccess $LASTEXITCODE 'Gateway enrollment'
+}
 
 if (-not $svc) {
   New-Service -Name HexmonEdge -DisplayName "HexThings Edge Agent" -BinaryPathName "`"$exe`" -config `"$dir\edge-agent.yaml`" -identity-dir `"$dir\data`"" -StartupType Automatic -Description "Hexmon edge gateway agent" | Out-Null
   sc.exe failure HexmonEdge reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
+  Assert-EdgeNativeSuccess $LASTEXITCODE 'Service recovery configuration'
 }
 
 if ($upgrading) {
