@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+if [ "$1" = install ] && [ -x /usr/local/bin/edge-agent ] && [ -f /etc/systemd/system/hexmon-edge.service ]; then
+ echo 'Run/archive installation found. Do not mix install methods. Back up identity/config and use that installation manager to remove its service/binary first.' >&2
+ exit 1
+fi
+exit 0
