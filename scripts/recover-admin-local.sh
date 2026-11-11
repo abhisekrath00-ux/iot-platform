@@ -12,7 +12,7 @@ docker info >/dev/null
 docker compose exec -T api sh -c '[ "$LOCAL_LOGIN" = 1 ]' || { echo 'Running local-login API required';exit 1; }
 tmp=$(mktemp -d /tmp/hexthings-recovery.XXXXXXXX)
 remote="/tmp/$(basename "$tmp")-tool"
-cleanup() { unset password repeat;docker compose exec -T api rm -f "$remote" >/dev/null 2>&1 || true;rm -rf "$tmp"; }
+cleanup() { unset password repeat;docker compose exec -T --user root api rm -f "$remote" >/dev/null 2>&1 || true;rm -rf "$tmp"; }
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
 revision=951860e7f988c749a335d99a8e9cb2d588336273
