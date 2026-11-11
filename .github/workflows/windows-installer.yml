@@ -22,6 +22,7 @@ jobs:
           & ./scripts/test-remove-hexthings-windows.ps1
           & ./scripts/test-edge-windows-exits.ps1
           & ./scripts/test-edge-manager.ps1
+          & ./scripts/test-admin-password.ps1
       - name: PowerShell7 pure contracts (no WSL/Docker installation)
         shell: pwsh
         run: |
@@ -29,6 +30,7 @@ jobs:
           ./scripts/test-remove-hexthings-windows.ps1
           ./scripts/test-edge-windows-exits.ps1
           ./scripts/test-edge-manager.ps1
+          ./scripts/test-admin-password.ps1
       - name: Render actual Windows setup form (no install/start/enrollment)
         shell: powershell
         run: |
