@@ -45,7 +45,7 @@ else
 fi
 cp scripts/install.sh "$OUT/install.sh"
 cp scripts/model-choose.sh scripts/model-choose.ps1 scripts/model-catalog.txt "$OUT/"
-cp scripts/install.ps1 scripts/install.bat "$OUT/"
+cp scripts/admin-password.ps1 scripts/install.ps1 scripts/install.bat "$OUT/"
 cp .env.example "$OUT/.env.example"
 chmod +x "$OUT/install.sh"
 cp docs/airgap.md "$OUT/README-airgap.md"
