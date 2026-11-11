@@ -31,7 +31,7 @@ All six default published ports now bind only to `127.0.0.1`: web8080, API8000, 
 
 After a successful guided install on an interactive terminal, the bootstrap now opens the existing animated HexThings terminal menu. Press `q` to leave. `--yes` and noninteractive runs do not open a blocking menu. Reopen it later with `sudo bash /opt/hexthings/scripts/hexthings` (adjust if you used `--dir`). A menu error after success is reported separately and does not claim the installation failed. Colors/animation require a capable real terminal; plain/no-color fallbacks remain.
 
-From your laptop, use `ssh -L 8080:127.0.0.1:8080 YOUR_SSH_USER@YOUR_SERVER`, then open `http://localhost:8080`. Complete the required first-sign-in email/password change. No public domain, certificate or TLS endpoint is configured by this bootstrap. Changing access requires a separate reviewed ingress setup.
+From your laptop, use `ssh -L 8080:127.0.0.1:8080 YOUR_SSH_USER@YOUR_SERVER`, then open `http://localhost:8080`. Sign in with the administrator email and password you chose during setup. Legacy accounts may still require the first-sign-in credential change. No public domain, certificate or TLS endpoint is configured by this bootstrap. Changing access requires a separate reviewed ingress setup.
 
 Test boundaries: actual Ubuntu Desktop24.04.5 LTS amd64 minimal GNOME VM,
 8GiB RAM/42GiB disk, no Docker beforehand: apt Docker/Compose install, all seven
@@ -132,7 +132,7 @@ by the guided installer, not by downloading this bootstrap alone.
 2. **Setup:** writes `.env` with generated secrets (database password, token signing secret, 32-byte secrets key; file mode 600). Existing secrets are kept. Explicit model selection updates only AI runtime settings. Asks for a workspace name and administrator email.
 3. **Local AI (optional, explicit model choice or skip):** the installer offers five model sizes (120B manual-only) or skip, and can download the small Qwen3-1.7B model (1.1 GB, checksum verified, CPU only, runs in about 1.5 GB RAM) and auto-connect the assistant. It is a stock model, not trained on HexThings. Details in docs/ai-runtime.md. Manual option: if you give a `.gguf` file (`--ai-model FILE`, or `model.gguf` next to the installer), it is copied to `models/`, checksummed, and the `ai` profile starts. No model means no AI; the platform works the same.
 4. **Installs:** from a bundle it verifies checksums and loads `images.tar.gz` (no internet). From a source checkout it builds.
-5. **Waits** up to 3 minutes for the health check, **creates the workspace and first administrator** with the documented first-run login `admin@hexthings.com` / `Hex@2026` (or your own `--admin-email` with that password). It is stored only as a PBKDF2-SHA256 hash, flagged so the first sign-in shows a blocking pop-up to set your own email and password (the server refuses every other request until you do; the new password must be 12-128 characters, not the default, not your email). Nothing is written to a credentials file or the install log, and prints the address and sign-in.
+5. **Waits** for the health check, then creates the workspace and first administrator with the email and password you chose during Setup. Password entry is hidden and asks for confirmation. It is passed to the provisioning tool through stdin and stored only as a salted PBKDF2-SHA256 hash, never printed, placed on the command line, written to `.env` or saved to the installation log. New unattended Bash installs require `--admin-password-stdin` (PowerShell: `-AdminPasswordStdin`); `--yes` / `-Yes` alone never supplies a default password. Feed the password privately through stdin, not as a literal command or environment variable. Existing workspace reruns keep the administrator/password unchanged; failed workspace reads stop rather than trying to create another account. An already-used admin email for a different workspace remains an error, not a password reset.
 
 Re-running keeps existing secrets and administrator; images update in place. Explicit model choice can update AI runtime settings. Everything is logged to `install.log`.
 
@@ -182,11 +182,11 @@ native Windows filesystem behavior, Docker restart or complete successful patch.
 
 ## Options
 
-`--admin-email E`, `--workspace ID`, `--web-port N`, `--ai-model FILE`, `--no-ai`, `--yes`.
+`--admin-email E`, `--admin-password-stdin` (unattended new accounts), `--workspace ID`, `--web-port N`, `--ai-model FILE`, `--no-ai`, `--yes`.
 
 ## After install
 
-Complete the blocking first-sign-in email/password change. Current installers do not create `install-credentials.txt`; securely remove any old legacy copy if present. For production switch sign-in to your SSO and remove `LOCAL_LOGIN=1` from `.env` ([security](security.md)). Email and Slack alerts are optional settings in `.env` and Settings.
+New installations use the admin password you chose during setup. Existing legacy first-run accounts may still require the blocking email/password change. Current installers do not create `install-credentials.txt`; securely remove any old legacy copy if present. For production switch sign-in to your SSO and remove `LOCAL_LOGIN=1` from `.env` ([security](security.md)). Email and Slack alerts are optional settings in `.env` and Settings.
 
 ## What is tested, and what is not
 
