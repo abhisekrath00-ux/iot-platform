@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # HexThings single-server Ubuntu installer. Downloads source; not an offline bundle.
-# Run: sudo bash ubuntu-server.sh [--yes] [--check] [--dir /opt/hexthings]
+# Run: sudo bash ubuntu-server.sh [--yes] [--admin-password-stdin] [--check] [--dir /opt/hexthings]
 set -euo pipefail
 ubuntu_supported() {
   [[ $1 == ubuntu && $2 =~ ^(22\.04|24\.04|26\.04|26\.10)$ && $3 == amd64 ]]
 }
 resources_ready() { (( $1 >= 4000 && $2 >= 10240 )); }
 main() {
-  local yes=0 check=0 dir=/opt/hexthings
+  local password_stdin=0 yes=0 check=0 dir=/opt/hexthings
   while (( $# )); do
     case $1 in
-      --yes) yes=1;; --check) check=1;;
+      --admin-password-stdin) password_stdin=1;; --yes) yes=1;; --check) check=1;;
       --dir) [[ $# -ge 2 && $2 == /* ]] || { echo '--dir needs an absolute path' >&2; return 2; }; dir=$2; shift;;
       --help|-h) sed -n '2,3p' "${BASH_SOURCE[0]}"; return 0;;
       *) echo "Unknown option: $1" >&2; return 2;;
@@ -99,9 +99,10 @@ main() {
   docker compose --env-file .env.example config --format json | loopback_binding_check
   local install_args=(--no-ai)
   [[ $yes == 0 ]] || install_args+=(--yes)
+  [[ $password_stdin == 0 ]] || install_args+=(--admin-password-stdin)
   bash scripts/install.sh "${install_args[@]}" || return $?
   echo 'On your laptop: ssh -L 8080:127.0.0.1:8080 YOUR_SSH_USER@YOUR_SERVER'
-  echo 'Then open http://localhost:8080 and complete the required first-sign-in change.'
+  echo 'Then open http://localhost:8080 and sign in with the administrator password you chose.'
   echo "Source and install.log: $dir. No public HTTP/TLS endpoint was configured."
   finish_setup "$dir" "$yes"
 }
