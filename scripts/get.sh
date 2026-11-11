@@ -33,7 +33,12 @@ done
 if [ -n "${HX_LINK:-}" ]; then echo "After setup, run: hexthings   (menu, status, doctor, logs, ai; $HX_LINK)"; else echo "After setup, run: bash $(pwd)/scripts/hexthings"; fi
 case "${HX_LINK:-}" in "$HOME/.local/bin/"*) case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Add $HOME/.local/bin to your PATH to use it by name." ;; esac ;; esac
 # Prerequisites: skips whatever is present, asks once before installing anything missing.
-rc=0; bash scripts/prereq.sh || rc=$?   # set -e: capture the code, prereq exits 3 on purpose
+password_stdin=0
+for arg in "$@"; do [ "$arg" != --admin-password-stdin ] || password_stdin=1; done
+rc=0
+# A piped secret is reserved for install.sh, never a prerequisites yes/no answer.
+if [ "$password_stdin" = 1 ]; then bash scripts/prereq.sh </dev/null || rc=$?
+else bash scripts/prereq.sh || rc=$?; fi   # prereq exits 3 on purpose
 case $rc in
   0) ;;
   3) # Docker was installed and this login is not in the docker group yet: continue inside the group
