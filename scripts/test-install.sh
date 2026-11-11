@@ -33,7 +33,7 @@ chmod +x "$T/bin/curl"; printf '' ; chmod +x "$T/bin/docker" "$T/bin/curl"
 export HEXTHINGS_FAKE_MEM_MB=8192 HEXTHINGS_FAKE_DISK_MB=100000 HEXTHINGS_MODEL_BYTES=10
 export PATH="$T/bin:$PATH" FAKE_LOG="$T/log" FAKE_STDIN="$T/stdin"; : > "$FAKE_LOG"
 fails=0; check() { if ! eval "$2"; then echo "FAIL: $1"; fails=$((fails+1)); else echo "ok:   $1"; fi; }
-run() { (cd "$T/w" && bash scripts/install.sh --web-port 18431 "$@" > "$T/out" 2>&1); }
+run() { (cd "$T/w" && printf '%s\n' 'installer-test-only-passphrase' | bash scripts/install.sh --admin-password-stdin --web-port 18431 "$@" > "$T/out" 2>&1); }
 
 FAKE_DOCKER_DOWN=1 run --yes && rc=0 || rc=$?
 check "docker not running stops before anything starts" '[ $rc -ne 0 ] && ! grep -q "compose up" "$FAKE_LOG" && grep -q "not running" "$T/out"'
@@ -45,8 +45,8 @@ check ".env has no placeholder secrets" '! grep -q "change-me" "$T/w/.env" && gr
 check ".env is private" '[ "$(stat -c %a "$T/w/.env")" = 600 ]'
 check "secrets are long and random" '[ $(sed -n "s/^JWT_SIGNING_SECRET=//p" "$T/w/.env" | wc -c) -ge 64 ] && [ $(sed -n "s/^SECRETS_KEY=//p" "$T/w/.env" | base64 -d | wc -c) -eq 32 ]'
 check "compose up ran with build (source mode)" 'grep -q "compose up -d --build" "$FAKE_LOG"'
-check "admin is created with --default-credentials and no password on argv or stdin" 'grep -q "tenantctl create.*--default-credentials" "$FAKE_LOG" && ! grep -q -e "--password-stdin" -e "Hex@2026" "$FAKE_LOG"'
-check "no credentials file is written and no password is in the log or .env" '[ ! -e "$T/w/install-credentials.txt" ] && ! grep -q "Hex@2026" "$T/w/install.log" "$T/w/.env"'
+check "admin is created with password-stdin and no secret on argv" 'grep -q "tenantctl create.*--password-stdin" "$FAKE_LOG" && ! grep -q -e "--default-credentials" -e "installer-test-only-passphrase" "$FAKE_LOG" && grep -qx "installer-test-only-passphrase" "$FAKE_STDIN"'
+check "no credentials file is written and no password is in the log or .env" '[ ! -e "$T/w/install-credentials.txt" ] && ! grep -q "installer-test-only-passphrase" "$T/w/install.log" "$T/w/.env"'
 check "success screen shows URL" 'grep -q "http://localhost:18431" "$T/out" && grep -q "north-plant" "$T/out"'
 
 cp "$T/w/.env" "$T/env.before"; : > "$FAKE_LOG"
