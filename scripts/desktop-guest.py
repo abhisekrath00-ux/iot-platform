@@ -3,14 +3,14 @@
 import pathlib,sys,time,pexpect
 out=pathlib.Path('/home/hextest/acceptance');out.mkdir(exist_ok=True)
 c=pexpect.spawn('sudo',['bash','/home/hextest/ubuntu-server.sh'],encoding='utf-8',timeout=2400,dimensions=(45,145),env=dict(__import__('os').environ,TERM='xterm-256color',LANG='en_US.UTF-8'))
-c.logfile=sys.stdout
+c.logfile_read=sys.stdout  # Never log sent password fixtures.
 try:
     c.expect_exact('Proceed with the plan above? [y/N] ');c.sendline('y')
     c.expect(r'Name for your first workspace[^\r\n]*: ');c.sendline('desktop-ci')
     c.expect(r'Administrator email[^\r\n]*: ');c.sendline('desktop-ci@example.invalid')
     import secrets
     password=secrets.token_urlsafe(20)
-    c.expect_exact('Administrator password (12-128 characters, hidden): ');c.sendline(password)
+    c.expect_exact('Administrator password (12-128 bytes, hidden): ');c.sendline(password)
     c.expect_exact('Confirm administrator password (hidden): ');c.sendline(password)
     c.expect_exact('Opening the HexThings terminal menu (q to quit).')
     c.expect_exact('0. Quit')
