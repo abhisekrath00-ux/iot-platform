@@ -108,6 +108,19 @@ func main() {
 			fatal(err.Error())
 		}
 		fmt.Printf("created tenant %s with admin %s (%s)\n", *id, *email, uid)
+	case "recover-admin":
+		fs := flag.NewFlagSet("recover-admin", flag.ExitOnError)
+		workspace := fs.String("workspace", "", "exact existing workspace")
+		email := fs.String("email", "", "existing active admin email")
+		confirmed := fs.Bool("confirm", false, "operator confirms account reset; password from stdin")
+		fs.Parse(os.Args[2:])
+		if !*confirmed {
+			fatal("explicit --confirm required; no change made")
+		}
+		if err := recoverAdmin(ctx, st.Pool, *workspace, *email, os.Stdin); err != nil {
+			fatal(err.Error())
+		}
+		fmt.Println("Admin password changed; old sessions/reset links invalidated. Workspace, data, account identity and MFA retained.")
 	case "quota":
 		quotaCmd(ctx, st)
 	case "ai-connect":
