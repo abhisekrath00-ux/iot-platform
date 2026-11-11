@@ -46,9 +46,10 @@ if [ -n "${HEXTHINGS_AI_MODEL_SIZE:-}" ]; then set -- --ai-model-size "$HEXTHING
 if [ "${USE_SG:-0}" = 1 ]; then
   args=$(printf ' %q' "$@"); exec sg docker -c "bash scripts/install.sh$args"
 fi
+for arg in "$@"; do if [ "$arg" = --admin-password-stdin ]; then exec bash scripts/install.sh --yes "$@"; fi; done
 if [ -t 0 ]; then exec bash scripts/install.sh "$@"
 elif ( : < /dev/tty ) 2>/dev/null; then exec bash scripts/install.sh "$@" < /dev/tty
 else
   # Non-interactive setup never downloads AI without an explicit flag.
-  exec bash scripts/install.sh --yes "$@" </dev/null
+  exec bash scripts/install.sh --yes "$@"
 fi
