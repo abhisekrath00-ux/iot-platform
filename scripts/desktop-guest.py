@@ -8,6 +8,10 @@ try:
     c.expect_exact('Proceed with the plan above? [y/N] ');c.sendline('y')
     c.expect(r'Name for your first workspace[^\r\n]*: ');c.sendline('desktop-ci')
     c.expect(r'Administrator email[^\r\n]*: ');c.sendline('desktop-ci@example.invalid')
+    import secrets
+    password=secrets.token_urlsafe(20)
+    c.expect_exact('Administrator password (12-128 characters, hidden): ');c.sendline(password)
+    c.expect_exact('Confirm administrator password (hidden): ');c.sendline(password)
     c.expect_exact('Opening the HexThings terminal menu (q to quit).')
     c.expect_exact('0. Quit')
     (out/'menu-ready').touch()
