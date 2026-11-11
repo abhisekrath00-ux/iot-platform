@@ -1,7 +1,7 @@
 # Public HexThings Windows 11 x64 bootstrap (PowerShell 5.1+).
 # Run: powershell -NoProfile -ExecutionPolicy Bypass -File windows-desktop.ps1
 # No purchases, tokens, automatic reboot or machine-wide execution-policy changes.
-param([switch]$Yes, [switch]$Check, [string]$InstallDir = "", [switch]$NoMenu)
+param([switch]$AdminPasswordStdin, [switch]$Yes, [switch]$Check, [string]$InstallDir = "", [switch]$NoMenu)
 $ErrorActionPreference = 'Stop'
 function Assert-WindowsHost($Facts) {
   if ($Facts.ProductType -ne 1 -or $Facts.Build -lt 22631) { throw 'Requires Windows 11 23H2 or newer client OS. Windows Server/older Windows are refused.' }
@@ -71,7 +71,8 @@ function Main {
   $raw = (& docker compose --env-file .env.example config --format json) -join "`n"
   if ($LASTEXITCODE -ne 0) { throw 'Could not validate downloaded Compose configuration.' }
   Assert-LoopbackCompose ($raw | ConvertFrom-Json)
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $InstallDir 'scripts/install.ps1') -NoAi @flags | Out-Host
+  $installFlags=@($flags);if($AdminPasswordStdin){$installFlags+='-AdminPasswordStdin'}
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $InstallDir 'scripts/install.ps1') -NoAi @installFlags | Out-Host
   if ($LASTEXITCODE -ne 0) { Write-Host 'Installation stopped. Existing started services may still be running; inspect install.log and docker compose ps.'; return $LASTEXITCODE }
   Complete-WindowsSetup $InstallDir ($Yes -or $NoMenu)
   return 0
