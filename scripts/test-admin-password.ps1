@@ -30,3 +30,6 @@ try {
  $script:failNative=$true;$blocked=$false;try{Invoke-NewAdminCreate 'fixture' 'fixture@example.invalid' $secret $tmp}catch{$blocked=$true};if(-not $blocked){throw 'Native failure not propagated'}
  Write-Host 'PASS secure-entry confirmation, weak/mismatch/unattended refusal, UTF8 stdin, no password argv/log, native failure propagation. Docker and interactive host stubbed.'
 } finally {Remove-Item $tmp -Force -ErrorAction SilentlyContinue}
+
+# The intentional failing native mock must not become the CI host's process exit.
+$global:LASTEXITCODE=0
