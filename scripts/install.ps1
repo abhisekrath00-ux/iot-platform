@@ -1,7 +1,7 @@
 # Guided installer for the HexThings on Windows (Docker Desktop with WSL2).
 # Double-click install.bat, or: powershell -ExecutionPolicy Bypass -File install.ps1 [-Yes]
 # Same steps as install.sh. NOT TESTED: no Windows machine was available when this was written.
-param([switch]$Yes, [string]$AdminEmail = "", [string]$Workspace = "", [int]$WebPort = 0, [string]$AiModel = "", [switch]$AiDownload, [switch]$NoAi, [string]$AiModelSize = "", [switch]$AiForce)
+param([switch]$AdminPasswordStdin, [switch]$Yes, [string]$AdminEmail = "", [string]$Workspace = "", [int]$WebPort = 0, [string]$AiModel = "", [switch]$AiDownload, [switch]$NoAi, [string]$AiModelSize = "", [switch]$AiForce)
 $ErrorActionPreference = "Continue"   # Windows PowerShell 5.1 turns native stderr (docker progress) into errors under Stop; every docker call checks $LASTEXITCODE
 Set-Location -Path $PSScriptRoot
 if (-not (Test-Path docker-compose.yml)) { Set-Location -Path (Split-Path $PSScriptRoot -Parent) }
@@ -96,9 +96,18 @@ else {
   Ok ".env written with generated secrets"
 }
 if (-not $Workspace) { $Workspace = Ask "Name for your first workspace (lowercase letters, digits, dashes)" "my-plant" }
-if (-not $AdminEmail) { $AdminEmail = Ask "Administrator email (you must change it at first sign-in if it stays the default)" "admin@hexthings.com" }
+if (-not $AdminEmail) { $AdminEmail = Ask "Administrator email" "admin@hexthings.com" }
 if ($Workspace -notmatch '^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$') { Fail "workspace '$Workspace' must be 3-40 characters: a-z, 0-9, dashes" }
 if ($AdminEmail -notmatch '^[^@ ]+@[^@ ]+\.[^@ ]+$') { Fail "'$AdminEmail' is not an email address" }
+. (Join-Path $PSScriptRoot 'admin-password.ps1')
+$AdminPassword=$null;$KnownWorkspace=$false
+$runningApi = docker compose ps --status running -q api 2>$null
+if ($runningApi) {
+  $listed=(docker compose exec -T api /bin/tenantctl list 2>> $Log) -join "`n"
+  if($LASTEXITCODE -ne 0){Fail 'Could not list existing workspaces; no administrator was changed'}
+  $KnownWorkspace=$listed -match "(?m)^$Workspace "
+}
+if(-not $KnownWorkspace){try{$AdminPassword=Get-NewAdminPassword $AdminEmail ([bool]$AdminPasswordStdin) ([bool]$Yes)}catch{Fail $_.Exception.Message}}
 $aiProfile = @()
 if (-not $NoAi) {
   if (-not $AiModel -and (Test-Path model.gguf)) { $AiModel = "model.gguf" }
@@ -147,16 +156,16 @@ Ok "platform is healthy"
 
 Say ""; Say "4. First workspace"
 if (Test-Path install-credentials.txt) { Warn "install-credentials.txt from an older install holds a password in plain text. Change that password in the app, then delete the file." }
-$Pass = ""
 $existing = (docker compose exec -T api /bin/tenantctl list 2>$null) -join "`n"
+if($LASTEXITCODE -ne 0){Fail 'Could not list existing workspaces; no administrator was changed'}
 if ($existing -match "(?m)^$Workspace ") { Ok "workspace '$Workspace' already exists; the administrator was not changed" }
 else {
-  $out = docker compose exec -T api /bin/tenantctl create --id $Workspace --name $Workspace --admin-email $AdminEmail --default-credentials 2>&1
-  Add-Content -Path $Log -Value $out
-  if ($LASTEXITCODE -ne 0) { Fail "could not create the workspace (see $Log)" }
-  $Pass = "Hex@2026"   # documented first-run password; hashed in the database, not saved to any file
+  if(-not $AdminPassword){Fail 'Workspace changed during setup; rerun with an explicit new-admin password'}
+  try {Invoke-NewAdminCreate $Workspace $AdminEmail $AdminPassword $Log} catch {Fail $_.Exception.Message}
+  $AdminPassword=$null
   Ok "workspace '$Workspace' and administrator created"
 }
+$AdminPassword=$null
 if ($aiProfile.Count -gt 0) {
   & docker compose exec -T api /bin/tenantctl ai-connect --tenant $Workspace --model $(if ($AiModelSize) { $AiModelSize } else { "qwen3-1.7b" }) 2>&1 | Add-Content -Path $Log
   if ($LASTEXITCODE -eq 0) { Ok "AI assistant connected to the local model (the first answer is slow while the model loads)" }
@@ -172,7 +181,6 @@ try {
 } catch { Warn "could not add hexthings to PATH; run scripts\hexthings.ps1 instead" }
 Say ""; Say "Installed."; Say ""
 Say "  Open:      http://localhost:$WebPort"; Say "  Workspace: $Workspace"; Say "  Email:     $AdminEmail"
-if ($Pass) { Write-Host "  Password:  $Pass"; Say "             (first-run login: you are asked to change the email and password right after signing in; not saved anywhere)" }
 Say ""; Say "  Manage: hexthings status | update | backup | restore | logs | version   (open a new terminal first)"
 if ($script:Warnings -gt 0) { Say "  Note: $($script:Warnings) warning(s) above. The log is in $Log." }
 Write-Host ""; if ($hasUi) { Hx-Footer } else { Write-Host "  Made with <3 by Hexmon Technology" }
