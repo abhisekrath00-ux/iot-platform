@@ -31,4 +31,9 @@ rm "$T/w/hx/.env.example"; run --local-source hx
 check "incomplete local source refused" '[ $rc -ne 0 ] && ! grep -q INSTALL-RAN "$T/out" && ! grep -q NETWORK-CALLED "$T/out"'
 mk 0 0; printf '#!/bin/sh\nexit 9\n' > "$T/bin/git"; run
 check "failed update never runs stale installer" '[ $rc -ne 0 ] && ! grep -q INSTALL-RAN "$T/out"'
+mk 0 0
+printf '#!/bin/sh\nread -r answer || true\nexit 0\n' > "$T/w/hx/scripts/prereq.sh"
+printf '#!/bin/sh\nread -r pw; [ "$pw" = fixture-only-get-password ] || exit 8; echo STDIN-RETAINED\n' > "$T/w/hx/scripts/install.sh"
+(cd "$T/w" && printf '%s\n' fixture-only-get-password | HOME="$T/home" PATH="$T/bin:$PATH" HEXTHINGS_DIR=hx bash get.sh --admin-password-stdin > "$T/out" 2>&1);rc=$?
+check "password stdin is not consumed by prerequisites" '[ $rc -eq 0 ] && grep -q STDIN-RETAINED "$T/out"'
 echo; [ $fails -eq 0 ] && echo "all get.sh checks passed" || { echo "$fails failed"; exit 1; }
