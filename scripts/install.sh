@@ -2,26 +2,28 @@
 # Guided installer for HexThings (Linux, macOS, WSL).
 #
 #   ./install.sh                 asks a few questions, then does everything
-#   ./install.sh --yes           no questions: defaults, generated secrets
+#   ./install.sh --yes --admin-password-stdin   explicit password through stdin
 #
 # It checks the host, writes .env with generated secrets, loads or builds the images, starts the
 # stack, waits until it is healthy, creates the first workspace and administrator, and prints
 # where to sign in. It never overwrites an existing .env or touches the internet when run from an
 # air-gapped bundle (images.tar.gz next to it). Everything it does is logged to install.log.
 #
-# Options: --yes  --admin-email E  --workspace ID  --web-port N  --ai-model FILE.gguf  --ai-download  --ai-model-size ID  --ai-force  --no-ai
+# Options: --admin-password-stdin  --yes  --admin-email E  --workspace ID  --web-port N  --ai-model FILE.gguf  --ai-download  --ai-model-size ID  --ai-force  --no-ai
 #          --skip-preflight-warnings
+set +x
 set -euo pipefail
 cd "$(dirname "$0")"
 [ -f docker-compose.yml ] || cd ..   # run from scripts/ inside a source checkout
 LOG=install.log
 : > "$LOG"
 
-YES=0; ADMIN_EMAIL=""; WORKSPACE=""; WEB_PORT=""; AI_MODEL=""; AI_DL=0; NO_AI=0; AI_SIZE=""; AI_FORCE=0
+YES=0; ADMIN_EMAIL=""; WORKSPACE=""; WEB_PORT=""; AI_MODEL=""; AI_DL=0; NO_AI=0; AI_SIZE=""; AI_FORCE=0; ADMIN_PASSWORD_STDIN=0; ADMIN_PASSWORD=""; EXISTING_WORKSPACE=0
 CHOOSER=scripts/model-choose.sh; [ -f "$CHOOSER" ] || CHOOSER=./model-choose.sh
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes|-y) YES=1 ;;
+    --admin-password-stdin) ADMIN_PASSWORD_STDIN=1 ;;
     --admin-email) ADMIN_EMAIL="${2:?}"; shift ;;
     --workspace) WORKSPACE="${2:?}"; shift ;;
     --web-port) WEB_PORT="${2:?}"; shift ;;
@@ -197,9 +199,32 @@ else
 fi
 
 if [ -z "$WORKSPACE" ]; then WORKSPACE=$(ask "Name for your first workspace (lowercase letters, digits, dashes)" "my-plant"); fi
-if [ -z "$ADMIN_EMAIL" ]; then ADMIN_EMAIL=$(ask "Administrator email (you must change it at first sign-in if it stays the default)" "admin@hexthings.com"); fi
+if [ -z "$ADMIN_EMAIL" ]; then ADMIN_EMAIL=$(ask "Administrator email" "admin@hexthings.com"); fi
 printf '%s' "$WORKSPACE" | grep -Eq '^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$' || fail "workspace '$WORKSPACE' must be 3-40 characters: a-z, 0-9, dashes"
 printf '%s' "$ADMIN_EMAIL" | grep -Eq '^[^@ ]+@[^@ ]+\.[^@ ]+$' || fail "'$ADMIN_EMAIL' is not an email address"
+
+# Resolve a running existing workspace before asking for a new account password.
+# No failed read is treated as proof that an account is absent.
+if [ -n "$(docker compose ps --status running -q api 2>/dev/null)" ]; then
+  if ! existing=$(docker compose exec -T api /bin/tenantctl list 2>>"$LOG"); then fail "could not list existing workspaces; no administrator was changed"; fi
+  if printf '%s\n' "$existing" | grep -q "^${WORKSPACE} "; then EXISTING_WORKSPACE=1; fi
+fi
+if [ "$EXISTING_WORKSPACE" = 0 ]; then
+  if [ "$ADMIN_PASSWORD_STDIN" = 1 ]; then
+    IFS= read -r ADMIN_PASSWORD || fail "password input requires a newline-terminated line"
+  else
+    [ "$YES" = 0 ] && [ -t 0 ] || fail "new installations require --admin-password-stdin when unattended; no default password is used"
+    IFS= read -r -s -p 'Administrator password (12-128 bytes, hidden): ' ADMIN_PASSWORD || fail "password input cancelled"
+    printf '\n'
+    IFS= read -r -s -p 'Confirm administrator password (hidden): ' confirm_password || fail "password confirmation cancelled"
+    printf '\n'
+    [ "$ADMIN_PASSWORD" = "$confirm_password" ] || fail "passwords differ; no account created"
+    unset confirm_password
+  fi
+  case "$ADMIN_PASSWORD" in *$'\r'*|*$'\n'*) fail "password must be one line" ;; esac
+  bytes=$(LC_ALL=C printf '%s' "$ADMIN_PASSWORD" | wc -c | tr -d ' ')
+  [ "$bytes" -ge 12 ] && [ "$bytes" -le 128 ] && [ "$(printf '%s' "$ADMIN_PASSWORD" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$ADMIN_EMAIL" | tr '[:upper:]' '[:lower:]')" ] || fail "password must be 12-128 bytes and not the email; no account created"
+fi
 
 COMPOSE_ARGS=()
 if [ "$NO_AI" = 0 ]; then
@@ -261,20 +286,20 @@ ok "platform is healthy"
 # ---- first workspace and administrator --------------------------------------------------------
 step "First workspace"
 if [ -f install-credentials.txt ]; then warn "install-credentials.txt from an older install holds a password in plain text. Change that password in the app, then delete the file."; fi
-PASS=""
-if docker compose exec -T api /bin/tenantctl list 2>>"$LOG" | grep -q "^${WORKSPACE} "; then
+if ! existing=$(docker compose exec -T api /bin/tenantctl list 2>>"$LOG"); then fail "could not list existing workspaces; no administrator was changed"; fi
+if printf '%s\n' "$existing" | grep -q "^${WORKSPACE} "; then
   ok "workspace '$WORKSPACE' already exists; the administrator was not changed"
 else
-  # Fresh install only: the documented first-run login (hashed by tenantctl, flagged so the first sign-in must
-  # replace it). No password is generated, written to a file or logged. An existing workspace is never touched.
-  if docker compose exec -T api /bin/tenantctl create --id "$WORKSPACE" --name "$WORKSPACE" --admin-email "$ADMIN_EMAIL" --default-credentials >> "$LOG" 2>&1; then
-    PASS="Hex@2026"
+  [ -n "$ADMIN_PASSWORD" ] || fail "workspace changed during setup; rerun with an explicit new-admin password"
+  if printf '%s\n' "$ADMIN_PASSWORD" | docker compose exec -T api /bin/tenantctl create --id "$WORKSPACE" --name "$WORKSPACE" --admin-email "$ADMIN_EMAIL" --password-stdin >> "$LOG" 2>&1; then
+    unset ADMIN_PASSWORD
     ok "workspace '$WORKSPACE' and administrator created"
   else
     fail "could not create the workspace (see $LOG)"
   fi
 fi
 
+unset ADMIN_PASSWORD
 if [ "${#COMPOSE_ARGS[@]}" -gt 0 ]; then
   if docker compose exec -T api /bin/tenantctl ai-connect --tenant "$WORKSPACE" --model "${AI_SIZE:-qwen3-1.7b}" >> "$LOG" 2>&1; then
     ok "AI assistant connected to the local model (Settings > AI shows it; the first answer is slow while the model loads)"
@@ -294,7 +319,6 @@ if [ "$UNI" = 1 ]; then
   row "${B}Open${N}       http://localhost:${WEB_PORT}"
   row "${B}Workspace${N}  ${WORKSPACE}"
   row "${B}Email${N}      ${ADMIN_EMAIL}"
-  [ -z "$PASS" ] || row "${B}Password${N}   ${PASS}"
   say "${C3}╰${line}╯${N}"; footer
 else
   say "Installed. HexThings is ready."; footer
@@ -302,9 +326,7 @@ else
   say "  Open:      http://localhost:${WEB_PORT}"
   say "  Workspace: ${WORKSPACE}"
   say "  Email:     ${ADMIN_EMAIL}"
-  [ -z "$PASS" ] || printf "%s\n" "  Password:  ${PASS}"
 fi
-[ -z "$PASS" ] || say "  ${D}(first-run password: you are asked to change the email and password right after signing in; it is not saved anywhere)${N}"
 say ""
 say "  Stop:      docker compose stop        Start: docker compose start"
 say "  Back up:   ./scripts/backup.sh        Logs:  docker compose logs -f api"
