@@ -28,7 +28,15 @@ autodetect:
 ui:
   listen: 127.0.0.1:8088
 devices: []
-'@ | Set-Content "$dir/edge-agent.yaml"
+'@ | Set-Content "$stage/connection-only.yaml"
+ # Mirror an actual lab enrollment: generated key saved, no signed cert returned.
+ Set-Content "$dir/data/identity.key" 'fixture-only-key-not-a-real-secret'
+ $keyHash=(Get-FileHash "$dir/data/identity.key").Hash
+ Import-SetupConfig "$stage/connection-only.yaml" $false
+ $blocked=$false;try{Assert-ReadyConfig}catch{$blocked=$true};if($blocked){throw 'Manager rejected connection-only config with saved lab key'}
+ & "$dir/edge-agent.exe" -check-config -config "$dir/edge-agent.yaml" -identity-dir "$dir/data"
+ if($LASTEXITCODE -ne 0){throw 'Installed native configuration check rejected saved key-only lab identity'}
+ if((Get-FileHash "$dir/data/identity.key").Hash -ne $keyHash){throw 'Configuration check changed identity key'}
  Set-Content "$dir/data/ci-retain-marker" 'retain'
  $hash=(Get-FileHash "$dir/edge-agent.yaml").Hash
  Set-SetupBoot $true
@@ -47,10 +55,12 @@ devices: []
  (Get-Service HexmonEdge).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))
  & "$stage/install-windows.ps1"
  if($LASTEXITCODE -ne 0){throw 'Stopped-service upgrade failed'}
+ if((Get-FileHash "$dir/data/identity.key").Hash -ne $keyHash){throw 'Identity key changed'}
  if((Get-FileHash "$dir/edge-agent.yaml").Hash -ne $hash -or -not(Test-Path "$dir/data/ci-retain-marker")){throw 'Upgrade changed config/identity fixture'}
  & "$stage/uninstall-windows.ps1"
  if(Get-Service HexmonEdge -ErrorAction SilentlyContinue){throw 'Service remains after uninstall'}
  if(Test-Path "$dir/edge-agent.exe"){throw 'Agent binary remains'}
+ if((Get-FileHash "$dir/data/identity.key").Hash -ne $keyHash){throw 'Identity key changed'}
  if((Get-FileHash "$dir/edge-agent.yaml").Hash -ne $hash -or -not(Test-Path "$dir/data/ci-retain-marker")){throw 'Uninstall did not retain config/identity fixture'}
  Write-Host 'PASS real native service install, manual/automatic settings, start/health/stop, stopped upgrade and retained-config uninstall. No reboot/UAC/GUI-click/telemetry proof.'
 } finally {
