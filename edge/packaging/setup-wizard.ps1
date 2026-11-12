@@ -23,6 +23,13 @@ function Set-SetupBoot([bool]$Enabled) {
   $mode = if ($Enabled) { 'Automatic' } else { 'Manual' }
   Set-Service -Name HexmonEdge -StartupType $mode
 }
+function Import-SetupConfig([string]$candidate, [bool]$StartOnBoot) {
+  & $exe -check-config -config $candidate -identity-dir "$dir\data";Assert-SetupExit $LASTEXITCODE 'New configuration check'
+  $sample=Join-Path $here 'edge-agent.example.yaml';if ((Get-FileHash $candidate).Hash -eq (Get-FileHash $sample).Hash) { throw 'Do not use the unchanged example config.' }
+  if ((Get-Service HexmonEdge).Status -eq 'Running') { throw 'Stop the service before replacing its config.' }
+  if (Test-Path $config) { Copy-Item $config "$config.previous" -Force };Copy-Item $candidate $config -Force
+  Set-SetupBoot $StartOnBoot
+}
 if ($ContractOnly) { return }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -64,11 +71,8 @@ Button 'Import gateway YAML' 227 338 205 { Run-Action {
   if (-not (Test-Path $exe)) { throw 'Install the agent first.' }
   $dialog=New-Object System.Windows.Forms.OpenFileDialog;$dialog.Filter='YAML files (*.yaml;*.yml)|*.yaml;*.yml';if ($dialog.ShowDialog() -ne 'OK') { $output.Text='Import cancelled.';return }
   $candidate=$dialog.FileName
-  & $exe -check-config -config $candidate -identity-dir "$dir\data";Assert-SetupExit $LASTEXITCODE 'New configuration check'
-  $sample=Join-Path $here 'edge-agent.example.yaml';if ((Get-FileHash $candidate).Hash -eq (Get-FileHash $sample).Hash) { throw 'Do not use the unchanged example config.' }
-  if ((Get-Service HexmonEdge).Status -eq 'Running') { throw 'Stop the service before replacing its config.' }
-  if (Test-Path $config) { Copy-Item $config "$config.previous" -Force };Copy-Item $candidate $config -Force
-  Set-SetupBoot $boot.Checked;$output.Text='Configuration imported and checked. Startup choice applied. Press Start, then check health and first reading in the dashboard.'
+  Import-SetupConfig $candidate $boot.Checked
+  $output.Text='Configuration imported and checked. Startup choice applied. Press Start, then check health and first reading in the dashboard.'
 } }
 Button 'Apply startup choice' 447 338 210 { Run-Action { Set-SetupBoot $boot.Checked;$output.Text='Startup choice saved. This does not start or stop the service now.' } }
 Button 'Start' 22 387 110 { Run-Action { Assert-ReadyConfig;Set-SetupBoot $boot.Checked;Start-Service HexmonEdge;(Get-Service HexmonEdge).WaitForStatus('Running',[TimeSpan]::FromSeconds(30));$output.Text='Service running. Check health and first sensor reading; running is not proof of telemetry.' } }
