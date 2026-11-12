@@ -3,7 +3,7 @@ RUN apk add --no-cache bash zip dpkg python3
 WORKDIR /src
 COPY edge ./edge
 COPY scripts/build-edge.sh scripts/edge-manifest.py ./scripts/
-ARG EDGE_VERSION=0.2.0
+ARG EDGE_VERSION=0.2.1
 RUN bash scripts/build-edge.sh "$EDGE_VERSION"
 
 FROM golang:1.26-alpine AS build
