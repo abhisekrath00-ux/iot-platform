@@ -216,6 +216,12 @@ func Load(path string) (*Config, error) {
 // DefaultIdentityFiles fills blank mTLS paths from the directory that
 // claim.SaveIdentity wrote, when those files exist. Explicit config wins.
 func (c *Config) DefaultIdentityFiles(dir string) {
+	// Lab enrollment saves a CSR private key without a signed certificate.
+	// These files are irrelevant to plaintext MQTT inside an SSH tunnel.
+	// Keep explicit paths untouched so lint can still flag a bad config.
+	if !c.MQTT.TLS {
+		return
+	}
 	fill := func(dst *string, name string) {
 		if *dst != "" {
 			return
