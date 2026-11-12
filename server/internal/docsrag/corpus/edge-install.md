@@ -13,6 +13,20 @@ Packages are built by `scripts/build-edge.sh` (or the `release-edge` workflow on
 The agent is one static Go binary: no runtime, no CGO, nothing to install. Verify
 the download with `sha256sum -c SHA256SUMS`.
 
+## Saved lab identity correction (0.2.1)
+
+A lab enrollment can save `identity.key` without `identity.crt`. Versions before
+0.2.1 can incorrectly reject a TLS-disabled configuration with a certificate/key
+pair error. Upgrade the stopped agent, preserving its config and `data` directory;
+do not delete identity files, reclaim the gateway or invent certificate paths.
+The Windows setup form accepts all three enrollment fields blank for install-only
+upgrade. Keep boot startup off for a temporary SSH test. Back up the old executable
+outside the install directory before replacement; rollback is a stopped-service
+binary restore, not uninstall/re-enrollment. Recheck the intended configuration
+against the retained identity directory before importing or starting. A corrected
+package on a server is available only after rebuilding that server image. Source
+and CI success do not establish that an existing PC has received the correction.
+
 ## Linux (Ubuntu, Debian, Raspberry Pi OS, any systemd distro)
 
 **Guided (recommended):** `sudo ./install.sh` asks for the server address, claim code and serial, checks the server answers and the clock is in sync, then installs the service. Non-interactive: `sudo ./install.sh --server https://api.example --code CODE --serial SERIAL --yes`. It needs no internet, only your own server. Plain ASCII output when not a terminal or `NO_COLOR` is set. Tested with a fake binary in a temp prefix (systemd step skipped). On 2026-10-19 the full Linux path (guided install, server reachability and clock check, claim-code enrollment, identity and config written) was run against a live server in a temp prefix, in all three identity modes: mTLS with a generated CA, fail-closed with no CA (the claim code survived the error and succeeded on retry), and lab token-only (`MQTT_TLS=false`). systemd start and a real sensor read remain untested. Windows: double-click `install.bat` (asks for Administrator) or run `.\install.ps1` in an elevated PowerShell; same questions and checks. The Windows guided installer has never been run (no Windows machine).
