@@ -4,7 +4,7 @@
 # Output: dist/edge/
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-ver="${1:-0.2.0}"
+ver="${1:-0.2.1}"
 [[ "$ver" =~ ^[a-zA-Z0-9][a-zA-Z0-9.+_-]{0,63}$ ]] || { echo 'invalid edge version' >&2; exit 2; }
 command -v dpkg-deb >/dev/null || { echo 'dpkg-deb is required for dashboard Ubuntu packages' >&2;exit 1; }
 command -v python3 >/dev/null || { echo 'python3 is required for package inventory' >&2;exit 1; }
