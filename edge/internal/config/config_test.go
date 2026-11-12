@@ -49,6 +49,7 @@ func TestDefaultIdentityFiles(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o600)
 	}
 	var c Config
+	c.MQTT.TLS = true
 	c.MQTT.CertFile = "/explicit.crt"
 	c.DefaultIdentityFiles(dir)
 	if c.MQTT.CertFile != "/explicit.crt" {
@@ -181,5 +182,39 @@ func TestSNMPDiscoveryRequiresEnvName(t *testing.T) {
 		if (err != nil) != tc.bad {
 			t.Fatalf("%q %v", tc.tail, err)
 		}
+	}
+}
+
+// A real lab claim saves the generated key but receives no signed certificate.
+func TestLabIdentityKeyDoesNotCreateTLSConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "identity.key"), []byte("fixture-only"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var c Config
+	c.GatewayID = "g1"
+	c.TenantID = "t1"
+	c.MQTT.Host = "127.0.0.1"
+	c.MQTT.Port = 11883
+	c.DefaultIdentityFiles(dir)
+	if c.MQTT.KeyFile != "" || c.MQTT.CertFile != "" || c.MQTT.CAFile != "" {
+		t.Fatal("plaintext configuration acquired TLS paths")
+	}
+	if issues := Lint(&c, "windows"); HasError(issues) {
+		t.Fatalf("lab connection-only config rejected: %+v", issues)
+	}
+	c.MQTT.TLS = true
+	c.DefaultIdentityFiles(dir)
+	if !HasError(Lint(&c, "windows")) {
+		t.Fatal("TLS key-only identity must still fail closed")
+	}
+}
+func TestPlaintextExplicitTLSPathsAreNotSilentlyRemoved(t *testing.T) {
+	var c Config
+	c.MQTT.Host = "127.0.0.1"
+	c.MQTT.KeyFile = "missing-explicit.key"
+	c.DefaultIdentityFiles(t.TempDir())
+	if c.MQTT.KeyFile != "missing-explicit.key" || !HasError(Lint(&c, "windows")) {
+		t.Fatal("explicit invalid TLS configuration was hidden")
 	}
 }
