@@ -158,7 +158,7 @@ func main() {
 	})
 
 	// Readiness is separate from liveness: a configured shared OAuth state store
-	// is required even though the optional response cache can fall back locally.
+	// is required even though optional response-cache read failures bypass caching.
 	checks := []func(context.Context) error{st.Pool.Ping}
 	if stateBackend == "redis" {
 		checks = append(checks, stateStoreReadiness(redisCli))

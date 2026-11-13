@@ -3,6 +3,7 @@ package respcache
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -133,5 +134,103 @@ func TestCancelledWaiterDoesNotHangOrRunBackend(t *testing.T) {
 		if calls.Load() != 1 {
 			t.Fatal("waiter ran backend")
 		}
+	}
+}
+
+// A net/http server recovers handler panics. The cache must still release the
+// single-flight generation; otherwise later readers wait on a channel that no
+// surviving leader can close. Partial output must never become a cached hit.
+func TestPanickingLeaderReleasesFlightWithoutCachingPartialBody(t *testing.T) {
+	for _, shared := range []bool{false, true} {
+		t.Run(map[bool]string{false: "local", true: "shared"}[shared], func(t *testing.T) {
+			c := New(10)
+			if shared {
+				c.UseShared(&memoryShared{m: map[string]string{}})
+			}
+			var calls int
+			var flight *call
+			h := c.Middleware(time.Minute, tenantHdr, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls == 1 {
+					c.mu.Lock()
+					for _, f := range c.inflight {
+						flight = f
+					}
+					c.mu.Unlock()
+					w.Write([]byte("partial"))
+					panic("backend failure")
+				}
+				w.Write([]byte("fresh"))
+			})
+			func() {
+				defer func() {
+					if recover() != "backend failure" {
+						t.Fatal("cache swallowed or changed handler panic")
+					}
+				}()
+				get(h, "a", "/panic")
+			}()
+			if flight == nil {
+				t.Fatal("leader did not register a flight")
+			}
+			select {
+			case <-flight.done:
+			default:
+				t.Fatal("panicked leader left its readers blocked")
+			}
+			c.mu.Lock()
+			pending := len(c.inflight)
+			c.mu.Unlock()
+			if pending != 0 || flight.ent != nil {
+				t.Fatal("panicked leader retained a flight or partial response")
+			}
+			if w := get(h, "a", "/panic"); w.Body.String() != "fresh" || w.Header().Get("X-Cache") != "MISS" {
+				t.Fatal("next reader did not recompute fresh data", w.Body.String())
+			}
+			if w := get(h, "a", "/panic"); w.Body.String() != "fresh" || w.Header().Get("X-Cache") != "HIT" || calls != 2 {
+				t.Fatal("successful retry did not settle a cache entry")
+			}
+		})
+	}
+}
+
+func TestHTTPServerRemainsReadableAfterCachedHandlerPanic(t *testing.T) {
+	for _, shared := range []bool{false, true} {
+		t.Run(map[bool]string{false: "local", true: "shared"}[shared], func(t *testing.T) {
+			c := New(10)
+			if shared {
+				c.UseShared(&memoryShared{m: map[string]string{}})
+			}
+			var calls atomic.Int32
+			h := c.Middleware(time.Minute, func(*http.Request) string { return "test-tenant" }, func(w http.ResponseWriter, r *http.Request) {
+				if calls.Add(1) == 1 {
+					w.Write([]byte("partial"))
+					panic("injected backend failure")
+				}
+				w.Write([]byte("fresh"))
+			})
+			srv := httptest.NewServer(h)
+			defer srv.Close()
+			client := srv.Client()
+			client.Timeout = time.Second
+			if response, err := client.Get(srv.URL); err == nil {
+				response.Body.Close()
+				t.Fatal("panicking request unexpectedly produced a successful response")
+			}
+			for _, want := range []string{"MISS", "HIT"} {
+				response, err := client.Get(srv.URL)
+				if err != nil {
+					t.Fatal("HTTP server remained poisoned after recovering a handler panic", err)
+				}
+				body, err := io.ReadAll(response.Body)
+				response.Body.Close()
+				if err != nil || response.StatusCode != 200 || string(body) != "fresh" || response.Header.Get("X-Cache") != want {
+					t.Fatal("wrong fresh response after panic", string(body), response.Header)
+				}
+			}
+			if calls.Load() != 2 {
+				t.Fatal("cache recovery lost normal single-flight/hit behavior")
+			}
+		})
 	}
 }

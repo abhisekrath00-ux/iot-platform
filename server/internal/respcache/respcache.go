@@ -138,6 +138,7 @@ func (c *Cache) Middleware(ttl time.Duration, tenantOf func(*http.Request) strin
 		f := &call{done: make(chan struct{})}
 		c.inflight[k] = f
 		c.mu.Unlock()
+		defer c.abandonFlight(k, f)
 		c.Misses.Add(1)
 
 		rec := httptest.NewRecorder()
@@ -166,6 +167,18 @@ func (c *Cache) Middleware(ttl time.Duration, tenantOf func(*http.Request) strin
 		w.WriteHeader(rec.Code)
 		_, _ = w.Write(rec.Body.Bytes())
 	}
+}
+
+// abandonFlight runs on panic or Goexit as well as normal return. A successful
+// leader already removed its flight and published its result. On failure, unblock
+// readers without caching a partial body, while preserving the original panic.
+func (c *Cache) abandonFlight(key string, f *call) {
+	c.mu.Lock()
+	if c.inflight[key] == f {
+		delete(c.inflight, key)
+		close(f.done)
+	}
+	c.mu.Unlock()
 }
 
 func write(w http.ResponseWriter, e *entry, state string) {
@@ -233,6 +246,7 @@ func (c *Cache) serveShared(w http.ResponseWriter, r *http.Request, tenant strin
 	f := &call{done: make(chan struct{})}
 	c.inflight[k] = f
 	c.mu.Unlock()
+	defer c.abandonFlight(k, f)
 	c.Misses.Add(1)
 
 	rec := httptest.NewRecorder()
