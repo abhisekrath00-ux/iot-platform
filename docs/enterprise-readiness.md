@@ -519,3 +519,28 @@ bounded recovery, explicit failure/uncertainty handling and per-effect replay
 semantics, plus candidate and previous-image background compatibility evidence.
 No existing command/ACL restriction, owner installation, main branch, release
 or production secure-update availability changes here.
+
+### Refuse flow notification scheduling when run recording fails
+
+A separate real-PostgreSQL regression showed another unsafe branch: telemetry
+flow evaluation logged a failed `flow_runs` INSERT, then still scheduled its
+notification goroutine. A recording-only notifier received the synthetic
+"reading 90" notification despite zero run rows. Evaluation now stops that
+flow before scheduling notification dispatch when the INSERT fails, matching
+the existing scheduled-flow guard. Healthy recorded flows still reach the
+recording stub. No actual mail, webhook or actuator is used in this test.
+
+`TestIntegrationFlowRecordFailurePreventsNotification` fails against the prior
+code with the observed stub call and passes with the guard. Race-enabled
+repetitions also cover existing latch rearming and cooldown suppression. The
+negative dispatch check is bounded to300ms, followed by a healthy95-valued
+control and a database record assertion; it is not an indefinite delivery
+absence proof. The run's existing `notified` label still means scheduling, not
+a recipient receipt.
+
+This guard does NOT fix the missing-derived-work window above. It does not
+add retries, a durable work queue or a new schema. Graph evaluation can perform
+HTTP/context/control work before run recording, and delayed goroutines can be
+lost after a successful record. Those remain explicit recovery-design gates,
+as do exact candidate/previous-image background compatibility and owner update
+acceptance. No command or automatic-output policy is widened.

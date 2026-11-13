@@ -1811,3 +1811,10 @@ separate plaintext-loopback fixture; it supplies no enabled delivery channel
 or actuator. A passing characterization does not satisfy full background or
 previous-image compatibility and must not enable the production update entry.
 No automatic retry of external effects is added. Owner environment unchanged.
+
+A follow-up flow guard refuses asynchronous notification scheduling when the
+telemetry-driven `flow_runs` INSERT fails. Real-PG fault injection first observed
+a recording stub called with no run row; the guard and healthy recorded control
+are regression-tested. This is not durable derived recovery: graph-side effects
+before run recording and lost delayed dispatch after recording remain outside
+it. No schema change, external retry or production update availability follows.

@@ -105,6 +105,10 @@ func EvaluateWith(ctx context.Context, pool *pgxpool.Pool, n Notifier, fn Functi
 			`INSERT INTO flow_runs(id,flow_id,trigger_value,outcome,detail) VALUES($1,$2,$3,$4,NULLIF($5,''))`,
 			uuid.NewString(), id, value, outcome, detail); err != nil {
 			log.Printf("flows: record run: %v", err)
+			// Refuse notification scheduling without a durable run record.
+			// This is not a delivery receipt or a replay/recovery mechanism;
+			// graph HTTP/context/control effects may already have run in Exec.
+			continue
 		}
 		if !ok || len(actions) == 0 {
 			continue
