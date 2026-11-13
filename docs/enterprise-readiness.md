@@ -412,3 +412,20 @@ generated-ACL mTLS/unknown-ACK and source-apply/110reading pipelines pass. The
 first pipeline invocation omitted this local broker binary's private shared-library
 path and could not start it; the corrected invocation passes on another fresh DB. Windows-amd64/Linux-arm64
 crossbuilds compile only, not native installation or final GUI/package acceptance.
+
+### Separate c402 remote bounded-transport acceptance
+
+Exact `c402dd140a05b4435115c87cede5b61b4c46d63c` completed general
+CI43439566574 all4 jobs and native43439660828 all3 jobs, Linux51m18s.
+Raw832349bytes/6464Linux lines retained; targeted provider transition/assertion
+records were inspected, not every Docker trace. Forced rollback, lost host/local
+cleanup fresh recovery, lost original-HBA-release acknowledgement and final
+settled recovery without reviewed-schema replay pass. Both Windows jobs pass
+scoped lifecycle/contracts. Go raw explicitly confirms default secure API cmd
+PUBACK without delivery, allowed diag one-shot transport without executor,
+mTLS/compiled-ingest reconnect/unknown ACK isolation and real Valkey transport.
+This accepts that exact component snapshot only, not this later persistent-edge
+candidate, full compatibility, equipment, owner upgrade or enterprise readiness.
+The c743 failure remains unexplained, not proved fixed by another green run.
+- https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43439566574
+- https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43439660828
