@@ -120,13 +120,27 @@ func TestIntegrationCacheAndPoolObservability(t *testing.T) {
 	if w := call(api, "itest-obs", "operator", "GET", "/v1/system/prom", ""); w.Code != 403 {
 		t.Fatal("cache/pool metrics exposed to non-admin")
 	}
-	sampleCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel()
-	s.obsRun(sampleCtx)
-	var count int
-	if err := s.st.Pool.QueryRow(t.Context(), `SELECT count(DISTINCT name) FROM obs_metrics WHERE ts > now() - interval '5 seconds' AND name IN ('cache_hits_total','cache_shared_invalidation_failures_total','db_pool_max','db_pool_acquire_seconds_total')`).Scan(&count); err != nil || count != 4 {
-		t.Fatalf("cache/pool sampler omitted signals: count=%d err=%v", count, err)
+	// Wait for the actual persisted condition, not a 100ms scheduling guess.
+	// Slower CI storage must not be confused with a missing export.
+	sampleCtx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	done := make(chan struct{})
+	go func() { defer close(done); s.obsRun(sampleCtx) }()
+	defer func() { cancel(); <-done }()
+	started := time.Now()
+	for {
+		var count int
+		err := s.st.Pool.QueryRow(sampleCtx, `SELECT count(DISTINCT name) FROM obs_metrics WHERE ts >= $1 AND name IN ('cache_hits_total','cache_shared_invalidation_failures_total','db_pool_max','db_pool_acquire_seconds_total')`, started.Add(-time.Second)).Scan(&count)
+		if err == nil && count == 4 {
+			break
+		}
+		if sampleCtx.Err() != nil {
+			t.Fatalf("cache/pool sampler omitted signals: count=%d err=%v", count, err)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
+	cancel()
+	<-done
+	// The deferred receive remains safe once the channel is closed.
 	s.cache = nil
 	m = s.obsSnapshot(t.Context())
 	if m["cache_enabled"] != 0 {

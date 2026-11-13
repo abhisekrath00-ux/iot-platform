@@ -131,3 +131,11 @@ when that socket actually exists on the runner. TCP proof stays mandatory;
 production endpoint/admission guards are unchanged. A local service socket is
 not inferred from a path reported by a remote service container.
 Source: https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43386173504
+
+Run43390305755 on307cd1b is also **not accepted**: web/security/Compose pass,
+Go's new cache/pool history test canceled its sampler at100ms and found2of4
+signals on the CI runner. Full117999-character raw inspected. Endpoint proof
+now passes; later MQTT/Valkey/edge steps did not run. The test now waits for all
+four real persisted signals with a15s bound, then cancels/joins the sampler.
+No production sampler behavior, guard or assertion scope was weakened.
+Source: https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43390305755
