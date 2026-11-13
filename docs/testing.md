@@ -330,3 +330,16 @@ The psql client dies inside the killed container, so this does not require or cl
 ### Ubuntu single-server installer acceptance
 
 The Ubuntu bootstrap and loopback-only default Compose bindings are checked by `bash scripts/test-ubuntu-server.sh` (pure contracts plus stubbed source/install control flow). CI separately attempts `bash scripts/test-ubuntu-install-live.sh` on a disposable GitHub-hosted Ubuntu runner: actual guided installation, six actual127.0.0.1 host bindings, health, first workspace, mode600 environment and secret-preserving rerun. The live script refuses outside that runner context and removes its disposable volumes. It does not test fresh-host apt provisioning, public-source download before visibility is changed, every supported Ubuntu release, arm64, public TLS, real gateways or production hardening. Require the exact-tip runtime log before claiming acceptance. See docs/install.md for requirements and the changed loopback access contract.
+
+### Bounded mixed MQTT and API cache check
+
+The certificate-required `TestIntegrationMQTTTLSPipeline` additionally runs
+80synthetic events plus8duplicates with4JWT HTTP readers doing150latest/series
+reads each. A third TCP cut forces ingest subscription recovery while HTTP reads
+continue; publications pause across the cut. The test checks80unique rows, foreign
+scope refusal, cache use and final latest-reading freshness after TTL. This is a
+single local broker/compiled-ingest/PG/API flow, not a report/background load test,
+lossless offline session, full authentication middleware, sustained soak, target
+capacity, DB outage or hardware result. The test's disposable credentials and
+messages cannot activate real equipment. Build `TEST_INGEST_BINARY` from the
+same source before running; do not use an old executable as current-code proof.

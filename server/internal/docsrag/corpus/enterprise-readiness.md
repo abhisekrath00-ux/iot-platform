@@ -100,3 +100,20 @@ and must not be read as current approval or acceptance.
   Vendor sources: https://valkey.io/download/ and
   https://download.valkey.io/releases/valkey-9.0.7-jammy-x86_64.tar.gz with
   https://download.valkey.io/releases/valkey-9.0.7-jammy-x86_64.tar.gz.sha256.
+
+- `TestIntegrationMQTTTLSPipeline` now includes a single combined bounded flow:
+  actual mTLS Mosquitto/generated ACL -> freshly compiled ingest -> fresh PG ->
+  cached HTTP latest and uncached series with JWT tenant separation.80synthetic
+  events plus8duplicate publications run alongside4readers x150requests; one
+  extra ingest TCP reconnect occurs while reads continue. Publishing pauses for
+  subscription recovery, so no disconnected clean-session losslessness is implied.
+  All80unique events remain once and the final5079reading becomes visible through
+  the2s cache TTL. Example race run:4.02s mixed section,612HTTP requests including
+  freshness polling,maxHTTP11.46ms,310cache hits,client pool2/20 and2empty
+  acquisitions. These are local synthetic observations, not capacity/SLO numbers.
+  No report execution, full auth/session middleware, all background jobs, DB fault,
+  broker process restart, hardware or production deployment is covered. Initial
+  harness run incorrectly timestamped the new batch before its own previous
+  future-stamped barrier; rows were stored but the older latest value correctly
+  won. New batch is now explicitly after the retained max timestamp; fresh rerun
+  passes. This was a fixture correction, not a product fix.

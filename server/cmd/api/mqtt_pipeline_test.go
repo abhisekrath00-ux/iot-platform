@@ -46,6 +46,7 @@ func runMQTTPipeline(t *testing.T, secure map[string]string) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	s, _ := testServer(t)
+	s.cache = newCache()
 	const tenant = "itest-mqpipe"
 	seed(t, s, tenant)
 	seed(t, s, "itest-mqother")
@@ -298,7 +299,7 @@ func runMQTTPipeline(t *testing.T, secure map[string]string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
 	mux.HandleFunc("GET /v1/commands", s.listCommands)
-	mux.HandleFunc("GET /v1/telemetry/latest", s.latestTelemetry)
+	s.cached(mux, "GET /v1/telemetry/latest", s.latestTelemetry)
 	mux.HandleFunc("GET /v1/telemetry/series", s.seriesTelemetry)
 	secret := []byte("synthetic-test-key-not-for-production")
 	httpServer := httptest.NewServer(auth.Middleware(secret)(mux))
@@ -364,6 +365,26 @@ func runMQTTPipeline(t *testing.T, secure map[string]string) {
 	res.Body.Close()
 	if res.StatusCode != 401 {
 		t.Fatal("missing JWT", res.StatusCode)
+	}
+	if secure != nil {
+		mixedMQTTReads(t, s, c, httpServer.URL, secret, func() error {
+			b, _ := os.ReadFile(logPath)
+			before := strings.Count(string(b), "ingest subscriptions ready")
+			mu.Lock()
+			for _, socket := range sockets {
+				socket.Close()
+			}
+			mu.Unlock()
+			end := time.Now().Add(20 * time.Second)
+			for time.Now().Before(end) {
+				b, _ := os.ReadFile(logPath)
+				if strings.Count(string(b), "ingest subscriptions ready") > before {
+					return nil
+				}
+				time.Sleep(25 * time.Millisecond)
+			}
+			return fmt.Errorf("mixed-flow ingest subscription recovery timed out")
+		})
 	}
 	if secure != nil {
 		t.Log("certificate-required TLS broker, CN-scoped gateway ACL -> compiled ingest after two TLS reconnects -> Postgres -> JWT HTTP passed; foreign topic publications withheld by broker")
