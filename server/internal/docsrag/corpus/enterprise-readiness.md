@@ -204,3 +204,28 @@ automatic commands, KPI/geofence/escalation/forecast, retention/index, metrics a
 calendar/on-call. Safe bounded acceptance needs defined semantics without
 triggering real actuator or notification effects. Final matching server build,
 dashboard EXE download/install and preserved identity/config evidence stay open.
+
+## Leader lock-session loss (local follow-up, not c743 native scope)
+
+A real local PostgreSQL fixture terminated only the dedicated advisory-lock
+backend while the process/cooperative callback stayed alive. A second session
+acquired the same lock immediately; the old job context remained live until the
+5s watchdog (initial proof4996ms, takeover0ms). No notification, report delivery
+or actuator effect was generated. This is a demonstrated overlap opportunity,
+not proof of duplicate business effects. Graceful cancel and process SIGKILL
+coverage did not exercise this failure mode. Session locks and cooperative
+cancellation do not fence downstream effects or promise exactly-once execution.
+
+The narrow local correction gives each watchdog check a2s context deadline,
+cancels/joins the watchdog before unlock or pool reuse, bounds unlock/close and
+closes the connection if unlock cannot be confirmed. It does not shorten the5s
+check interval, replace the leader design, add infrastructure or eliminate the
+connection-loss overlap window. Job/effect-specific fencing or idempotency is
+still needed wherever overlapping effects are unsafe.
+
+New bounded-watchdog timeout/cancel/join contracts and actual backend-loss/
+cooperative-job-join/pool-recovery regression pass with the race detector over
+3repeats alongside graceful and two-process SIGKILL tests. The regression logs
+old-context state at successful takeover rather than asserting a scheduling-
+dependent overlap duration. This local slice is not part of the pending c743
+native acceptance; no owner deployment or combined update readiness follows.
