@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -66,18 +69,33 @@ func TestActualPostgresConnectedDeniedClosedAndNoMutation(t *testing.T) {
 	defer admin.Exec(ctx, "DROP ROLE "+pgx.Identifier{role}.Sanitize())
 	defer admin.Exec(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
 	cfg := admin.Config()
-	r := Request{Version: 1, Transport: "private_tcp_plain", Host: cfg.Host, Port: cfg.Port, Database: name, User: role, Password: pass}
+	host := cfg.Host
+	if host == "localhost" {
+		host = "127.0.0.1"
+	}
+	r := Request{Version: 1, Transport: "private_tcp_plain", Host: host, Port: cfg.Port, Database: name, User: role, Password: pass}
+	u, err := url.Parse(dsn)
+	if err != nil || u.Scheme != "postgres" {
+		t.Fatal("explicit disposable postgres URL required")
+	}
+	u.Host = net.JoinHostPort(host, fmt.Sprint(cfg.Port))
+	u.Path = "/" + name
+	check, err := pgx.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expectedServer, expectedClient string
+	if err := check.QueryRow(ctx, "SELECT host(inet_server_addr()),host(inet_client_addr())").Scan(&expectedServer, &expectedClient); err != nil {
+		check.Close(ctx)
+		t.Fatal(err)
+	}
 	value, err := Probe(ctx, r)
-	if err != nil || value.Status != "connected" || value.Database != name || value.User != role || value.Server != "127.0.0.1" || value.Client != "127.0.0.1" {
-		t.Fatalf("connection proof: %+v %v", value, err)
+	if err != nil || value.Status != "connected" || value.Database != name || value.User != role || value.Server != expectedServer || value.Client != expectedClient {
+		t.Fatalf("connection proof: %+v %v expected server=%q client=%q", value, err, expectedServer, expectedClient)
 	}
 	raw, _ := json.Marshal(value)
 	if strings.Contains(string(raw), pass) {
 		t.Fatal("password leaked")
-	}
-	check, err := pgx.Connect(ctx, strings.Replace(dsn, admin.Config().Database, name, 1))
-	if err != nil {
-		t.Fatal(err)
 	}
 	var count int
 	if err = check.QueryRow(ctx, "SELECT count(*) FROM pg_tables WHERE schemaname='public'").Scan(&count); err != nil || count != 0 {
@@ -88,10 +106,20 @@ func TestActualPostgresConnectedDeniedClosedAndNoMutation(t *testing.T) {
 	if err = admin.QueryRow(ctx, "SHOW unix_socket_directories").Scan(&sockets); err != nil {
 		t.Fatal(err)
 	}
+	// A service-container socket path is on the server, not on this runner.
+	// Keep the TCP proof mandatory. Run socket proof only for a real local socket.
 	local := Request{Version: 1, Transport: "local_socket", Host: sockets, Port: cfg.Port, Database: name, User: cfg.User}
-	value, err = Probe(ctx, local)
-	if err != nil || value.Status != "connected" || value.Server != "" || value.Client != "" {
-		t.Fatalf("local proof: %+v %v", value, err)
+	localSocket := false
+	if info, e := os.Stat(filepath.Join(sockets, fmt.Sprintf(".s.PGSQL.%d", cfg.Port))); e == nil && info.Mode()&os.ModeSocket != 0 {
+		localSocket = true
+	}
+	if localSocket {
+		value, err = Probe(ctx, local)
+		if err != nil || value.Status != "connected" || value.Server != "" || value.Client != "" {
+			t.Fatalf("local proof: %+v %v", value, err)
+		}
+	} else {
+		t.Log("local Unix socket not on this runner; TCP proof remains mandatory, local-socket contract exercised separately")
 	}
 	if _, err = admin.Exec(ctx, "ALTER DATABASE "+pgx.Identifier{name}.Sanitize()+" ALLOW_CONNECTIONS false"); err != nil {
 		t.Fatal(err)
@@ -100,8 +128,10 @@ func TestActualPostgresConnectedDeniedClosedAndNoMutation(t *testing.T) {
 	if err != nil || value.Status != "database_closed" {
 		t.Fatalf("closed proof: %+v %v", value, err)
 	}
-	value, err = Probe(ctx, local)
-	if err != nil || value.Status != "database_closed" {
-		t.Fatalf("local closed proof: %+v %v", value, err)
+	if localSocket {
+		value, err = Probe(ctx, local)
+		if err != nil || value.Status != "database_closed" {
+			t.Fatalf("local closed proof: %+v %v", value, err)
+		}
 	}
 }

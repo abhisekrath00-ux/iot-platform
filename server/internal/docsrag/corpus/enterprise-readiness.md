@@ -117,3 +117,17 @@ and must not be read as current approval or acceptance.
   future-stamped barrier; rows were stored but the older latest value correctly
   won. New batch is now explicitly after the retained max timestamp; fresh rerun
   passes. This was a fixture correction, not a product fix.
+
+### Separate remote cache snapshot result
+
+Run43386173504 on d0aaafc is **not accepted**: web/security/Compose pass but
+Go stops in `TestActualPostgresConnectedDeniedClosedAndNoMutation`. The fixture
+passed CI's DNS name `localhost` to a production proof that deliberately accepts
+only explicit numeric IPv4 endpoints. Later transport/edge steps did not run.
+The correction is test-only: map the fixture's localhost to explicit127.0.0.1,
+compare actual server/client addresses from an independent direct SQL connection
+instead of assuming Docker NAT is127.0.0.1, and exercise local-socket proof only
+when that socket actually exists on the runner. TCP proof stays mandatory;
+production endpoint/admission guards are unchanged. A local service socket is
+not inferred from a path reported by a remote service container.
+Source: https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43386173504
