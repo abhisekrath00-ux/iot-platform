@@ -19,11 +19,11 @@ fit their actual consistency, authorization and failure boundaries.
 
 | Area | Grounded implementation | Evidence and remaining gate |
 |---|---|---|
-| Read caching | `cmd/api/cache.go` gives live reads 2s TTL, configuration lists 10-30s, tenant invalidation after successful mutations. Customer-scoped users bypass shared tenant entries. `internal/respcache` bounds entries/body size, coalesces concurrent misses and refuses personalized/cache-control responses. | Local/shared unit and race tests; real-Postgres API tenant/invalidation test. Mixed dashboard/ingest/write load and failure recovery still need integrated evidence. |
+| Read caching | `cmd/api/cache.go` gives live reads 2s TTL, configuration lists 10-30s, tenant invalidation after successful mutations. Customer-scoped users bypass shared tenant entries. `internal/respcache` bounds entries/body size, coalesces concurrent misses and refuses personalized/cache-control responses. | Local/shared unit and race tests; real-Postgres API tenant/invalidation test. A bounded JWT+HTTP+PG baseline now mixes300 reads,20 profile writes and20 immediate read-after-write checks across2tenants/4readers; cache hits and invalidation observed. Small synthetic fixture only; mixed MQTT ingest/report load and outage/soak still unproved. |
 | Optional shared cache | `internal/redisx` supports verified TLS, optional client certs, ACL credentials and DB selection. Shared read errors bypass caching, not stale local fallback. Generation invalidation spans replicas when the store succeeds. | Fake transport/failure tests are distinct from optional real `TEST_VALKEY_BINARY` test. No current real multi-node/failover evidence. Failed invalidation permits TTL-bounded stale entries; no stronger guarantee. No distributed miss lock. |
 | Cache handler failure | A handler panic formerly retained its single-flight entry indefinitely. Local correction releases only the failed flight, keeps partial output uncached and preserves the panic for HTTP handling. | Red regression reproduced for both modes, then cache race suite10repeats and real loopback HTTP recovery test pass. Cache race10repeats, real loopback HTTP panic/retry, and full fresh-Postgres Go suite pass. Local pending publication, not a deployed fix. |
 | Login state | `cmd/api/sessions.go` stores tracked JWT session IDs/revocation in PostgreSQL. Configured OAuth one-use state is a separate store; readiness depends on it when shared state is selected. | Do not describe all sessions as Redis-backed or use cache outage policy for authentication. Tenant/role/customer scope and revocation must remain checked before cached handlers. |
-| Telemetry ingest | `cmd/ingest/main.go` validates topic-bound identity, inserts deduplicated telemetry, then invokes position/rules/flows synchronously. Duplicate inserts skip derived work. Reconnect reinstalls all subscriptions and refuses silent partial subscription. | Existing synthetic MQTT-to-PG-to-HTTP evidence is narrow. Need sustained ingest with dashboard/report reads, DB interruption, restart/reconnect and post-insert derived-work failure tests. No durable derived-work/outbox guarantee follows from QoS1. |
+| Telemetry ingest | `cmd/ingest/main.go` validates topic-bound identity, inserts deduplicated telemetry, then invokes position/rules/flows synchronously. Duplicate inserts skip derived work. Reconnect reinstalls all subscriptions and refuses silent partial subscription. | Fresh local baseline on this review: compiled edge pairing/ACL watcher, certificate-required MQTT/compiled-ingest reconnect and source-apply/live-reload/110-reading tests all pass on fresh PG. These are synthetic source tests, not hardware or load evidence. Need sustained ingest with dashboard/report reads, DB interruption, restart/reconnect and post-insert derived-work failure tests. No durable derived-work/outbox guarantee follows from QoS1. |
 | Background work | API starts leader-elected report, flow, KPI, retention/index jobs using PostgreSQL advisory-lock ownership. Report concurrency has refusal limits rather than an unbounded queue. | Lock tests and component tests do not prove all jobs together under load. Need ownership loss, shutdown, bounded backlog, duplicate effect and restart evidence. Preserve explicit notification/control approval gates. |
 | DB performance | Per-replica pool is configurable; telemetry has partitions/retention/rollups. Report load notes include a 2.4M synthetic row test and significant dead-row/vacuum sensitivity. | No customer capacity figure inferred. Capture query plans, pool waits, row growth, p95 and memory on a defined local fixture; test tenant fairness and overload refusal. |
 | Observability | Health/readiness, logs and load harness exist; cache hit/miss/invalidation counters exist in code. | Must verify actual exported signals, alert thresholds and operator-visible stale/backlog states, not infer an operational monitoring system from counters alone. |
@@ -56,7 +56,7 @@ Read code and exact tests, not an old "implemented" label, when changing a gate:
 
 - `server/cmd/api/cache.go`, `server/internal/respcache/*`
 - `server/internal/redisx/{config,redisx,preflight,valkey_test}.go`
-- `server/cmd/api/{main,sessions,cache_test,edge_packages,edge_packages_test}.go`
+- `server/cmd/api/{main,sessions,cache_test,cache_mixed_test,edge_packages,edge_packages_test}.go`
 - `server/cmd/ingest/main.go`, `server/internal/leader`, `edge/internal/queue`
 - `web/src/components/{EdgeDownloads,EdgeDownloads.test}.tsx`
 - `docs/{edge-secure-migration,backup-restore,report-load-test,slo,deployment}.md`
@@ -64,3 +64,23 @@ Read code and exact tests, not an old "implemented" label, when changing a gate:
 This review corrects stale architecture prose about Redis sessions, TLS and
 outage behavior. Other historical readiness docs may still carry earlier scope
 and must not be read as current approval or acceptance.
+
+## Local baseline records (13 November 2026)
+
+- Cache race suite10repeats passes, including actual loopback HTTP recovery after
+  injected cached-handler panic in both local/shared modes. Shared transport in
+  this contract is a deterministic fake, not a real Redis deployment.
+- `TestIntegrationMixedCacheReadsAndProfileWrites` with race detector:2tenants,
+  4readers,300reads across profiles/latest/series,20profile writes,20postwrite
+  cache-freshness checks.340completed requests, zero test failures. Example run
+  elapsed192ms,p50 1.84ms,p95 7.70ms; tiny seeded local data, not a capacity number
+  or SLO pass for a real deployment. JWT signature/tenant boundary is exercised;
+  full live-role/session-revocation middleware is outside this harness.
+- Real compiled edge/ingest with disposable Mosquitto2.0.11 and fresh local
+  PostgreSQL: pairing proof+ACL watcher, mTLS MQTT reconnect/identity/dedupe and
+  source apply+live polling reload all3pass. Synthetic Modbus TCP110reading,
+  no physical meter/Windows SCM/production endpoint claim. Separate tests, not
+  one combined load/fault experiment.
+- Full fresh-Postgres Go suite passed after the cache panic fix. New mixed-flow
+  test is individually race-checked and a final full fresh-Postgres suite refresh
+  including it also passes; publication is still held for exact v63 closeout. Native v63 is a different exact snapshot and remains pending.
