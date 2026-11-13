@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// Actuator performs a validated command against hardware. Real drivers will
-// implement this only after the safety gating in docs/security.md is met.
+// Actuator performs a validated command. Runtime Modbus writes still require
+// local command mode, action allowlist and per-device write configuration.
 type Actuator interface {
 	Execute(ctx context.Context, e *Envelope) (detail string, err error)
 }
@@ -22,11 +22,13 @@ type Ack struct {
 	At        time.Time `json:"at"`
 }
 
-// Handle validates a payload and, if it passes the gate, executes it. A nil
-// Actuator rejects every command (fail closed). The returned ack is always
-// publishable; ok is false only when the payload had no usable request_id, so
-// there is nothing the server could match an ack to.
+// Handle validates and executes one command. ok means safe to PUBLISH the ACK,
+// not merely that a request ID was parsed. Negative local observations do not
+// settle the original request: a duplicate may follow an effect whose ACK was
+// lost, and an IO error may follow a write already sent. Keep those observations
+// local rather than sending a terminal failed/rejected ACK to older servers.
 func Handle(ctx context.Context, g *Gate, a Actuator, payload []byte, now time.Time) (ack Ack, ok bool) {
+	started := time.Now()
 	ack.At = now
 	e, err := g.Check(payload, now)
 	if err != nil {
@@ -35,17 +37,31 @@ func Handle(ctx context.Context, g *Gate, a Actuator, payload []byte, now time.T
 		}
 		_ = json.Unmarshal(payload, &probe)
 		ack.RequestID, ack.State, ack.Detail = probe.RequestID, "rejected", err.Error()
-		return ack, probe.RequestID != ""
+		return ack, false
 	}
 	ack.RequestID = e.RequestID
 	if a == nil {
 		ack.State, ack.Detail = "rejected", "no actuator configured"
-		return ack, true
+		return ack, false
 	}
-	detail, err := a.Execute(ctx, e)
+	// Durable admission can wait on storage. Do not start an expired effect
+	// merely because the envelope was live before that wait. The actuator gets
+	// the remaining lifetime too; driver cancellation cannot undo a sent write.
+	if err := ctx.Err(); err != nil {
+		ack.State, ack.Detail = "rejected", err.Error()
+		return ack, false
+	}
+	remaining := e.ExpiresAt.Sub(now) - time.Since(started)
+	if remaining <= 0 {
+		ack.State, ack.Detail = "rejected", ErrExpired.Error()
+		return ack, false
+	}
+	actCtx, cancel := context.WithTimeout(ctx, remaining)
+	defer cancel()
+	detail, err := a.Execute(actCtx, e)
 	if err != nil {
 		ack.State, ack.Detail = "failed", err.Error()
-		return ack, true
+		return ack, false
 	}
 	ack.State, ack.Detail = "acked", detail
 	return ack, true

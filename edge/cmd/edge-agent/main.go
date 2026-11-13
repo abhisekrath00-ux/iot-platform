@@ -259,9 +259,20 @@ func main() {
 	defer stop()
 
 	// Commands pass cmdexec's gate (allowlist, expiry, TTL, replay) and are then
-	// executed by the configured actuator. Only "simulate" exists today; with no
-	// command_mode every command is rejected and acked as rejected.
+	// executed by the configured simulation or allowlisted Modbus actuator. With no
+	// command_mode every command is rejected locally, without a terminal ACK.
 	gate := cmdexec.NewGate(cfg.AllowedCommands)
+	// Never actuate with only process-local replay protection. The sibling store
+	// preserves existing identity/config/telemetry and fails closed on disk errors.
+	if cfg.CommandMode != "" {
+		replay, err := cmdexec.OpenReplay(cfg.QueuePath + ".commands.sqlite")
+		if err != nil {
+			log.Fatalf("command replay protection unavailable; no MQTT command listener started")
+		}
+		defer replay.Close()
+		gate.Store = replay
+	}
+
 	var actuator cmdexec.Actuator
 	switch cfg.CommandMode {
 	case "simulate":

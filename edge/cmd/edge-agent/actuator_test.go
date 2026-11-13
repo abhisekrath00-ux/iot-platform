@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -136,5 +137,33 @@ func TestAutomaticCommandsAreGatedAtTheEdge(t *testing.T) {
 	bad := strings.Replace(string(autoEnv("m1", "io1", `{"point":"relay1","value":1}`, now, 30*time.Second)), `"automatic"`, `"yolo"`, 1)
 	if ack, _ := cmdexec.Handle(ctx, cmdexec.NewGate([]string{actionModbusWrite}), act, []byte(bad), now); ack.State != "rejected" {
 		t.Fatalf("unknown mode: %+v", ack)
+	}
+}
+
+// Persistent admission is composed with the real actuator path, but the device
+// writer is a fake. No register, transport, or physical output is touched.
+func TestModbusActuatorPersistentAdmission(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "commands.sqlite")
+	now := time.Now()
+	reg := &writerRegistry{}
+	fw := &fakeWriter{}
+	reg.set("vfd1", fw)
+	act := &modbusActuator{reg: reg}
+	payload := envJSON("persistent-one", "modbus.write", "vfd1", `{"point":"setpoint","value":40}`, now)
+	for i := 0; i < 2; i++ {
+		store, err := cmdexec.OpenReplay(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gate := cmdexec.NewGate([]string{actionModbusWrite})
+		gate.Store = store
+		ack, _ := cmdexec.Handle(context.Background(), gate, act, payload, now)
+		store.Close()
+		if (i == 0 && ack.State != "acked") || (i == 1 && (ack.State != "rejected" || ack.Detail != cmdexec.ErrReplay.Error())) {
+			t.Fatal(ack)
+		}
+	}
+	if len(fw.got) != 1 {
+		t.Fatalf("writer calls%d", len(fw.got))
 	}
 }

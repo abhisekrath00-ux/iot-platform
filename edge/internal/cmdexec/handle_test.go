@@ -39,3 +39,35 @@ func TestHandleStates(t *testing.T) {
 		t.Fatal("junk payload should not produce an ack")
 	}
 }
+
+// A negative observation about this delivery must not falsely settle the
+// original request after a lost ACK or a partial physical IO failure.
+func TestNegativeCommandObservationsAreNotPublishable(t *testing.T) {
+	now := t0.Add(time.Second)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name    string
+		gate    *Gate
+		a       Actuator
+		payload []byte
+	}{
+		{"not allowed", NewGate(nil), &Simulated{}, env(nil)},
+		{"no actuator", NewGate([]string{"unlock"}), nil, env(nil)},
+		{"expired", NewGate([]string{"unlock"}), &Simulated{}, env(func(e *Envelope) { e.ExpiresAt = t0 })},
+		{"IO error", NewGate([]string{"unlock"}), &Simulated{Fail: map[string]error{"unlock": ErrSimulatedFault}}, env(nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ack, ok := Handle(ctx, tc.gate, tc.a, tc.payload, now)
+			if ok || ack.State == "acked" {
+				t.Fatalf("publishable negative %+v ok%v", ack, ok)
+			}
+		})
+	}
+	g := NewGate([]string{"unlock"})
+	a := &Simulated{}
+	Handle(ctx, g, a, env(nil), now)
+	ack, ok := Handle(ctx, g, a, env(nil), now)
+	if ok || ack.State != "rejected" || len(a.Seen) != 1 {
+		t.Fatalf("replay %+v ok%v", ack, ok)
+	}
+}

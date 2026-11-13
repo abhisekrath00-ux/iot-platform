@@ -49,7 +49,7 @@ low-privilege tenant user, supply-chain attacker, insider with ops access.
 | Spoofing | Stolen claim code reused to enroll a second device | Single-use expiring codes, SHA-256 at rest, duplicate enrollment refused, bootstrap credential separate from operational cert | Enforced |
 | Spoofing | Session/token forgery on SSO | RS256 JWKS verification, issuer check, single-use state + nonce | Enforced |
 | Tampering | Payload lies about its tenant to corrupt another tenant's data | Ingest derives tenant from authenticated identity, never payload fields | Enforced |
-| Tampering | Command replayed or modified in flight | mTLS channel, short command TTL, `request_id` dedupe, policy version pinned | Enforced |
+| Tampering | Command replayed or modified in flight | mTLS channel, short TTL and request-ID admission gate. Runtime persistent store is a local candidate; policy-version pinning and physical exactly-once outcome are not proved. Default secure API ACL denies cmd publication. | Partial, not end-to-end accepted |
 | Tampering | Malicious config/profile injects SQL or driver ops | Allowlisted point ids/types/ops, parameterized SQL | Enforced |
 | Tampering | Update or config swapped in supply chain | Signed config/update metadata, staged cohorts, automatic rollback | Backlog (fleet rollout) |
 | Repudiation | Operator denies issuing a control command | Append-only audit from request to measured outcome, `approved_by` recorded | Enforced |

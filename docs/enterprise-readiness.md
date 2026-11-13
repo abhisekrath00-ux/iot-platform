@@ -358,3 +358,57 @@ This validates that snapshot's synthetic fixture scope, not this later local
 transport change or the unexplained c743 failure's correction.
 - https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43426162565
 - https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43426236306
+
+## Persistent edge command admission candidate, 13 November 2026
+
+Local follow-up, UNPUBLISHED. A synthetic reproduction reconstructed the gate
+between deliveries and observed two simulated effects for the same request ID.
+The previous map was process-local, not restart replay protection. New runtime
+command modes require a sibling `queue_path.commands.sqlite` journal before the
+MQTT command listener starts. Existing identity, configuration and telemetry DB
+are not rewritten; empty command mode still rejects all effects. No command
+mode, write allowlist, discovery or generated broker ACL is enabled or widened.
+
+A validated envelope claims its request ID in a SQLite WAL transaction with
+synchronous FULL BEFORE the actuator is called. Independent store connections
+serialize claims; a failed/uncertain commit, closed/corrupt/busy store, capacity
+limit or backwards persisted clock never falls back to the memory map. An abrupt
+process exit after claim retains consumption, even if no effect happened. This
+is conservative at-most-once admission until expiry, not an effect transaction,
+exactly-once execution or a safe retry. Duplicate arrivals are refused locally, never replayed. Negative gate/storage,
+no-actuator, cancellation/expiry and actuator-error observations are no longer
+published as terminal rejected/failed ACKs: the old ingest maps those to failed,
+which could misstate a prior effect after ACK loss or partial IO. Runtime logs
+retain the local observation; the server stays sent/unknown awaiting trustworthy
+evidence. This conservative loss of terminal refusal feedback is intentional, not
+an exactly-once or successful-execution claim. Older edge negative ACKs remain
+accepted by the server; upgrading this edge does not reinterpret history.
+
+Expired claims are pruned only in the same transaction that advances a durable
+clock high-water mark. A backwards clock is refused until caught up, preventing
+an expired-and-pruned claim from becoming valid again after wall-clock rollback.
+The journal caps live claims at100000 and request IDs at256bytes; full storage
+refuses additional commands rather than dropping protection. WAL/SHM files are
+part of SQLite's durability boundary. Deleting, losing, restoring an older copy
+or moving the journal can lose history. No disk-loss, adversarial file rollback,
+Windows ACL assurance or hardware durability proof is claimed. New file creation
+uses0600 on Unix; inherited Windows ACLs still need deployment review.
+
+Storage wait time is deducted from the remaining command lifetime before an
+actuator starts, with a remaining-lifetime context for driver IO. Cancellation
+cannot undo a write already sent. Multi-value/trailing JSON is refused. Existing
+local actuator/write restrictions remain separate and unchanged. Policy-version
+pinning is not implemented by this admission gate; earlier security-table wording
+claiming it is corrected rather than treated as evidence.
+
+Local evidence currently includes actual SQLite close/reopen;12independent
+connections racing one request; real subprocess exit73 after committed claim
+before actuation and exit74 after a synced simulated-effect marker; corrupt/closed/busy store refusal; expiry pruning then clock
+rollback refusal;100000-entry cap; WAL/FULL settings; expired-during-claim and
+already-canceled contexts; and composition with the actual Modbus actuator using
+a FAKE writer. No equipment or wire writes. Race3 component tests and the full edge
+suite pass. Fresh PostgreSQL server suite passes. Rebuilt edge/ingest pairing,
+generated-ACL mTLS/unknown-ACK and source-apply/110reading pipelines pass. The
+first pipeline invocation omitted this local broker binary's private shared-library
+path and could not start it; the corrected invocation passes on another fresh DB. Windows-amd64/Linux-arm64
+crossbuilds compile only, not native installation or final GUI/package acceptance.
