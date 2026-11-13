@@ -429,3 +429,57 @@ candidate, full compatibility, equipment, owner upgrade or enterprise readiness.
 The c743 failure remains unexplained, not proved fixed by another green run.
 - https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43439566574
 - https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43439660828
+
+## Real dashboard-package verification candidate, 13 November 2026
+
+Local follow-up to24cb, not a release or owner update. Previously the download
+handler had fake-MZ fixture bytes, separately from the real package build. New
+`scripts/test-edge-package-download.sh VERSION` builds all ten actual artifacts
+and explicitly opts into `TestRealBuiltEdgePackagesDownload` using absolute
+paths (Go runs tests from the package directory). A loopback TLS HTTP server
+wraps the production inventory/download handler in real JWT signature/expiry
+middleware. It downloads all ten files, checks exact byte equality against the
+build, manifest version/size/SHA, headers and PE/ELF machine architectures,
+refuses missing/invalid/expired/empty-tenant credentials, and rejects corrupt or
+missing packages. The native Linux tarball's `-version` exits with the expected
+build label without installing. This is not full session/revocation middleware,
+code signing or publisher provenance. Shared installers intentionally have the
+same bytes across tenants; the inventory is authenticated, not personalized.
+
+Browser downloads now receive the selected inventory size/SHA and verify both
+before creating an object URL or invoking save. Changed bytes, wrong size,
+invalid inventory or unavailable WebCrypto fail closed. Verification therefore
+requires a secure browser context (HTTPS or loopback); an insecure remote HTTP
+lab does not silently skip it. This compares against the loaded inventory,
+not an independent signature or safe-to-run guarantee. A server publishing a
+new build between inventory and download causes refusal until the user refreshes.
+The server also rejects trailing JSON/garbage after its single manifest object.
+
+Optional `TEST_EDGE_PACKAGE_BROWSER_SCRIPT` runs the repository browser harness
+as a child of that live handler test; it needs a supplied Playwright/Chrome and
+built web output, and contacts loopback only. Local actual Chrome proof used
+that production build, synthetic shell identity, and loopback proxy to the real
+TLS/JWT handler. The browser saved the8,145,408byte Windows x64 EXE; an independent
+hash matched the build. Flipping one byte AFTER handler verification produced
+a visible SHA256 error and no second save. Desktop and390x844 action/error
+pixels were inspected. The first long mobile element screenshot included fixed
+shell overlays; final viewport screenshots show action and refusal separately.
+No installer/UAC/signing/Windows GUI/enrollment/service change or equipment was
+executed. The optional browser run does not contact an owner server/account.
+
+Local evidence: real ten-artifact handler tests under race detector3repeats pass;
+356web tests and production build pass. First harness invocation used a relative
+path from the wrong Go working directory and failed to find its manifest; the
+absolute-path wrapper passes. First TypeScript build rejected a test mock's
+static method type; the typed mock and subsequent full build/tests pass. These
+failures are retained as harness/type corrections, not product acceptance.
+`test-edge-package-browser.cjs` is opt-in, not a claim that general CI runs
+Playwright. Full fresh server suite and current exact remote validation remain
+required before publication acceptance. Existing native24cb evidence is a
+different exact snapshot and must not be silently inherited.
+
+The joint handoff still needs a production secure-update entry with complete
+runtime/background and previous-image compatibility, final matching server and
+installer version, target Windows GUI/install/pair/source/test/save/apply/recent
+reading checks, and physical/deployment acceptance. No optional Modbus mapping,
+command ACL, owner setup, main branch, release or paid resource was changed.

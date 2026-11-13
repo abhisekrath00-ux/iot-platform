@@ -43,6 +43,9 @@ func readEdgeCatalog(root *os.Root) (edgeCatalog, error) {
 	if err = d.Decode(&c); err != nil {
 		return c, err
 	}
+	if err = d.Decode(new(any)); err != io.EOF {
+		return c, fmt.Errorf("trailing catalog content")
+	}
 	if !edgeVersion.MatchString(c.Version) || len(c.Packages) == 0 || len(c.Packages) > 20 {
 		return c, fmt.Errorf("invalid catalog")
 	}

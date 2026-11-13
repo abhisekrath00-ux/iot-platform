@@ -44,12 +44,22 @@ export interface AlertRow { id: string; severity: string; message: string; statu
 export interface AlertDetail extends AlertRow { acknowledged_at?: string | null; resolved_at?: string | null; comments: { author: string; body: string; created_at: string }[]; }
 
 /** Authenticated file download (the token lives in localStorage, so a plain link will not do). */
-export async function download(path: string, filename: string): Promise<void> {
+export interface DownloadIntegrity { size: number; sha256: string; }
+export async function download(path: string, filename: string, integrity?: DownloadIntegrity): Promise<void> {
   localAPIPath(path);
+  if (integrity && (!Number.isSafeInteger(integrity.size) || integrity.size <= 0 || integrity.size > 100 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(integrity.sha256))) throw new Error('Invalid installer size or SHA256. Refresh the package list.');
   const token = localStorage.getItem('iot.token') ?? '';
   const res = await fetch(path, { redirect: 'error', credentials: 'same-origin', headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-  const url = URL.createObjectURL(await res.blob());
+  const blob = await res.blob();
+  if (integrity) {
+    if (blob.size !== integrity.size) throw new Error('Installer size changed. Nothing saved. Refresh the package list.');
+    if (!globalThis.crypto?.subtle) throw new Error('Installer verification needs a secure browser connection. Nothing saved.');
+    const hash = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+    const actual = Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
+    if (actual !== integrity.sha256) throw new Error('Installer SHA256 changed. Nothing saved. Refresh the package list.');
+  }
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);

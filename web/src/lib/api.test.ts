@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, download } from './api';
 
 describe('api client', () => {
@@ -69,5 +69,36 @@ describe('authenticated URL boundary', () => {
     await expect(download('/v1/reports/r?format=csv', 'report.csv')).rejects.toThrow('redirect refused');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: 'error', credentials: 'same-origin', headers: { Authorization: 'Bearer boundary-token' } });
     expect(document.querySelector('a[download]')).toBeNull();
+  });
+});
+
+describe('installer integrity before browser save', () => {
+ afterEach(()=>vi.unstubAllGlobals());
+  const bytes = new Uint8Array([77,90,1,2]);
+  let create: ReturnType<typeof vi.fn<(obj: Blob | MediaSource) => string>>,click:ReturnType<typeof vi.spyOn>;
+  beforeEach(async()=>{
+    vi.restoreAllMocks();
+    const {webcrypto}=await import('node:crypto');vi.stubGlobal('crypto',webcrypto);
+    create=vi.fn<(obj: Blob | MediaSource) => string>().mockReturnValue('blob:verified-fixture');
+    vi.stubGlobal('URL',class extends URL {static createObjectURL=create;static revokeObjectURL=vi.fn();});
+    click=vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
+    vi.spyOn(globalThis,'fetch').mockImplementation(async()=>new Response(bytes));
+  });
+  it('uses actual SHA256 and saves only byte-matching content',async()=>{
+    const hash=await crypto.subtle.digest('SHA-256',bytes);const sha256=Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
+    await download('/v1/edge-packages/windows-amd64-exe','actual.exe',{size:bytes.length,sha256});
+    expect(create).toHaveBeenCalledTimes(1);expect(click).toHaveBeenCalledTimes(1);
+  });
+  it('refuses same-size corruption with no object URL or save click',async()=>{
+    await expect(download('/v1/edge-packages/windows-amd64-exe','actual.exe',{size:bytes.length,sha256:'0'.repeat(64)})).rejects.toThrow('SHA256 changed');expect(create).not.toHaveBeenCalled();expect(click).not.toHaveBeenCalled();
+  });
+  it('refuses wrong size before hashing or save',async()=>{
+    await expect(download('/v1/edge-packages/windows-amd64-exe','actual.exe',{size:bytes.length+1,sha256:'0'.repeat(64)})).rejects.toThrow('size changed');expect(create).not.toHaveBeenCalled();expect(click).not.toHaveBeenCalled();
+  });
+  it('refuses unavailable secure crypto rather than silently skipping verification',async()=>{
+    vi.stubGlobal('crypto',{});await expect(download('/v1/edge-packages/windows-amd64-exe','actual.exe',{size:bytes.length,sha256:'0'.repeat(64)})).rejects.toThrow('secure browser connection');expect(create).not.toHaveBeenCalled();expect(click).not.toHaveBeenCalled();
+  });
+  it('invalid inventory is refused before fetching',async()=>{
+    vi.mocked(fetch).mockClear();await expect(download('/v1/edge-packages/windows-amd64-exe','actual.exe',{size:0,sha256:'invalid'})).rejects.toThrow('Invalid installer');expect(fetch).not.toHaveBeenCalled();
   });
 });

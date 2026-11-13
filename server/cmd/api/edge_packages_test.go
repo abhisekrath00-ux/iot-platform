@@ -129,3 +129,23 @@ func TestEdgePackagesRealBuiltArtifacts(t *testing.T) {
 		}
 	}
 }
+
+func TestEdgePackageCatalogRejectsTrailingContent(t *testing.T) {
+	for _, tail := range []string{` {"version":"other"}`, ` garbage`} {
+		t.Run(tail, func(t *testing.T) {
+			dir, _, h := edgeFixture(t)
+			p := filepath.Join(dir, "manifest.json")
+			b, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(p, append(b, []byte(tail)...), 0600); err != nil {
+				t.Fatal(err)
+			}
+			w := call(h, "tenant", "viewer", "GET", "/v1/edge-packages", "")
+			if w.Code != 503 {
+				t.Fatalf("accepted trailing manifest %d", w.Code)
+			}
+		})
+	}
+}

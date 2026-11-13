@@ -8,7 +8,7 @@ export default function EdgeDownloads() {
  async function load(){setLoading(true);setError('');try{setCatalog(await api<Catalog>('/v1/edge-packages'));}catch(e){setCatalog(null);setError(String((e as Error).message??e));}finally{setLoading(false);}}
  useEffect(()=>{void load();},[]);
  const format=os==='windows'?'exe':'run';const pkg=catalog?.packages.find(p=>p.os===os&&p.arch===arch&&p.format===format);
- async function get(p:Package){setBusy(true);setError('');try{await download('/v1/edge-packages/'+encodeURIComponent(p.id),p.filename);}catch(e){setError(String((e as Error).message??e));}finally{setBusy(false);}}
+ async function get(p:Package){setBusy(true);setError('');try{await download('/v1/edge-packages/'+encodeURIComponent(p.id),p.filename,{size:p.size,sha256:p.sha256});}catch(e){setError(String((e as Error).message??e));}finally{setBusy(false);}}
  return <section className="card" aria-labelledby="edge-downloads-title" style={{margin:'12px 0'}}>
   <h3 id="edge-downloads-title">Download and install the edge application</h3>
   <p>Install on the PC beside your sensors, not on the server by mistake. The agent runs as an operating-system service, including when nobody is signed in. No Docker or WSL is needed.</p>
@@ -35,6 +35,7 @@ export default function EdgeDownloads() {
    </details>
   </>:<p role="status">No matching installer is available on this server. Rebuild the server image with bundled edge packages.</p>}
   {error&&<p role="alert">Download unavailable: {error} <button type="button" className="secondary" onClick={()=>void load()}>Retry package check</button></p>}
+  <p className="muted">The browser checks the downloaded installer size and SHA256 against this inventory before saving. This detects changed bytes, not publisher identity or code signing.</p>
   <p className="muted">Packages are served by this HexThings server, not an external download site. Setup does not change server bindings, firewall rules or public exposure. A separate PC still needs a reachable secure API/MQTT connection.</p>
   <p className="muted">Acceptance limits: Windows setup is unsigned. New native setup/manager, boot behavior and live sensor connection still require target-PC acceptance. Build and contract tests are not an industrial-readiness claim.</p>
  </section>;
