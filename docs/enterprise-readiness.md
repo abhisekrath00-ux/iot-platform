@@ -306,3 +306,55 @@ This does not explain the c743 red or prove the intermittent failure corrected.
 The diagnostic predicates were unchanged; no failed facet was observed here.
 - https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43415919898
 - https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43415964761
+
+## Local bounded command transport, 13 November 2026, 19:32 IST
+
+Unpublished follow-up to exactd905. Commands previously used the shared retained
+publisher's synchronous Connect/Publish token waits, without the caller's
+cancellation boundary. The local change uses a dedicated clean-session,
+non-retained QoS1 attempt, disables connect retry and automatic reconnect, and
+bounds the attempt to15seconds or the caller's earlier deadline. Context-aware
+dialing preserves configured proxy behavior; a proxy without context-aware
+dialing is refused. TLS still requires the configured CA, client certificate
+and hostname verification. Cancellation closes this attempt's actual socket,
+including missing CONNACK/PUBACK; it does not disconnect the shared publisher.
+The socket deadline also bounds stalled TLS/MQTT handshakes and writes.
+
+Uncertainty remains uncertainty. A cancelled or timed-out attempt retains its
+committed outcome_unknown claim and is not automatically re-armed. This bounds
+the caller/connection, not device execution; packet delivery can precede a lost
+acknowledgement. Existing non-command retained publication is unchanged.
+
+Local proof: real loopback MQTT handshake fixtures, three race-detector repeats,
+cover cancellation before CONNACK, cancellation after PUBLISH, missing PUBACK
+at the deadline, ordinary success, certificate-required TLS success and refusal of wrong
+hostname/missing client certificate. Socket
+closure and explicit no-retry/clean-session options are checked. A fresh real
+PostgreSQL test composes production dispatchCore, durable claim and a real
+socket with withheld PUBACK: cancellation returns unknown, the socket closes,
+the database stays unknown and a later dispatch refuses the existing claim.
+Full fresh Go suite passes with the compiled-ingest mTLS pipeline.
+
+A new real generated-ACL test initially failed to observe cmd delivery despite a
+PUBACK. Investigation confirmed the API service CN is deliberately allowed only
+diag/scan publication by the default generated secure ACL, not cmd publication.
+That restriction is preserved. A same-publisher cmd/diag/scan barrier now proves
+cmd delivery absent while allowed requests arrive; a separate dedicated
+one-shot attempt succeeds on an allowed diagnostic topic with no executor.
+The first failed local full run is retained. A second full fresh run passes
+with the explicit denial and allowed-topic assertions. Do not call a PUBACK
+proof of ACL permission, gateway receipt, actuation or measured outcome.
+
+This is not permission to widen the secure ACL or enable output commands. The
+secure generated-ACL command path remains unsupported, physical actuation
+safety gates remain open, and no owner gateway or real equipment was involved.
+Currentd905 native/CI acceptance does not cover this unpublished local patch.
+
+Exactd905 validation has since completed: general CI43426162565 all4 jobs pass;
+native43426236306 all3 jobs pass, Linux42m47s. Targeted raw assertions inspected
+include provider rollback, lost-cleanup and committed-release fresh recovery.
+The817410-byte/6327-line Linux raw log is retained, not every trace line read.
+This validates that snapshot's synthetic fixture scope, not this later local
+transport change or the unexplained c743 failure's correction.
+- https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43426162565
+- https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43426236306

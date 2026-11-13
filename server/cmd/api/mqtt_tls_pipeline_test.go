@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -96,6 +97,7 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	}
 	defer func() { cmd.Process.Kill(); cmd.Wait() }()
 	verifyGeneratedACLReads(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
+	verifyOneShotCommandTransport(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
 	runMQTTPipeline(t, map[string]string{"MQTT_TLS": "true", "MQTT_PORT": port, "MQTT_HOST": "127.0.0.1", "MQTT_CA_FILE": filepath.Join(dir, "ca.crt"), "MQTT_CERT_FILE": ic, "MQTT_KEY_FILE": ik, "PUBLISHER_CERT": gc, "PUBLISHER_KEY": gk})
 }
 
@@ -137,7 +139,7 @@ func verifyGeneratedACLReads(t *testing.T, port, ca, gc, gk, ac, ak string) {
 	var mu sync.Mutex
 	var received []string
 	barrier := make(chan struct{}, 1)
-	tok := gateway.SubscribeMultiple(map[string]byte{own + "diag": 1, own + "scan": 1, "t/itest-mqother/g/itest-mqpipe-gw/diag": 1, "t/itest-mqpipe/g/wrong-gateway/diag": 1}, func(_ mqtt.Client, m mqtt.Message) {
+	tok := gateway.SubscribeMultiple(map[string]byte{own + "diag": 1, own + "scan": 1, own + "cmd": 1, "t/itest-mqother/g/itest-mqpipe-gw/diag": 1, "t/itest-mqpipe/g/wrong-gateway/diag": 1}, func(_ mqtt.Client, m mqtt.Message) {
 		mu.Lock()
 		received = append(received, m.Topic())
 		mu.Unlock()
@@ -148,7 +150,7 @@ func verifyGeneratedACLReads(t *testing.T, port, ca, gc, gk, ac, ak string) {
 	if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
 		t.Fatal("ACL subscribe", tok.Error())
 	}
-	for _, topic := range []string{"t/itest-mqother/g/itest-mqpipe-gw/diag", "t/itest-mqpipe/g/wrong-gateway/diag", own + "diag", own + "scan"} {
+	for _, topic := range []string{"t/itest-mqother/g/itest-mqpipe-gw/diag", "t/itest-mqpipe/g/wrong-gateway/diag", own + "cmd", own + "diag", own + "scan"} {
 		tok = api.Publish(topic, 1, false, `{"synthetic":true}`)
 		if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
 			t.Fatal("API CN publish", tok.Error())
@@ -164,5 +166,53 @@ func verifyGeneratedACLReads(t *testing.T, port, ca, gc, gk, ac, ak string) {
 	if len(received) != 2 || received[0] != own+"diag" || received[1] != own+"scan" {
 		t.Fatalf("generated ACL delivered unexpected topics: %v", received)
 	}
-	t.Log("generated ACL: API certificate CN publishes diagnostic/scan requests; gateway reads own requests only after same-client foreign-topic barrier")
+	t.Log("generated ACL: API certificate CN publishes diagnostic/scan requests; gateway reads own requests only after same-client foreign-topic and denied-command barrier; API cmd publish received PUBACK but cmd delivery absent")
+}
+
+// Transport-only: the gateway test subscriber does not contain an executor.
+// The payload is synthetic. No live gateway or output receives it.
+func verifyOneShotCommandTransport(t *testing.T, port, ca, gc, gk, ac, ak string) {
+	t.Helper()
+	options := func(id, cert, key string) *mqtt.ClientOptions {
+		t.Helper()
+		o, e := mqttconfig.Options(func(k string) string {
+			return map[string]string{"MQTT_TLS": "true", "MQTT_HOST": "127.0.0.1", "MQTT_PORT": port, "MQTT_CA_FILE": ca, "MQTT_CERT_FILE": cert, "MQTT_KEY_FILE": key}[k]
+		}, id)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return o
+	}
+	gateway := mqtt.NewClient(options("command-transport-subscriber", gc, gk))
+	tok := gateway.Connect()
+	if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
+		t.Fatal("subscriber connect", tok.Error())
+	}
+	defer gateway.Disconnect(0)
+	received := make(chan string, 8)
+	topic := "t/itest-mqpipe/g/itest-mqpipe-gw/"
+	tok = gateway.SubscribeMultiple(map[string]byte{topic + "diag": 1, topic + "scan": 1}, func(_ mqtt.Client, m mqtt.Message) { received <- m.Topic() })
+	if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
+		t.Fatal("subscriber subscribe", tok.Error())
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := publishCommandOnce(ctx, options("command-transport-api", ac, ak), topic+"diag", []byte(`{"synthetic":"no executor"}`), 3*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	// One-shot connections differ, so this barrier is not used to prove absence
+	// of delayed duplicates. The raw-socket test separately checks cancellation and socket closure.
+	if err := publishCommandOnce(ctx, options("command-transport-barrier", ac, ak), topic+"scan", []byte(`{"synthetic":true}`), 3*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for !found[topic+"diag"] || !found[topic+"scan"] {
+		select {
+		case got := <-received:
+			found[got] = true
+		case <-ctx.Done():
+			t.Fatal("one-shot TLS delivery", ctx.Err())
+		}
+	}
+	t.Log("one-shot non-retained QoS1 transport on allowed diagnostic topic through real certificate-required broker and CN ACL reached a test-only subscriber; no executor or output")
 }

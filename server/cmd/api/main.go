@@ -1059,7 +1059,7 @@ func (s *server) dispatchCommand(r *http.Request, id string) string {
 // recorded. Crashes and lost acknowledgements never re-arm an automatic retry.
 func (s *server) dispatchCore(ctx context.Context, tenant, id string) (next, gw string) {
 	return s.dispatchApproved(ctx, tenant, id, func(topic string, body []byte) error {
-		return s.publishMQTTRetained(topic, body, false)
+		return s.publishCommand(ctx, topic, body)
 	})
 }
 
