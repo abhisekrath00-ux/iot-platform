@@ -85,6 +85,7 @@ class Tests(unittest.TestCase):
    for args in [['setup.sh','start'],['setup.sh','open'],['upgrade.sh','--yes'],['install.sh','--yes'],['backup.sh'],['recover-admin-local.sh','--workspace','fixture','--email','ci@example.invalid']]:
     result=subprocess.run(['bash',str(scripts/args[0]),*args[1:]],cwd=root,env=env,capture_output=True,text=True)
     self.assertNotEqual(result.returncode,0,args)
+    if args[0]=='upgrade.sh':self.assertIn('Secure server upgrade is unavailable',result.stderr);self.assertIn('review is read-only',result.stderr)
     calls=log.read_text()if log.exists()else ''
     self.assertNotIn('compose up',calls,args);self.assertNotIn('compose exec',calls,args)
    with s.Journal(root)as j:j.transition('changing');j.transition('verified');j.commit()

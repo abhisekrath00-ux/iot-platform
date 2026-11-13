@@ -173,7 +173,9 @@ The review runs no Docker command, callback, schema operator or service change;
 no journal/selection file or Python bytecode is created. It does not create a
 plan, approve downtime or authorize an update. Missing/changed inputs return
 failure, not a legacy upgrade fallback. Live runtime and same-server dashboard
-EXE are explicitly NOT verified. Production Upgrade execution remains separate.
+EXE are explicitly NOT verified. The menu Upgrade hint now says legacy only / secure upgrade unavailable; the
+action refuses secure state before any write and explains that plan review is
+read-only, not approval. Production Upgrade execution remains separate.
 
 The production adapter constructor and this review now share a pure file-plan
 check. In addition to exact scope/installation/project/database/writer/image-only
