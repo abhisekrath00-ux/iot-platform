@@ -1834,3 +1834,12 @@ fixture. This is an OPEN admission defect, separate from post-commit derived
 work loss. No ACK/session/ACL/retry/schema behavior is changed. See the
 enterprise-readiness admission-gap section; green characterization is not
 production admission/recovery or full background compatibility acceptance.
+
+An unwired `internal/ingestjournal` candidate now tests atomic SQL admission of
+telemetry plus an immutable pending envelope, exact replay/conflict refusal and
+bounded capacity. Its SQL is NOT in migrations or installed by product startup;
+no runtime caller, broker ACK/session change, worker or effect retry is enabled.
+The exact93 ledger/previous-image guards remain unchanged and both open runtime
+admission/derived-work gaps still reproduce. Real-PG concurrent/fault/reopen tests
+are preparation, not process-kill/commit-ack-loss or production acceptance. See
+the enterprise-readiness candidate section for limits and remaining gates.

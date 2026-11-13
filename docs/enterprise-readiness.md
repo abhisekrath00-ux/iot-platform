@@ -606,3 +606,44 @@ not a complete solution: clean-session loss, inflight backlog, shutdown and
 broker persistence still need actual failure tests. Existing exact migration93
 and candidate/previous-image acceptance gates must not be weakened to hide a
 new journal or runtime change.
+
+### Unwired PostgreSQL admission candidate (2026-11-14)
+
+`internal/ingestjournal` prepares a bounded admission primitive. It is NOT
+called by compiled ingest, API telemetry or product startup. Its candidate SQL
+is outside the migration directory and is installed only by the disposable
+integration fixture. The production migration ledger and exact93 upgrade gate
+stay unchanged. No broker ACK, session, ACL, worker, lease, effect or retry is
+activated. Both open runtime durability defects above still reproduce.
+
+The candidate commits a telemetry row and its immutable pending-envelope record
+in one database transaction. It canonicalizes UTC microsecond timestamps to the
+existing global `(event_id, observed_at)` key and normalizes negative zero.
+Exact journal replays return without re-inserting raw telemetry or rearming
+work; changed payload/tenant collisions fail. Existing telemetry with no journal
+is refused rather than inventing a new pending action whose prior effects are
+unknown. A tenant-scoped read checks envelope integrity and routing columns.
+
+A candidate-wide advisory transaction lock serializes admission and enforces a
+100,000-record hard cap including all retained records. There is no pruning or
+retention policy yet: filling the cap refuses new admission. This intentionally
+conservative prototype is NOT throughput acceptance. Caller cancellation bounds
+lock waits; any uncertain commit error requires reconciliation using the exact
+same envelope, never inference that a write failed. Pending means admission
+intent only, not permission, claim, derived completion or delivery.
+
+Real-PG tests cover exact replay, changed payload/tenant refusal, microsecond
+and timezone equivalence, independent fresh-pool reopen,12 concurrent same-key
+admissions with one winner, failure of the second INSERT rolling back telemetry,
+legacy-row refusal, raw-telemetry deletion without journal replay, cancellation,
+12 contenders for the last capacity slot with one winner/11 refusals, corrupt
+pending evidence and missing candidate table refusal without partial telemetry.
+Three race repetitions pass locally. Reopening a pool is not process-kill,
+commit-ack-loss, disk-failure or database failover acceptance.
+
+The journal retains the reading, not a reviewed rule/config version or effect
+plan. No work executor exists. Integration still requires durable MQTT admission
+and persistent-session/backpressure/shutdown tests, explicit staged migration
+and previous-image compatibility, configuration binding, effect uncertainty and
+operator recovery controls. This candidate does not enable production Update
+or the held server/dashboard installer handoff.
