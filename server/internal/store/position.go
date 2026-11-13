@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -36,8 +39,10 @@ const PositionPairWindow = 2 * time.Minute
 type PositionTracker struct {
 	pool *pgxpool.Pool
 	mu   sync.Mutex
-	cfg  map[string]posCfg
+	cfg  map[posCfgKey]posCfg
 }
+
+type posCfgKey struct{ tenant, device string }
 
 type posCfg struct {
 	latPt, lonPt string
@@ -45,7 +50,7 @@ type posCfg struct {
 }
 
 func NewPositionTracker(pool *pgxpool.Pool) *PositionTracker {
-	return &PositionTracker{pool: pool, cfg: map[string]posCfg{}}
+	return &PositionTracker{pool: pool, cfg: map[posCfgKey]posCfg{}}
 }
 
 // Reset drops every cached config; the next reading per device reloads from
@@ -53,7 +58,7 @@ func NewPositionTracker(pool *pgxpool.Pool) *PositionTracker {
 // picks the change up at once; tests use it to skip the TTL.
 func (t *PositionTracker) Reset() {
 	t.mu.Lock()
-	t.cfg = map[string]posCfg{}
+	t.cfg = map[posCfgKey]posCfg{}
 	t.mu.Unlock()
 }
 
@@ -132,7 +137,7 @@ func (t *PositionTracker) Track(ctx context.Context, tenant, device, point strin
 
 func (t *PositionTracker) config(ctx context.Context, tenant, device string) (posCfg, error) {
 	t.mu.Lock()
-	c, ok := t.cfg[device]
+	c, ok := t.cfg[posCfgKey{tenant, device}]
 	t.mu.Unlock()
 	if ok && time.Now().Before(c.expires) {
 		return c, nil
@@ -141,10 +146,13 @@ func (t *PositionTracker) config(ctx context.Context, tenant, device string) (po
 	err := t.pool.QueryRow(ctx,
 		`SELECT lat_point, lon_point FROM devices WHERE id=$1 AND tenant_id=$2`, device, tenant).
 		Scan(&latPt, &lonPt)
-	if err != nil {
-		// Unknown device: cache an empty config so hot telemetry paths do
-		// not re-query every reading.
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A genuine tenant-scoped miss may be cached to bound repeated reads.
 		latPt, lonPt = nil, nil
+	} else if err != nil {
+		// Unavailable is not unconfigured. Do not turn a transient failure
+		// into a minute of silent drops after the database recovers.
+		return posCfg{}, fmt.Errorf("position source config: %w", err)
 	}
 	c = posCfg{expires: time.Now().Add(PositionTTL)}
 	if latPt != nil {
@@ -154,7 +162,7 @@ func (t *PositionTracker) config(ctx context.Context, tenant, device string) (po
 		c.lonPt = *lonPt
 	}
 	t.mu.Lock()
-	t.cfg[device] = c
+	t.cfg[posCfgKey{tenant, device}] = c
 	t.mu.Unlock()
 	return c, nil
 }

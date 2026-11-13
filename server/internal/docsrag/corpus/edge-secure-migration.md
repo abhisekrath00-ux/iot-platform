@@ -1818,3 +1818,10 @@ a recording stub called with no run row; the guard and healthy recorded control
 are regression-tested. This is not durable derived recovery: graph-side effects
 before run recording and lost delayed dispatch after recording remain outside
 it. No schema change, external retry or production update availability follows.
+
+Position-source configuration recovery now returns real database read errors
+without negative-caching them and scopes cached entries by tenant+device.
+Real-PG cancellation/lock-deadline recovery and tenant-cache isolation tests
+fail on prior code and pass with immediate healthy reload. This adds no schema,
+replay or durable derived-work guarantee. Previous-image/background acceptance
+and production Update entry remain gated; owner setup is unchanged.

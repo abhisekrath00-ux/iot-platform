@@ -544,3 +544,32 @@ HTTP/context/control work before run recording, and delayed goroutines can be
 lost after a successful record. Those remain explicit recovery-design gates,
 as do exact candidate/previous-image background compatibility and owner update
 acceptance. No command or automatic-output policy is widened.
+
+### Position-source read failures are not empty configuration (2026-11-14)
+
+The position tracker previously converted every source-config SELECT failure
+into a successful empty configuration cached for a minute. Real-PG cancellation
+returned success; a subsequent healthy reading could silently skip tracking
+until cache expiry. Its cache also used device ID alone: a genuine negative
+lookup under another tenant could suppress the owning tenant's later readings.
+Both regressions fail on the preceding code.
+
+The tracker now caches only a successful read or a genuine tenant-scoped
+not-found result, keyed by `(tenant, device)`. Cancellation, lock timeout and
+other database errors are returned without creating an empty cache entry. A
+healthy reading immediately reloads after the failure without Reset or waiting
+for TTL. Existing positive cache entries still have the documented one-minute
+configuration TTL. A foreign tenant cannot reuse the owner's cached source.
+
+`TestIntegrationPositionConfigReadFailure` uses a cancelled context and a real
+exclusive table lock with a100ms query deadline, releases the fault, and checks
+freshly paired coordinates/next latitude. The tenant-scope regression checks
+foreign negative-cache isolation, no cross-tenant positive-cache reuse and a
+genuine unknown-device no-op. Five race repetitions also cover existing source,
+freshness and position-retention behavior. No live device or owner location is
+used; coordinates are synthetic database records.
+
+This is not durable position recovery. Previously lost readings are not
+replayed; axis updates and trail recording are still separate operations, and
+no journal or effect retry is added. The broader missing-derived-work and
+secure-update/full-background/previous-image acceptance gates remain open.
