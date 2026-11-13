@@ -130,3 +130,30 @@ Run `PWSH=/path/to/pwsh python3 scripts/test-recovery-powershell.py`. This is no
 native Windows/PowerShell 5.1, Docker Desktop, real database or ACL proof. Linux
 real-PG rehearsal remains separate. The runtime used for this local test was the
 hash-checked official release: https://github.com/PowerShell/PowerShell/releases/tag/v7.6.5.
+
+## Full synthetic schema roundtrip (13 November 2026)
+
+`TestIntegrationFullBackupRoundtrip` explicitly creates two fresh local databases,
+checks their actual database identity before any migration or seed, applies all93
+migrations and seeds two tenants plus saved source config/profile defaults,
+gateway fingerprint, identity migration, serial inventory and pairing-proof rows.
+It executes the actual `backup.sh`, `restore.sh --verify` and `restore.sh` through
+a Docker-command shim forwarding only pg_dump/pg_restore/psql to matching local
+clients. All93public-table sorted row-JSON count/digests match after restoring into
+the second database. Reapplying migrations changes none of those fingerprints;
+auth-context scoped latest-reading API calls retain the tenant boundary. Race
+run passes. The databases are disposable and removed when the test ends.
+
+Opt in from `server/` with `TEST_FULL_BACKUP_ROUNDTRIP=1` and a numeric loopback
+`TEST_DATABASE_URL=postgres://.../disposable?sslmode=disable`, then
+`go test -race ./cmd/api -run '^TestIntegrationFullBackupRoundtrip$' -count=1 -v`.
+The test requires local CREATE DATABASE permission and matching pg_dump,
+pg_restore and psql clients. No external service or container is created.
+
+This improves on the four-table marker rehearsal, but is still not a complete
+installation restore drill: no real Docker execution, owner database, original
+edge key files, .env/secrets/cert recovery, assets, Windows ACL, clean-host install,
+background workers, real certificate acceptance, measured RPO/RTO or HA failover.
+The fingerprint is an equality check on a small synthetic database, not a
+cryptographic trust or malicious backup replacement guarantee. Keep the other
+backup scopes and integrity/preflight checks above.
