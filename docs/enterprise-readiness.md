@@ -20,7 +20,7 @@ fit their actual consistency, authorization and failure boundaries.
 | Area | Grounded implementation | Evidence and remaining gate |
 |---|---|---|
 | Read caching | `cmd/api/cache.go` gives live reads 2s TTL, configuration lists 10-30s, tenant invalidation after successful mutations. Customer-scoped users bypass shared tenant entries. `internal/respcache` bounds entries/body size, coalesces concurrent misses and refuses personalized/cache-control responses. | Local/shared unit and race tests; real-Postgres API tenant/invalidation test. A bounded JWT+HTTP+PG baseline now mixes300 reads,20 profile writes and20 immediate read-after-write checks across2tenants/4readers; cache hits and invalidation observed. Small synthetic fixture only; mixed MQTT ingest/report load and outage/soak still unproved. |
-| Optional shared cache | `internal/redisx` supports verified TLS, optional client certs, ACL credentials and DB selection. Shared read errors bypass caching, not stale local fallback. Generation invalidation spans replicas when the store succeeds. | Fake transport/failure tests are distinct from optional real `TEST_VALKEY_BINARY` test. No current real multi-node/failover evidence. Failed invalidation permits TTL-bounded stale entries; no stronger guarantee. No distributed miss lock. |
+| Optional shared cache | `internal/redisx` supports verified TLS, optional client certs, ACL credentials and DB selection. Shared read errors bypass caching, not stale local fallback. Generation invalidation spans replicas when the store succeeds. | Fake transport/failure tests remain distinct from the real `TEST_VALKEY_BINARY` test, now executed against hash-checked official Valkey9.0.7 with race detector. Two in-process caches share one actual mTLS/ACL endpoint; no real multi-host/failover evidence. Failed invalidation permits TTL-bounded stale entries; no stronger guarantee. No distributed miss lock. |
 | Cache handler failure | A handler panic formerly retained its single-flight entry indefinitely. Local correction releases only the failed flight, keeps partial output uncached and preserves the panic for HTTP handling. | Red regression reproduced for both modes, then cache race suite10repeats and real loopback HTTP recovery test pass. Cache race10repeats, real loopback HTTP panic/retry, and full fresh-Postgres Go suite pass. Local tested; separate CI pending, not a deployed fix. |
 | Login state | `cmd/api/sessions.go` stores tracked JWT session IDs/revocation in PostgreSQL. Configured OAuth one-use state is a separate store; readiness depends on it when shared state is selected. | Do not describe all sessions as Redis-backed or use cache outage policy for authentication. Tenant/role/customer scope and revocation must remain checked before cached handlers. |
 | Telemetry ingest | `cmd/ingest/main.go` validates topic-bound identity, inserts deduplicated telemetry, then invokes position/rules/flows synchronously. Duplicate inserts skip derived work. Reconnect reinstalls all subscriptions and refuses silent partial subscription. | Fresh local baseline on this review: compiled edge pairing/ACL watcher, certificate-required MQTT/compiled-ingest reconnect and source-apply/live-reload/110-reading tests all pass on fresh PG. These are synthetic source tests, not hardware or load evidence. Need sustained ingest with dashboard/report reads, DB interruption, restart/reconnect and post-insert derived-work failure tests. No durable derived-work/outbox guarantee follows from QoS1. |
@@ -84,3 +84,19 @@ and must not be read as current approval or acceptance.
 - Full fresh-Postgres Go suite passed after the cache panic fix. New mixed-flow
   test is individually race-checked and a final full fresh-Postgres suite refresh
   including it also passes; separate remote Go/web/security/Compose CI is still required. Native v63 is a different exact snapshot and passes scoped lifecycle acceptance, not these later cache changes.
+
+- Official Valkey9.0.7 Jammy x86_64 binary, SHA256
+  `bf0f19982dd464ea111617608a90f1a6eaad2c9c59b2e289cbc1591129f6d2e4`:
+  `TestValkeyTransport` under race detector passes3repeats. Actual verified TLS,
+  client certificate enforcement, hostname/CA/password/ACL refusal, selected DB
+  isolation, command preflight, one-use GETDEL and TTL are exercised. Two
+  in-process cache instances share that endpoint;5generations each launch12reads
+  after completed invalidation and assert fresh values. An injected handler panic
+  leaves no poisoned flight or partial shared entry; a retry and other-instance
+  hit succeed. Killing the endpoint bypasses caching rather than returning stale
+  local data. No overlapping-write linearizability, external deployment, multi-host
+  failover or capacity claim. Noble binary requires a newer glibc than this host;
+  the compatible official Jammy binary was used, with no OS changes.
+  Vendor sources: https://valkey.io/download/ and
+  https://download.valkey.io/releases/valkey-9.0.7-jammy-x86_64.tar.gz with
+  https://download.valkey.io/releases/valkey-9.0.7-jammy-x86_64.tar.gz.sha256.

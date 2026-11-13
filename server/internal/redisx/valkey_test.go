@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -184,6 +186,70 @@ func TestValkeyTransport(t *testing.T) {
 	if read(cache2) != "new" || calls != 2 {
 		t.Fatal("cross-replica invalidation", calls)
 	}
+	// Bounded concurrent reads across two in-process caches backed by the actual
+	// TLS service. Each invalidation completes before the next generation begins;
+	// this is not a claim of linearizable reads during an overlapping write.
+	var generation atomic.Int32
+	generation.Store(1)
+	var backendCalls atomic.Int32
+	mixedHandler := func(w http.ResponseWriter, r *http.Request) {
+		backendCalls.Add(1)
+		fmt.Fprint(w, generation.Load())
+	}
+	for want := int32(1); want <= 5; want++ {
+		generation.Store(want)
+		cache1.Invalidate("parallel-test")
+		var wg sync.WaitGroup
+		errors := make(chan string, 12)
+		for worker := 0; worker < 12; worker++ {
+			wg.Add(1)
+			go func(worker int) {
+				defer wg.Done()
+				cache := []*respcache.Cache{cache1, cache2}[worker%2]
+				w := httptest.NewRecorder()
+				cache.Middleware(time.Second, func(*http.Request) string { return "parallel-test" }, mixedHandler)(w, httptest.NewRequest("GET", "/parallel", nil))
+				if w.Body.String() != fmt.Sprint(want) {
+					errors <- w.Body.String()
+				}
+			}(worker)
+		}
+		wg.Wait()
+		close(errors)
+		for got := range errors {
+			t.Errorf("completed shared invalidation served old generation: got=%s want=%d", got, want)
+		}
+	}
+	if backendCalls.Load() < 5 {
+		t.Fatal("generations did not reach the actual backend")
+	}
+	// Exercise failed-flight cleanup through an actual shared transport, not
+	// only the deterministic unit fixture. Partial output never reaches Valkey.
+	var panicCalls int
+	panicHandler := func(w http.ResponseWriter, r *http.Request) {
+		panicCalls++
+		if panicCalls == 1 {
+			fmt.Fprint(w, "partial")
+			panic("synthetic shared handler failure")
+		}
+		fmt.Fprint(w, "fresh-after-panic")
+	}
+	panicRead := func(cache *respcache.Cache) string {
+		w := httptest.NewRecorder()
+		cache.Middleware(time.Second, func(*http.Request) string { return "panic-test" }, panicHandler)(w, httptest.NewRequest("GET", "/panic", nil))
+		return w.Body.String()
+	}
+	func() {
+		defer func() {
+			if recover() != "synthetic shared handler failure" {
+				t.Fatal("actual shared-cache handler panic was swallowed or changed")
+			}
+		}()
+		panicRead(cache1)
+	}()
+	if panicRead(cache1) != "fresh-after-panic" || panicRead(cache2) != "fresh-after-panic" || panicCalls != 2 {
+		t.Fatal("actual shared-cache panic poisoned flight or stored partial response")
+	}
+	t.Logf("actual mTLS Valkey: two cache instances,5generations x12concurrent reads after completed invalidations, failed-flight recovery, expiry and outage bypass; one local endpoint only")
 	time.Sleep(1100 * time.Millisecond)
 	if _, ok, e := c.Get("hx:k"); e != nil || ok {
 		t.Fatal("expiry")
