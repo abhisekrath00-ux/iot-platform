@@ -100,6 +100,25 @@ class Tests(unittest.TestCase):
                 with self.assertRaises(ValueError):p.enter(t)
                 self.assertFalse(c.value['allow']);self.assertNotIn(('allow',True),c.calls)
 
+    def test_exclusive_diagnostic_identifies_closed_session_failure_without_weakening_guard(self):
+        with tempfile.TemporaryDirectory()as td,m.state.Journal(td)as journal:
+            p,t,c,calls,pg,peer=self.fixture(pathlib.Path(td),journal)
+            def check(phase,peers,raw):
+                if phase!='exclusive':return
+                for damage,want in [('sessions','zero-sessions'),('allow','database-closed'),('stage','closing-stage'),('peers','empty-peers')]:
+                    saved=dict(c.value);record=p.record();original=copy.deepcopy(record)
+                    if damage=='sessions':c.value['sessions']=1
+                    if damage=='allow':c.value['allow']=True
+                    if damage=='stage':p.save(record,'local',[])
+                    if damage=='peers':p.save(record,'closing',[{'untrusted':'never-print-private'}])
+                    with self.assertRaises(ValueError)as error:p.connection_guard(phase,raw)
+                    self.assertTrue(str(error.exception).endswith('Failed checks: '+want))
+                    self.assertNotIn('never-print-private',str(error.exception))
+                    c.value=saved;m.state.atomic(p.path,original)
+                p.connection_guard(phase,raw)
+            p.connections=check;p.enter(t)
+            self.assertTrue(c.value['allow'])
+
     def test_actual_hba_and_catalog_components_close_drain_reopen_local_with_marker_held(self):
         with tempfile.TemporaryDirectory()as td,m.state.Journal(td)as journal:
             p,t,c,calls,pg,peer=self.fixture(pathlib.Path(td),journal)

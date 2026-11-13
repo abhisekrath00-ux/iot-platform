@@ -123,9 +123,16 @@ class Provider:
         if actual!=raw or raw not in {bytes.fromhex(record['current']),bytes.fromhex(record['pending'])}:
             raise ValueError('Transition proof differs from exact held HBA intent.')
         if phase=='exclusive':
-            if (value['stage']!='closing'or value['peers']or live['allow']or live['sessions']
-                    or raw!=hostmod.hba.render(original,self.catalog.database,self.catalog.user,[])):
-                raise ValueError('Exact closed zero-session database behind local-only HBA required.')
+            failed=[]
+            if value['stage']!='closing':failed.append('closing-stage')
+            if value['peers']:failed.append('empty-peers')
+            if live['allow']:failed.append('database-closed')
+            if live['sessions']:failed.append('zero-sessions')
+            if raw!=hostmod.hba.render(original,self.catalog.database,self.catalog.user,[]):failed.append('local-only-hba')
+            if failed:
+                # Fixed diagnostic codes only. Never emit raw catalog/HBA,
+                # connection details, owner names, credentials or session rows.
+                raise ValueError('Exact closed zero-session database behind local-only HBA required. Failed checks: '+','.join(failed))
         elif not live['allow']or (phase=='original')!=(raw==original):
             raise ValueError('Connection phase differs from live database/HBA admission.')
 

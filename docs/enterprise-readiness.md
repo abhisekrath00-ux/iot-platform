@@ -229,3 +229,24 @@ cooperative-job-join/pool-recovery regression pass with the race detector over
 old-context state at successful takeover rather than asserting a scheduling-
 dependent overlap duration. This local slice is not part of the pending c743
 native acceptance; no owner deployment or combined update readiness follows.
+
+## c743 native failure retained (13 November,16:45 review)
+
+Exact c7432baf38bc1972dc7d5053f036d8110eafba24 general CI43407489890
+passes all4jobs, but native43407540332 is NOT accepted. Linux failed at27m43s
+in actual production-provider activation, before the planned lost-release
+injection. Repeated exclusive-admission verification found the DB was not
+exactly closed/zero-session behind local-only HBA. Transition remained blocked;
+rollback refused the incomplete provider stage and no database restore ran.
+Both Windows native jobs pass their scoped contracts/service lifecycle. This
+is not the older v62 interpreter crash and no correction is inferred from it.
+
+Full Linux raw log759452characters/5953lines retained. It proves prior forced
+candidate rollback and lost-cleanup fresh recovery reached their assertions,
+not the later activation/release success. The combined exclusive error did not
+record which predicate changed; root cause remains unverified. A diagnostic-only
+follow-up preserves every fresh guard and reports fixed failed-check codes for
+closing stage, empty peers, closed database, zero sessions and local-only HBA.
+It emits no raw catalog, session rows, HBA bytes, names or credentials. Injected
+facet tests fail closed and assert redaction under Python3/default and3.14.
+This is better failure evidence, not a timer change, retry or claimed fix.
