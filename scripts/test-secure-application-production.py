@@ -130,6 +130,34 @@ class Tests(unittest.TestCase):
                 with self.using(classes),self.assertRaises(ValueError):p.connection_proof(phase,[],f.ORIGINAL)
                 self.assertTrue((root/'host.json').exists());self.assertNotIn(('host','prepare'),events)
 
+    def test_real_host_and_local_tool_records_cleanup_archive_and_restage_repeatedly(self):
+        hostfixture=m.load('test-secure-postgres-hosttool')
+        localfixture=m.load('test-secure-postgres-operator')
+        hostfixture.IMAGE=f.IMAGE
+        with tempfile.TemporaryDirectory()as td,m.base.state.Journal(td)as journal:
+            root=pathlib.Path(td);p,events,failure,*classes=self.fixture(root)
+            local,calls=localfixture.Tests().fixture(root,journal)
+            m.base.state.atomic(journal.directory/'maintenance.json',dict(root=str(root),scope='application_bootstrap'))
+            m.base.state.atomic(journal.directory/'journal.json',dict(version=1,phase='committed'))
+            p.journal=journal;p.catalog=local.catalog;runner=hostfixture.Runner()
+            def tools(guard):
+                return (m.hosttools.HostTool(journal,f.IMAGE,guard,runner),
+                        m.base.operators.LocalOperator(journal,local.catalog,f.IMAGE,guard,local.run))
+            p.tools=tools
+            with patch.object(m.connections,'Connections',classes[-1]),patch.object(m.base.Provider,'release',lambda *a:None):
+                for generation in range(3):
+                    p.connection_proof('original',[],f.ORIGINAL)
+                    host,operator=p.tools(lambda:None)
+                    self.assertEqual(host.record()['stage'],'ready')
+                    self.assertEqual(operator.record()['stage'],'ready')
+                    self.assertEqual(len(list(journal.directory.glob('postgres-hosttool-released-*.json'))),generation)
+                    self.assertEqual(len(list(journal.directory.glob('hexthings-schema-*-discarded.json'))),generation)
+                    p.release(object(),p.target)
+                    self.assertEqual(host.record()['stage'],'released')
+                    self.assertEqual(operator.record()['stage'],'removed')
+                    self.assertFalse(pathlib.Path(host.record()['binary']).exists())
+            self.assertFalse(any('apply-reviewed'in args for args,kwargs in calls))
+
     def test_explicit_endpoint_request_and_plan_image_required_no_defaults(self):
         catalog=SimpleNamespace(container='a'*64,user='ci',database='app')
         for endpoint,request in [(None,f.REQUEST),(f.OUT,None),({},f.REQUEST),(f.OUT,{**f.REQUEST,'user':'other'}),(f.OUT,{**f.REQUEST,'transport':'local_socket'})]:

@@ -1722,3 +1722,37 @@ lost cleanup acknowledgement can roll over ONLY on explicit settled original
 recovery, preserving its verified terminal record; no activation/restricted or
 unsettled restaging. New actual native lost-cleanup recovery/noSQLreplay assertion
 pending;9local assembly groups pass both Python versions. Not yet accepted.
+
+v62 060b69c NOT ACCEPTED: both Windows jobs pass, Linux fails27m49s with
+Python interpreter segmentation fault/exit139, not the60minute job budget.
+Fullraw338245chars3454lines inspected.45 actual production-lifecycle connection
+proofs complete:19restricted/no-peers,12all3pinned-writers,9exclusive55000,
+5original. Forced candidate failure -> previous compatibility -> exact restoration
+and actual host/local cleanup complete. Fresh recovery after both cleanups begins
+and restages the exact host source, but terminates before its acceptance. No
+noSQLreplay/finalcommit/downstream acceptance inferred. Last periodic120second
+C faulthandler diagnostic is in json decoding; root cause unresolved, not claimed
+as a product assertion failure or a timer correction. v61 remains last accepted.
+https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43370680997
+https://github.com/abhisekrath00-ux/iot-platform/commit/060b69c62406e07f2be2bd0211d57fd5a6d06f80/checks/131705454454/logs
+
+v63 DIAGNOSTIC RERUN PENDING: production logic/guards/assertions unchanged.
+Enable fatal-signal tracebacks, replace periodic C-stack dumping with a Python
+watchdog stack sample, and trace bounded command identity/completion in the new
+cleanup-recovery segment. These are diagnostics, not a proven correction.
+Added real HostTool/LocalOperator durable-record contract through three complete
+prepare/prove/cleanup/archive/restage generations with no apply-reviewed call;
+only the Docker transport is simulated locally.10production/11provider/6Connections
+groups pass bothPython, fullfreshGo passes. Initial local Go invocation used
+localhost and was correctly refused by the IPv4-only connection contract; fresh
+127.0.0.1 rerun passes. Native proof still required.
+
+Enterprise readiness remains a full-outcome gate, not this fixture's result:
+secure access, install/update reliability, backup/restore, service-failure recovery,
+full server-to-edge behavior and deployment/hardware limits. User Nov13 requires
+architecture/caching review including invalidation, DB hot paths, background work,
+scaling/monitoring and integrated load/failure evidence. Ground changes in existing
+paths; no distributed topology or paid infrastructure presumed. Free/local only.
+Fresh edge EXE must be downloadable/version-verified from the dashboard. Once-ready
+handoff must include server update steps and that fresh edge path together.
+Existing owner installation remains unchanged; no main merge/tag/public release.

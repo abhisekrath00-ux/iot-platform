@@ -14,6 +14,9 @@ import subprocess
 import tempfile
 import time
 import faulthandler
+import sys
+import threading
+import traceback
 import urllib.request
 import urllib.error
 import base64
@@ -33,7 +36,18 @@ def prove(parent_root,parent_project,newimage,testimage,basepath):
     if (os.environ.get('GITHUB_ACTIONS')!='true'or os.environ.get('RUNNER_OS')!='Linux'or os.geteuid()!=0
             or parent_root.parent!=pathlib.Path('/tmp')or not parent_root.name.startswith('hexthings-application-ci-')
             or not parent_project.startswith('hexthings-app-ci-')):raise ValueError('Fresh native fixture only.')
-    faulthandler.dump_traceback_later(120,repeat=True)
+    # Keep fatal-signal diagnostics, but use a Python watchdog for periodic
+    # progress stacks. v62 terminated during a timed C faulthandler dump; cause
+    # unresolved. This diagnostic change is not product acceptance or a fix.
+    faulthandler.enable()
+    watchdog_stop=threading.Event();main_thread=threading.get_ident()
+    def watchdog():
+        while not watchdog_stop.wait(120):
+            frame=sys._current_frames().get(main_thread)
+            if frame is not None:
+                print('PROVIDER_NATIVE_PYTHON_STACK',flush=True)
+                traceback.print_stack(frame)
+    watchdog_thread=threading.Thread(target=watchdog,daemon=True);watchdog_thread.start()
     project=parent_project+'-provider';outside=project+'-outside';network=project+'_default'
     with tempfile.TemporaryDirectory(prefix='hexthings-application-ci-provider-')as td:
         root=pathlib.Path(td);path=root/'docker-compose.yml';base=json.loads(basepath.read_text())
@@ -41,7 +55,7 @@ def prove(parent_root,parent_project,newimage,testimage,basepath):
         compose=['docker','compose','-p',project,'-f',str(path)]
         def call(args,check=True):return subprocess.run(list(map(str,args)),cwd=root,capture_output=True,text=True,timeout=180,check=check)
         def inspect(cid):return json.loads(call(['docker','inspect',cid]).stdout)[0]
-        commands=[]
+        commands=[];trace_commands=[False]
         started=time.monotonic();last_report=[started]
         def checkpoint(stage):
             print('PROVIDER_NATIVE_STAGE='+json.dumps({'stage':stage,'elapsed':round(time.monotonic()-started,2),'commands':len(commands)}),flush=True)
@@ -50,7 +64,12 @@ def prove(parent_root,parent_project,newimage,testimage,basepath):
             if time.monotonic()-last_report[0]>20:
                 checkpoint('command '+str(args[:3]));last_report[0]=time.monotonic()
             kwargs.setdefault('timeout',90)
-            return subprocess.run(args,**kwargs)
+            if trace_commands[0]:
+                checkpoint('cleanup-recovery command begin '+repr(args[:4]))
+            result=subprocess.run(args,**kwargs)
+            if trace_commands[0]:
+                checkpoint('cleanup-recovery command end rc='+str(result.returncode)+' bytes='+str(len(result.stdout or b'')))
+            return result
         try:
             checkpoint('create separate disposable project')
             call(compose+['up','-d','--wait','postgres','mosquitto','web'])
@@ -201,7 +220,7 @@ def prove(parent_root,parent_project,newimage,testimage,basepath):
             except ValueError:pass
             else:raise ValueError('Lost cleanup permitted ordinary selection.')
             before_cleanup_sql=sum('apply-reviewed'in cmd for cmd in commands)
-            caller,provider=coordinator();checkpoint('fresh recover after released host/local tool cleanup');caller.run(root,project,receipt,'recover')
+            caller,provider=coordinator();trace_commands[0]=True;checkpoint('fresh recover after released host/local tool cleanup');caller.run(root,project,receipt,'recover');trace_commands[0]=False
             if sum('apply-reviewed'in cmd for cmd in commands)!=before_cleanup_sql:raise ValueError('Released-tool recovery replayed schema.')
             evidence=list((root/'.secure-deployment').glob('postgres-hosttool-released-*.json'))
             if len(evidence)!=1 or m.state.read_private(evidence[0])['stage']!='released':raise ValueError('Released host generation evidence missing.')
@@ -237,6 +256,6 @@ def prove(parent_root,parent_project,newimage,testimage,basepath):
             if len(writes.stages)<6:raise ValueError('Missing write proofs across provider lifecycle.')
             print('PASS actual concrete Linux host provider through real Coordinator: exact immutable PG catalog/volume/HBA; original89 to additive93 using static candidate local socket operator; all API/ingest/MCP dynamic endpoints gated and exact SCRAM admitted with fresh outside-IP denial; forced actual candidate failure -> dedicated previous-image compatibility group -> exact previous restoration; post-backup row retained; real committed journal followed by lost original-HBA-release acknowledgement; fresh settled recovery performs no apply-reviewed replay; direct final Cmd/PID1/images/health with no gate manager and original HBA; private admission removed only last. Synthetic fixture scope/limited authenticated retained lists only, limited profile-create and HTTP telemetry write/read/retry/role/tenant proof, not full background compatibility, owner activation or physical reading.',flush=True)
         finally:
-            faulthandler.cancel_dump_traceback_later()
+            watchdog_stop.set();watchdog_thread.join(timeout=2)
             result=call(compose+['logs','--no-color','--tail','20'],False);print(result.stdout[-6000:],flush=True)
             call(compose+['down','--volumes','--remove-orphans'],False)
