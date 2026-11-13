@@ -161,3 +161,44 @@ this Go/web/Compose run. Previous d0aaafc and307cd1b failures above remain recor
 No owner deployment, main merge, release or full enterprise-readiness claim.
 Source: https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43394130687
 Go raw: https://github.com/abhisekrath00-ux/iot-platform/commit/5ee8d8df716881c11393034e7e2f30042093f5a4/checks/131780842169/logs
+
+## Prepared update review product entry (local, not activation)
+
+`setup.sh secure-update-review PROJECT RECEIPT` and the separate "Review prepared
+server update" menu entry read the exact private application-only preflight
+receipt and both immutable runtime snapshots. They show only project, plan hash,
+writer names and immutable image IDs. Resolved environment, connection strings,
+DB user, bind paths and credential/session/certificate bytes are not output.
+The review runs no Docker command, callback, schema operator or service change;
+no journal/selection file or Python bytecode is created. It does not create a
+plan, approve downtime or authorize an update. Missing/changed inputs return
+failure, not a legacy upgrade fallback. Live runtime and same-server dashboard
+EXE are explicitly NOT verified. Production Upgrade execution remains separate.
+
+The production adapter constructor and this review now share a pure file-plan
+check. In addition to exact scope/installation/project/database/writer/image-only
+change rules, both runtime paths must be present with matching hashes in the
+manifest and the recorded current-image set must match the old plan. Hashing an
+unrelated valid file cannot substitute for binding the runtime snapshots.
+
+Local evidence:5review groups,8adapter,10Coordinator,10recovery,11provider and
+10production-lifecycle contract groups pass; all31 non-native secure test files
+pass. Current review5/adapter8 also pass Python3.14. Full Go tests pass on another
+fresh PostgreSQL database.
+Contracts also bind the exact previous/recovery read-only dependencies in both
+manifests; omitted/extra recovery inputs and changed binds fail closed. Contracts cover secret-safe errors, missing/changed manifest/runtime/current
+images/database/writers and no-Docker/no-file-write CLI/menu behavior. Actual
+PTY menu output and synthetic plan CLI output were rendered and pixel-inspected.
+These are local contracts, not a new native Docker or owner-host acceptance.
+
+The next production activation gate is concrete: a fresh target/action/downtime
+reviewer and mandatory live runtime/source/ingest/background acceptance plus
+previous-image compatibility, not no-op callbacks. Retained gateway/profile/
+device list equality alone excludes saved device connection config and many
+scheduled behaviors. The gateway YAML download also writes an audit event and
+contains generated source/rule config, so it is not silently added as a generic
+read-only acceptance endpoint. The background set includes report/flow schedules,
+automatic commands, KPI/geofence/escalation/forecast, retention/index, metrics and
+calendar/on-call. Safe bounded acceptance needs defined semantics without
+triggering real actuator or notification effects. Final matching server build,
+dashboard EXE download/install and preserved identity/config evidence stay open.

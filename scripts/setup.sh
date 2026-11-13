@@ -13,6 +13,7 @@
 #   bash scripts/setup.sh start | stop | restart | doctor | open | version | ai [status|start|stop]
 #   bash scripts/setup.sh secure-readiness PROJECT  read-only application/schema/writer check
 #   bash scripts/setup.sh secure-recovery-review  read-only interrupted-setup review
+#   bash scripts/setup.sh secure-update-review PROJECT RECEIPT  read-only prepared update review
 #   bash scripts/setup.sh cluster [host]   Patroni view: leader, replicas, lag (HA installs; host defaults to $HEXTHINGS_NODE or localhost)
 # Menu keys: up/down or j/k, Enter, number keys, q. Works without colour (NO_COLOR), on narrow terminals,
 # and without a terminal (subcommands only; the menu refuses with a usage line).
@@ -189,6 +190,16 @@ cmd_doctor() {
   echo ""; [ "$bad" = 0 ] && echo "  Doctor found nothing wrong." || echo "  Doctor found problems above. After fixing, run it again."
   return "$bad"
 }
+cmd_secure_update_review() {
+  command -v python3 >/dev/null 2>&1 || { echo "  Update review needs Python3. Nothing changed.";return 1; }
+  local project=${1:-} receipt=${2:-}
+  if [ -z "$project" ] || [ -z "$receipt" ]; then
+    [ -t 0 ] || { echo "  Supply the existing project and exact prepared preflight.json path. Nothing changed.";return 1; }
+    read -r -p "  Existing Compose project name: " project || return 1
+    read -r -p "  Exact prepared application preflight.json path: " receipt || return 1
+  fi
+  python3 "$here/secure-update-review.py" --root "$root" --project "$project" --receipt "$receipt"
+}
 cmd_secure_recovery_review() {
   command -v python3 >/dev/null 2>&1 || { echo "  Recovery review needs Python3. Nothing changed.";return 1; }
   python3 "$here/secure-recovery-review.py" --root "$root"
@@ -228,6 +239,7 @@ dispatch() {
   case "$1" in
     single) shift; exec bash "$here/install.sh" "$@" ;;
     multi) shift; if [ $# -eq 0 ]; then if [ -t 0 ]; then guided_multi; else echo "multi node: bash scripts/setup.sh multi plan|render|check|drill --nodes n1=IP,n2=IP,n3=IP --vip IP"; echo "details: docs/ha-multi-node.md"; fi; else bash "$here/install-ha.sh" "$@"; fi ;;
+    secure-update-review) shift;cmd_secure_update_review "${1:-}" "${2:-}" ;;
     secure-readiness) shift;cmd_secure_readiness "${1:-}" ;;
     secure-prepare) cmd_secure_prepare ;;
     secure-recovery-review) cmd_secure_recovery_review ;;
@@ -245,9 +257,9 @@ if [ $# -gt 0 ]; then dispatch "$@"; exit $?; fi
 [ -t 0 ] && [ -t 1 ] || { echo "usage: setup.sh single|multi|status|health|logs|backup|verify|restore|upgrade|cluster|start|stop|restart|doctor|open|version|ai [args]  (the interactive menu needs a terminal)" >&2; exit 2; }
 
 # ---- interactive menu -------------------------------------------------------------------------
-labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Start" "Stop" "Restart" "Doctor" "AI status" "Open in browser" "Prepare private TLS setup" "Check secure setup readiness" "Review interrupted setup" "Quit")
-hints=("one-machine Docker setup" "plan automatic DB failover" "services and their state" "live probes and latency" "pick service; Ctrl-C stops" "Postgres dump to backups" "verify, confirm, restore" "backup, update, check, undo" "HA leader, replicas and lag" "start; include saved AI model" "stop; keep data" "restart services" "Docker, disk, service checks" "local model status" "show/open web address" "prepare only; no activation" "check only; no changes" "review only; no recovery" "")
-keys=(single multi status health logs backup restore upgrade cluster start stop restart doctor ai open secure-prepare secure-readiness secure-recovery-review quit)
+labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Start" "Stop" "Restart" "Doctor" "AI status" "Open in browser" "Prepare private TLS setup" "Check secure setup readiness" "Review interrupted setup" "Review prepared server update" "Quit")
+hints=("one-machine Docker setup" "plan automatic DB failover" "services and their state" "live probes and latency" "pick service; Ctrl-C stops" "Postgres dump to backups" "verify, confirm, restore" "backup, update, check, undo" "HA leader, replicas and lag" "start; include saved AI model" "stop; keep data" "restart services" "Docker, disk, service checks" "local model status" "show/open web address" "prepare only; no activation" "check only; no changes" "review only; no recovery" "read-only; not update approval" "")
+keys=(single multi status health logs backup restore upgrade cluster start stop restart doctor ai open secure-prepare secure-readiness secure-recovery-review secure-update-review quit)
 sel=0; n=${#labels[@]}
 cleanup() { [ "$COLOR" = 1 ] && printf '\033[?25h'; }
 trap 'cleanup; echo; exit 130' INT TERM
@@ -289,6 +301,7 @@ while :; do
   fi
   k=${keys[$sel]}
   case "$k" in
+    secure-update-review) cmd_secure_update_review;pause ;;
     secure-readiness) cmd_secure_readiness;pause ;;
     secure-prepare) cmd_secure_prepare;pause ;;
     secure-recovery-review) cmd_secure_recovery_review;pause ;;

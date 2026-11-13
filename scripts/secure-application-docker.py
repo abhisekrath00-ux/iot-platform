@@ -155,6 +155,48 @@ def prepare(root,project,image,bundle,execute=subprocess.run):
         raise
 
 
+def inspect_plan(root,project,receipt):
+    """Pure private-file verification shared by review and execution constructor.
+
+    No callbacks, Docker, journal, owner authority or live acceptance involved.
+    Only the exact immutable prepared application-only inputs are checked.
+    """
+    root=pathlib.Path(root).resolve();receipt=pathlib.Path(receipt).absolute()
+    if not isinstance(project,str)or not re.fullmatch(state.PROJECT,project):
+        raise ValueError('Exact existing project required.')
+    plan=state.read_private(receipt)
+    if (plan.get('scope')!='application_bootstrap'or plan.get('version')!=1
+            or plan.get('root')!=str(root)or plan.get('project')!=project
+            or plan.get('status')!='preflight_only'or plan.get('activation_allowed')is not False):
+        raise ValueError('Exact private application-only plan required, not authority.')
+    files=plan.get('files');state.check_manifest(files)
+    previous=receipt.parent/'previous-runtime.json';candidate=receipt.parent/'candidate-runtime.json'
+    # A manifest without the runtime paths must never pass by hashing unrelated
+    # private files. The same check protects both constructor and menu review.
+    for path in [previous,candidate]:
+        if files.get(str(path))!=state.digest(path):
+            raise ValueError('Exact runtime file missing from application plan manifest.')
+    old,new=state.read_private(previous),state.read_private(candidate)
+    recovery=plan.get('previous_files');state.check_manifest(recovery)
+    required={str(previous):state.digest(previous)}
+    for service in old['services'].values():
+        for mount in service.get('volumes',[]):
+            if mount.get('type')=='bind'and mount.get('read_only'):
+                path=pathlib.Path(mount['source'])
+                required[str(path)]=state.digest(path)
+    if recovery!=required or files!={**required,str(candidate):state.digest(candidate)}:
+        raise ValueError('Exact runtime and recovery dependency manifests required.')
+    user,db,writers=database_target(old)
+    if writers!=plan.get('writers')or plan.get('database')!={'user':user,'name':db}:
+        raise ValueError('Application writer/database target changed.')
+    images={name:item['image']for name,item in old['services'].items()}
+    if (not isinstance(plan.get('current_services'),dict)or set(plan['current_services'])!=set(images)
+            or any(not isinstance(plan['current_services'][name],dict)or plan['current_services'][name].get('image')!=image for name,image in images.items())):
+        raise ValueError('Recorded current image set differs from application plan.')
+    app.pair(old,new,images,{name:item['image']for name,item in new['services'].items()})
+    return {'plan':plan,'previous':old,'candidate':new,'user':user,'database':db,'writers':writers}
+
+
 class DockerApplication:
     """Actual effects with mandatory authority/acceptance callbacks.
 
@@ -174,18 +216,10 @@ class DockerApplication:
             raise ValueError('Explicit grouped application launch and exact definition verifier required.')
         self.runtime_group=runtime_group
         self.selection_reader=state.selection
-        self.plan=state.read_private(self.receipt)
-        if (self.plan.get('scope')!='application_bootstrap' or self.plan.get('version')!=1
-                or self.plan.get('root')!=str(self.root) or self.plan.get('project')!=project
-                or self.plan.get('status')!='preflight_only' or self.plan.get('activation_allowed') is not False):
-            raise ValueError('Exact private application-only plan required, not authority.')
+        checked=inspect_plan(self.root,project,self.receipt)
+        self.plan,self.old,self.new=checked['plan'],checked['previous'],checked['candidate']
         self.previous=self.receipt.parent/'previous-runtime.json';self.candidate=self.receipt.parent/'candidate-runtime.json'
-        state.check_manifest(self.plan['files'])
-        self.old=state.read_private(self.previous);self.new=state.read_private(self.candidate)
-        self.user,self.db,self.writers=database_target(self.old)
-        if self.writers!=self.plan['writers'] or self.plan['database']!={'user':self.user,'name':self.db}:raise ValueError('Application writer/database target changed.')
-        app.pair(self.old,self.new,{name:s['image']for name,s in self.old['services'].items()},
-                 {name:s['image']for name,s in self.new['services'].items()})
+        self.user,self.db,self.writers=checked['user'],checked['database'],checked['writers']
     def call(self,args,binary=False,input=None):
         result=self.execute(args,cwd=self.root,capture_output=True,text=not binary,input=input)
         if result.returncode:raise ValueError('Application Docker operation failed; inspect private local diagnostics. No success proved.')
