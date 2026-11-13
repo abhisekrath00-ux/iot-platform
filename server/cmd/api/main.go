@@ -1045,38 +1045,68 @@ func commandTopic(tenant, gateway string) string { return "t/" + tenant + "/g/" 
 // dispatchCommand publishes an approved command. It is never retained (a
 // reconnecting gateway must not replay stale actuation); the envelope carries
 // expires_at and the gateway must drop expired commands. Status becomes 'sent'
-// only after the broker accepted the publish, else 'failed'. 'sent' is not
-// 'acked': nothing consumes the topic until the edge executor exists.
+// only after broker acceptance is recorded. 'outcome_unknown' means a durable
+// claim whose delivery cannot be proved, and is never automatically retried.
+// 'sent' is not an edge ACK or a measured physical outcome.
 func (s *server) dispatchCommand(r *http.Request, id string) string {
 	next, gw := s.dispatchCore(r.Context(), auth.Tenant(r), id)
 	s.audit(r, "command."+next, id, map[string]any{"topic_gateway": gw})
 	return next
 }
 
-// dispatchCore publishes one approved command and records sent or failed.
+// dispatchCore claims one approved, unexpired command before any publish. A
+// claim is durably outcome_unknown until broker acceptance or a gateway ACK is
+// recorded. Crashes and lost acknowledgements never re-arm an automatic retry.
 func (s *server) dispatchCore(ctx context.Context, tenant, id string) (next, gw string) {
+	return s.dispatchApproved(ctx, tenant, id, func(topic string, body []byte) error {
+		return s.publishMQTTRetained(topic, body, false)
+	})
+}
+
+func (s *server) dispatchApproved(ctx context.Context, tenant, id string, publish func(string, []byte) error) (next, gw string) {
 	var env commandEnvelope
 	var params string
 	var auto bool
 	err := s.st.Pool.QueryRow(ctx,
-		`SELECT request_id, gateway_id, device_id, action, parameters::text, approved_by, issued_at, expires_at, policy_version, auto_approved
-		 FROM commands WHERE request_id=$1 AND tenant_id=$2`, id, tenant).
+		`UPDATE commands SET status='outcome_unknown'
+		 WHERE request_id=$1 AND tenant_id=$2 AND status='approved'
+		 AND issued_at IS NOT NULL AND expires_at > now() AND approved_by IS NOT NULL
+		 RETURNING request_id, gateway_id, device_id, action, parameters::text,
+		 approved_by, issued_at, expires_at, policy_version, auto_approved`, id, tenant).
 		Scan(&env.RequestID, &gw, &env.Target, &env.Action, &params, &env.ApprovedBy, &env.IssuedAt, &env.ExpiresAt, &env.PolicyVersion, &auto)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "not_dispatched", ""
+		}
+		// A lost claim acknowledgement may follow a committed UPDATE. Do
+		// not tell the caller it was not dispatched or guess the row state.
+		return "outcome_unknown", ""
+	}
 	env.Parameters = json.RawMessage(params)
 	if auto {
 		env.Mode = "automatic"
 	}
-	if err == nil {
-		var b []byte
-		if b, err = json.Marshal(env); err == nil {
-			err = s.publishMQTTRetained(commandTopic(tenant, gw), b, false)
-		}
-	}
-	next = "sent"
+	body, err := json.Marshal(env)
 	if err != nil {
-		next = "failed"
+		return "outcome_unknown", gw
 	}
-	s.st.Pool.Exec(ctx, `UPDATE commands SET status=$1 WHERE request_id=$2 AND status='approved'`, next, id)
+	if ctx.Err() != nil || !time.Now().Before(env.ExpiresAt) || publish(commandTopic(tenant, gw), body) != nil {
+		// A publish error can mean the broker accepted a packet but its ACK
+		// was lost. Keep the claim, never mark it retryable or promise failure.
+		return "outcome_unknown", gw
+	}
+	tag, err := s.st.Pool.Exec(ctx,
+		`UPDATE commands SET status='sent' WHERE request_id=$1 AND tenant_id=$2 AND status='outcome_unknown'`, id, tenant)
+	if err != nil {
+		return "outcome_unknown", gw
+	}
+	if tag.RowsAffected() == 1 {
+		return "sent", gw
+	}
+	// An immediate gateway ACK may have won the race. Do not overwrite it.
+	if err := s.st.Pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id=$1 AND tenant_id=$2`, id, tenant).Scan(&next); err != nil {
+		return "outcome_unknown", gw
+	}
 	return next, gw
 }
 

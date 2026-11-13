@@ -288,7 +288,8 @@ func main() {
 	}
 	register(subTopic("t/+/g/+/fleet/ack"), ackHandler)
 	// Command ACKs from the edge: t/<tenant>/g/<gateway>/cmd/ack. Topic identity
-	// pins the ack to the command's own gateway; only 'sent' commands move.
+	// pins the ack to the command's own gateway. A claimed command can ACK before
+	// the API records broker acceptance; never drop that early ACK.
 	cmdAckHandler := func(_ mqtt.Client, m mqtt.Message) {
 		tenant, gw, ack, err := parseCmdAck(m.Topic(), m.Payload())
 		if err != nil {
@@ -302,7 +303,7 @@ func main() {
 		outcome, _ := json.Marshal(map[string]any{"edge_state": ack.State, "detail": ack.Detail, "at": ack.At})
 		if _, err := st.Pool.Exec(ctx,
 			`UPDATE commands SET status=$1, outcome=$2
-			 WHERE request_id=$3 AND tenant_id=$4 AND gateway_id=$5 AND status='sent'`,
+			 WHERE request_id=$3 AND tenant_id=$4 AND gateway_id=$5 AND status IN ('sent','outcome_unknown')`,
 			state, outcome, ack.RequestID, tenant, gw); err != nil {
 			log.Printf("cmd ack update: %v", err)
 		}

@@ -28,15 +28,15 @@ export default function Commands() {
       {rows.length === 0 && !err && (
         <Empty title="No control requests" hint="Actuation requests appear here for four-eyes approval. Nothing can switch a physical output without an approved, audited request." />
       )}
-      {rows.length > 0 && <table>
+      {rows.length > 0 && <table className="command-table">
         <thead><tr><th>Device</th><th>Action</th><th>What and why</th><th>Status</th><th>Requested by</th><th></th></tr></thead>
         <tbody>
           {rows.map(c => (
             <tr key={c.request_id}>
-              <td>{c.device_id}</td><td>{c.action}</td>
-              <td className="muted">{c.parameters && Object.keys(c.parameters).length > 0 ? `set ${String(c.parameters.point ?? '')} to ${String(c.parameters.value ?? '')}` : ''}{c.reason ? ` · ${c.reason}` : ''}</td>
-              <td><span className={`pill ${c.status === 'approved' ? 'ok' : c.status.startsWith('pending') ? 'warn' : ''}`}>{c.status}</span></td>
-              <td className="muted">{c.requested_by}</td>
+              <td data-label="Device">{c.device_id}</td><td data-label="Action">{c.action}</td>
+              <td data-label="What and why" className="muted">{c.parameters && Object.keys(c.parameters).length > 0 ? `set ${String(c.parameters.point ?? '')} to ${String(c.parameters.value ?? '')}` : ''}{c.reason ? ` · ${c.reason}` : ''}</td>
+              <td data-label="Status"><span className={`pill ${c.status === 'approved' ? 'ok' : c.status.startsWith('pending') ? 'warn' : ''}`}>{c.status === 'outcome_unknown' ? 'Delivery unknown' : c.status}</span>{c.status === 'outcome_unknown' && <small className="muted" style={{ display: 'block', maxWidth: 240 }}>Delivery may or may not have happened. No automatic retry. Check the gateway and equipment state before deciding what to do.</small>}</td>
+              <td data-label="Requested by" className="muted">{c.requested_by}</td>
               <td>{c.status === 'pending_approval' && <button className="ghost" onClick={() => approve(c.request_id)}>Approve</button>}</td>
             </tr>
           ))}

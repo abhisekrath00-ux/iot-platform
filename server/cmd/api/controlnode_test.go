@@ -90,10 +90,10 @@ func TestIntegrationControlNodeEndToEnd(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE control_targets SET approval_mode='automatic' WHERE id='itest-cn-t1'`); err == nil {
 		t.Fatal("database must refuse automatic mode on a modbus_write target")
 	}
-	// the sweeper publishes only auto-approved rows. No broker here, so the honest outcome is failed.
+	// the sweeper publishes only auto-approved rows. No broker here: delivery cannot be proved, so retain outcome_unknown.
 	s.sweepAutoCommands(ctx)
 	pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id=$1`, autoID).Scan(&aStatus)
-	if aStatus != "failed" {
+	if aStatus != "outcome_unknown" {
 		t.Fatalf("sweeper without a broker: %s", aStatus)
 	}
 	pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id=$1`, id).Scan(&status)

@@ -250,3 +250,59 @@ closing stage, empty peers, closed database, zero sessions and local-only HBA.
 It emits no raw catalog, session rows, HBA bytes, names or credentials. Injected
 facet tests fail closed and assert redaction under Python3/default and3.14.
 This is better failure evidence, not a timer change, retry or claimed fix.
+
+## Local command publication claim, 13 November 2026, 17:08 IST
+
+Unpublished follow-up to60f97e7. This does not change that tip's native validation
+or resolve the c743 exclusive-guard failure. The earlier local reproduction
+passed an already-sent command to dispatchCore and observed a new mock publish.
+The old path read without an approved/unexpired predicate and published before
+its conditional state update. Stale concurrent sweeper selections could both
+reach publication even with cooperative leader cancellation.
+
+The local patch atomically claims an approved, unexpired, tenant-scoped row as
+outcome_unknown before publishing. A refused or unconfirmed claim never permits
+publication. No automatic retry resets that claim after a process exit, publish
+error or lost acknowledgement. The sent state means broker acceptance was
+recorded, not edge execution or a physical outcome. An exact-identity gateway ACK
+may settle an outcome_unknown claim before the API records sent; API finalization
+does not overwrite it. The Control page explains unknown delivery without a
+retry button, including on mobile without horizontal scrolling.
+
+Evidence: fresh PostgreSQL with all93 migrations,12 concurrent callers yielded
+one callback publication; terminal/pending/expired/cross-tenant rows yielded none;
+a real child process exiting73 after its durable claim, lost publish acknowledgement and cancelled finalization retained
+unknown state without replay. The claim race/child-exit test passed3 repeats
+under the race detector. Early ACK survived API finalization. Full fresh
+Go suite passed. Compiled ingest with a certificate-required local broker,
+CN-scoped generated ACLs and two reconnects passed wrong-topic rejection and
+exact-topic unknown-claim ACK settlement. These are synthetic replies and
+callbacks, not output commands to equipment.351 web tests and production build
+passed. Built UI screenshots with synthetic API responses were inspected at
+1400x1000 and390x844. The first phone rendering hid status in a horizontal table;
+the revised card rendering shows the complete warning.
+
+Two initial full local runs failed the previous four-eyes test's failed-or-sent
+expectation. That expectation now allows conservative outcome_unknown instead
+of asserting that a publish error proves no delivery; the full fresh suite was
+rerun successfully. No broker failure is silently retried or called acceptance.
+
+Remaining: edge replay memory is process-local and resets on restart. MQTT QoS1
+can redeliver after broker/client faults. The existing MQTT publisher still has blocking connect/publish waits rather
+than a context-bounded send; no bounded-delivery claim follows. The server claim
+is not an exactly-once actuation guarantee, and no real actuator or safe-retry proof was exercised.
+Report/flow/notification effects, persistent edge replay protection, independent
+hazard review and measured physical outcomes still need their own work. There is
+no new automatic retry, command enablement or owner deployment in this slice.
+
+Exact60f97e794aeba60c8433c61bf221de815350b509 validation subsequently completed:
+CI43415919898 all4 jobs pass and native43415964761 all3 jobs pass, Linux46m30s.
+Raw provider milestone assertions were inspected: forced rollback, released-tool
+fresh recovery, committed original-HBA release loss and final settled recovery
+passed. The819173-byte/6348-line Linux raw log is retained; only targeted test
+and transition evidence was inspected, not every Docker trace line. Windows
+service lifecycle and PowerShell contracts pass within their stated limits.
+This does not explain the c743 red or prove the intermittent failure corrected.
+The diagnostic predicates were unchanged; no failed facet was observed here.
+- https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43415919898
+- https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43415964761

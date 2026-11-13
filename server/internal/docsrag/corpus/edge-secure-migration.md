@@ -1774,3 +1774,26 @@ enterprise-readiness.md. Production reviewed entry/menu, full background behavio
 combined server/dashboard-EXE handoff and physical meter remain open.
 https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43378525884
 https://github.com/abhisekrath00-ux/iot-platform/commit/8f0354c13aba23f69eb860d700771118af63cea2/checks/131730606818/logs
+
+### Exact60f diagnostic rerun, 13 November 2026, 18:02 IST
+
+https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43415964761
+completed all3 jobs successfully at exact60f97e794aeba60c8433c61bf221de815350b509.
+Linux took46m30s. The provider assertions include lost host/local cleanup fresh
+recovery, forced previous-runtime restoration, committed original-HBA release
+acknowledgement loss and fresh final recovery without schema replay. Windows
+contracts and real service lifecycle pass within their existing limited scopes.
+General CI43415919898 also passes all4jobs at this exact tip.
+
+The c743 exclusive-guard failure remains unexplained.60f adds fixed diagnostic
+facet codes, not a correction to admission semantics. No failure occurred in
+this rerun, so it did not identify the old failed facet. A separate disposable
+local PostgreSQL14.24 fixture observed transient autovacuum workers in a closed
+database despite zero successful client connects. This is a candidate mechanism
+for a zero-session refusal, not proof of the CI failure's cause or justification
+to exclude workers. Every exclusive predicate stays unchanged.
+
+The819173-byte/6348-line Linux raw log is retained. Targeted assertions and
+transition sections were inspected, not every Docker trace line. This is scoped
+synthetic fixture evidence, not owner installation or full compatibility,
+background-effect, hardware, final EXE or executable secure-upgrade acceptance.

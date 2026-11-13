@@ -252,3 +252,14 @@ nav .menu-toggle { display: none; }
   form.grid2 { grid-template-columns: minmax(100px, .8fr) minmax(0, 1.2fr); }
   form.grid2 > input, form.grid2 > select { min-width: 0; width: 100%; }
 }
+
+/* Control outcomes must stay visible without horizontal scrolling on phones. */
+@media (max-width: 700px) {
+  .command-table { display: block; overflow: visible; }
+  .command-table thead { display: none; }
+  .command-table tbody, .command-table tr { display: block; width: 100%; }
+  .command-table tr + tr { border-top: 1px solid var(--line); }
+  .command-table td { display: block; width: auto; padding: 10px 16px; overflow-wrap: anywhere; }
+  .command-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; color: var(--muted); }
+  .command-table td:empty { display: none; }
+}

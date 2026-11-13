@@ -177,7 +177,7 @@ func runMQTTPipeline(t *testing.T, secure map[string]string) {
 			t.Fatal(err)
 		}
 	}
-	for _, row := range []struct{ id, status string }{{"cmd", "sent"}, {"pending", "pending_approval"}, {"rejected", "sent"}, {"cmd-barrier", "sent"}} {
+	for _, row := range []struct{ id, status string }{{"cmd", "sent"}, {"pending", "pending_approval"}, {"rejected", "sent"}, {"cmd-barrier", "sent"}, {"unknown", "outcome_unknown"}} {
 		if _, err := s.st.Pool.Exec(ctx, `INSERT INTO commands(request_id,tenant_id,gateway_id,device_id,action,status,requested_by) VALUES($1,$2,$3,$4,'synthetic.noop',$5,'test-user')`, "mqpipe-"+row.id, tenant, tenant+"-gw", tenant+"-dev", row.status); err != nil {
 			t.Fatal(err)
 		}
@@ -197,6 +197,7 @@ func runMQTTPipeline(t *testing.T, secure map[string]string) {
 	for _, prefix := range []string{"t/itest-mqother/g/" + tenant + "-gw/", "t/" + tenant + "/g/wrong-gateway/"} {
 		publishReply(prefix+"scan/result", map[string]any{"scan_id": "mqpipe-scan", "ok": true, "hosts": []any{map[string]any{"Addr": "10.0.0.99", "Port": 502, "Service": "wrong identity"}}})
 		publishReply(prefix+"cmd/ack", map[string]any{"request_id": "mqpipe-cmd", "state": "acked", "detail": "wrong identity"})
+		publishReply(prefix+"cmd/ack", map[string]any{"request_id": "mqpipe-unknown", "state": "acked", "detail": "wrong identity"})
 	}
 	publishReply(topic+"scan/result", map[string]any{"scan_id": "mqpipe-scan-barrier", "ok": true})
 	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-cmd-barrier", "state": "acked"})
@@ -228,16 +229,22 @@ func runMQTTPipeline(t *testing.T, secure map[string]string) {
 	if err := s.st.Pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id='mqpipe-cmd'`).Scan(&cmdStatus); err != nil {
 		t.Fatal(err)
 	}
+	var unknownStatus string
+	if err := s.st.Pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id='mqpipe-unknown'`).Scan(&unknownStatus); err != nil || unknownStatus != "outcome_unknown" {
+		t.Fatal("wrong identity settled unknown claim", unknownStatus, err)
+	}
 	if scanStatus != "requested" || cmdStatus != "sent" {
 		t.Fatal("wrong identity settled state", scanStatus, cmdStatus)
 	}
 	publishReply(topic+"scan/result", map[string]any{"scan_id": "mqpipe-scan", "ok": true, "hosts": []any{map[string]any{"Addr": "10.0.0.9", "Port": 502, "Service": "Synthetic Modbus"}}})
 	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-cmd", "state": "acked", "detail": "synthetic accepted"})
 	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-pending", "state": "acked"})
+	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-unknown", "state": "acked", "detail": "early ACK"})
 	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-rejected", "state": "rejected", "detail": "synthetic refusal"})
 	waitState("gateway_scans", "id", "mqpipe-scan", "done")
 	waitState("commands", "request_id", "mqpipe-cmd", "acked")
 	waitState("commands", "request_id", "mqpipe-rejected", "failed")
+	waitState("commands", "request_id", "mqpipe-unknown", "acked")
 	// Conflicting late terminal replies must not overwrite the first outcome.
 	publishReply(topic+"scan/result", map[string]any{"scan_id": "mqpipe-scan", "ok": false, "error": "late overwrite"})
 	publishReply(topic+"cmd/ack", map[string]any{"request_id": "mqpipe-cmd", "state": "rejected", "detail": "late overwrite"})

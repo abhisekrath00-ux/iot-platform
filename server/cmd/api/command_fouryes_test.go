@@ -71,13 +71,13 @@ func TestIntegrationCommandFourEyes(t *testing.T) {
 		t.Fatalf("status after refused approvals = %q", status)
 	}
 	// A different operator in the same tenant approves. No broker is configured
-	// in tests, so dispatch must report failed, not claim sent.
+	// in tests, so delivery stays unknown, not a proved failure or sent.
 	w = callAs(api, "itest-ce1", "ce-appr", "operator", "POST", path, "")
 	if w.Code != 200 {
 		t.Fatalf("approve = %d %s", w.Code, w.Body.String())
 	}
 	pool.QueryRow(ctx, `SELECT status FROM commands WHERE request_id=$1`, id).Scan(&status)
-	if status != "failed" && status != "sent" {
+	if status != "outcome_unknown" && status != "sent" {
 		t.Fatalf("status after approve = %q", status)
 	}
 	if status == "sent" {
