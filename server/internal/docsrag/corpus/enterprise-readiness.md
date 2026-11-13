@@ -573,3 +573,36 @@ This is not durable position recovery. Previously lost readings are not
 replayed; axis updates and trail recording are still separate operations, and
 no journal or effect retry is added. The broader missing-derived-work and
 secure-update/full-background/previous-image acceptance gates remain open.
+
+### Open MQTT-to-database admission gap (2026-11-14)
+
+The compiled ingest has a second, earlier durability gap: when a telemetry
+INSERT fails, its callback logs the error and returns normally. The MQTT client
+then acknowledges that incoming QoS1 message. Publisher-to-broker PUBACK is
+already a different boundary; neither acknowledgement proves a database row.
+
+The existing `TestIntegrationCompiledIngestDerivedWorkGap` now observes actual
+subscriber wire packets through a loopback forwarding proxy. A scoped trigger
+refuses only a synthetic event's telemetry INSERT. The test checks the real
+ingest error, matches its subscriber PUBACK to that event's incoming packet ID,
+and confirms zero stored rows. After fault removal, ingest restart and a unique
+ordered-barrier event's derived run/PUBACK, the refused event is still absent
+and its observed delivery count is one. This is a bounded observation of the
+current clean-session configuration, not a proof of no redelivery forever or
+of every broker/persistent-session policy. All traffic stays in a disposable
+loopback fixture; no enabled notification channel or actuator is supplied.
+
+Three local race repetitions reproduce the admission and post-commit derived
+record gaps together. The existing mTLS pipeline invokes this separate
+plaintext-loopback characterization; the wire proxy is not extra TLS proof.
+A passing characterization means the defects remain reproducible, NOT reliable
+admission or recovery acceptance. No MQTT acknowledgement behavior, session,
+ACL, schema or effect retry is changed by this evidence slice.
+
+A production recovery design must separately bind durable admission to its
+acknowledgement boundary, preserve bounded pending work across failures and
+classify effect uncertainty before retries. Disabling automatic ACK alone is
+not a complete solution: clean-session loss, inflight backlog, shutdown and
+broker persistence still need actual failure tests. Existing exact migration93
+and candidate/previous-image acceptance gates must not be weakened to hide a
+new journal or runtime change.

@@ -1825,3 +1825,12 @@ Real-PG cancellation/lock-deadline recovery and tenant-cache isolation tests
 fail on prior code and pass with immediate healthy reload. This adds no schema,
 replay or durable derived-work guarantee. Previous-image/background acceptance
 and production Update entry remain gated; owner setup is unchanged.
+
+The compiled-ingest characterization now also observes real subscriber QoS1
+PUBACK after a synthetic telemetry INSERT refusal. The row remains absent
+through fault removal, ingest restart and a unique ordered barrier; observed
+failed-event delivery count stays one during that bounded default-clean-session
+fixture. This is an OPEN admission defect, separate from post-commit derived
+work loss. No ACK/session/ACL/retry/schema behavior is changed. See the
+enterprise-readiness admission-gap section; green characterization is not
+production admission/recovery or full background compatibility acceptance.
