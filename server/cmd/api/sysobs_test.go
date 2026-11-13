@@ -89,3 +89,50 @@ func TestIntegrationSystemObservability(t *testing.T) {
 		t.Fatalf("support: %d", w.Code)
 	}
 }
+
+func TestIntegrationCacheAndPoolObservability(t *testing.T) {
+	s, _ := testServer(t)
+	s.cache = newCache()
+	s.cache.Hits.Add(4)
+	s.cache.Misses.Add(3)
+	s.cache.Invalidations.Add(2)
+	s.cache.SharedReadFailures.Add(5)
+	s.cache.SharedWriteFailures.Add(6)
+	s.cache.SharedInvalidationFailures.Add(7)
+	m := s.obsSnapshot(t.Context())
+	expected := map[string]float64{"cache_enabled": 1, "cache_hits_total": 4, "cache_misses_total": 3, "cache_invalidations_total": 2, "cache_shared_read_failures_total": 5, "cache_shared_write_failures_total": 6, "cache_shared_invalidation_failures_total": 7}
+	for k, v := range expected {
+		if m[k] != v {
+			t.Errorf("%s=%g want %g", k, m[k], v)
+		}
+	}
+	for _, k := range []string{"db_pool_acquired", "db_pool_idle", "db_pool_total", "db_pool_max", "db_pool_acquires_total", "db_pool_empty_acquires_total", "db_pool_canceled_acquires_total", "db_pool_acquire_seconds_total"} {
+		if _, ok := m[k]; !ok {
+			t.Error("missing pool signal", k)
+		}
+	}
+	api := http.NewServeMux()
+	api.HandleFunc("GET /v1/system/prom", s.systemProm)
+	w := call(api, "itest-obs", "admin", "GET", "/v1/system/prom", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "# TYPE hexthings_cache_shared_invalidation_failures_total counter\nhexthings_cache_shared_invalidation_failures_total 7") {
+		t.Fatalf("failure counter not correctly exported: %s", w.Body.String())
+	}
+	if w := call(api, "itest-obs", "operator", "GET", "/v1/system/prom", ""); w.Code != 403 {
+		t.Fatal("cache/pool metrics exposed to non-admin")
+	}
+	sampleCtx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	s.obsRun(sampleCtx)
+	var count int
+	if err := s.st.Pool.QueryRow(t.Context(), `SELECT count(DISTINCT name) FROM obs_metrics WHERE ts > now() - interval '5 seconds' AND name IN ('cache_hits_total','cache_shared_invalidation_failures_total','db_pool_max','db_pool_acquire_seconds_total')`).Scan(&count); err != nil || count != 4 {
+		t.Fatalf("cache/pool sampler omitted signals: count=%d err=%v", count, err)
+	}
+	s.cache = nil
+	m = s.obsSnapshot(t.Context())
+	if m["cache_enabled"] != 0 {
+		t.Fatal("disabled cache shown as enabled")
+	}
+	if _, ok := m["cache_hits_total"]; ok {
+		t.Fatal("disabled cache has misleading hit count")
+	}
+}

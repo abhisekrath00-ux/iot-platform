@@ -234,3 +234,61 @@ func TestHTTPServerRemainsReadableAfterCachedHandlerPanic(t *testing.T) {
 		})
 	}
 }
+
+// Failure signals must distinguish read bypass from failed remote invalidation:
+// the latter can leave another replica's response stale until its TTL.
+type partialFailureShared struct {
+	*memoryShared
+	fail string
+}
+
+func (s partialFailureShared) GetInt(k string) (int64, error) {
+	if s.fail == "generation" {
+		return -1, nil
+	}
+	return s.memoryShared.GetInt(k)
+}
+func (s partialFailureShared) Get(k string) (string, bool, error) {
+	if s.fail == "read" {
+		return "", false, errors.New("read failed")
+	}
+	return s.memoryShared.Get(k)
+}
+func (s partialFailureShared) Set(k, v string, d time.Duration) error {
+	if s.fail == "write" {
+		return errors.New("write failed")
+	}
+	return s.memoryShared.Set(k, v, d)
+}
+func (s partialFailureShared) Incr(k string) (int64, error) {
+	if s.fail == "invalidate" {
+		return 0, errors.New("invalidate failed")
+	}
+	return s.memoryShared.Incr(k)
+}
+func TestSharedFailureCounters(t *testing.T) {
+	for _, phase := range []string{"generation", "read", "write", "invalidate"} {
+		t.Run(phase, func(t *testing.T) {
+			c := New(10)
+			c.UseShared(partialFailureShared{&memoryShared{m: map[string]string{}}, phase})
+			h := c.Middleware(time.Minute, tenantHdr, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("fresh")) })
+			if phase == "invalidate" {
+				c.Invalidate("a")
+			} else if get(h, "a", "/x").Body.String() != "fresh" {
+				t.Fatal("failure changed backend response")
+			}
+			reads, writes, invalidations := uint64(0), uint64(0), uint64(0)
+			switch phase {
+			case "generation", "read":
+				reads = 1
+			case "write":
+				writes = 1
+			case "invalidate":
+				invalidations = 1
+			}
+			if c.SharedReadFailures.Load() != reads || c.SharedWriteFailures.Load() != writes || c.SharedInvalidationFailures.Load() != invalidations {
+				t.Fatalf("wrong failure counters for %s", phase)
+			}
+		})
+	}
+}

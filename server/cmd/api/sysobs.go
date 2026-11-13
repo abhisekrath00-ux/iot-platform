@@ -147,6 +147,27 @@ func (s *server) obsSnapshot(ctx context.Context) map[string]float64 {
 	m["api_requests_total"] = float64(obs.reqs.Load())
 	m["api_errors_5xx_total"] = float64(obs.e5xx.Load())
 	m["api_errors_4xx_total"] = float64(obs.e4xx.Load())
+	// These are this API replica's cache counters and client pool, not
+	// cluster-wide cache health or all PostgreSQL connections.
+	m["cache_enabled"] = 0
+	if s.cache != nil {
+		m["cache_enabled"] = 1
+		m["cache_hits_total"] = float64(s.cache.Hits.Load())
+		m["cache_misses_total"] = float64(s.cache.Misses.Load())
+		m["cache_invalidations_total"] = float64(s.cache.Invalidations.Load())
+		m["cache_shared_read_failures_total"] = float64(s.cache.SharedReadFailures.Load())
+		m["cache_shared_write_failures_total"] = float64(s.cache.SharedWriteFailures.Load())
+		m["cache_shared_invalidation_failures_total"] = float64(s.cache.SharedInvalidationFailures.Load())
+	}
+	pool := s.st.Pool.Stat()
+	m["db_pool_acquired"] = float64(pool.AcquiredConns())
+	m["db_pool_idle"] = float64(pool.IdleConns())
+	m["db_pool_total"] = float64(pool.TotalConns())
+	m["db_pool_max"] = float64(pool.MaxConns())
+	m["db_pool_acquires_total"] = float64(pool.AcquireCount())
+	m["db_pool_empty_acquires_total"] = float64(pool.EmptyAcquireCount())
+	m["db_pool_canceled_acquires_total"] = float64(pool.CanceledAcquireCount())
+	m["db_pool_acquire_seconds_total"] = pool.AcquireDuration().Seconds()
 	var db, conns, ins, open, ack float64
 	t0 := time.Now()
 	if err := s.st.Pool.QueryRow(ctx, `SELECT pg_database_size(current_database())`).Scan(&db); err == nil {
@@ -201,6 +222,11 @@ func (s *server) obsRun(ctx context.Context) {
 				out[k] = v
 			}
 		}
+		for k, v := range snap {
+			if strings.HasPrefix(k, "cache_") || strings.HasPrefix(k, "db_pool_") {
+				out[k] = v
+			}
+		}
 		now := time.Now()
 		for k, v := range out {
 			s.st.Pool.Exec(cctx, `INSERT INTO obs_metrics(ts,instance,name,value) VALUES($1,$2,$3,$4)`, now, host, k, v)
@@ -250,6 +276,7 @@ func (s *server) systemHealth(w http.ResponseWriter, r *http.Request) {
 		"sources": []map[string]any{
 			{"name": "API process (requests, latency, errors, memory)", "available": true},
 			{"name": "Database (size, connections, ping, alert counts)", "available": true},
+			{"name": "API replica response cache counters and client DB pool", "available": true, "note": "process-local totals reset on restart; failed shared invalidation may allow stale reads until TTL"},
 			{"name": "Ingest rate (telemetry rows inserted per minute)", "available": true},
 			{"name": "Warning and error log lines from the API", "available": true},
 			{"name": "Ingest and other services' own logs", "available": false, "note": "only the API's logs are captured; use hexthings logs <service>"},
@@ -383,7 +410,11 @@ func (s *server) systemProm(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(keys)
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	for _, k := range keys {
-		fmt.Fprintf(w, "# TYPE hexthings_%s gauge\nhexthings_%s %g\n", k, k, snap[k])
+		kind := "gauge"
+		if strings.HasSuffix(k, "_total") {
+			kind = "counter"
+		}
+		fmt.Fprintf(w, "# TYPE hexthings_%s %s\nhexthings_%s %g\n", k, kind, k, snap[k])
 	}
 }
 

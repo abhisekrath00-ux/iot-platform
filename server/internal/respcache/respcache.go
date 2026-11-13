@@ -57,6 +57,8 @@ type Cache struct {
 	shared     Shared
 
 	Hits, Misses, Invalidations atomic.Uint64
+	// Aggregate process counters only: no tenant, key, URI or credential labels.
+	SharedReadFailures, SharedWriteFailures, SharedInvalidationFailures atomic.Uint64
 }
 
 func New(maxEntries int) *Cache {
@@ -71,7 +73,9 @@ func (c *Cache) UseShared(s Shared) { c.shared = s }
 func (c *Cache) Invalidate(tenant string) {
 	if c.shared != nil {
 		// If this fails, other replicas keep serving until the entry TTL (seconds).
-		_, _ = c.shared.Incr("hx:gen:" + tenant)
+		if _, err := c.shared.Incr("hx:gen:" + tenant); err != nil {
+			c.SharedInvalidationFailures.Add(1)
+		}
 	}
 	c.mu.Lock()
 	c.gens[tenant]++
@@ -214,11 +218,13 @@ func (c *Cache) evictLocked() {
 func (c *Cache) serveShared(w http.ResponseWriter, r *http.Request, tenant string, ttl time.Duration, next http.HandlerFunc) bool {
 	gen, err := c.shared.GetInt("hx:gen:" + tenant)
 	if err != nil || gen < 0 {
+		c.SharedReadFailures.Add(1)
 		return false
 	}
 	sum := sha256.Sum256([]byte(r.URL.RequestURI()))
 	k := "hx:rc:" + tenant + ":" + uitoa(uint64(gen)) + ":" + hex.EncodeToString(sum[:16])
 	if v, ok, err := c.shared.Get(k); err != nil {
+		c.SharedReadFailures.Add(1)
 		return false
 	} else if ok {
 		if i := indexNUL(v); i >= 0 {
@@ -255,7 +261,9 @@ func (c *Cache) serveShared(w http.ResponseWriter, r *http.Request, tenant strin
 	if cacheable(rec) {
 		ent = &entry{body: rec.Body.Bytes(), ctype: rec.Header().Get("Content-Type"), expires: c.now().Add(ttl)}
 		if len(ent.body) <= maxSharedBody {
-			_ = c.shared.Set(k, ent.ctype+"\x00"+string(ent.body), ttl)
+			if err := c.shared.Set(k, ent.ctype+"\x00"+string(ent.body), ttl); err != nil {
+				c.SharedWriteFailures.Add(1)
+			}
 		}
 	}
 	c.mu.Lock()
