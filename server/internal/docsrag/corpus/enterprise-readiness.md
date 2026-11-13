@@ -21,7 +21,7 @@ fit their actual consistency, authorization and failure boundaries.
 |---|---|---|
 | Read caching | `cmd/api/cache.go` gives live reads 2s TTL, configuration lists 10-30s, tenant invalidation after successful mutations. Customer-scoped users bypass shared tenant entries. `internal/respcache` bounds entries/body size, coalesces concurrent misses and refuses personalized/cache-control responses. | Local/shared unit and race tests; real-Postgres API tenant/invalidation test. A bounded JWT+HTTP+PG baseline now mixes300 reads,20 profile writes and20 immediate read-after-write checks across2tenants/4readers; cache hits and invalidation observed. Small synthetic fixture only; mixed MQTT ingest/report load and outage/soak still unproved. |
 | Optional shared cache | `internal/redisx` supports verified TLS, optional client certs, ACL credentials and DB selection. Shared read errors bypass caching, not stale local fallback. Generation invalidation spans replicas when the store succeeds. | Fake transport/failure tests remain distinct from the real `TEST_VALKEY_BINARY` test, now executed against hash-checked official Valkey9.0.7 with race detector. Two in-process caches share one actual mTLS/ACL endpoint; no real multi-host/failover evidence. Failed invalidation permits TTL-bounded stale entries; no stronger guarantee. No distributed miss lock. |
-| Cache handler failure | A handler panic formerly retained its single-flight entry indefinitely. Local correction releases only the failed flight, keeps partial output uncached and preserves the panic for HTTP handling. | Red regression reproduced for both modes, then cache race suite10repeats and real loopback HTTP recovery test pass. Cache race10repeats, real loopback HTTP panic/retry, and full fresh-Postgres Go suite pass. Local tested; separate CI pending, not a deployed fix. |
+| Cache handler failure | A handler panic formerly retained its single-flight entry indefinitely. Local correction releases only the failed flight, keeps partial output uncached and preserves the panic for HTTP handling. | Red regression reproduced for both modes, then cache race suite10repeats and real loopback HTTP recovery test pass. Cache race10repeats, real loopback HTTP panic/retry, and full fresh-Postgres Go suite pass. Local tested; separate exact5ee8d8d CI passes all4jobs, not a deployed fix. |
 | Login state | `cmd/api/sessions.go` stores tracked JWT session IDs/revocation in PostgreSQL. Configured OAuth one-use state is a separate store; readiness depends on it when shared state is selected. | Do not describe all sessions as Redis-backed or use cache outage policy for authentication. Tenant/role/customer scope and revocation must remain checked before cached handlers. |
 | Telemetry ingest | `cmd/ingest/main.go` validates topic-bound identity, inserts deduplicated telemetry, then invokes position/rules/flows synchronously. Duplicate inserts skip derived work. Reconnect reinstalls all subscriptions and refuses silent partial subscription. | Fresh local baseline on this review: compiled edge pairing/ACL watcher, certificate-required MQTT/compiled-ingest reconnect and source-apply/live-reload/110-reading tests all pass on fresh PG. These are synthetic source tests, not hardware or load evidence. Need sustained ingest with dashboard/report reads, DB interruption, restart/reconnect and post-insert derived-work failure tests. No durable derived-work/outbox guarantee follows from QoS1. |
 | Background work | API starts leader-elected report, flow, KPI, retention/index jobs using PostgreSQL advisory-lock ownership. Report concurrency has refusal limits rather than an unbounded queue. | Lock tests and component tests do not prove all jobs together under load. Need ownership loss, shutdown, bounded backlog, duplicate effect and restart evidence. Preserve explicit notification/control approval gates. |
@@ -83,7 +83,7 @@ and must not be read as current approval or acceptance.
   one combined load/fault experiment.
 - Full fresh-Postgres Go suite passed after the cache panic fix. New mixed-flow
   test is individually race-checked and a final full fresh-Postgres suite refresh
-  including it also passes; separate remote Go/web/security/Compose CI is still required. Native v63 is a different exact snapshot and passes scoped lifecycle acceptance, not these later cache changes.
+  including it also passes; separate remote Go/web/security/Compose CI now passes exact5ee8d8d. Native v63 is a different exact snapshot and passes scoped lifecycle acceptance, not these later cache changes.
 
 - Official Valkey9.0.7 Jammy x86_64 binary, SHA256
   `bf0f19982dd464ea111617608a90f1a6eaad2c9c59b2e289cbc1591129f6d2e4`:
@@ -139,3 +139,25 @@ now passes; later MQTT/Valkey/edge steps did not run. The test now waits for all
 four real persisted signals with a15s bound, then cancels/joins the sampler.
 No production sampler behavior, guard or assertion scope was weakened.
 Source: https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43390305755
+
+### Separate cache/enterprise CI acceptance (13 November,14:33IST)
+
+Exact `5ee8d8df716881c11393034e7e2f30042093f5a4`, run43394130687 passes
+all4 Go/web/security/Compose jobs. Full Go raw74261characters/736lines inspected.
+The endpoint transport proof and real metric-history test pass in the full server
+suite. Plaintext compiled-ingest MQTT and generated-ACL mTLS tests actually run;
+the latter includes80events+8duplicate sends during600JWTlatest/series reads and
+one extra TCP reconnect with publication paused. All80unique rows and final5079
+freshness pass. Example runner mixed section4.03s/615HTTP responses/max11.72ms/
+313cache hits is a bounded synthetic observation, not target capacity or an SLO.
+Official hash-checked Valkey9.0.7 mTLS/ACL race test actually executes and passes
+5generations x12readers, failed-flight recovery, expiry and endpoint outage bypass.
+Edge tests/builds and linux-arm64/windows-amd64/windows-arm64 crossbuilds complete.
+
+The full93-table backup/restore roundtrip remains a separate explicit local
+opt-in test, not a claim that this CI ran it. Native8f0354c acceptance is also a
+separate snapshot; no new native installer/Windows service evidence follows from
+this Go/web/Compose run. Previous d0aaafc and307cd1b failures above remain recorded.
+No owner deployment, main merge, release or full enterprise-readiness claim.
+Source: https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43394130687
+Go raw: https://github.com/abhisekrath00-ux/iot-platform/commit/5ee8d8df716881c11393034e7e2f30042093f5a4/checks/131780842169/logs
