@@ -483,3 +483,39 @@ runtime/background and previous-image compatibility, final matching server and
 installer version, target Windows GUI/install/pair/source/test/save/apply/recent
 reading checks, and physical/deployment acceptance. No optional Modbus mapping,
 command ACL, owner setup, main branch, release or paid resource was changed.
+
+## Open ingest-derived durability gap (2026-11-13)
+
+The compiled ingest commits telemetry before position tracking, rules and flow
+work. These steps are not one transaction or a durable outbox. If the telemetry
+INSERT succeeds but a later derived operation fails, an exact replay with the
+same `(event_id, observed_at)` is discarded before derived work. Restart does
+not recover that missing work. Retained-list and HTTP-write compatibility
+checks do not cover this gap. The production secure-update/full-background
+acceptance gate stays closed.
+
+`TestIntegrationCompiledIngestDerivedWorkGap` is a characterization of this
+OPEN defect, not an assertion that ingest is durable. It starts the actual
+compiled ingest and a disposable plaintext loopback broker against a disposable
+PostgreSQL database. A trigger fails only the synthetic flow's run INSERT after
+telemetry has committed. The test removes the fault, restarts ingest, replays
+the identical event, then sends a unique below-threshold event as an ordered
+barrier. Telemetry has two rows, the barrier has a derived run, and the missing
+original derived run stays absent. No enabled notification channel, HTTP node,
+function node or actuator is supplied. This proves one specific failure window,
+not every rule, position, scheduling, notification or crash behavior.
+
+Local race-enabled repetitions reproduce the gap. The first fixture attempt
+accidentally regenerated `observed_at` on replay, which inserted a different
+composite key and did not test exact deduplication. Freezing the envelope's
+observation timestamp corrected the fixture. General unit tests skip this
+opt-in process test; the existing compiled-ingest/mTLS pipeline test invokes
+it as a separately named plaintext-loopback subtest, without changing workflow
+permissions, runners or guards. A green subtest means the defect was reproduced.
+
+Recovery is not enabled by these tests. Blind retries can repeat an external
+notification or physical effect. A safe follow-up needs durable admission with
+bounded recovery, explicit failure/uncertainty handling and per-effect replay
+semantics, plus candidate and previous-image background compatibility evidence.
+No existing command/ACL restriction, owner installation, main branch, release
+or production secure-update availability changes here.

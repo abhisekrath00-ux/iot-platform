@@ -54,7 +54,7 @@ func PoolSize(env string, cpus int) int32 {
 
 func (s *Store) Close() { s.Pool.Close() }
 
-// InsertTelemetry dedupes on event_id (idempotent replay). It reports
+// InsertTelemetry dedupes on (event_id, observed_at) (idempotent exact replay). It reports
 // whether the row was actually stored, so callers can skip derived work
 // (rules, position tracking) for a replayed duplicate.
 func (s *Store) InsertTelemetry(ctx context.Context, e Telemetry) (bool, error) {

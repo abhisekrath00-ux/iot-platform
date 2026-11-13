@@ -99,6 +99,9 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	verifyGeneratedACLReads(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
 	verifyOneShotCommandTransport(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
 	runMQTTPipeline(t, map[string]string{"MQTT_TLS": "true", "MQTT_PORT": port, "MQTT_HOST": "127.0.0.1", "MQTT_CA_FILE": filepath.Join(dir, "ca.crt"), "MQTT_CERT_FILE": ic, "MQTT_KEY_FILE": ik, "PUBLISHER_CERT": gc, "PUBLISHER_KEY": gk})
+	// Separate plaintext loopback fault fixture, not additional TLS proof.
+	// A green characterization asserts an OPEN gap, never durability acceptance.
+	t.Run("OpenDerivedWorkGap", TestIntegrationCompiledIngestDerivedWorkGap)
 }
 
 // Both identities use production client options and the generated ACL. An own

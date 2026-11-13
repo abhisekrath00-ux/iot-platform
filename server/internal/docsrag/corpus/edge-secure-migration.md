@@ -1797,3 +1797,17 @@ The819173-byte/6348-line Linux raw log is retained. Targeted assertions and
 transition sections were inspected, not every Docker trace line. This is scoped
 synthetic fixture evidence, not owner installation or full compatibility,
 background-effect, hardware, final EXE or executable secure-upgrade acceptance.
+
+### Derived-background gate remains open
+
+The real compiled-ingest characterization
+`TestIntegrationCompiledIngestDerivedWorkGap` reproduces telemetry commit ->
+synthetic flow-run database failure -> restart -> exact duplicate skipped,
+leaving the derived run absent. A subsequent unique ordered-barrier event has
+a run. This is a known missing-work window, not durable recovery acceptance.
+See `enterprise-readiness.md`, "Open ingest-derived durability gap" for fault,
+scope and replay-key details. The existing mTLS pipeline test invokes this
+separate plaintext-loopback fixture; it supplies no enabled delivery channel
+or actuator. A passing characterization does not satisfy full background or
+previous-image compatibility and must not enable the production update entry.
+No automatic retry of external effects is added. Owner environment unchanged.
