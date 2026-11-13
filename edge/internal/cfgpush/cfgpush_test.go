@@ -174,3 +174,96 @@ func TestPreflightRestoresWhenFileBroken(t *testing.T) {
 		t.Fatalf("not restored: %s", b)
 	}
 }
+
+func TestResultsStayOrderedAcrossRestartUntilPublishAcknowledged(t *testing.T) {
+	e := setup(t, true)
+	r := e.c.Apply(e.push("push-durable", 1, goodYAML, nil), e.now)
+	if r.State != "applied" {
+		t.Fatal(r)
+	}
+	restarted := New(e.c.Path, e.c.Key, e.c.Tenant, e.c.Serial, true)
+	final, _ := restarted.Settle(true, e.now.Add(time.Second))
+	if final == nil || final.State != "confirmed" {
+		t.Fatal(final)
+	}
+	pending := restarted.PendingResults()
+	if len(pending) != 2 || pending[0].State != "applied" || pending[1].State != "confirmed" {
+		t.Fatal(pending)
+	}
+	if restarted.AcknowledgeResult(pending[1]) == nil {
+		t.Fatal("accepted out of order confirmation")
+	}
+	for _, item := range pending {
+		if err := restarted.AcknowledgeResult(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(New(e.c.Path, nil, "", "", true).PendingResults()) != 0 {
+		t.Fatal("result did not settle durably")
+	}
+	disabled := setup(t, false)
+	rejected := disabled.c.Apply(disabled.push("push-rejected-id", 1, goodYAML, nil), disabled.now)
+	if rejected.State != "rejected" || rejected.PushID != "push-rejected-id" {
+		t.Fatal("uncorrelated refusal", rejected)
+	}
+}
+
+func TestPreparedWriteRecoversPreviousBeforeLoading(t *testing.T) {
+	e := setup(t, true)
+	if err := os.WriteFile(e.c.Path, []byte(goodYAML), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.c.prevPath(), []byte(goodYAML), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.c.saveState(State{Installing: true, Version: 2, PrevVersion: 1, PushID: "interrupted", ProbationUntil: e.now.Add(Probation)}); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(e.c.Path, []byte("partial crash content"), 0600)
+	restarted := New(e.c.Path, e.c.Key, "ten", "SER1", true)
+	if err := restarted.Recover(e.now); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(e.c.Path)
+	if string(b) != goodYAML {
+		t.Fatal("previous not restored")
+	}
+	st := restarted.State()
+	if st.Installing || st.Version != 2 || len(st.Pending) != 1 || st.Pending[0].State != "rejected" {
+		t.Fatal(st)
+	}
+	if err := restarted.Recover(e.now); err != nil {
+		t.Fatal(err)
+	}
+	if len(restarted.PendingResults()) != 1 {
+		t.Fatal("repeated recovery duplicated result")
+	}
+}
+func TestUnreadableStateDoesNotOverwriteConfig(t *testing.T) {
+	e := setup(t, true)
+	os.WriteFile(e.c.Path, []byte(goodYAML), 0600)
+	os.WriteFile(e.c.statePath(), []byte("not json"), 0600)
+	if r := e.c.Apply(e.push("corrupt-state", 2, goodYAML, nil), e.now); r.State != "rejected" {
+		t.Fatal(r)
+	}
+	if err := e.c.Recover(e.now); err == nil {
+		t.Fatal("corrupt state accepted")
+	}
+	b, _ := os.ReadFile(e.c.Path)
+	if string(b) != goodYAML {
+		t.Fatal("config changed")
+	}
+}
+func TestFailedRollbackDoesNotReportRestored(t *testing.T) {
+	e := setup(t, true)
+	e.c.Apply(e.push("rollback-error", 1, goodYAML, nil), e.now)
+	os.Remove(e.c.Path)
+	os.Mkdir(e.c.Path, 0700)
+	os.WriteFile(filepath.Join(e.c.Path, "block"), []byte("x"), 0600)
+	if r, reload := e.c.Settle(false, e.now.Add(Probation+time.Second)); r != nil || reload {
+		t.Fatal("false rollback result", r)
+	}
+	if e.c.State().ProbationUntil.IsZero() {
+		t.Fatal("lost retryable rollback state")
+	}
+}

@@ -7,12 +7,18 @@ set -euo pipefail
 workspace=$1;email=$2
 [ -r /dev/tty ] && [ -w /dev/tty ] || { echo 'An interactive local terminal is required';exit 1; }
 cd /opt/hexthings
+selected_compose() {
+  if [ -e .secure-deployment ] || [ -L .secure-deployment ]; then
+    [ -f scripts/selected-compose.py ] && command -v python3 >/dev/null 2>&1 || { echo "Secure deployment selector unavailable; refusing lab fallback." >&2;return 1; }
+    python3 scripts/selected-compose.py "$PWD" "$@"
+  else docker compose "$@";fi
+}
 [ -f docker-compose.yml ] || { echo 'Expected installation folder /opt/hexthings not found';exit 1; }
 docker info >/dev/null
-docker compose exec -T api sh -c '[ "$LOCAL_LOGIN" = 1 ]' || { echo 'Running local-login API required';exit 1; }
+selected_compose exec -T api sh -c '[ "$LOCAL_LOGIN" = 1 ]' || { echo 'Running local-login API required';exit 1; }
 tmp=$(mktemp -d /tmp/hexthings-recovery.XXXXXXXX)
 remote="/tmp/$(basename "$tmp")-tool"
-cleanup() { unset password repeat;docker compose exec -T --user root api rm -f "$remote" >/dev/null 2>&1 || true;rm -rf "$tmp"; }
+cleanup() { unset password repeat;selected_compose exec -T --user root api rm -f "$remote" >/dev/null 2>&1 || true;rm -rf "$tmp"; }
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
 revision=951860e7f988c749a335d99a8e9cb2d588336273
@@ -22,7 +28,7 @@ mkdir "$tmp/source" "$tmp/out"
 tar -xzf "$tmp/source.tar.gz" --strip-components=1 -C "$tmp/source"
 docker run --rm --mount "type=bind,src=$tmp/source/server,dst=/src,readonly" --mount "type=bind,src=$tmp/out,dst=/out" -w /src -e CGO_ENABLED=0 golang:1.26-alpine go build -trimpath -ldflags '-s -w' -o /out/recover ./cmd/tenantctl
 chmod 755 "$tmp/out/recover"
-docker compose cp "$tmp/out/recover" "api:$remote"
+selected_compose cp "$tmp/out/recover" "api:$remote"
 printf 'Reset only the active admin %s in workspace %s. Workspace/data and MFA stay unchanged. Existing login sessions will end.\n' "$email" "$workspace"
 IFS= read -r -p 'Type RESET to continue, or anything else to cancel: ' confirm </dev/tty
 [ "$confirm" = RESET ] || { echo 'Cancelled; no account changed';exit 0; }
@@ -30,6 +36,6 @@ IFS= read -r -s -p 'New password (12-128 characters, hidden): ' password </dev/t
 IFS= read -r -s -p 'Confirm new password (hidden): ' repeat </dev/tty;printf '\n' >/dev/tty
 [ "$password" = "$repeat" ] || { echo 'Passwords differ; no account changed';exit 1; }
 # Bash builtin printf sends the secret through stdin, never command-line arguments.
-printf '%s\n' "$password" | docker compose exec -T api "$remote" recover-admin --workspace "$workspace" --email "$email" --confirm
+printf '%s\n' "$password" | selected_compose exec -T api "$remote" recover-admin --workspace "$workspace" --email "$email" --confirm
 unset password repeat
 echo 'Sign in in the Ubuntu browser with that email and your new password. Any existing first-sign-in change requirement still applies.'

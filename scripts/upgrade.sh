@@ -17,6 +17,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 [ -f docker-compose.yml ] || cd ..
+if [ -e .secure-deployment ] || [ -L .secure-deployment ]; then
+  echo "Secure deployment state exists. This legacy install/upgrade path cannot preserve its exact selection and rollback. Refusing lab Compose fallback; no services or files changed." >&2
+  exit 1
+fi
 LOG=upgrade.log
 : > "$LOG"
 

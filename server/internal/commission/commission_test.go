@@ -74,3 +74,20 @@ func TestDeriveState(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateWindowsProbePort(t *testing.T) {
+	for _, port := range []string{"COM1", "COM9", "COM12", "COM999"} {
+		p := goodProbe()
+		p.Port = port
+		if err := ValidateProbe(p); err != nil {
+			t.Errorf("%s: %v", port, err)
+		}
+	}
+	for _, port := range []string{"COM0", "COM01", "com3", "COM1000", "COM3/../x", `\\.\COM3`, "COM3\n"} {
+		p := goodProbe()
+		p.Port = port
+		if ValidateProbe(p) == nil {
+			t.Errorf("accepted %q", port)
+		}
+	}
+}

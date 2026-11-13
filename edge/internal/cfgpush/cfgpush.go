@@ -61,6 +61,8 @@ type Result struct {
 
 // State survives restarts.
 type State struct {
+	Installing     bool      `json:"installing,omitempty"`
+	Pending        []Result  `json:"pending_results,omitempty"`
 	Version        int       `json:"version"`
 	PrevVersion    int       `json:"prev_version"`
 	PushID         string    `json:"push_id,omitempty"`
@@ -90,12 +92,54 @@ func New(path string, key ed25519.PublicKey, tenant, serial string, enabled bool
 func (c *Ctl) statePath() string { return c.Path + ".state.json" }
 func (c *Ctl) prevPath() string  { return c.Path + ".prev" }
 
-func (c *Ctl) State() State {
+func (c *Ctl) readState() (State, error) {
 	var s State
-	if b, err := os.ReadFile(c.statePath()); err == nil {
-		json.Unmarshal(b, &s)
+	b, err := os.ReadFile(c.statePath())
+	if os.IsNotExist(err) {
+		return s, nil
 	}
-	return s
+	if err != nil {
+		return s, err
+	}
+	if err = json.Unmarshal(b, &s); err != nil {
+		return s, err
+	}
+	return s, nil
+}
+func (c *Ctl) State() State { s, _ := c.readState(); return s }
+
+// Recover must run before loading managed config. A prepared state without a
+// committed file/state pair is rolled back, not silently accepted after a crash.
+func (c *Ctl) Recover(now time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st, err := c.readState()
+	if err != nil {
+		return fmt.Errorf("managed state unreadable: %w", err)
+	}
+	if !st.Installing {
+		return nil
+	}
+	if err = c.restorePrevious(); err != nil {
+		return fmt.Errorf("interrupted source apply restore: %w", err)
+	}
+	st.Installing = false
+	st.ProbationUntil = time.Time{}
+	st.Pending = append(st.Pending, Result{PushID: st.PushID, Version: st.Version, State: "rejected", Detail: "interrupted source write before application was committed; previous device list restored", At: now})
+	return c.saveState(st)
+}
+func (c *Ctl) restorePrevious() error {
+	prev, err := os.ReadFile(c.prevPath())
+	if err == nil {
+		return writeAtomic(c.Path, prev)
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+	if err = os.Remove(c.Path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (c *Ctl) saveState(s State) error {
@@ -163,9 +207,6 @@ func (c *Ctl) Apply(payload []byte, now time.Time) Result {
 	rej := func(format string, a ...any) Result {
 		return Result{PushID: p.PushID, Version: p.Version, State: "rejected", Detail: fmt.Sprintf(format, a...), At: now}
 	}
-	if !c.Enabled {
-		return rej("this box has not opted in (managed_devices: true in its config)")
-	}
 	if len(payload) > maxBytes+4096 {
 		return rej("push is too large")
 	}
@@ -173,6 +214,9 @@ func (c *Ctl) Apply(payload []byte, now time.Time) Result {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
 		return rej("bad json: %v", err)
+	}
+	if !c.Enabled {
+		return rej("this box has not opted in (managed_devices: true in its config)")
 	}
 	if c.Key == nil {
 		return rej("no fleet_public_key configured; pushes must be signed")
@@ -197,31 +241,62 @@ func (c *Ctl) Apply(payload []byte, now time.Time) Result {
 	if hex.EncodeToString(h[:]) != p.SHA256 {
 		return rej("checksum does not match the device list")
 	}
-	st := c.State()
+	st, stateErr := c.readState()
+	if stateErr != nil {
+		return rej("could not read state: %v", stateErr)
+	}
+	if st.Installing {
+		return rej("previous interrupted source write needs local recovery")
+	}
 	if p.Version <= st.Version {
 		return rej("version %d is not newer than the applied version %d", p.Version, st.Version)
 	}
 	if st.ProbationUntil.After(now) {
 		return rej("the previous change is still on probation")
 	}
+	if len(st.Pending) >= 31 {
+		return rej("too many unacknowledged application results; wait for server delivery")
+	}
 	if _, err := Validate(p.DevicesYAML); err != nil {
 		return rej("%v", err)
 	}
-	if old, err := os.ReadFile(c.Path); err == nil {
+	old, readErr := os.ReadFile(c.Path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return rej("could not read previous list: %v", readErr)
+	}
+	if readErr == nil {
 		if err := writeAtomic(c.prevPath(), old); err != nil {
-			return rej("could not keep the previous list: %v", err)
+			return rej("could not keep previous list: %v", err)
 		}
-	} else {
-		os.Remove(c.prevPath())
+	} else if err := os.Remove(c.prevPath()); err != nil && !os.IsNotExist(err) {
+		return rej("could not clear previous list: %v", err)
+	}
+	next := State{Installing: true, Version: p.Version, PrevVersion: st.Version, PushID: p.PushID, ProbationUntil: now.Add(Probation), Pending: st.Pending}
+	// Save intent before touching the live file. Startup recovers an interrupted
+	// pair even if it crashed between either of the following atomic renames.
+	if err := c.saveState(next); err != nil {
+		return rej("could not prepare state: %v", err)
 	}
 	if err := writeAtomic(c.Path, []byte("# pushed by the server; managed by HexThings\n"+p.DevicesYAML)); err != nil {
+		if restoreErr := c.restorePrevious(); restoreErr != nil {
+			return rej("write failed; local recovery required: %v", restoreErr)
+		}
+		if stateErr := c.saveState(st); stateErr != nil {
+			return rej("write failed; state recovery required: %v", stateErr)
+		}
 		return rej("could not write: %v", err)
 	}
-	c.seen[p.PushID] = true
-	if err := c.saveState(State{Version: p.Version, PrevVersion: st.Version, PushID: p.PushID, ProbationUntil: now.Add(Probation)}); err != nil {
-		return rej("could not save state: %v", err)
+	applied := Result{PushID: p.PushID, Version: p.Version, State: "applied", Detail: "written; polling reloads and rolls back if configuration cannot be loaded", At: now}
+	next.Installing = false
+	next.Pending = append(next.Pending, applied)
+	if err := c.saveState(next); err != nil {
+		if restoreErr := c.restorePrevious(); restoreErr != nil {
+			return rej("state write failed; local recovery required: %v", restoreErr)
+		}
+		return rej("state write failed; previous list restored and startup recovery required: %v", err)
 	}
-	return Result{PushID: p.PushID, Version: p.Version, State: "applied", Detail: "written; the agent restarts to use it and rolls back if it does not come up healthy", At: now}
+	c.seen[p.PushID] = true
+	return applied
 }
 
 // Settle runs at agent start (healthy=false: before the broker is up) and again when it is healthy.
@@ -230,27 +305,35 @@ func (c *Ctl) Apply(payload []byte, now time.Time) Result {
 func (c *Ctl) Settle(healthy bool, now time.Time) (res *Result, needRestart bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	st := c.State()
+	st, err := c.readState()
+	if err != nil || st.Installing {
+		return nil, false
+	}
 	if st.ProbationUntil.IsZero() {
 		return nil, false
 	}
 	if healthy {
+		result := Result{PushID: st.PushID, Version: st.Version, State: "confirmed", At: now}
 		st.ProbationUntil = time.Time{}
-		c.saveState(st)
-		return &Result{PushID: st.PushID, Version: st.Version, State: "confirmed", At: now}, false
+		st.Pending = append(st.Pending, result)
+		if err := c.saveState(st); err != nil {
+			return nil, false
+		}
+		return &result, false
 	}
 	if now.Before(st.ProbationUntil) {
 		return nil, false
 	}
-	if prev, err := os.ReadFile(c.prevPath()); err == nil {
-		writeAtomic(c.Path, prev)
-	} else {
-		os.Remove(c.Path)
+	if err := c.restorePrevious(); err != nil {
+		return nil, false
 	}
 	failed := st.Version
 	// Keep the failed version number so it can never be re-applied by a replay; a newer push is needed.
-	c.saveState(State{Version: failed, PrevVersion: st.PrevVersion, PushID: st.PushID})
-	return &Result{PushID: st.PushID, Version: failed, State: "rolled_back", Detail: "agent was not healthy within probation; previous device list restored", At: now}, true
+	result := Result{PushID: st.PushID, Version: failed, State: "rolled_back", Detail: "agent was not healthy within probation; previous device list restored", At: now}
+	if err := c.saveState(State{Version: failed, PrevVersion: st.PrevVersion, PushID: st.PushID, Pending: append(st.Pending, result)}); err != nil {
+		return nil, false
+	}
+	return &result, true
 }
 
 // Preflight runs before the config is loaded. If the last push is still on probation and its file does
@@ -276,4 +359,29 @@ func (c *Ctl) Preflight(now time.Time) *Result {
 		res.At = now
 	}
 	return res
+}
+
+// PendingResults survives process restarts so applied always reaches the server
+// before confirmed/rolled_back, including a failed publish before the restart.
+func (c *Ctl) PendingResults() []Result {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]Result(nil), c.State().Pending...)
+}
+func (c *Ctl) AcknowledgeResult(result Result) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st, err := c.readState()
+	if err != nil {
+		return err
+	}
+	if len(st.Pending) == 0 {
+		return nil
+	}
+	first := st.Pending[0]
+	if first.PushID != result.PushID || first.State != result.State {
+		return fmt.Errorf("result order changed")
+	}
+	st.Pending = st.Pending[1:]
+	return c.saveState(st)
 }

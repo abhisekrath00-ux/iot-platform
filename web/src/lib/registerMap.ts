@@ -2,7 +2,7 @@
 // the Profiles page loads the result into the form for the user to review.
 import { EDGE_TEMPLATES } from './edgeSetup';
 
-export interface MapPoint { id: string; register: number; func: number; type: string; word_order: string; scale: number; unit: string; min: number; max: number; }
+export interface MapPoint { name?: string; description?: string; id: string; register: number; func: number; type: string; word_order: string; scale: number; unit: string; min: number; max: number; }
 export interface Issue { row: number; text: string; }
 
 const TYPES = ['u16', 'i16', 'u32', 'i32', 'f32', 'bool'];
@@ -100,5 +100,5 @@ export function validateMap(points: MapPoint[]): Issue[] {
 export function templatePoints(templateId: string): MapPoint[] {
   const t = EDGE_TEMPLATES.find((x) => x.id === templateId);
   if (!t) return [];
-  return t.points.map((p) => ({ id: p.id, register: p.register, func: t.func, type: p.type ?? t.type, word_order: t.word_order, scale: p.scale ?? 1, unit: p.unit, min: p.min, max: p.max }));
+  return t.points.map((p) => ({ id: p.id, name:p.name, description:p.description, register: p.register, func: t.func, type: p.type ?? t.type, word_order: t.word_order, scale: p.scale ?? 1, unit: p.unit, min: p.min, max: p.max }));
 }

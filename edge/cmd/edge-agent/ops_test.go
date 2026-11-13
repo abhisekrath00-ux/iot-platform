@@ -66,3 +66,27 @@ func TestHealthCheck(t *testing.T) {
 		t.Fatalf("down rc=%d %s", rc, b.String())
 	}
 }
+
+func TestFetchSetupDoesNotOverwriteExistingOrReclaimMissingIdentity(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "config.yaml")
+	os.WriteFile(output, []byte("keep"), 0600)
+	var out bytes.Buffer
+	if fetchSetup("https://unused.invalid", "serial", dir, output, false, &out) != 1 {
+		t.Fatal("existing output accepted")
+	}
+	b, _ := os.ReadFile(output)
+	if string(b) != "keep" {
+		t.Fatal("existing config changed")
+	}
+	missing := filepath.Join(dir, "new.yaml")
+	if fetchSetup("https://unused.invalid", "serial", dir, missing, false, &out) != 1 {
+		t.Fatal("missing identity accepted")
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatal("partial stage exists")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "identity.json")); !os.IsNotExist(err) {
+		t.Fatal("identity created")
+	}
+}

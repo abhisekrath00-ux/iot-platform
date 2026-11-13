@@ -1,0 +1,572 @@
+[
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": false,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "approved_by",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": false,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "cert_fingerprint",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": false,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "cert_pem",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": "now()",
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "timestamp with time zone"
+    },
+    "kind": "column",
+    "name": "created_at",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "csr_pem",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "csr_sha256",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": "(now() + '00:15:00'::interval)",
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "timestamp with time zone"
+    },
+    "kind": "column",
+    "name": "expires_at",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "gateway_id",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "id",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "key_sha256",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "serial",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": "'pending'::text",
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "state",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "tenant_id",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "cert_fingerprint",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "default": "now()",
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "timestamp with time zone"
+    },
+    "kind": "column",
+    "name": "created_at",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "default": "(now() + '00:01:00'::interval)",
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "timestamp with time zone"
+    },
+    "kind": "column",
+    "name": "expires_at",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "gateway_id",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "id",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "migration_id",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "nonce_sha256",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": false,
+      "type": "timestamp with time zone"
+    },
+    "kind": "column",
+    "name": "observed_at",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "tenant_id",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "gateway_id",
+    "relation": "edge_serial_port_inventory"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "jsonb"
+    },
+    "kind": "column",
+    "name": "ports",
+    "relation": "edge_serial_port_inventory"
+  },
+  {
+    "definition": {
+      "default": "now()",
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "timestamp with time zone"
+    },
+    "kind": "column",
+    "name": "reported_at",
+    "relation": "edge_serial_port_inventory"
+  },
+  {
+    "definition": {
+      "default": null,
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "text"
+    },
+    "kind": "column",
+    "name": "tenant_id",
+    "relation": "edge_serial_port_inventory"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "UNIQUE (gateway_id, csr_sha256)",
+      "type": "u",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_identity_migrations_gateway_id_csr_sha256_key",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "FOREIGN KEY (gateway_id) REFERENCES gateways(id)",
+      "type": "f",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_identity_migrations_gateway_id_fkey",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "PRIMARY KEY (id)",
+      "type": "p",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_identity_migrations_pkey",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "CHECK ((state = ANY (ARRAY['pending'::text, 'issued'::text, 'revoked'::text])))",
+      "type": "c",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_identity_migrations_state_check",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)",
+      "type": "f",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_identity_migrations_tenant_id_fkey",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "FOREIGN KEY (gateway_id) REFERENCES gateways(id)",
+      "type": "f",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_pairing_proofs_gateway_id_fkey",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "UNIQUE (gateway_id)",
+      "type": "u",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_pairing_proofs_gateway_id_key",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "FOREIGN KEY (migration_id) REFERENCES edge_identity_migrations(id)",
+      "type": "f",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_pairing_proofs_migration_id_fkey",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "PRIMARY KEY (id)",
+      "type": "p",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_pairing_proofs_pkey",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)",
+      "type": "f",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_pairing_proofs_tenant_id_fkey",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "FOREIGN KEY (gateway_id) REFERENCES gateways(id)",
+      "type": "f",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_serial_port_inventory_gateway_id_fkey",
+    "relation": "edge_serial_port_inventory"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "PRIMARY KEY (gateway_id)",
+      "type": "p",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_serial_port_inventory_pkey",
+    "relation": "edge_serial_port_inventory"
+  },
+  {
+    "definition": {
+      "deferrable": false,
+      "deferred": false,
+      "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)",
+      "type": "f",
+      "validated": true
+    },
+    "kind": "constraint",
+    "name": "edge_serial_port_inventory_tenant_id_fkey",
+    "relation": "edge_serial_port_inventory"
+  },
+  {
+    "definition": {
+      "definition": "CREATE UNIQUE INDEX edge_identity_migrations_gateway_id_csr_sha256_key ON edge_identity_migrations USING btree (gateway_id, csr_sha256)",
+      "ready": true,
+      "valid": true
+    },
+    "kind": "index",
+    "name": "edge_identity_migrations_gateway_id_csr_sha256_key",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "definition": "CREATE INDEX edge_identity_migrations_pending ON edge_identity_migrations USING btree (tenant_id, created_at) WHERE (state = 'pending'::text)",
+      "ready": true,
+      "valid": true
+    },
+    "kind": "index",
+    "name": "edge_identity_migrations_pending",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "definition": "CREATE UNIQUE INDEX edge_identity_migrations_pkey ON edge_identity_migrations USING btree (id)",
+      "ready": true,
+      "valid": true
+    },
+    "kind": "index",
+    "name": "edge_identity_migrations_pkey",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "definition": "CREATE UNIQUE INDEX edge_pairing_proofs_gateway_id_key ON edge_pairing_proofs USING btree (gateway_id)",
+      "ready": true,
+      "valid": true
+    },
+    "kind": "index",
+    "name": "edge_pairing_proofs_gateway_id_key",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "definition": "CREATE UNIQUE INDEX edge_pairing_proofs_pkey ON edge_pairing_proofs USING btree (id)",
+      "ready": true,
+      "valid": true
+    },
+    "kind": "index",
+    "name": "edge_pairing_proofs_pkey",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "definition": "CREATE UNIQUE INDEX edge_serial_port_inventory_pkey ON edge_serial_port_inventory USING btree (gateway_id)",
+      "ready": true,
+      "valid": true
+    },
+    "kind": "index",
+    "name": "edge_serial_port_inventory_pkey",
+    "relation": "edge_serial_port_inventory"
+  },
+  {
+    "definition": {
+      "default": "'{}'::jsonb",
+      "generated": "",
+      "identity": "",
+      "not_null": true,
+      "type": "jsonb"
+    },
+    "kind": "profile_column",
+    "name": "connection_defaults",
+    "relation": "device_profiles"
+  },
+  {
+    "definition": {
+      "force_row_security": false,
+      "kind": "r",
+      "row_security": false
+    },
+    "kind": "relation",
+    "name": "",
+    "relation": "edge_identity_migrations"
+  },
+  {
+    "definition": {
+      "force_row_security": false,
+      "kind": "r",
+      "row_security": false
+    },
+    "kind": "relation",
+    "name": "",
+    "relation": "edge_pairing_proofs"
+  },
+  {
+    "definition": {
+      "force_row_security": false,
+      "kind": "r",
+      "row_security": false
+    },
+    "kind": "relation",
+    "name": "",
+    "relation": "edge_serial_port_inventory"
+  }
+]

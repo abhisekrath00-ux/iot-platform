@@ -85,3 +85,15 @@ test('failed fleet load is visibly unavailable, not a green badge beside a dash'
   // no healthy-looking badge may survive a failed load
   expect(box.querySelector('.pill.ok')).toBeNull();
 });
+test('viewer and unknown role do not request saved setup metadata',async()=>{
+ mockApi({role:'viewer'});
+ await act(async()=>root.render(<MemoryRouter><Fleet /></MemoryRouter>));
+ expect(calls()).not.toContain('/v1/commissioning/sessions');
+ expect(box.textContent).not.toContain('Continue a saved setup');
+});
+test('workspace operator sees saved setup recovery',async()=>{
+ mockApi({role:'operator'});
+ await act(async()=>root.render(<MemoryRouter><Fleet /></MemoryRouter>));
+ expect(calls()).toContain('/v1/commissioning/sessions');
+ expect(box.textContent).toContain('Continue a saved setup');
+});

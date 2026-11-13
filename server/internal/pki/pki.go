@@ -8,6 +8,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
@@ -47,7 +48,7 @@ func GenerateCA(commonName string, years int) (certPEM, keyPEM []byte, err error
 
 // SignCSR verifies the CSR signature, requires CN == wantCN (the gateway
 // serial; this binding is what lets the broker ACL identity to hardware), and
-// issues a client-auth certificate valid for ttlDays.
+// issues a client-auth certificate valid for at most ttlDays, capped by the CA.
 func SignCSR(caCertPEM, caKeyPEM, csrPEM []byte, wantCN string, ttlDays int) (certPEM []byte, fingerprint string, err error) {
 	caBlock, _ := pem.Decode(caCertPEM)
 	keyBlock, _ := pem.Decode(caKeyPEM)
@@ -59,9 +60,21 @@ func SignCSR(caCertPEM, caKeyPEM, csrPEM []byte, wantCN string, ttlDays int) (ce
 	if err != nil {
 		return nil, "", fmt.Errorf("ca cert: %w", err)
 	}
-	caKey, err := x509.ParseECPrivateKey(keyBlock.Bytes)
+	// OpenSSL3 emits PKCS8 PRIVATE KEY by default; GenerateCA emits SEC1.
+	// Both must bind to the same CA certificate and ECDSA signing key.
+	pair, err := tls.X509KeyPair(caCertPEM, caKeyPEM)
 	if err != nil {
-		return nil, "", fmt.Errorf("ca key: %w", err)
+		return nil, "", fmt.Errorf("ca key does not match certificate")
+	}
+	caKey, ok := pair.PrivateKey.(*ecdsa.PrivateKey)
+	if !ok {
+		return nil, "", fmt.Errorf("ECDSA device CA required")
+	}
+	if !caCert.IsCA || caCert.KeyUsage&x509.KeyUsageCertSign == 0 || time.Now().Before(caCert.NotBefore) || !time.Now().Before(caCert.NotAfter) {
+		return nil, "", fmt.Errorf("device CA cannot sign current client certificates")
+	}
+	if ttlDays < 1 {
+		return nil, "", fmt.Errorf("positive client lifetime required")
 	}
 	csr, err := x509.ParseCertificateRequest(csrBlock.Bytes)
 	if err != nil {
@@ -73,12 +86,16 @@ func SignCSR(caCertPEM, caKeyPEM, csrPEM []byte, wantCN string, ttlDays int) (ce
 	if csr.Subject.CommonName != wantCN {
 		return nil, "", fmt.Errorf("csr CN %q does not match gateway serial", csr.Subject.CommonName)
 	}
+	notAfter := time.Now().AddDate(0, 0, ttlDays)
+	if notAfter.After(caCert.NotAfter) {
+		notAfter = caCert.NotAfter
+	}
 	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	tpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: wantCN},
 		NotBefore:    time.Now().Add(-5 * time.Minute),
-		NotAfter:     time.Now().AddDate(0, 0, ttlDays),
+		NotAfter:     notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}

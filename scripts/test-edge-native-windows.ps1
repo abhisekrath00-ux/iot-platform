@@ -6,7 +6,13 @@ $stage=Join-Path $env:RUNNER_TEMP 'edge-native-lifecycle'
 New-Item -ItemType Directory -Force $stage|Out-Null
 Copy-Item "$PSScriptRoot/../edge/packaging/*" $stage -Recurse -Force
 Push-Location "$PSScriptRoot/../edge"
-try { go build -o "$stage/edge-agent.exe" ./cmd/edge-agent;if($LASTEXITCODE -ne 0){throw 'Native agent build failed'} } finally {Pop-Location}
+try {
+ # Real Windows file locking/recovery and synthetic HTTPS contracts. No physical broker/meter.
+ go test -v ./internal/setup -count=1
+ if($LASTEXITCODE -ne 0){throw 'Native secure pairing setup tests failed'}
+ go build -o "$stage/edge-agent.exe" ./cmd/edge-agent
+ if($LASTEXITCODE -ne 0){throw 'Native agent build failed'}
+} finally {Pop-Location}
 $dir=Join-Path $env:ProgramData 'Hexmon/edge'
 try {
  & "$stage/install-windows.ps1"

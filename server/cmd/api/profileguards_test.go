@@ -87,3 +87,52 @@ func TestIntegrationProfileGuardRejectsBeforeStorage(t *testing.T) {
 		t.Fatal("no id")
 	}
 }
+
+func TestProfileConnectionDefaultsDoNotGuessConnection(t *testing.T) {
+	good := map[string]any{"baud": float64(9600), "data_bits": float64(8), "parity": "even", "stop_bits": float64(1)}
+	if e := validateProfileDefaults("modbus-generic", good); e != nil {
+		t.Fatal(e)
+	}
+	for _, bad := range []map[string]any{{"port": "COM7"}, {"address": float64(17)}, {"baud": float64(9600.1)}, {"stop_bits": float64(3)}, {"parity": false}} {
+		if validateProfileDefaults("modbus-generic", bad) == nil {
+			t.Fatalf("accepted %v", bad)
+		}
+	}
+	if validateProfileDefaults("modbus-tcp", good) == nil {
+		t.Fatal("serial defaults for TCP")
+	}
+}
+
+func TestIntegrationProfileDefaultsAndNamesRoundTrip(t *testing.T) {
+	s, _ := testServer(t)
+	seed(t, s, "itest-pdefaults")
+	m := http.NewServeMux()
+	m.HandleFunc("POST /v1/profiles", s.createProfile)
+	m.HandleFunc("GET /v1/profiles", s.listProfiles)
+	body := `{"name":"Synthetic supplied meter","driver_profile":"modbus-generic","connection_defaults":{"baud":9600,"data_bits":8,"parity":"even","stop_bits":1},"points":[{"id":"v_ll","name":"V LL","description":"Voltage (LL) average","register":3059,"type":"f32","func":3,"word_order":"cdab","scale":1,"unit":"V","min":0,"max":1000000000}]}`
+	w := call(m, "itest-pdefaults", "admin", "POST", "/v1/profiles", body)
+	if w.Code != 201 {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	w = call(m, "itest-pdefaults", "admin", "GET", "/v1/profiles", "")
+	if w.Code != 200 {
+		t.Fatal(w.Body)
+	}
+	var rows []struct {
+		Points   []map[string]any `json:"points"`
+		Defaults map[string]any   `json:"connection_defaults"`
+	}
+	if e := json.Unmarshal(w.Body.Bytes(), &rows); e != nil || len(rows) != 1 {
+		t.Fatalf("%v %s", e, w.Body)
+	}
+	if rows[0].Defaults["parity"] != "even" || rows[0].Points[0]["name"] != "V LL" || rows[0].Points[0]["register"] != float64(3059) {
+		t.Fatal(rows)
+	}
+	if w := call(m, "other-tenant", "admin", "GET", "/v1/profiles", ""); w.Code != 200 || w.Body.String() != "[]\n" {
+		t.Fatalf("cross tenant %d %s", w.Code, w.Body)
+	}
+	bad := `{"name":"Bad","driver_profile":"modbus-generic","connection_defaults":{"address":17},"points":[{"id":"A","register":3057}]}`
+	if w := call(m, "itest-pdefaults", "admin", "POST", "/v1/profiles", bad); w.Code != 400 {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}

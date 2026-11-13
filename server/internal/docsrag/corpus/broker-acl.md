@@ -37,7 +37,7 @@ or the diag channel of a neighbor.
   reload; a revoked one loses access on reload (and its certificate is
   rejected at the TLS layer once the CRL/rotation lands).
 
-Service users (`ingest` read-all, `api` diagnostic/scan publisher) live in the file's
+Service users (`ingest` read-all, `api` diagnostic/scan/source-config publisher) live in the file's
 static header. On the certificate-required production listener they need distinct
 client-auth certificates with CN `ingest` and `api`, signed by the broker-trusted CA.
 Password-file credentials alone do not satisfy `require_certificate true` and
@@ -57,3 +57,5 @@ CI harness correction: the first regeneration tip's Go job failed before the sep
 
 
 The current-user hypothesis did not fix the CI config-read failure. The CI harness now uses a non-root disposable Mosquitto container with only that test directory mounted read-only, host networking for the loopback test and step-exit labeled-container cleanup, instead of the host package. This avoids host-packaged service confinement; the exact host failure cause was not established. Local native-broker success remains separate from runner validation.
+
+Source setup adds API write permission on `t/+/g/+/config` for signed source settings. This does not enable gateway commands, discovery or automatic source management. The gateway must separately opt into signed source updates. A successful MQTT CONNECT does not prove topic authorization; test the source apply/ACK/reload/reading path on the authenticated broker.

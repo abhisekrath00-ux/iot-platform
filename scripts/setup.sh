@@ -11,6 +11,8 @@
 #   bash scripts/setup.sh logs [service]   follow logs (Ctrl-C stops following)
 #   bash scripts/setup.sh backup | verify FILE | restore FILE | upgrade
 #   bash scripts/setup.sh start | stop | restart | doctor | open | version | ai [status|start|stop]
+#   bash scripts/setup.sh secure-readiness PROJECT  read-only application/schema/writer check
+#   bash scripts/setup.sh secure-recovery-review  read-only interrupted-setup review
 #   bash scripts/setup.sh cluster [host]   Patroni view: leader, replicas, lag (HA installs; host defaults to $HEXTHINGS_NODE or localhost)
 # Menu keys: up/down or j/k, Enter, number keys, q. Works without colour (NO_COLOR), on narrow terminals,
 # and without a terminal (subcommands only; the menu refuses with a usage line).
@@ -34,7 +36,12 @@ need_docker() {
   else echo "  Docker is not available here (not installed, not running, or not allowed for this user). Try: sudo systemctl start docker"; fi
   return 1
 }
-compose() { docker compose "$@"; }
+compose() {
+  if [ -e "$root/.secure-deployment" ] || [ -L "$root/.secure-deployment" ]; then
+    [ -f "$here/selected-compose.py" ] && command -v python3 >/dev/null 2>&1 || { echo "Secure deployment selector unavailable; refusing lab fallback." >&2;return 1; }
+    python3 "$here/selected-compose.py" "$root" "$@"
+  else docker compose "$@";fi
+}
 
 probe_http() { # probe_http name url -> prints a row, returns 0 when healthy
   local name=$1 url=$2 out code t
@@ -49,6 +56,11 @@ probe_tcp() { # probe_tcp name host port
   printf '  %s %-10s DOWN      %s:%s\n' "$(dot_bad)" "$1" "$2" "$3"; return 1
 }
 cmd_health() {
+  if [ -e "$root/.secure-deployment" ] || [ -L "$root/.secure-deployment" ]; then
+    echo "Secure deployment health requires verified HTTPS/MQTT acceptance; legacy loopback probes cannot prove it. No fallback or service change."
+    compose ps || return 1
+    return 1
+  fi
   local bad=0
   echo ""; printf '  %sHealth%s\n\n' "$B" "$N"
   probe_http api "http://${HEXTHINGS_HOST:-localhost}:8000/healthz" || bad=1
@@ -118,7 +130,7 @@ cmd_restore() {
   local a; read -r -p "  Type RESTORE to continue: " a || a=""
   [ "$a" = RESTORE ] || { echo "  Cancelled. Nothing was changed."; return 0; }
   need_docker || return 1
-  compose stop api ingest
+  compose stop api ingest || { echo "  Could not stop the selected services; restore refused."; return 1; }
   run_script restore.sh "$f"; local rc=$?
   compose start api ingest
   [ "$rc" = 0 ] && echo "  Restore finished; api and ingest started." || echo "  Restore FAILED (exit $rc); api and ingest were started again. Check the output above before using the platform."
@@ -142,7 +154,11 @@ profargs() { ai_on && echo "--profile ai"; }
 cmd_start() { need_docker || return 1; compose $(profargs) up -d && echo "  Started." ; }
 cmd_stop() { need_docker || return 1; compose $(profargs) stop && echo "  Stopped. Data is kept."; }
 cmd_restart() { need_docker || return 1; compose $(profargs) restart && echo "  Restarted."; }
-cmd_open() { local u="http://${HEXTHINGS_HOST:-localhost}:8080"; echo "  HexThings is at $u"; if command -v xdg-open >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then xdg-open "$u" >/dev/null 2>&1 || true; fi; }
+cmd_open() {
+  if [ -e "$root/.secure-deployment" ] || [ -L "$root/.secure-deployment" ]; then
+    echo "Use the HTTPS address verified during secure deployment acceptance. Legacy HTTP link suppressed; no trust bypass.";return 1
+  fi
+  local u="http://${HEXTHINGS_HOST:-localhost}:8080"; echo "  HexThings is at $u"; if command -v xdg-open >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then xdg-open "$u" >/dev/null 2>&1 || true; fi; }
 cmd_version() { if [ -d .git ] && command -v git >/dev/null 2>&1; then echo "  HexThings commit $(git rev-parse --short HEAD 2>/dev/null)"; else echo "  HexThings (installed from an archive, no git history here)"; fi; }
 cmd_ai() {
   need_docker || return 1
@@ -173,10 +189,48 @@ cmd_doctor() {
   echo ""; [ "$bad" = 0 ] && echo "  Doctor found nothing wrong." || echo "  Doctor found problems above. After fixing, run it again."
   return "$bad"
 }
+cmd_secure_recovery_review() {
+  command -v python3 >/dev/null 2>&1 || { echo "  Recovery review needs Python3. Nothing changed.";return 1; }
+  python3 "$here/secure-recovery-review.py" --root "$root"
+}
+cmd_secure_readiness() {
+  command -v python3 >/dev/null 2>&1 || { echo "  Setup checks need Python3. Nothing changed.";return 1; }
+  local project=${1:-}
+  if [ -z "$project" ]; then
+    [ -t 0 ] || { echo "  Supply the exact existing Compose project name. No check run.";return 1; }
+    read -r -p "  Existing Compose project name: " project || return 1
+  fi
+  need_docker || return 1
+  python3 "$here/secure-readiness.py" --root "$root" --project "$project"
+}
+cmd_secure_prepare() {
+  command -v python3 >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1 || { echo "  Secure preparation needs Python3 and OpenSSL; nothing changed."; return 1; }
+  echo "  Prepare a private TLS deployment only. This does not activate it or open ports."
+  echo "  Use only an approved private LAN/VPN route and existing certificates. No CA, key or account is generated."
+  local approved ip host certs output base rc gid
+  read -r -p "  Is the private route already approved? Type PREPARE to continue: " approved || return 1
+  [ "$approved" = PREPARE ] || { echo "  Cancelled. Current installation unchanged."; return 0; }
+  read -r -p "  Private IPv4 address on this server: " ip || return 1
+  read -r -p "  Confirmed API/broker hostname (certificate SAN): " host || return 1
+  read -r -p "  Existing certificate directory: " certs || return 1
+  read -r -p "  New private output directory: " output || return 1
+  gid=$(id -g);[ "$gid" != 0 ] || gid=""
+  read -r -p "  Existing non-root shared group ID${gid:+ [$gid]}: " approved || return 1
+  gid=${approved:-$gid}
+  case "$gid" in ''|0|*[!0-9]*) echo "  A non-root shared group ID is required. Nothing changed.";return 1;; esac
+  need_docker || return 1
+  base=$(mktemp) || return 1;chmod 600 "$base"
+  if ! compose config --format json >"$base"; then rm -f "$base";echo "  Could not read current Compose. Nothing changed.";return 1;fi
+  python3 "$here/secure-setup.py" --base-config "$base" --bind "$ip" --host "$host" --certs "$certs" --output "$output" --shared-gid "$gid" --confirm-private-route
+  rc=$?;rm -f "$base";return "$rc"
+}
 dispatch() {
   case "$1" in
     single) shift; exec bash "$here/install.sh" "$@" ;;
     multi) shift; if [ $# -eq 0 ]; then if [ -t 0 ]; then guided_multi; else echo "multi node: bash scripts/setup.sh multi plan|render|check|drill --nodes n1=IP,n2=IP,n3=IP --vip IP"; echo "details: docs/ha-multi-node.md"; fi; else bash "$here/install-ha.sh" "$@"; fi ;;
+    secure-readiness) shift;cmd_secure_readiness "${1:-}" ;;
+    secure-prepare) cmd_secure_prepare ;;
+    secure-recovery-review) cmd_secure_recovery_review ;;
     status) cmd_status ;; health) cmd_health ;; logs) shift; cmd_logs "${1:-}" ;;
     backup) run_script backup.sh ;; verify) shift; run_script restore.sh --verify "${1:?usage: setup.sh verify FILE}" ;;
     restore) shift; cmd_restore "${1:-}" ;; upgrade) run_script upgrade.sh ;;
@@ -191,9 +245,9 @@ if [ $# -gt 0 ]; then dispatch "$@"; exit $?; fi
 [ -t 0 ] && [ -t 1 ] || { echo "usage: setup.sh single|multi|status|health|logs|backup|verify|restore|upgrade|cluster|start|stop|restart|doctor|open|version|ai [args]  (the interactive menu needs a terminal)" >&2; exit 2; }
 
 # ---- interactive menu -------------------------------------------------------------------------
-labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Start" "Stop" "Restart" "Doctor" "AI status" "Open in browser" "Quit")
-hints=("one machine, Docker Compose (the guided installer)" "generate per-node setup with automatic database failover" "services and their state" "live probes with latency" "pick a service, Ctrl-C to stop" "Postgres dump to ./backups" "verify, confirm, then restore" "backup, update, health check, auto-rollback" "leader, replicas and lag (HA installs)" "start all services (and the AI model if installed)" "stop services, data is kept" "restart services" "checks Docker, disk, services, health, AI" "is the local AI model running" "print the web address, open it if a desktop is present" "")
-keys=(single multi status health logs backup restore upgrade cluster start stop restart doctor ai open quit)
+labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Start" "Stop" "Restart" "Doctor" "AI status" "Open in browser" "Prepare private TLS setup" "Check secure setup readiness" "Review interrupted setup" "Quit")
+hints=("one-machine Docker setup" "plan automatic DB failover" "services and their state" "live probes and latency" "pick service; Ctrl-C stops" "Postgres dump to backups" "verify, confirm, restore" "backup, update, check, undo" "HA leader, replicas and lag" "start; include saved AI model" "stop; keep data" "restart services" "Docker, disk, service checks" "local model status" "show/open web address" "prepare only; no activation" "check only; no changes" "review only; no recovery" "")
+keys=(single multi status health logs backup restore upgrade cluster start stop restart doctor ai open secure-prepare secure-readiness secure-recovery-review quit)
 sel=0; n=${#labels[@]}
 cleanup() { [ "$COLOR" = 1 ] && printf '\033[?25h'; }
 trap 'cleanup; echo; exit 130' INT TERM
@@ -235,6 +289,9 @@ while :; do
   fi
   k=${keys[$sel]}
   case "$k" in
+    secure-readiness) cmd_secure_readiness;pause ;;
+    secure-prepare) cmd_secure_prepare;pause ;;
+    secure-recovery-review) cmd_secure_recovery_review;pause ;;
     quit) echo "  Bye."; exit 0 ;;
     single) dispatch single; exit $? ;;
     multi) guided_multi; pause ;;

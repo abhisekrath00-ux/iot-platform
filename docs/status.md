@@ -544,3 +544,9 @@ Real disposable certificate-required broker with synthetic service/gateway CN id
 ## 2026-10-28: truthful broker file regeneration
 
 ACL regeneration checks full query/read results before writing,returns409 when unconfigured and500 on query/write failure,instead of false success;successful file writes explicitly require broker reload. Process-local serialization and unique synced0640 temporary file+rename prevent sharedtemp collision for individual files. Tests cover closed DB unchanged file/admin restriction/write failures/partial two-file failure/no false audit/concurrent file writers. Not atomic across ACL/password pair or replicas,no directoryfsync/reload/certrevocation proof;automatic hooks log failure without rolling back enrollment/auth mutation.
+
+## 2026-11-12: saved setup recovery and Windows probe validation (local implementation)
+
+Added tenant/admin-operator scoped saved-session metadata listing and reload recovery that keeps the same gateway. Codes are never recovered or replaced automatically. Failed resume hides creation; uncertain/concurrent creation blocks retries. Saved probe requests now survive reload before a reply, are restored for review without auto-send, and COM1-COM999 is accepted by the read-only API envelope. Native serial mode is checked through an injected COM7 device simulator; this is not physical Windows meter proof. UI retains a review gate when defaults or previous requests are shown.
+
+Local full fresh-Postgres server suite, edge suite, web333 tests and production build pass. Real built0.2.1 package serving and hashes checked locally. Synthetic desktop/mobile recovery and probe screens inspected. Automatic secure server config, source connection restoration beyond a prior probe, signed apply/confirmed ACK, live owner-PC replacement and real meter acceptance remain open. No owner-host/network/credential changes or new release in this substep.

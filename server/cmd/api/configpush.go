@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -54,6 +55,13 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not available to API keys, the assistant or customer-scoped users", 403)
 		return
 	}
+	var in struct {
+		ExpectedSHA256 string `json:"expected_sha256"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); err != nil && err != io.EOF {
+		http.Error(w, "invalid request", 400)
+		return
+	}
 	key, kerr := fleet.SigningKeyFromEnv()
 	if kerr != nil || key == nil {
 		http.Error(w, "pushing device templates needs FLEET_SIGNING_KEY on the server and fleet_public_key on the gateway", 409)
@@ -84,6 +92,10 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 	yml := devicesSection(renderEdgeYAML(tenant, gw, serial, devs))
 	sum := sha256.Sum256([]byte(yml))
 	sha := hex.EncodeToString(sum[:])
+	if in.ExpectedSHA256 != "" && in.ExpectedSHA256 != sha {
+		http.Error(w, "saved sources changed since review; reload and review the current list before applying", 409)
+		return
+	}
 	id := uuid.NewString()
 	var ver int
 	s.st.Pool.QueryRow(r.Context(), `SELECT COALESCE(max(version),0)+1 FROM gateway_config_pushes WHERE gateway_id=$1`, gw).Scan(&ver)
@@ -104,7 +116,7 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "broker unreachable: "+err.Error(), 502)
 		return
 	}
-	writeJSON(w, 202, map[string]any{"push_id": id, "version": ver, "devices": len(devs), "status": "sent"})
+	writeJSON(w, 202, map[string]any{"push_id": id, "version": ver, "devices": len(devs), "status": "sent", "sha256": sha})
 }
 
 // GET /v1/gateways/{id}/config-push  newest first.

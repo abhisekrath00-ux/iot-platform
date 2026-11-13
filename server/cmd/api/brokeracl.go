@@ -32,6 +32,14 @@ func (s *server) regenerateBrokerACL(ctx context.Context) (result error) {
 	if path == "" {
 		return errBrokerACLDisabled
 	}
+	if os.Getenv("BROKER_CERT_ONLY") == "1" {
+		acl, _, err := brokeracl.SnapshotCertificateACL(ctx, s.st.Pool)
+		if err != nil {
+			return fmt.Errorf("certificate ACL snapshot: %w", err)
+		}
+		return brokeracl.WriteAtomic(path, acl)
+	}
+
 	rows, err := s.st.Pool.Query(ctx,
 		`SELECT serial, tenant_id, id, kind='direct' FROM gateways
 		 WHERE status='active' AND ((cert_fingerprint IS NOT NULL AND cert_fingerprint<>'')

@@ -1,7 +1,7 @@
 // Edge setup helpers: built-in templates and the device block of edge-agent.yaml.
 // Template numbers come from docs/devices/*.md (never run on real hardware).
 
-export interface TplPoint { id: string; register: number; unit: string; min: number; max: number; scale?: number; type?: string; }
+export interface TplPoint { name?: string; description?: string; id: string; register: number; unit: string; min: number; max: number; scale?: number; type?: string; }
 export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; func: number; type: string; word_order: string; points: TplPoint[]; note: string; provisional?: string;
   // wordOrderUnverified: the vendor documents do not state the multi-register word order, so the
   // template's word_order is only a suggestion - the UI must make the installer choose it explicitly
@@ -20,6 +20,7 @@ export interface EdgeTemplate { id: string; name: string; link: 'rtu' | 'tcp'; f
   stopBits?: 1 | 2;
   // serial: vendor-documented FACTORY serial settings (manual-stated only). The form shows them as a
   // hint with an explicit Apply button; the installer's edited values are never silently replaced.
+  setupDefaults?: { baud:number; data_bits:number; parity:"even"; stop_bits:1 };
   serial?: { baud?: number; parity?: 'none' | 'even' | 'odd'; address?: number }; }
 
 const p = (id: string, register: number, unit: string, min: number, max: number): TplPoint => ({ id, register, unit, min, max });
@@ -28,6 +29,261 @@ const p = (id: string, register: number, unit: string, min: number, max: number)
 const ps = (id: string, register: number, unit: string, min: number, max: number, scale: number, type?: string): TplPoint => ({ id, register, unit, min, max, scale, type });
 
 export const EDGE_TEMPLATES: EdgeTemplate[] = [
+  {
+  "id": "schneider-em1x00-em1220",
+  "name": "Schneider EM1X00 - EM1220 supplied parameter map",
+  "link": "rtu",
+  "func": 3,
+  "type": "f32",
+  "word_order": "abcd",
+  "wordOrderUnverified": true,
+  "pduBaseUnverified": true,
+  "stopBits": 1,
+  "setupDefaults": {
+    "baud": 9600,
+    "data_bits": 8,
+    "parity": "even",
+    "stop_bits": 1
+  },
+  "note": "Supplied parameter names and decimal addresses, verified against EAV95462 (06/2014), Table 6-3, pp48-49. FC03, 32-bit Float, scale 1. 9600 8E1 comes from your UART settings, not an assumed factory default. Exact model required: current, voltage and frequency are EM1220 only. No energy counters were in the supplied tables. COM port and slave ID are not known.",
+  "provisional": "Confirm the nameplate is EM1220 before using this full supplied map. EM1000/EM1200 do not support its current/voltage/frequency points. Parameters not selected in the meter setup may return zero, which is not proof of measurement. Manual p47 says ModScan32 Swapped FP; that does not yet establish this driver byte/word mapping. Select the verified word order and listed vs minus-one wire address from the working ModScan/device test. No polling, writes or discovery start when selecting this template.",
+  "points": [
+    {
+      "id": "A",
+      "name": "A",
+      "description": "Current average",
+      "register": 3057,
+      "unit": "A",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "A1",
+      "name": "A1",
+      "description": "Current, phase 1",
+      "register": 3009,
+      "unit": "A",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "A2",
+      "name": "A2",
+      "description": "Current, phase 2",
+      "register": 3025,
+      "unit": "A",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "A3",
+      "name": "A3",
+      "description": "Current, phase 3",
+      "register": 3041,
+      "unit": "A",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "V_LL",
+      "name": "V LL",
+      "description": "Voltage (LL) average",
+      "register": 3059,
+      "unit": "V",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "V12",
+      "name": "V12",
+      "description": "Voltage(LL), phase 1-2",
+      "register": 3011,
+      "unit": "V",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "V23",
+      "name": "V23",
+      "description": "Voltage(LL), phase 2-3",
+      "register": 3027,
+      "unit": "V",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "V31",
+      "name": "V31",
+      "description": "Voltage(LL), phase 3-1",
+      "register": 3043,
+      "unit": "V",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "V_LN",
+      "name": "V LN",
+      "description": "Voltage(LN) average",
+      "register": 3061,
+      "unit": "V",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "V1",
+      "name": "V1",
+      "description": "Voltage(LN), phase 1",
+      "register": 3013,
+      "unit": "V",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "V2",
+      "name": "V2",
+      "description": "Voltage(LN), phase 2",
+      "register": 3029,
+      "unit": "V",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "V3",
+      "name": "V3",
+      "description": "Voltage(LN), phase 3",
+      "register": 3045,
+      "unit": "V",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "F",
+      "name": "F",
+      "description": "Frequency",
+      "register": 3063,
+      "unit": "Hz",
+      "min": 0,
+      "max": 70
+    },
+    {
+      "id": "W",
+      "name": "W",
+      "description": "Active power, total",
+      "register": 3051,
+      "unit": "W",
+      "min": -1000000000.0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "W1",
+      "name": "W1",
+      "description": "Active power, phase 1",
+      "register": 3003,
+      "unit": "W",
+      "min": -1000000000.0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "W2",
+      "name": "W2",
+      "description": "Active power, phase 2",
+      "register": 3019,
+      "unit": "W",
+      "min": -1000000000.0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "W3",
+      "name": "W3",
+      "description": "Active power, phase 3",
+      "register": 3035,
+      "unit": "W",
+      "min": -1000000000.0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "VAR",
+      "name": "VAR",
+      "description": "Reactive power, total",
+      "register": 3053,
+      "unit": "VAR",
+      "min": -1000000000.0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "VAR1",
+      "name": "VAR1",
+      "description": "Reactive power, phase 1",
+      "register": 3005,
+      "unit": "VAR",
+      "min": -1000000000.0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "VAR2",
+      "name": "VAR2",
+      "description": "Reactive power, phase 2",
+      "register": 3021,
+      "unit": "VAR",
+      "min": -1000000000.0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "VAR3",
+      "name": "VAR3",
+      "description": "Reactive power, phase 3",
+      "register": 3037,
+      "unit": "VAR",
+      "min": -1000000000.0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "VA",
+      "name": "VA",
+      "description": "Apparent power, total",
+      "register": 3049,
+      "unit": "VA",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "VA1",
+      "name": "VA1",
+      "description": "Apparent power, phase 1",
+      "register": 3001,
+      "unit": "VA",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "VA2",
+      "name": "VA2",
+      "description": "Apparent power, phase 2",
+      "register": 3017,
+      "unit": "VA",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "VA3",
+      "name": "VA3",
+      "description": "Apparent power, phase 3",
+      "register": 3033,
+      "unit": "VA",
+      "min": 0,
+      "max": 1000000000.0
+    },
+    {
+      "id": "PF",
+      "name": "PF",
+      "description": "Power factor total",
+      "register": 3055,
+      "unit": "",
+      "min": -1,
+      "max": 1
+    }
+  ]
+},
   {
     id: 'selec-mx300', name: 'Selec MX300-1-C-CE (single-phase meter)', link: 'rtu', func: 4, type: 'f32', word_order: 'abcd',
     note: 'From the manufacturer leaflet. Factory serial 9600 8N1, address 1. Power units unverified. Never run on a real meter.',

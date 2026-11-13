@@ -173,6 +173,14 @@ func validConnection(driver string, c map[string]any) error {
 		if b, ok := num("baud"); ok && (b < 300 || b > 4000000) {
 			return fmt.Errorf("baud out of range")
 		}
+		for _, field := range []string{"data_bits", "stop_bits"} {
+			if raw, exists := c[field]; exists {
+				value, ok := raw.(float64)
+				if !ok || value != float64(int(value)) || (field == "data_bits" && (value < 5 || value > 8)) || (field == "stop_bits" && value != 1 && value != 2) {
+					return fmt.Errorf("%s invalid", field)
+				}
+			}
+		}
 		switch str("parity") {
 		case "", "none", "odd", "even":
 		default:

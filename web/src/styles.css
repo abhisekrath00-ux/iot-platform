@@ -247,3 +247,8 @@ nav .menu-toggle { display: none; }
 @media (max-width: 900px) {
   .chat-fab { padding: 8px 12px !important; font-size: 12px !important; border-radius: 16px !important; opacity: .94; }
 }
+
+@media (max-width: 600px) {
+  form.grid2 { grid-template-columns: minmax(100px, .8fr) minmax(0, 1.2fr); }
+  form.grid2 > input, form.grid2 > select { min-width: 0; width: 100%; }
+}

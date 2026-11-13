@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/brokeracl"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 )
 
@@ -27,6 +28,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: tenantctl create|list|quota ...")
 		os.Exit(2)
 	}
+	// Capability detection must also work before a DB URL or migration exists.
+	if os.Args[1] == "setup-capabilities" {
+		if len(os.Args) != 2 {
+			fatal("usage: tenantctl setup-capabilities")
+		}
+		printSetupJSON(currentSetupCapabilities())
+		return
+	}
 	ctx := context.Background()
 	st, err := store.Connect(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -35,6 +44,27 @@ func main() {
 	}
 	defer st.Close()
 	switch os.Args[1] {
+	case "setup-readiness":
+		if len(os.Args) != 2 {
+			fatal("usage: tenantctl setup-readiness")
+		}
+		value, err := inspectSetupSchema(ctx, st.Pool, setupMigrationsDir())
+		if err != nil {
+			fatal(err.Error())
+		}
+		printSetupJSON(value)
+
+	case "broker-acl-export":
+		if len(os.Args) != 2 {
+			fatal("usage: tenantctl broker-acl-export > private-staged-acl")
+		}
+		acl, count, err := brokeracl.SnapshotCertificateACL(ctx, st.Pool)
+		if err != nil {
+			fatal(err.Error())
+		}
+		fmt.Fprint(os.Stdout, acl)
+		fmt.Fprintf(os.Stderr, "Exported complete certificate ACL for %d active certificate gateways. No DB/file/broker change. Password-auth direct devices are not supported by this path.\n", count)
+
 	case "list":
 		rows, err := st.Pool.Query(ctx, `SELECT t.id, t.name, (SELECT count(*) FROM users u WHERE u.tenant_id=t.id), (SELECT count(*) FROM devices d WHERE d.tenant_id=t.id) FROM tenants t ORDER BY t.id`)
 		if err != nil {

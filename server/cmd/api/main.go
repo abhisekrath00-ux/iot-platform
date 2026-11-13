@@ -380,12 +380,23 @@ func main() {
 	api.HandleFunc("DELETE /v1/dashboards/{id}", s.deleteDashboard)
 	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
 	api.HandleFunc("GET /v1/gateways/{id}/edge-config", s.gatewayEdgeConfig)
+	api.HandleFunc("GET /v1/edge/self/setup", s.edgeSelfSetup)
+	api.HandleFunc("POST /v1/edge/self/serial-ports", s.reportSerialPorts)
+	api.HandleFunc("GET /v1/gateways/{id}/serial-ports", s.getSerialPorts)
+	api.HandleFunc("POST /v1/edge/self/identity-migrations", s.requestIdentityMigration)
+	api.HandleFunc("GET /v1/edge/self/identity-migrations/{id}", s.getIdentityMigration)
+	api.HandleFunc("POST /v1/edge/self/identity-migrations/{id}/broker-proof", s.createPairingProof)
+	api.HandleFunc("GET /v1/edge/self/broker-proofs/{proof}", s.getPairingProof)
+	api.HandleFunc("GET /v1/edge/identity-migrations", s.listIdentityMigrations)
+	api.HandleFunc("POST /v1/edge/identity-migrations/{id}/approve", s.approveIdentityMigration)
+	api.HandleFunc("POST /v1/edge/identity-migrations/{id}/revoke", s.revokePendingIdentityMigration)
 	api.HandleFunc("GET /v1/gateways", s.listGateways)
 	api.HandleFunc("POST /v1/gateways/{id}/scans", s.requestScan)
 	api.HandleFunc("POST /v1/gateways/{id}/ops", s.requestGatewayOp)
 	api.HandleFunc("GET /v1/gateways/{id}/ops", s.listGatewayOps)
 	api.HandleFunc("POST /v1/gateway-ops/{id}/approve", s.approveGatewayOp)
 	api.HandleFunc("POST /v1/gateways/{id}/config-push", s.pushGatewayConfig)
+	api.HandleFunc("GET /v1/gateways/{id}/source-readiness", s.sourceReadiness)
 	api.HandleFunc("GET /v1/gateways/{id}/config-push", s.listConfigPushes)
 	api.HandleFunc("GET /v1/gateways/{id}/scans", s.listScans)
 	api.HandleFunc("POST /v1/gateways/{id}/scans/{sid}/add", s.addScannedDevice)
@@ -449,6 +460,8 @@ func main() {
 	s.cached(api, "GET /v1/sites", s.listSites)
 	api.HandleFunc("POST /v1/sites", s.createSite)
 	api.HandleFunc("POST /v1/broker/acl/regenerate", s.regenerateBrokerACLHandler)
+	api.HandleFunc("GET /v1/commissioning/sessions", s.listCommissionSessions)
+	api.HandleFunc("POST /v1/gateways/{id}/source-setup", s.createExistingSourceSession)
 	api.HandleFunc("POST /v1/commissioning/sessions", s.createCommissionSession)
 	api.HandleFunc("GET /v1/commissioning/sessions/{id}", s.getCommissionSession)
 	api.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
@@ -1574,7 +1587,7 @@ func validProfilePoints(pts []map[string]any) error {
 
 func (s *server) listProfiles(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.st.Pool.Query(r.Context(),
-		`SELECT id, name, driver_profile, points, created_at FROM device_profiles WHERE tenant_id=$1 ORDER BY created_at DESC`,
+		`SELECT id, name, driver_profile, points, created_at, connection_defaults FROM device_profiles WHERE tenant_id=$1 ORDER BY created_at DESC`,
 		auth.Tenant(r))
 	if err != nil {
 		dbErr(w, err)
@@ -1584,10 +1597,10 @@ func (s *server) listProfiles(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var id, name, drv string
-		var pts []byte
+		var pts, defaults []byte
 		var created time.Time
-		rows.Scan(&id, &name, &drv, &pts, &created)
-		out = append(out, map[string]any{"id": id, "name": name, "driver_profile": drv, "points": json.RawMessage(pts), "created_at": created})
+		rows.Scan(&id, &name, &drv, &pts, &created, &defaults)
+		out = append(out, map[string]any{"id": id, "name": name, "driver_profile": drv, "points": json.RawMessage(pts), "connection_defaults": json.RawMessage(defaults), "created_at": created})
 	}
 	writeJSON(w, 200, out)
 }
@@ -1597,9 +1610,10 @@ func (s *server) createProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name          string           `json:"name"`
-		DriverProfile string           `json:"driver_profile"`
-		Points        []map[string]any `json:"points"`
+		Name               string           `json:"name"`
+		DriverProfile      string           `json:"driver_profile"`
+		Points             []map[string]any `json:"points"`
+		ConnectionDefaults map[string]any   `json:"connection_defaults"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		http.Error(w, "bad json", 400)
@@ -1618,11 +1632,19 @@ func (s *server) createProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	if err := validateProfileDefaults(in.DriverProfile, in.ConnectionDefaults); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if in.ConnectionDefaults == nil {
+		in.ConnectionDefaults = map[string]any{}
+	}
+	defaults, _ := json.Marshal(in.ConnectionDefaults)
 	pts, _ := json.Marshal(in.Points)
 	id := uuid.NewString()
 	_, err := s.st.Pool.Exec(r.Context(),
-		`INSERT INTO device_profiles(id,tenant_id,name,driver_profile,points,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
-		id, auth.Tenant(r), name, in.DriverProfile, pts, auth.User(r))
+		`INSERT INTO device_profiles(id,tenant_id,name,driver_profile,points,created_by,connection_defaults) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+		id, auth.Tenant(r), name, in.DriverProfile, pts, auth.User(r), defaults)
 	if err != nil {
 		dbErr(w, err)
 		return

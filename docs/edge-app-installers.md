@@ -84,3 +84,34 @@ These are design references, not endorsements or proof that HexThings has the
 same capability, certification or reliability as those products. Some products
 default to boot startup; HexThings follows the user's request for an explicit
 option instead.
+
+## Simple setup development checkpoint (not released, 12 November 2026)
+
+The current development tree adds **Connect / get config** to the Windows
+manager. It uses the saved gateway identity, asks for no replacement claim,
+fetches to a new staging file, checks it, then uses the stopped-service checked
+import/backup path. Server address and serial are saved for recovery, not claim
+codes. New enrollment still needs the one-time claim. The form is scrollable on
+short screens. Native Windows visual/lifecycle acceptance of this new path is
+still pending. Do not update an existing installation from this checkpoint.
+
+The server address must be HTTPS; HTTP is accepted only at loopback for local
+executable tests. The server must explicitly configure a reachable TLS MQTT
+address (`EDGE_MQTT_HOST`, `EDGE_MQTT_PORT`, `EDGE_MQTT_TLS=true`). The client checks
+its saved certificate/key, serial and CA trust before import. Downloaded setup
+cannot select local paths, expose the status page, enable discovery, commands,
+outputs or remote restart. Signed source updates are a separate unchecked
+opt-in and need an existing valid server signing key. The code creates no key.
+
+A saved key-only lab identity is deliberately **not** treated as an mTLS identity.
+The present source has no same-identity lab-to-mTLS migration endpoint. Repeating
+enrollment would create/replace identity and is not the recovery route. An
+identity-preserving migration and the server's HTTPS/TLS deployment remain a
+release gate for the existing lab. Do not expose its anonymous plaintext broker,
+create another claim, or silently substitute an insecure setup to bypass it.
+
+Local evidence: PowerShell 7.7 parser and fake-agent manager contracts; checked
+staging/import, running-service refusal, failed fetch leaves saved recovery data
+unchanged, explicit source opt-in and no enrollment call. These ran on Linux,
+not Windows PowerShell 5.1, Windows Forms, UAC or a real service. Existing native
+CI evidence belongs to the older published installer, not these changes.

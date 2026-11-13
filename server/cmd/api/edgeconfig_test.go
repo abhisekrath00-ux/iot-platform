@@ -148,3 +148,28 @@ func TestExtraDriverPointsAndConnection(t *testing.T) {
 		t.Errorf("yaml missing fields:\n%s", y)
 	}
 }
+
+func TestSerialFormatConnectionValidationAndRendering(t *testing.T) {
+	good := map[string]any{"port": "COM7", "baud": 9600.0, "data_bits": 8.0, "stop_bits": 1.0, "parity": "even", "address": 17.0}
+	if err := validConnection("modbus-generic", good); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []map[string]any{{"data_bits": 9.0}, {"data_bits": 7.5}, {"data_bits": "8"}, {"stop_bits": 0.0}, {"stop_bits": 1.5}, {"stop_bits": "1"}} {
+		c := map[string]any{}
+		for k, v := range good {
+			c[k] = v
+		}
+		for k, v := range bad {
+			c[k] = v
+		}
+		if validConnection("modbus-generic", c) == nil {
+			t.Fatalf("accepted %v", bad)
+		}
+	}
+	y := renderEdgeYAML("tenant", "gateway", "serial", []edgeDev{{ID: "source", Profile: "modbus-generic", Conn: good}})
+	for _, v := range []string{`port: "COM7"`, `parity: "even"`, `baud: 9600`, `data_bits: 8`, `stop_bits: 1`, `address: 17`} {
+		if !strings.Contains(y, v) {
+			t.Errorf("missing %s in %s", v, y)
+		}
+	}
+}

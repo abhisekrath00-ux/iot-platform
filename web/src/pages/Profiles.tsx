@@ -3,7 +3,7 @@ import { api, EXTRA_DRIVERS } from '../lib/api';
 import { EDGE_TEMPLATES } from '../lib/edgeSetup';
 import { Issue, MapPoint, parseAny, templatePoints, toCsv, validateMap } from '../lib/registerMap';
 
-interface PointDef { id: string; register?: number; key?: string; node_id?: string; oid?: string; ioa?: number; func?: number; type?: string; word_order?: string; scale?: number; unit?: string; min?: number; max?: number; }
+interface PointDef { name?: string; description?:string; id: string; register?: number; key?: string; node_id?: string; oid?: string; ioa?: number; func?: number; type?: string; word_order?: string; scale?: number; unit?: string; min?: number; max?: number; }
 interface ProfileRow { id: string; name: string; driver_profile: string; points: PointDef[]; created_at: string; }
 
 const emptyPoint: PointDef = { id: '', register: 0, func: 4, type: 'u16', word_order: 'abcd', scale: 1, unit: '', min: 0, max: 1000000 };
@@ -14,11 +14,13 @@ export default function Profiles() {
   const [driver, setDriver] = useState('modbus-generic');
   const [points, setPoints] = useState<PointDef[]>([{ ...emptyPoint }]);
   const [msg, setMsg] = useState('');
+  const [connectionDefaults,setConnectionDefaults]=useState<Record<string,unknown>>({});
   const isModbus = driver.startsWith('modbus');
   const [paste, setPaste] = useState('');
   const [issues, setIssues] = useState<Issue[]>([]);
   const [pendingTpl, setPendingTpl] = useState<string | null>(null);
   const [pendingOk, setPendingOk] = useState(false);
+  const [pendingOrder,setPendingOrder]=useState(''),[pendingBase,setPendingBase]=useState(''),[pendingFunc,setPendingFunc]=useState('');
   const liveIssues = isModbus && points.some(p => p.id) ? validateMap(points.filter(p => p.id) as MapPoint[]) : [];
   const shown = issues.length ? issues : liveIssues;
   function loadMap(pts: MapPoint[], iss: Issue[]) { if (pts.length) setPoints(pts); setIssues(iss); }
@@ -35,7 +37,7 @@ export default function Profiles() {
 
   // Send only the fields the chosen driver understands.
   function clean(p: PointDef): PointDef {
-    const base = { id: p.id, scale: p.scale, unit: p.unit, min: p.min, max: p.max };
+    const base = { id: p.id, name:p.name, description:p.description, scale: p.scale, unit: p.unit, min: p.min, max: p.max };
     if (driver === 'opcua') return { ...base, node_id: p.node_id };
     if (extra) return { ...base, ...(extra.f === 'oid' ? { oid: p.oid } : extra.f === 'ioa' ? { ioa: p.ioa } : { key: p.key }), ...(extra.reg ? { register: p.register } : {}) };
     if (driver === 'serial-json') return { ...base, ...(p.key ? { key: p.key } : {}) };
@@ -46,8 +48,8 @@ export default function Profiles() {
     e.preventDefault();
     setMsg('');
     try {
-      await api('/v1/profiles', { method: 'POST', body: JSON.stringify({ name, driver_profile: driver, points: points.filter(p => p.id).map(clean) }) });
-      setName(''); setPoints([{ ...emptyPoint }]);
+      await api('/v1/profiles', { method: 'POST', body: JSON.stringify({ name, driver_profile: driver, connection_defaults:connectionDefaults, points: points.filter(p => p.id).map(clean) }) });
+      setName('');setConnectionDefaults({}); setPoints([{ ...emptyPoint }]);
       load();
     } catch (e2) { setMsg(String(e2)); }
   }
@@ -62,7 +64,7 @@ export default function Profiles() {
           <label>Name</label>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Acme EM-300 power meter" required />
           <label>Driver</label>
-          <select aria-label="Profile driver" value={driver} onChange={e => setDriver(e.target.value)}>
+          <select aria-label="Profile driver" value={driver} onChange={e => {setDriver(e.target.value);setConnectionDefaults({});}}>
             <option value="modbus-generic">Modbus RTU (generic)</option>
             <option value="modbus-energy-meter">Modbus energy meter (legacy)</option>
             <option value="modbus-tcp">Modbus TCP (PLC, meter, SCADA RTU)</option>
@@ -78,7 +80,7 @@ export default function Profiles() {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <select style={{ width: '100%', minWidth:0 }} aria-label="Template" defaultValue="" onChange={e => {
                   const t = EDGE_TEMPLATES.find(x => x.id === e.target.value);
-                  if (t?.provisional) { setPendingTpl(t.id); setPendingOk(false); }
+                  if (t?.provisional) { setPendingTpl(t.id); setPendingOk(false);setPendingOrder('');setPendingBase('');setPendingFunc(''); }
                   else if (t) { loadMap(templatePoints(t.id), []); if (!name) setName(t.name); }
                   e.target.value = '';
                 }}>
@@ -98,8 +100,12 @@ export default function Profiles() {
                       <input type="checkbox" style={{ width: 'auto' }} checked={pendingOk} onChange={e => setPendingOk(e.target.checked)} />
                       I have checked this against the meter or its manual
                     </label>
+                    {t.wordOrderUnverified&&<label>Verified word order<select aria-label="Template word order" value={pendingOrder} onChange={e=>setPendingOrder(e.target.value)}><option value="">Choose from verified device settings...</option>{['abcd','badc','cdab','dcba'].map(x=><option key={x}>{x}</option>)}</select></label>}
+                    {t.pduBaseUnverified&&<label>Verified register address convention<select aria-label="Template register base" value={pendingBase} onChange={e=>setPendingBase(e.target.value)}><option value="">Choose from verified device settings...</option><option value="listed">Listed number is wire address</option><option value="minus1">Listed number minus 1 is wire address</option></select></label>}
+                    {t.funcUnverified&&<label>Verified read function<select aria-label="Template read function" value={pendingFunc} onChange={e=>setPendingFunc(e.target.value)}><option value="">Choose...</option><option value="3">FC03 holding</option><option value="4">FC04 input</option></select></label>}
+                    {t.setupDefaults&&<p>Saved connection preset for this supplied map: 9600 baud, 8 data bits, even parity, 1 stop bit. COM port and slave ID still need confirming. No automatic probe is sent.</p>}
                     <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      <button type="button" className="ghost" disabled={!pendingOk} onClick={() => { loadMap(templatePoints(t.id), []); if (!name) setName(t.name); setPendingTpl(null); }}>Load {t.name}</button>
+                      <button type="button" className="ghost" disabled={!pendingOk||(t.wordOrderUnverified&&!pendingOrder)||(t.pduBaseUnverified&&!pendingBase)||(t.funcUnverified&&!pendingFunc)} onClick={() => { loadMap(templatePoints(t.id).map(p=>({...p,register:pendingBase==='minus1'?p.register-1:p.register,word_order:pendingOrder||p.word_order,func:pendingFunc?+pendingFunc:p.func})), []); if (!name) setName(t.name);setConnectionDefaults(t.setupDefaults??{}); setPendingTpl(null); }}>Load {t.name}</button>
                       <button type="button" className="ghost" onClick={() => setPendingTpl(null)}>Cancel</button>
                     </div>
                   </div>
@@ -116,7 +122,7 @@ export default function Profiles() {
           {points.map((p,i)=>{
             const field=(label:string,control:React.ReactNode)=><label style={{display:'flex',flexDirection:'column',gap:5,margin:0,minWidth:0}}>{label}{control}</label>;
             return <fieldset key={i} style={{minWidth:0,border:'1px solid var(--line)',borderRadius:14,padding:16,margin:'14px 0'}}>
-             <legend style={{padding:'0 6px'}}>Point {i+1}{p.id?` - ${p.id}`:''}</legend>
+             <legend style={{padding:'0 6px'}}>Point {i+1}{p.name?` - ${p.name}`:p.id?` - ${p.id}`:''}</legend>{p.description&&<p className="muted">{p.description}</p>}
              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,180px),1fr))',gap:12}}>
               {field('Point ID',<input aria-label={`Point ${i+1} ID`} value={p.id} onChange={e=>setPoint(i,'id',e.target.value)} placeholder="temp" required/>)}
               {driver==='opcua'&&field('OPC UA node ID',<input aria-label={`Point ${i+1} node ID`} value={p.node_id??''} onChange={e=>setPoint(i,'node_id',e.target.value)} placeholder="ns=2;s=Boiler.Temp" required/>)}

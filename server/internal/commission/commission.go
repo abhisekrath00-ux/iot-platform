@@ -31,14 +31,14 @@ type Probe struct {
 	TimeoutMs int    `json:"timeout_ms"`
 }
 
-var portPath = regexp.MustCompile(`^/dev/tty[A-Za-z0-9._-]{1,60}$`)
+var portPath = regexp.MustCompile(`^(/dev/tty[A-Za-z0-9._-]{1,60}|COM[1-9][0-9]{0,2})$`)
 
 var validBaud = map[int]bool{1200: true, 2400: true, 4800: true, 9600: true, 19200: true, 38400: true, 57600: true, 115200: true}
 
 // ValidateProbe rejects anything outside the read-only diagnostic envelope.
 func ValidateProbe(p Probe) error {
 	if !portPath.MatchString(p.Port) {
-		return fmt.Errorf("port must look like /dev/ttyUSB0 (got %q)", p.Port)
+		return fmt.Errorf("port must look like COM3 or /dev/ttyUSB0 (got %q)", p.Port)
 	}
 	if !validBaud[p.Baud] {
 		return fmt.Errorf("baud %d not in standard set", p.Baud)

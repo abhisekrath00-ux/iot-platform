@@ -16,6 +16,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow/jsfn"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/mqttconfig"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/notify"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/pairingproof"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/rules"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -95,6 +96,14 @@ func main() {
 	}
 
 	register(subTopic("t/+/g/+/telemetry"), handler)
+	// Diagnostic-only proof, never a device command or a measured reading.
+	if os.Getenv("BROKER_CERT_ONLY") == "1" && os.Getenv("MQTT_TLS") == "true" {
+		register(subTopic("t/+/g/+/pairing/proof"), func(_ mqtt.Client, m mqtt.Message) {
+			if _, err := pairingproof.Observe(ctx, st.Pool, m.Topic(), m.Payload()); err != nil {
+				log.Printf("pairing proof rejected: %v", err)
+			}
+		})
+	}
 
 	// Commissioning port-test results: the edge answers diag probes on
 	// t/<tenant>/g/<gateway>/diag/result. Topic identity is enforced the same

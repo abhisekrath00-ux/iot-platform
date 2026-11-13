@@ -1,3 +1,4 @@
+import SetupRecovery from '../components/SetupRecovery';
 import Ask from '../components/Ask';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -12,6 +13,7 @@ export default function Fleet() {
   const [err, setErr] = useState('');
   const [scoped, setScoped] = useState(false);
   const [meLoaded, setMeLoaded] = useState(false);
+  const [canResume, setCanResume] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [latest, setLatest] = useState<Record<string, LatestPoint[]>>({});
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
@@ -21,9 +23,10 @@ export default function Fleet() {
   // Customer-scoped users are refused /v1/fleet, /v1/assets and the assistant;
   // their page is built only from the endpoints their scope allows.
   useEffect(() => {
-    api<{ customer_id?: string }>('/v1/me').then(m => {
+    api<{ customer_id?: string; role?: string }>('/v1/me').then(m => {
       const sc = !!m.customer_id;
       setScoped(sc);
+      setCanResume(!sc && (m.role === 'admin' || m.role === 'operator'));
       setMeLoaded(true);
       if (!sc) api<typeof assets>('/v1/assets').then(setAssets).catch(() => {});
     }).catch(() => setMeLoaded(true));
@@ -72,6 +75,7 @@ export default function Fleet() {
       {scoped && <p className="muted">Showing only this customer's devices and alerts; gateway and fleet-wide totals are not part of a customer account.</p>}
       {!scoped && <p className="muted" style={{ marginTop: 12 }}>Refreshes every 15s. A device is stale when nothing was measured in the last 15 minutes.</p>}
 
+      {meLoaded && canResume && <SetupRecovery />}
       <h2>Devices</h2>
       {assets.length > 0 && <div style={{ marginBottom: 12 }}>
         <label htmlFor="fleet-asset" className="muted">Show devices under </label>
@@ -83,7 +87,7 @@ export default function Fleet() {
       {devices.length === 0 ? (
         scoped
           ? <Empty title="No devices in this customer yet" hint="A workspace admin can assign devices to this customer." />
-          : <Empty title="No devices yet" hint="Claim a gateway and add your first sensor. The wizard takes a few minutes." action={<Link to="/onboarding"><button>Add a device</button></Link>} />
+          : canResume ? <Empty title="No devices yet" hint="Continue a saved gateway setup above to add a sensor. Only create a new gateway when connecting a different PC." action={<Link to="/onboarding"><button>Open setup</button></Link>} /> : <Empty title="No devices yet" hint="A workspace admin or operator can connect your first source." />
       ) : (
         <div className="cards">
           {devices.slice(0, 12).map(d => {

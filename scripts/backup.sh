@@ -10,6 +10,12 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/.."
+selected_compose() {
+  if [ -e .secure-deployment ] || [ -L .secure-deployment ]; then
+    [ -f scripts/selected-compose.py ] && command -v python3 >/dev/null 2>&1 || { echo "Secure deployment selector unavailable; refusing lab fallback." >&2;return 1; }
+    python3 scripts/selected-compose.py "$PWD" "$@"
+  else docker compose "$@";fi
+}
 DIR="${1:-backups}"
 KEEP="${BACKUP_KEEP:-14}"
 case "$KEEP" in ''|*[!0-9]*) echo "BACKUP_KEEP must be a positive integer" >&2; exit 2 ;; esac
@@ -23,7 +29,7 @@ OUT="$DIR/hexmon-pg-$STAMP.dump"
 trap 'rm -f "${OUT}.tmp"' EXIT
 
 echo "== dumping postgres (custom format) =="
-docker compose exec -T postgres pg_dump -U "${POSTGRES_USER:-iot}" -Fc "${POSTGRES_DB:-iot}" > "$OUT.tmp"
+selected_compose exec -T postgres pg_dump -U "${POSTGRES_USER:-iot}" -Fc "${POSTGRES_DB:-iot}" > "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"
 gzip -9 "$OUT"
 OUT="$OUT.gz"

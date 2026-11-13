@@ -6,11 +6,17 @@
 #
 # Full restore REPLACES the current database contents (pg_restore --clean
 # --if-exists). Stop the API and ingest first so no writes interleave:
-#   docker compose stop api ingest
+#   python3 scripts/selected-compose.py "$PWD" stop api ingest
 #   ./scripts/restore.sh <file>
-#   docker compose start api ingest
+#   python3 scripts/selected-compose.py "$PWD" start api ingest
 set -euo pipefail
 cd "$(dirname "$0")/.."
+selected_compose() {
+  if [ -e .secure-deployment ] || [ -L .secure-deployment ]; then
+    [ -f scripts/selected-compose.py ] && command -v python3 >/dev/null 2>&1 || { echo "Secure deployment selector unavailable; refusing lab fallback." >&2;return 1; }
+    python3 scripts/selected-compose.py "$PWD" "$@"
+  else docker compose "$@";fi
+}
 
 VERIFY=0
 if [ "${1:-}" = "--verify" ]; then VERIFY=1; shift; fi
@@ -28,15 +34,15 @@ actual=$(sha256sum "$F" | awk '{print $1}')
 echo "checksum matches archive name and bytes"
 echo "== archive listing (nothing written) =="
 # Use the matching container client, not an arbitrary host pg_restore version.
-gunzip -c "$F" | docker compose exec -T postgres pg_restore -l >/dev/null
+gunzip -c "$F" | selected_compose exec -T postgres pg_restore -l >/dev/null
 echo "archive readable"
 [ "$VERIFY" = 0 ] || exit 0
 
 echo "== restoring $F into the running postgres =="
-echo "    (expects api+ingest stopped: docker compose stop api ingest)"
-gunzip -c "$F" | docker compose exec -T postgres pg_restore -U "${POSTGRES_USER:-iot}" -d "${POSTGRES_DB:-iot}" --clean --if-exists --no-owner --exit-on-error
+echo "    (expects api+ingest stopped through the verified deployment selector)"
+gunzip -c "$F" | selected_compose exec -T postgres pg_restore -U "${POSTGRES_USER:-iot}" -d "${POSTGRES_DB:-iot}" --clean --if-exists --no-owner --exit-on-error
 echo "== sanity: row counts =="
-docker compose exec -T postgres psql -U "${POSTGRES_USER:-iot}" -d "${POSTGRES_DB:-iot}" -c \
+selected_compose exec -T postgres psql -U "${POSTGRES_USER:-iot}" -d "${POSTGRES_DB:-iot}" -c \
   "SELECT 'telemetry' t, count(*) FROM telemetry UNION ALL SELECT 'devices', count(*) FROM devices UNION ALL SELECT 'flows', count(*) FROM flows UNION ALL SELECT 'audit_log', count(*) FROM audit_log;"
-echo "restore complete. Start services: docker compose start api ingest"
+echo 'restore complete. Start only api/ingest through: python3 scripts/selected-compose.py "$PWD" start api ingest'
 echo "Then rebuild the search index from Postgres per docs/backup-restore.md."

@@ -21,8 +21,10 @@ Everything runs on-prem; no step needs internet access (air-gap safe).
    one poll and answers on `.../diag/result`; ingest records the outcome.
    State: `tested` or `failed` (with the exact error: wiring, address, baud).
 5. **Live preview** - `GET /v1/commissioning/sessions/{id}/preview` returns
-   the latest reading per point. First telemetry flips the derived state to
-   `live` - commissioning is done.
+   the latest reading per point. Only a measured value observed in the last
+   five minutes (not future-dated beyond five seconds) makes the derived state
+   `live`. Historical or estimated values do not complete setup. Compare the
+   value and unit against the physical source.
 
 ## Safety properties
 
@@ -132,3 +134,18 @@ The create-profile API rejects duplicate point IDs for every driver. Supplied sc
 ## Saved scan selection
 
 The Scan page's Manual scan history picker exposes manual results among the API's latest10 combined rows for the selected gateway. It is not a full archive: automatic scans can occupy that window. Saved results show gateway, scan ID, time and transport, separate from the form that chooses the next scan. Selecting a record makes no scan or enrollment request. New scan blocking follows the newest manual record, even while viewing an older completed result. Gateway switches clear the old results immediately and out-of-order responses are discarded. Refresh provides loading/error/empty states; a failed history read blocks new requests until a successful refresh. Existing review snapshots the selected saved result before any enrollment confirmation; SNMP results remain non-addable.
+
+
+## Saved setup and existing gateway sources (development, not released)
+
+`GET /v1/commissioning/sessions` lists saved setups. Resume keeps the gateway
+identity; no new claim is issued. The session returns only the assigned source's
+safe connection fields, including serial data bits, parity and stop bits. A
+saved probe is restored independently and must be reviewed before another test.
+
+`POST /v1/gateways/{id}/source-setup` creates an idempotent source session on an
+existing active gateway. It creates neither a gateway nor a claim. Saved
+configured gateway cards offer Add another source; other old gateways without
+saved sessions still need a direct gateway-list entry point. Saving a profile
+does not start polling. Apply is explicit, signed and separate from recent
+measured-data preview. Read failures and old values are not success states.

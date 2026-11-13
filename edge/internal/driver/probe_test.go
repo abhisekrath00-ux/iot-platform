@@ -94,3 +94,21 @@ type silentPort struct{ fakePort }
 
 func (s *silentPort) Write(p []byte) (int, error) { return len(p), nil }
 func (s *silentPort) Read(p []byte) (int, error)  { time.Sleep(50 * time.Millisecond); return 0, nil }
+
+func TestRunProbeWindowsCOMPreservesSerialMode(t *testing.T) {
+	req := probeReq()
+	req.Port = "COM7"
+	req.Parity = "even"
+	fp := &fakePort{regs: map[int]uint16{10: 0x42c8, 11: 0}}
+	called := false
+	res := RunProbe(context.Background(), func(port string, mode *serial.Mode) (serial.Port, error) {
+		called = true
+		if port != "COM7" || mode.BaudRate != 9600 || mode.DataBits != 8 || mode.Parity != serial.EvenParity || mode.StopBits != serial.OneStopBit {
+			t.Fatalf("unexpected port or mode %s %+v", port, mode)
+		}
+		return fp, nil
+	}, req)
+	if !called || !res.OK || len(res.Readings) != 1 || res.Readings[0].Value != 100 {
+		t.Fatalf("probe %+v", res)
+	}
+}

@@ -54,3 +54,41 @@ printf '3\n5\nn\n0\n' | /usr/local/bin/hexthings-edge
 [ "$(sha256sum /etc/hexmon/edge-agent.yaml)" = "$hash" ]
 [ -f /var/lib/hexmon-edge/ci-retain-marker ]
 echo 'PASS actual .run/systemd install, example gate, startup settings, start/health/stop, stopped upgrade and retained-config uninstall. No desktop/reboot/telemetry proof.'
+
+# Separate, disposable synthetic Compose acceptance. No owner network or config.
+python3 "$root/scripts/test-broker-supervisor.py"
+python3 "$root/scripts/test-secure-transaction.py"
+python3 "$root/scripts/test-secure-application.py"
+python3 "$root/scripts/test-secure-application-docker.py"
+python3 "$root/scripts/test-secure-application-reads.py"
+python3 "$root/scripts/test-secure-application-client.py"
+python3 "$root/scripts/test-secure-application-acceptance.py"
+python3 "$root/scripts/test-secure-application-writes.py"
+python3 "$root/scripts/test-secure-disposable-docker.py"
+python3 "$root/scripts/test-secure-transport-docker.py"
+python3 "$root/scripts/test-secure-pairing-native-guards.py"
+python3 "$root/scripts/test-secure-source-native-guards.py"
+python3 "$root/scripts/test-secure-readiness.py"
+python3 "$root/scripts/test-secure-runtime.py"
+python3 "$root/scripts/test-secure-state.py"
+python3 "$root/scripts/test-secure-recovery-review.py"
+python3 "$root/scripts/test-secure-execution.py"
+python3 "$root/scripts/test-secure-postgres-fence.py"
+python3 "$root/scripts/test-secure-postgres-hosttool.py"
+python3 "$root/scripts/test-secure-postgres-namespace.py"
+python3 "$root/scripts/test-secure-postgres-outside.py"
+python3 "$root/scripts/test-secure-postgres-hba.py"
+python3 "$root/scripts/test-secure-postgres-hba-docker.py"
+python3 "$root/scripts/test-secure-postgres-operator.py"
+python3 "$root/scripts/test-secure-application-startgate.py"
+python3 "$root/scripts/test-secure-application-startgroup.py"
+python3 "$root/scripts/test-secure-application-provider.py"
+python3 "$root/scripts/test-secure-application-local-admission.py"
+python3 "$root/scripts/test-secure-application-connections.py"
+python3 "$root/scripts/test-secure-application-production.py"
+python3 "$root/scripts/test-secure-preflight.py"
+python3 "$root/scripts/test-secure-setup.py"
+python3 "$root/scripts/test-secure-native-linux.py"
+
+# Separate application-only old/new image acceptance, synthetic fixture only.
+python3 "$root/scripts/test-secure-application-native.py"

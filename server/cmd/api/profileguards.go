@@ -89,3 +89,45 @@ func profileShapeGuards(driver string, pts []map[string]any) error {
 	}
 	return nil
 }
+
+// Templates may save serial framing, never a guessed port or slave address.
+func validateProfileDefaults(driver string, defaults map[string]any) error {
+	if len(defaults) == 0 {
+		return nil
+	}
+	if driver != "modbus-generic" && driver != "modbus-energy-meter" {
+		return fmt.Errorf("connection defaults only supported for serial Modbus")
+	}
+	for k, v := range defaults {
+		switch k {
+		case "baud":
+			n, ok := v.(float64)
+			if !ok || !containsBaud(int(n)) || n != math.Trunc(n) {
+				return fmt.Errorf("invalid default baud")
+			}
+		case "data_bits":
+			if v != float64(8) {
+				return fmt.Errorf("default data_bits must be 8")
+			}
+		case "stop_bits":
+			if v != float64(1) && v != float64(2) {
+				return fmt.Errorf("invalid default stop_bits")
+			}
+		case "parity":
+			if v != "even" && v != "odd" && v != "none" {
+				return fmt.Errorf("invalid default parity")
+			}
+		default:
+			return fmt.Errorf("unsupported connection default %s", k)
+		}
+	}
+	return nil
+}
+func containsBaud(n int) bool {
+	for _, b := range []int{1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200} {
+		if n == b {
+			return true
+		}
+	}
+	return false
+}

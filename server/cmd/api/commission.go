@@ -100,6 +100,9 @@ func (s *server) createCommissionSession(w http.ResponseWriter, r *http.Request)
 // getCommissionSession returns the session with its wizard state derived from
 // live evidence: claim status, device linkage, port-test result, telemetry.
 func (s *server) getCommissionSession(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
 	id := r.PathValue("id")
 	var siteID, gwID, serial, createdBy string
 	var deviceID, profileID *string
@@ -123,17 +126,26 @@ func (s *server) getCommissionSession(w http.ResponseWriter, r *http.Request) {
 				OK bool `json:"ok"`
 			} `json:"result"`
 		}
-		if json.Unmarshal(portTest, &pt) == nil && pt.Result != nil {
-			facts.TestOK = &pt.Result.OK
+		if json.Unmarshal(portTest, &pt) == nil {
 			json.Unmarshal(portTest, &testResult)
+			if pt.Result != nil {
+				facts.TestOK = &pt.Result.OK
+			}
 		}
 	}
 	if deviceID != nil {
 		s.st.Pool.QueryRow(r.Context(),
-			`SELECT EXISTS(SELECT 1 FROM telemetry WHERE tenant_id=$1 AND device_id=$2)`,
+			`SELECT EXISTS(SELECT 1 FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND quality='measured' AND observed_at >= now()-interval '5 minutes' AND observed_at <= now()+interval '5 seconds')`,
 			auth.Tenant(r), *deviceID).Scan(&facts.Live)
 	}
+	source, err := s.commissionSource(r, gwID, deviceID)
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{
+		"source":     source,
 		"session_id": id, "site_id": siteID, "gateway_id": gwID, "serial": serial,
 		"gateway_status": gwStatus, "device_id": deviceID, "profile_id": profileID,
 		"port_test": testResult, "state": commission.DeriveState(facts),
@@ -286,6 +298,10 @@ func (s *server) requestPortTest(w http.ResponseWriter, r *http.Request) {
 // commissionPreview is the wizard's final step: latest reading per point for
 // the session's device, proving the sensor is live end to end.
 func (s *server) commissionPreview(w http.ResponseWriter, r *http.Request) {
+	if !requireRole(w, r, "admin", "operator") {
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	id := r.PathValue("id")
 	var deviceID *string
 	if err := s.st.Pool.QueryRow(r.Context(),
@@ -308,14 +324,25 @@ func (s *server) commissionPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	out := []map[string]any{}
+	live := false
+	now := time.Now()
 	for rows.Next() {
 		var p, u, q string
 		var v float64
 		var t time.Time
-		rows.Scan(&p, &v, &u, &q, &t)
-		out = append(out, map[string]any{"point_id": p, "value": v, "unit": u, "quality": q, "observed_at": t})
+		if err := rows.Scan(&p, &v, &u, &q, &t); err != nil {
+			dbErr(w, err)
+			return
+		}
+		fresh := q == "measured" && !t.Before(now.Add(-5*time.Minute)) && !t.After(now.Add(5*time.Second))
+		live = live || fresh
+		out = append(out, map[string]any{"point_id": p, "value": v, "unit": u, "quality": q, "observed_at": t, "recent_measured": fresh})
 	}
-	writeJSON(w, 200, map[string]any{"session_id": id, "device_id": *deviceID, "live": len(out) > 0, "points": out})
+	if err := rows.Err(); err != nil {
+		dbErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"session_id": id, "device_id": *deviceID, "live": live, "points": out, "freshness_seconds": 300})
 }
 
 // --- MQTT publisher (diag probes only; telemetry never flows through here) ---

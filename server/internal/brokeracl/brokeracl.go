@@ -38,6 +38,7 @@ topic read t/#
 user api
 topic write t/+/g/+/diag
 topic write t/+/g/+/scan
+topic write t/+/g/+/config
 topic read t/#
 
 # Per-gateway blocks follow, keyed by certificate CN (= serial).
@@ -59,6 +60,7 @@ func Generate(entries []Entry) string {
 			// devices needs its own hazard analysis first (docs/mqtt-direct.md).
 			continue
 		}
+		fmt.Fprintf(&b, "topic write %s/pairing/proof\n", base)
 		fmt.Fprintf(&b, "topic write %s/diag/result\n", base)
 		fmt.Fprintf(&b, "topic write %s/cmd/ack\n", base)
 		fmt.Fprintf(&b, "topic write %s/fleet/ack\n", base)

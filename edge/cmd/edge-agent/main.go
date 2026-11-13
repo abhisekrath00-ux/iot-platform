@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -31,6 +32,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/paths"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/queue"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/remoteops"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/setup"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/google/uuid"
 )
@@ -87,9 +89,33 @@ func main() {
 	discoveriesFlag := flag.Bool("discoveries", false, "print the proposals the last auto-detect pass found, then exit")
 	ignoreKey := flag.String("ignore", "", "mark an auto-detect proposal (key as printed by -discoveries) as ignored: it is never auto-added or sent to the server again; use -ignore-undo to reverse")
 	ignoreUndo := flag.Bool("ignore-undo", false, "with -ignore: put the proposal back to suggested")
+	reportPortsFlag := flag.Bool("report-serial-ports", false, "send OS serial port names to own dashboard; no ports are opened or probed")
+	requestPairingFlag := flag.Bool("request-secure-pairing", false, "request administrator-approved certificate for the existing saved key")
+	finishPairingFlag := flag.Bool("finish-secure-pairing", false, "require a fresh server-observed own-gateway diagnostic broker proof, then install certificate files without replacing key/config")
+	recoverPairingFlag := flag.Bool("recover-secure-pairing", false, "restore an interrupted public-certificate install while the service is stopped")
+	fetchSetupFlag := flag.Bool("fetch-setup", false, "download checked config for the existing identity, without replacing config or starting the service")
+	setupServer := flag.String("setup-server", "", "HTTPS control-plane address")
+	setupSerial := flag.String("setup-serial", "", "serial matching the saved gateway identity")
+	setupOutput := flag.String("setup-output", "", "new staging file for downloaded configuration")
+	setupManaged := flag.Bool("allow-managed-devices", false, "explicitly allow signed source-list updates after local import")
 	flag.Parse()
 
 	switch {
+	case *reportPortsFlag:
+		os.Exit(reportSetupPorts(*setupServer, *identityDir, os.Stdout))
+	case *requestPairingFlag:
+		os.Exit(securePairing(false, *setupServer, *setupSerial, *identityDir, os.Stdout))
+	case *finishPairingFlag:
+		os.Exit(securePairing(true, *setupServer, *setupSerial, *identityDir, os.Stdout))
+	case *recoverPairingFlag:
+		if err := setup.RecoverMigration(*identityDir); err != nil {
+			fmt.Fprintln(os.Stdout, err)
+			os.Exit(1)
+		}
+		fmt.Println("Interrupted certificate transaction recovered; saved key and identity retained.")
+		return
+	case *fetchSetupFlag:
+		os.Exit(fetchSetup(*setupServer, *setupSerial, *identityDir, *setupOutput, *setupManaged, os.Stdout))
 	case *showVersion:
 		fmt.Printf("hexmon-edge-agent %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
 		return
@@ -207,8 +233,15 @@ func main() {
 		return
 	}
 
-	if pre := cfgpush.New(config.ManagedPath(), nil, "", "", true).Preflight(time.Now()); pre != nil {
+	recoveryCtl := cfgpush.New(config.ManagedPath(), nil, "", "", true)
+	if err := recoveryCtl.Recover(time.Now()); err != nil {
+		log.Fatalf("managed devices recovery: %v", err)
+	}
+	if pre := recoveryCtl.Preflight(time.Now()); pre != nil {
 		log.Printf("managed devices: %s (%s)", pre.State, pre.Detail)
+	}
+	if setup.MigrationPending(*identityDir) {
+		log.Fatal("interrupted secure pairing transaction; keep service stopped and use Recover pairing")
 	}
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -264,28 +297,34 @@ func main() {
 	rulesEng := startLocalRules(ctx, cfg, *cfgPath, *identityDir, func() bool { c := mcp.Load(); return c != nil && c.Connected() })
 	_ = rulesEng
 
-	// Probation watchdog for server-pushed device templates: if the agent never reaches the broker within
-	// the probation window after a push, the previous list is restored and the agent restarts.
-	if cfg.ManagedDevices {
-		wd := cfgpush.New(config.ManagedPath(), nil, cfg.TenantID, cfg.Serial, true)
-		go func() {
-			t := time.NewTicker(20 * time.Second)
-			defer t.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case now := <-t.C:
-					c := mcp.Load()
-					if res, restart := wd.Settle(c != nil && c.Connected(), now); res != nil {
-						log.Printf("managed devices: %s %s", res.State, res.Detail)
-						if restart {
-							stop()
-						}
-					}
-				}
+	var pushKey ed25519.PublicKey
+	if cfg.FleetPublicKey != "" {
+		var err error
+		pushKey, err = fleetctl.ParsePublicKey(cfg.FleetPublicKey)
+		if err != nil {
+			log.Fatalf("source update key: %v", err)
+		}
+	}
+	pushCtl := cfgpush.New(config.ManagedPath(), pushKey, cfg.TenantID, cfg.Serial, cfg.ManagedDevices)
+	pushTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/config"
+	var pushPublishMu sync.Mutex
+	drainPushResults := func() {
+		pushPublishMu.Lock()
+		defer pushPublishMu.Unlock()
+		mc := mcp.Load()
+		if mc == nil || !mc.Connected() {
+			return
+		}
+		for _, res := range pushCtl.PendingResults() {
+			b, _ := json.Marshal(res)
+			if err := mc.Publish(pushTopic+"/result", b); err != nil {
+				return
 			}
-		}()
+			if err := pushCtl.AcknowledgeResult(res); err != nil {
+				log.Printf("config result persistence: %v", err)
+				return
+			}
+		}
 	}
 
 	telemetryTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/telemetry"
@@ -295,6 +334,49 @@ func main() {
 	// them without restarting the agent (or dropping the MQTT connection).
 	sup := startSupervisor(cfg, q, telemetryTopic, tracker)
 	defer sup.stop()
+
+	var sourceReady atomic.Bool
+	sourceReady.Store(true)
+	reloadSourceDevices := func() error {
+		cfgMu.Lock()
+		defer cfgMu.Unlock()
+		candidate, err := config.Load(*cfgPath)
+		if err != nil {
+			return err
+		}
+		sup.stop()
+		cfg.Devices = candidate.Devices
+		*sup = *startSupervisor(cfg, q, telemetryTopic, tracker)
+		sourceReady.Store(true)
+		return nil
+	}
+	// Probation watchdog for server-pushed device templates: if the agent never reaches the broker within
+	// the probation window after a push, the previous list is restored and the running poll supervisor reloads the previous list.
+	if cfg.ManagedDevices {
+		wd := pushCtl
+		go func() {
+			t := time.NewTicker(20 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case now := <-t.C:
+					drainPushResults()
+					c := mcp.Load()
+					if res, restart := wd.Settle(c != nil && c.Connected() && sourceReady.Load(), now); res != nil {
+						log.Printf("managed devices: %s %s", res.State, res.Detail)
+						drainPushResults()
+						if restart {
+							if err := reloadSourceDevices(); err != nil {
+								log.Printf("managed devices rollback reload: %v", err)
+							}
+						}
+					}
+				}
+			}
+		}()
+	}
 
 	// Edge-side auto-detect: finds devices with no server and no broker; when the
 	// broker is reachable the proposals are also offered as "auto-" scan results.
@@ -397,33 +479,51 @@ func main() {
 		}
 
 		// Server-pushed device templates (device list only), signed, with probation and rollback. See cfgpush.
-		pushKey := fleetctl.TrustedKey
-		pushCtl := cfgpush.New(config.ManagedPath(), pushKey, cfg.TenantID, cfg.Serial, cfg.ManagedDevices)
-		pushTopic := "t/" + cfg.TenantID + "/g/" + cfg.GatewayID + "/config"
 		pubPush := func(res cfgpush.Result) {
 			b, _ := json.Marshal(res)
 			if err := mc.Publish(pushTopic+"/result", b); err != nil {
 				log.Printf("config push %s: result publish: %v", res.PushID, err)
 			}
 		}
+		drainPushResults()
 		if cfg.ManagedDevices {
 			if res, _ := pushCtl.Settle(true, time.Now()); res != nil {
-				pubPush(*res)
+				drainPushResults()
 			}
 		}
 		if err := mc.Subscribe(pushTopic, func(_ mqtt.Client, m mqtt.Message) {
+			sourceReady.Store(false)
 			res := pushCtl.Apply(m.Payload(), time.Now())
 			log.Printf("config push %s v%d: %s %s", res.PushID, res.Version, res.State, res.Detail)
-			pubPush(res)
 			if res.State == "applied" {
-				go func() {
-					time.Sleep(2 * time.Second)
-					log.Printf("config push: restarting to use the new device list")
-					stop()
-				}()
+				drainPushResults()
+			} else {
+				pubPush(res)
+			}
+			if res.State == "applied" {
+				if err := reloadSourceDevices(); err != nil {
+					log.Printf("config push reload failed: %v; restoring previous list", err)
+					result, restored := pushCtl.Settle(false, time.Now().Add(cfgpush.Probation+time.Second))
+					if restored && result != nil {
+						if err := reloadSourceDevices(); err != nil {
+							log.Printf("config push rollback reload failed: %v", err)
+						}
+					} else {
+						// Keep readiness false. A restore/state-write failure must never
+						// turn the previous list into a confirmation of the new one.
+						log.Printf("config push rollback has not been durably confirmed; retrying recovery")
+					}
+				} else {
+					pushCtl.Settle(mc.Connected(), time.Now())
+				}
+				drainPushResults()
+			} else {
+				sourceReady.Store(true)
 			}
 		}); err != nil {
 			log.Printf("config push subscribe: %v", err)
+		} else {
+			log.Printf("config push subscription ready")
 		}
 
 		// Commissioning probes: read-only port tests, answered on diag/result.
