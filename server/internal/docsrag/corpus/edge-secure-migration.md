@@ -1756,3 +1756,21 @@ paths; no distributed topology or paid infrastructure presumed. Free/local only.
 Fresh edge EXE must be downloadable/version-verified from the dashboard. Once-ready
 handoff must include server update steps and that fresh edge path together.
 Existing owner installation remains unchanged; no main merge/tag/public release.
+
+v63 8f0354c ACCEPTED scoped native fixture, not enterprise/owner readiness:
+all3 jobs PASS, Linux44m26s. Fullraw821077chars6371lines inspected including
+all downstream operator/startgate/group/namespace/caller regressions.73production
+lifecycle callbacks:28restricted/no-peers,16all3pinned-writers,13exclusive55000,
+16original. Actual loss after both host/local cleanup -> fresh settled recovery
+archives released generation, restages/reproves exact tools, no schema replay or
+early admission release. Committed/lost original-HBA acknowledgement -> fresh
+noSQLreplay -> direct final Cmd/PID1/images/health also complete.8runtime acceptance
+checks/12writes retain12profiles12deduplicated events. Exact input/image/manifest,
+transition guards and outside existing-web/no-sidecar assertions preserved.
+The v62 interpreter crash remains unexplained, not retroactively accepted or
+claimed fixed by the diagnostic adjustment. Subsequent cache changes are NOT
+native-tested by this exact v63 run; their separate Go/local evidence is in
+enterprise-readiness.md. Production reviewed entry/menu, full background behavior,
+combined server/dashboard-EXE handoff and physical meter remain open.
+https://github.com/abhisekrath00-ux/iot-platform/actions/runs/43378525884
+https://github.com/abhisekrath00-ux/iot-platform/commit/8f0354c13aba23f69eb860d700771118af63cea2/checks/131730606818/logs
