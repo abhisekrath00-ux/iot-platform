@@ -905,3 +905,14 @@ capacity or production MQTT/persistence settings. Publisher acceptance cannot
 be promoted to durable database admission by the candidate journal alone. No
 runtime option, broker config, schema migration or worker is added. Both actual
 production durability defects and combined owner-update/installer gates stay open.
+
+The first remote graceful-restart run (7f1d1ce,43593455945) failed: its CI broker
+launcher mounted the entire fixture directory read-only, so no persistence file
+was created. Local native-broker acceptance had not covered that launcher.
+Valkey and edge steps after the failed mTLS step were skipped, not accepted.
+The corrective harness uses a dedicated writable broker-data submount while
+keeping config/certificates read-only. Explicit container-ID-based broker
+signals distinguish killing the actual broker from killing the Docker client;
+checkpoint-kill requires native SIGKILL or container exit137. Native-broker race
+and fresh-suite checks do not by themselves accept this Docker correction; the
+next exact remote run must execute the named tests and downstream steps.

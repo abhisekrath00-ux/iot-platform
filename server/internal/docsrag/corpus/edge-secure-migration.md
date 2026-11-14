@@ -1920,3 +1920,9 @@ production incident/default-setting claim or a production persistence change.
 Local race tests and the separately named plaintext subtest in the mTLS suite
 pass; power loss/fsync/disk-full/fleet/capacity and both production durability
 fixes remain unaccepted. No owner Update or joint installer handoff is enabled.
+
+Remote7f1d1ce failed its graceful-restart fixture because the CI broker directory
+was read-only. Corrective test transport keeps config/certs read-only and adds
+only a writable broker-data submount, plus explicit actual-container signaling
+for restart/kill tests. This does not change deployed broker policy. The red
+run's skipped Valkey/edge steps remain unaccepted pending corrected exact CI.

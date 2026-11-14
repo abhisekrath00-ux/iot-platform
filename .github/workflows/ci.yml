@@ -61,12 +61,14 @@ jobs:
           #!/bin/sh
           set -eu
           dir=$(dirname "$2")
-          exec docker run --rm --label hexthings-tls-test --network host --user "$(id -u):$(id -g)" -v "$dir:$dir:ro" --entrypoint /usr/sbin/mosquitto eclipse-mosquitto:2 "$@"
+          # Keep config/certs read-only; only a dedicated broker data directory is writable.
+          mkdir -p "$dir/broker-data"
+          exec docker run --rm --cidfile "$dir/broker-container.id" --label hexthings-tls-test --network host --user "$(id -u):$(id -g)" -v "$dir:$dir:ro" -v "$dir/broker-data:$dir/broker-data:rw" --entrypoint /usr/sbin/mosquitto eclipse-mosquitto:2 "$@"
           SH
           chmod +x /tmp/mosquitto-test
           trap 'docker ps -aq --filter label=hexthings-tls-test | xargs -r docker rm -f' EXIT
           TEST_MOSQUITTO_BINARY=/tmp/mosquitto-test go test ./internal/mqttconfig -run '^TestLocalMTLSTransport$' -count=1 -v
-          TEST_MOSQUITTO_BINARY=/tmp/mosquitto-test TEST_INGEST_BINARY=/tmp/ingest-pipeline go test ./cmd/api -run '^TestIntegrationMQTTTLSPipeline$' -count=1 -v
+          TEST_MOSQUITTO_DOCKER_CONTROL=1 TEST_MOSQUITTO_BINARY=/tmp/mosquitto-test TEST_INGEST_BINARY=/tmp/ingest-pipeline go test ./cmd/api -run '^TestIntegrationMQTTTLSPipeline$' -count=1 -v
       - name: Real Valkey verified TLS and ACL transport
         working-directory: server
         run: |

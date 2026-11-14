@@ -114,10 +114,14 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerMode string) {
 	}
 	port := fmt.Sprint(l.Addr().(*net.TCPAddr).Port)
 	l.Close()
+	dataDir := filepath.Join(dir, "broker-data")
+	if err := os.Mkdir(dataDir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	conf := filepath.Join(dir, "broker.conf")
 	persistence := "persistence false\n"
 	if brokerRestart {
-		persistence = "persistence true\npersistence_location " + dir + "/\npersistence_file candidate.db\nautosave_interval 0\n"
+		persistence = "persistence true\npersistence_location " + dataDir + "/\npersistence_file candidate.db\nautosave_interval 0\n"
 	}
 	if err := os.WriteFile(conf, []byte("listener "+port+" 127.0.0.1\nallow_anonymous true\n"+persistence+"max_inflight_messages 1\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -133,7 +137,33 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerMode string) {
 	if err := bc.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { bc.Process.Kill(); bc.Wait() }()
+	dockerControl := os.Getenv("TEST_MOSQUITTO_DOCKER_CONTROL") == "1"
+	signalBroker := func(sig syscall.Signal) error {
+		if !dockerControl {
+			return bc.Process.Signal(sig)
+		}
+		b, err := os.ReadFile(filepath.Join(dir, "broker-container.id"))
+		if err != nil {
+			return err
+		}
+		id := strings.TrimSpace(string(b))
+		if len(id) != 64 {
+			return fmt.Errorf("invalid test broker container ID")
+		}
+		for _, c := range id {
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				return fmt.Errorf("invalid test broker container ID")
+			}
+		}
+		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(c, "docker", "kill", "--signal", fmt.Sprint(int(sig)), id).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("test broker signal: %w: %s", err, out)
+		}
+		return nil
+	}
+	defer func() { _ = signalBroker(syscall.SIGKILL); bc.Process.Kill(); bc.Wait() }()
 	wait := func(name string, p func() bool) {
 		t.Helper()
 		deadline := time.Now().Add(12 * time.Second)
@@ -301,11 +331,11 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerMode string) {
 			// SIGUSR1 requests a broker checkpoint, not delivery/DB acceptance. The
 			// replay assertions below determine whether the queued data survived.
 			checkpointAt := time.Now()
-			if err := bc.Process.Signal(syscall.SIGUSR1); err != nil {
+			if err := signalBroker(syscall.SIGUSR1); err != nil {
 				t.Fatal(err)
 			}
 			wait("broker explicit checkpoint", func() bool {
-				f, err := os.Stat(filepath.Join(dir, "candidate.db"))
+				f, err := os.Stat(filepath.Join(dataDir, "candidate.db"))
 				return err == nil && f.Size() > 0 && !f.ModTime().Before(checkpointAt)
 			})
 			// Publisher acceptance after that checkpoint is deliberately not
@@ -316,10 +346,10 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerMode string) {
 			if count(uncheckpointed.EventID) != 0 {
 				t.Fatal("offline input admitted")
 			}
-			if err := bc.Process.Kill(); err != nil {
+			if err := signalBroker(syscall.SIGKILL); err != nil {
 				t.Fatal(err)
 			}
-		} else if err := bc.Process.Signal(os.Interrupt); err != nil {
+		} else if err := signalBroker(syscall.SIGINT); err != nil {
 			t.Fatal(err)
 		}
 		stopped := make(chan error, 1)
@@ -328,7 +358,9 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerMode string) {
 		case err := <-stopped:
 			if brokerMode == "checkpoint-kill" {
 				status, ok := bc.ProcessState.Sys().(syscall.WaitStatus)
-				if err == nil || !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+				nativeKill := ok && status.Signaled() && status.Signal() == syscall.SIGKILL
+				dockerKill := dockerControl && bc.ProcessState.ExitCode() == 137
+				if err == nil || !(nativeKill || dockerKill) {
 					t.Fatal("expected broker SIGKILL termination", err, bc.ProcessState)
 				}
 			}
@@ -336,13 +368,19 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerMode string) {
 				t.Fatal("graceful broker stop", err)
 			}
 		case <-time.After(5 * time.Second):
+			_ = signalBroker(syscall.SIGKILL)
 			bc.Process.Kill()
 			<-stopped
 			t.Fatal("broker graceful stop timeout")
 		}
-		info, err := os.Stat(filepath.Join(dir, "candidate.db"))
+		info, err := os.Stat(filepath.Join(dataDir, "candidate.db"))
 		if err != nil || info.Size() == 0 {
 			t.Fatal("missing broker persistence file", err)
+		}
+		if dockerControl {
+			if err := os.Remove(filepath.Join(dir, "broker-container.id")); err != nil {
+				t.Fatal(err)
+			}
 		}
 		bc = exec.Command(broker, "-c", conf)
 		bc.Stdout = bl
