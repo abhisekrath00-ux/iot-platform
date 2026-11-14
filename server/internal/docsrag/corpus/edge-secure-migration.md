@@ -1954,3 +1954,14 @@ worker, external effect, owner UI or current Update contract is enabled. Three
 local race repetitions/fresh full-server/vet checks pass; detailed bounds and
 remaining acceptance gates are in enterprise-readiness.md. Both runtime defects,
 unsaved transport loss and combined owner-server/fresh-EXE handoff remain open.
+
+A guarded one-attempt stateless-flow batch executor is also local under the same
+default-off package, with no runtime caller. It commits attempt+internal history
+before any callback, rechecks current policy without retargeting before each
+callback and quarantines uncertain batches without takeover/retry. The whole
+batch is conservatively unknown after interruption, including unsent occurrences;
+no per-effect receipt or exactly-once delivery is claimed. Only isolated synthetic
+senders exist. Actual child SIGKILL after claim/after synthetic acceptance proves
+zero/one retained receipts and no resend. Rules/position/history stages, real
+adapters, owner UI, all transport/durability and deployment acceptance gates stay
+open. Existing exact93 guards and staged-schema activation boundaries stay intact.

@@ -1016,3 +1016,58 @@ manual-ACK/session/backpressure/shutdown, application admission receipt/edge
 outbox, immutable-image/restore/rollback acceptance and combined server/fresh EXE.
 This code does not fix either enabled production durability defect or the
 publisher-accepted unsaved transport loss. Existing exact93 guards are unchanged.
+
+### Default-off one-attempt stateless-flow batches (2026-11-14)
+
+The same product package now implements guarded ExecuteOnce for an unblocked
+stateless-flow plan, still with NO startup, MQTT/API ingest or scheduler caller.
+A reviewed one-attempt Sender adapter is required. Only synthetic isolated test
+senders exist; existing production SMTP/Slack adapters are NOT wired or accepted
+for this path. In particular their timeout/provider-result behavior is not
+silently assumed safe. No notification or device effect was sent during tests.
+
+A serializable claim transaction locks the input, validates retained plan/state,
+refuses unsupported stages, compares the complete current configuration against
+the retained selection, writes deterministic input+flow history and sets one
+attempt UUID/executing state together. No effect happens before that commit.
+A failed/uncertain claim commit returns no send permission. History says
+processing_started, not notified. There is no retry lease, expiry, takeover or
+background requeue. Delays stay tied to durable selection time rather than
+starting afresh after each wait. Before each callback a fresh consistent current
+configuration check refuses any disabled/changed source, target or policy;
+targets are never substituted. This is the authorization check point, not an
+atomic transaction across the database and an external provider.
+
+The deliberately conservative policy is ONE ATTEMPT FOR THE WHOLE BATCH. If a
+sender error, cancellation or checkpoint failure occurs after claim, the batch
+is recorded outcome_unknown when possible. All occurrences are quarantined,
+including those never started. A crash leaves executing/attempt evidence with
+an explicit no-takeover/no-retry inspection label; it cannot be claimed again.
+This policy avoids duplicate external effects by accepting potentially missing
+work. It does NOT claim per-effect durable receipts or exactly-once delivery.
+Completed means the batch's provider-acceptance callbacks/checkpoint finished,
+NOT recipient delivery, actuation or a guarantee every possible flow is supported.
+
+Supported flow history and the final batch checkpoint update transactionally.
+If a source is deleted mid-attempt, quarantine can still be recorded even though
+its cascading flow history is gone. A failed final completion cannot rearm the
+batch. No old evaluator's HTTP/context/control side effects are replayed.
+Matched rules/position/history-dependent flows remain planning quarantine until
+their own transactional stages exist; they are not bypassed to run the rest.
+
+Local real-PG tests cover durable claim/history before callback, one winning
+concurrent claim, refusal of changed policy before/between callbacks, no
+retargeting, stopped remaining callbacks after uncertainty, cancellation during
+delay, atomic internal failures, final-checkpoint faults and no rearm. Actual
+child processes are SIGKILLed after committed claim and after a synthetic provider
+receipt; zero/one receipts respectively remain, and neither restart/replay nor
+another execution call can resend or take over the attempt. This is isolated
+local process proof, not real provider or production transport acceptance.
+
+Final local validation: three real-PG race repetitions of admission+execution,
+ten non-race process-kill repetitions, fresh full-server suite and vet pass.
+The first full-suite attempt caught a child-fixture lifecycle race (after-claim
+helper could exit normally before the parent's kill); the helper now stays alive
+and the parent verifies actual stopped process state before SIGKILL. The final
+fresh full run passes; the earlier failed run is not accepted evidence. No
+product policy or test assertion was weakened. No remote acceptance is inherited.

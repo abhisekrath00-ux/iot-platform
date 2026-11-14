@@ -18,7 +18,7 @@ import (
 // feature policy, unmatched enabled definitions and explicit unresolved stages.
 // It is not a promise every flow/rule kind is implemented. Blocked is a durable
 // planning quarantine; even otherwise supported effects must not run while any
-// stage is blocked. No executor exists yet. Current authorization/revocation
+// stage is blocked. Only the separately guarded stateless-flow batch executor can consume an unblocked plan. Current authorization/revocation
 // MUST still be checked before any future effect, without retargeting it.
 type Plan struct {
 	Policy      string    `json:"policy"`
