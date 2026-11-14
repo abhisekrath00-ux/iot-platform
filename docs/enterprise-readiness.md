@@ -804,3 +804,33 @@ and scheduled definitions plus both export formats. All notification channels
 are absent and the notifier is a recording-free stub; no external delivery or
 device effect is supplied. Both runtime durability gaps and combined owner
 update acceptance remain open.
+
+### Stored-definition publish validation and serialization (2026-11-14)
+
+Publish/rollback formerly looked up the selected version ID, separately read its
+stored definition for the feature gate, and only then opened the transaction
+that changed statuses/pointer. A failed definition read or JSON decode skipped
+the gate. A real-PG regression demonstrates a syntactically valid but invalid
+stored definition being published by those queries. This is a synthetic fault
+finding, not evidence of malformed owner data or outside exploitation.
+
+Publish/rollback now lock the tenant-owned flow and selected same-tenant/flow
+version in one transaction. The exact locked stored definition must decode,
+validate and pass the existing HTTP/control/function admin/feature/code checks
+before changing any status or pointer. Feature lookups use that transaction's
+connection, not another pooled connection while locks are held. Update row
+counts are checked. Per-flow locking serializes competing pointer changes and
+only that tenant's versions are archived. No execution or dispatch occurs here.
+These checks do not freeze mutable feature policy for later execution or supply
+a durable work/config snapshot. A commit failure is still an uncertain result;
+inspect the flow/version state before another publish attempt.
+
+Three local real-PG race repetitions cover invalid stored array/object/unknown
+step refusal for publish and rollback without pointer/status change, injected
+pointer-update refusal rolling back status changes, ten pairs of competing
+publishes with one current published version and matching pointer, and normal
+rollback. Function/HTTP/control feature-off admin and enabled-feature operator
+are refused; enabled-feature admin publishes configuration using a one-connection
+pool with a bounded request context. No evaluator, notification client or device
+is invoked, and flow_runs remains empty. This is local transaction acceptance,
+not crash/commit-ack-loss, full owner deployment or either durability-gap closure.

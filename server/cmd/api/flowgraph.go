@@ -30,18 +30,24 @@ func (s *server) functionNodesAllowed(r *http.Request) bool {
 // gateFunctionNodes rejects (and writes the error) when the definition holds
 // function nodes the caller may not save, or code that does not compile.
 func (s *server) gateFunctionNodes(w http.ResponseWriter, r *http.Request, d flow.Definition) bool {
-	if d.HasHTTPNodes() && !(auth.Role(r) == "admin" && s.featureEnabled(r, "http_nodes")) {
+	return gateFunctionNodesWithFeatures(w, r, d, func(feature string) bool { return s.featureEnabled(r, feature) })
+}
+
+// A transactional caller uses its own connection, not a second pooled read
+// while holding locks. Lookup failure must return false.
+func gateFunctionNodesWithFeatures(w http.ResponseWriter, r *http.Request, d flow.Definition, enabled func(string) bool) bool {
+	if d.HasHTTPNodes() && !(auth.Role(r) == "admin" && enabled("http_nodes")) {
 		http.Error(w, "http nodes require an admin and the http_nodes feature enabled for this tenant", 403)
 		return false
 	}
-	if d.HasControlNodes() && !(auth.Role(r) == "admin" && s.featureEnabled(r, "control_nodes")) {
+	if d.HasControlNodes() && !(auth.Role(r) == "admin" && enabled("control_nodes")) {
 		http.Error(w, "control nodes require an admin and the control_nodes feature enabled for this tenant", 403)
 		return false
 	}
 	if !d.HasFunctionNodes() {
 		return true
 	}
-	if !s.functionNodesAllowed(r) {
+	if !(auth.Role(r) == "admin" && enabled("function_nodes")) {
 		http.Error(w, "function nodes require an admin and the function_nodes feature enabled for this tenant", 403)
 		return false
 	}

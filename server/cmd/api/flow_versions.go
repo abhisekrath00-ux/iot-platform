@@ -7,12 +7,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // flowOwned verifies the flow belongs to the caller's tenant.
@@ -116,39 +118,62 @@ func (s *server) createFlowDraft(w http.ResponseWriter, r *http.Request) {
 // setPublished flips the published pointer to the given version (shared by
 // publish and rollback). The previous published version is archived.
 func (s *server) setPublished(w http.ResponseWriter, r *http.Request, flowID string, version int) bool {
-	var verID string
-	if err := s.st.Pool.QueryRow(r.Context(),
-		`SELECT id FROM flow_versions WHERE flow_id=$1 AND tenant_id=$2 AND version=$3`,
-		flowID, auth.Tenant(r), version).Scan(&verID); err != nil {
-		http.Error(w, "version not found", 404)
-		return false
-	}
-	// publishing a version that holds sandboxed JavaScript is as restricted as saving one
-	var vdef []byte
-	var vd flow.Definition
-	if s.st.Pool.QueryRow(r.Context(), `SELECT definition FROM flow_versions WHERE id=$1`, verID).Scan(&vdef) == nil &&
-		json.Unmarshal(vdef, &vd) == nil && !s.gateFunctionNodes(w, r, vd) {
-		return false
-	}
 	tx, err := s.st.Pool.Begin(r.Context())
 	if err != nil {
 		dbErr(w, err)
 		return false
 	}
 	defer tx.Rollback(r.Context())
-	if _, err := tx.Exec(r.Context(),
-		`UPDATE flow_versions SET status='archived' WHERE flow_id=$1 AND status='published'`, flowID); err != nil {
+	// Serialize publish/rollback on the owning flow, before reading its version.
+	// The checked definition stays locked until the same pointer change commits.
+	var owner string
+	if err := tx.QueryRow(r.Context(), `SELECT tenant_id FROM flows WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, flowID, auth.Tenant(r)).Scan(&owner); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "flow not found", 404)
+		} else {
+			dbErr(w, err)
+		}
+		return false
+	}
+	var verID string
+	var vdef []byte
+	if err := tx.QueryRow(r.Context(), `SELECT id,definition FROM flow_versions WHERE flow_id=$1 AND tenant_id=$2 AND version=$3 FOR UPDATE`, flowID, owner, version).Scan(&verID, &vdef); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "version not found", 404)
+		} else {
+			dbErr(w, err)
+		}
+		return false
+	}
+	var vd flow.Definition
+	if json.Unmarshal(vdef, &vd) != nil || flow.Validate(vd) != nil {
+		http.Error(w, "stored definition invalid", 400)
+		return false
+	}
+	if !gateFunctionNodesWithFeatures(w, r, vd, func(feature string) bool {
+		var on bool
+		return tx.QueryRow(r.Context(), `SELECT enabled FROM tenant_features WHERE tenant_id=$1 AND feature=$2`, owner, feature).Scan(&on) == nil && on
+	}) {
+		return false
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE flow_versions SET status='archived' WHERE flow_id=$1 AND tenant_id=$2 AND status='published'`, flowID, owner); err != nil {
 		dbErr(w, err)
 		return false
 	}
-	if _, err := tx.Exec(r.Context(),
-		`UPDATE flow_versions SET status='published', published_at=now() WHERE id=$1`, verID); err != nil {
-		dbErr(w, err)
+	if tag, err := tx.Exec(r.Context(), `UPDATE flow_versions SET status='published',published_at=now() WHERE id=$1 AND flow_id=$2 AND tenant_id=$3`, verID, flowID, owner); err != nil || tag.RowsAffected() != 1 {
+		if err != nil {
+			dbErr(w, err)
+		} else {
+			http.Error(w, "version changed", 409)
+		}
 		return false
 	}
-	if _, err := tx.Exec(r.Context(),
-		`UPDATE flows SET published_version_id=$1 WHERE id=$2`, verID, flowID); err != nil {
-		dbErr(w, err)
+	if tag, err := tx.Exec(r.Context(), `UPDATE flows SET published_version_id=$1 WHERE id=$2 AND tenant_id=$3`, verID, flowID, owner); err != nil || tag.RowsAffected() != 1 {
+		if err != nil {
+			dbErr(w, err)
+		} else {
+			http.Error(w, "flow changed", 409)
+		}
 		return false
 	}
 	if err := tx.Commit(r.Context()); err != nil {

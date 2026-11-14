@@ -1881,3 +1881,11 @@ Synthetic malformed DB pointers failed those intended boundaries before the
 fix; real-PG regression now rejects them while preserving valid selections.
 No new schema, MQTT/session or execution-recovery capability is introduced.
 This is not evidence of a malformed pointer at an owner deployment.
+
+Publish/rollback selection now locks the tenant-owned flow/version, validates the
+exact stored definition and applies existing node feature/admin checks before
+changing statuses/pointer in that same transaction. Malformed stored definitions
+fail closed; competing publishes serialize per flow, and pointer-update failure
+rolls back statuses. Feature lookup stays on the transaction connection. No new
+migration, worker, executor, device action or durable replay is introduced; an
+uncertain publish commit still requires inspection before another attempt.
