@@ -29,7 +29,7 @@ func (s *server) exportFlow(w http.ResponseWriter, r *http.Request) {
 	var name string
 	var def []byte
 	err := s.st.Pool.QueryRow(r.Context(),
-		`SELECT f.name, v.definition FROM flows f JOIN flow_versions v ON v.id = f.published_version_id
+		`SELECT f.name, v.definition FROM flows f JOIN flow_versions v ON v.id = f.published_version_id AND v.flow_id=f.id AND v.tenant_id=f.tenant_id AND v.status='published'
 		 WHERE f.id=$1 AND f.tenant_id=$2`, id, auth.Tenant(r)).Scan(&name, &def)
 	if err != nil {
 		http.Error(w, "flow not found or not published", 404)

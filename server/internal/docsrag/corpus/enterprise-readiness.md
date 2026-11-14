@@ -779,3 +779,28 @@ window. All mutable dependencies and multi-flow/rule/position binding remain
 open. No runtime caller, worker, retry, ACK/session change, additive migration
 or owner rollout is enabled. Full background/previous-image and joint fresh
 installer/server handoff acceptance remain blocked, not waived by retention.
+
+### Published-flow loader identity/status fences (2026-11-14)
+
+Inspection of the real telemetry and scheduled loaders found they joined a flow
+only to its published-version pointer ID. The schema's single-column foreign
+key does not ensure that the version belongs to the same flow or tenant, or
+that its status is still published. Synthetic malformed DB rows demonstrated
+that draft/archived, foreign-tenant-version and other-flow pointers could create
+a run; native and Node-RED exports also returned those definitions. This is a
+lab finding, not evidence of a malformed pointer or disclosure on an owner site.
+
+Both runtime loaders and both published export queries now additionally join
+same flow ID, same tenant and published status. These are fail-closed selection
+checks, not a new schema, background worker, effect retry or configuration
+snapshot guarantee. Correctly published matching definitions still execute and
+export; disabled flows still export but do not execute. A foreign caller cannot
+export another tenant's flow. Draft editing/export semantics elsewhere are not
+redefined by these published-selection checks.
+
+The new real-PG regression fails against the former queries for each malformed
+pointer, and passes three race repetitions after the checks, for both telemetry
+and scheduled definitions plus both export formats. All notification channels
+are absent and the notifier is a recording-free stub; no external delivery or
+device effect is supplied. Both runtime durability gaps and combined owner
+update acceptance remain open.

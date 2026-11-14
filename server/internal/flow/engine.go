@@ -31,7 +31,7 @@ func EvaluateWith(ctx context.Context, pool *pgxpool.Pool, n Notifier, fn Functi
 	fnOn := -1 // lazily resolved: -1 unknown, 0 off, 1 on
 	rows, err := pool.Query(ctx,
 		`SELECT f.id, f.name, v.definition
-		 FROM flows f JOIN flow_versions v ON v.id = f.published_version_id
+		 FROM flows f JOIN flow_versions v ON v.id = f.published_version_id AND v.flow_id=f.id AND v.tenant_id=f.tenant_id AND v.status='published'
 		 WHERE f.tenant_id=$1 AND f.enabled`, tenantID)
 	if err != nil {
 		log.Printf("flows: load: %v", err)
@@ -191,7 +191,7 @@ func RunScheduled(ctx context.Context, pool *pgxpool.Pool, n Notifier) {
 	rows, err := pool.Query(ctx,
 		`SELECT f.id, f.tenant_id, f.name, v.definition,
 		        (SELECT max(created_at) FROM flow_runs r WHERE r.flow_id=f.id)
-		 FROM flows f JOIN flow_versions v ON v.id = f.published_version_id
+		 FROM flows f JOIN flow_versions v ON v.id = f.published_version_id AND v.flow_id=f.id AND v.tenant_id=f.tenant_id AND v.status='published'
 		 WHERE f.enabled AND v.definition::text LIKE '%"inject"%'`)
 	if err != nil {
 		log.Printf("flows: scheduled load: %v", err)

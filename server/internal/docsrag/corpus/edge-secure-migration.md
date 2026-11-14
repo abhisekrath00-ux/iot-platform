@@ -1874,3 +1874,10 @@ after execution. Claim itself is NOT changed or gated; admission and config
 capture remain separate, and complete mutable/multi-flow/rule/position bindings
 remain open. The separate candidate SQL is outside migrations/startup. No worker,
 retry, runtime durability acceptance or production Update availability follows.
+
+Published-flow selection hardening adds same-flow/same-tenant/published-status
+checks to both telemetry/scheduled loaders and both published export formats.
+Synthetic malformed DB pointers failed those intended boundaries before the
+fix; real-PG regression now rejects them while preserving valid selections.
+No new schema, MQTT/session or execution-recovery capability is introduced.
+This is not evidence of a malformed pointer at an owner deployment.
