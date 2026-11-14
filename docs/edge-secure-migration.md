@@ -1899,3 +1899,12 @@ broker disk/restart/replica/backpressure acceptance. The separate plaintext
 experiment is named within the mTLS suite but is NOT additional TLS proof.
 Production's two durability defects still reproduce; no runtime activation,
 MQTT setting change or schema migration follows from this fixture.
+
+A separate test-only file-backed broker variant now gracefully stops Mosquitto
+with three readings in the persistent subscriber's offline queue, verifies its
+nonempty persistence file, starts a new broker process on that same config/data,
+and observes one admitted pending pair/PUBACK per queued input. Local real-PG
+race repetitions and its separately named plaintext subtest in the mTLS suite
+pass. This is graceful file reload only: abrupt broker kill/power loss, fsync or
+disk-full behavior, production persistence settings, shutdown policy, replicas
+and capacity remain unaccepted. Both production durability defects remain open.

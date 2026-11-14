@@ -862,9 +862,22 @@ These are a tiny bounded queue experiment, not backlog capacity acceptance.
 Three local real-PG race repetitions pass. A fresh-DB compiled-ingest mTLS suite
 also passes with this separate plaintext candidate experiment as an explicitly
 named subtest. That subtest is NOT extra TLS proof. The same run still reproduces
-BOTH open defects in actual production ingest. Broker stays alive with in-memory
-session persistence only: broker restart/disk loss, broker persistence settings,
-shared subscriptions, stable client-ID allocation for replicas, backpressure,
-shutdown, sustained load, MQTT identity and full config/effect binding remain
-unaccepted. Candidate evidence does not close either runtime durability gap or
-enable the held owner update/server/fresh-installer handoff.
+BOTH open defects in actual production ingest. This initial variant keeps its
+broker alive with in-memory session persistence only.
+
+A separate candidate test variant enables Mosquitto file persistence in a
+disposable directory. After the subscriber stops and three readings enter its
+offline queue, the test gracefully terminates the broker, requires a nonempty
+persistence file, and starts a new broker process using the same config/data.
+The subscriber reconnects and each queued input produces one pending pair and
+one observed PUBACK. Three real-PG race repetitions pass; the explicitly named
+CandidatePlaintextGracefulBrokerRestart subtest also passes in the fresh-DB mTLS
+suite. That experiment remains plaintext and test-only, not extra TLS proof.
+Broker shutdown is bounded by a timeout, not an unbounded wait.
+
+Graceful broker file reload is not abrupt broker-kill/power-loss/fsync/disk-full
+acceptance, a production persistence configuration or a safe shutdown policy.
+Shared subscriptions, stable client-ID allocation for replicas, backpressure,
+sustained load, MQTT identity and full config/effect binding remain unaccepted.
+Candidate evidence does not close either runtime durability gap or enable the
+held owner update/server/fresh-installer handoff.

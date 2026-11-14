@@ -64,9 +64,18 @@ func TestAdmissionMQTTCandidateHelper(t *testing.T) {
 	select {}
 }
 
-// Candidate transport experiment ONLY. Broker stays alive; no durable disk,
-// shared-subscription/fleet, TLS or production ingest acceptance is asserted.
-func TestIntegrationMQTTAdmissionCandidateBoundary(t *testing.T) {
+// Candidate transport experiments ONLY. The default broker stays alive; the
+// separate variant tests graceful file-backed restart. Neither accepts abrupt
+// disk loss, shared-subscription/fleet, TLS or production ingest behavior.
+func TestIntegrationMQTTAdmissionCandidateBoundary(t *testing.T) { runMQTTAdmissionCandidate(t, false) }
+
+// Graceful broker persistence is separate from the live in-memory boundary.
+// This does not prove power-loss/fsync/disk-failure or production config safety.
+func TestIntegrationMQTTAdmissionCandidateBrokerRestart(t *testing.T) {
+	runMQTTAdmissionCandidate(t, true)
+}
+
+func runMQTTAdmissionCandidate(t *testing.T, brokerRestart bool) {
 	broker := os.Getenv("TEST_MOSQUITTO_BINARY")
 	if broker == "" {
 		t.Skip("TEST_MOSQUITTO_BINARY required")
@@ -97,7 +106,11 @@ func TestIntegrationMQTTAdmissionCandidateBoundary(t *testing.T) {
 	port := fmt.Sprint(l.Addr().(*net.TCPAddr).Port)
 	l.Close()
 	conf := filepath.Join(dir, "broker.conf")
-	if err := os.WriteFile(conf, []byte("listener "+port+" 127.0.0.1\nallow_anonymous true\npersistence false\nmax_inflight_messages 1\n"), 0600); err != nil {
+	persistence := "persistence false\n"
+	if brokerRestart {
+		persistence = "persistence true\npersistence_location " + dir + "/\npersistence_file candidate.db\n"
+	}
+	if err := os.WriteFile(conf, []byte("listener "+port+" 127.0.0.1\nallow_anonymous true\n"+persistence+"max_inflight_messages 1\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	bl, err := os.Create(filepath.Join(dir, "broker.log"))
@@ -260,7 +273,7 @@ func TestIntegrationMQTTAdmissionCandidateBoundary(t *testing.T) {
 		t.Fatal("extra observed ACK", acked(e.EventID))
 	}
 	// A tiny offline queue is bounded evidence, not throughput/backpressure
-	// acceptance or a claim about broker disk persistence.
+	// acceptance. Only the explicit variant restarts the file-backed broker.
 	stop()
 	queued := make([]ingestjournal.Envelope, 3)
 	for i := range queued {
@@ -271,6 +284,43 @@ func TestIntegrationMQTTAdmissionCandidateBoundary(t *testing.T) {
 			t.Fatal("offline event admitted without subscriber")
 		}
 	}
+	if brokerRestart {
+		// Graceful termination asks Mosquitto to write its retained session and
+		// offline queue. Restart the same binary/config/data, not a fresh broker.
+		if err := bc.Process.Signal(os.Interrupt); err != nil {
+			t.Fatal(err)
+		}
+		stopped := make(chan error, 1)
+		go func() { stopped <- bc.Wait() }()
+		select {
+		case err := <-stopped:
+			if err != nil {
+				t.Fatal("graceful broker stop", err)
+			}
+		case <-time.After(5 * time.Second):
+			bc.Process.Kill()
+			<-stopped
+			t.Fatal("broker graceful stop timeout")
+		}
+		info, err := os.Stat(filepath.Join(dir, "candidate.db"))
+		if err != nil || info.Size() == 0 {
+			t.Fatal("missing broker persistence file", err)
+		}
+		bc = exec.Command(broker, "-c", conf)
+		bc.Stdout = bl
+		bc.Stderr = bl
+		if err := bc.Start(); err != nil {
+			t.Fatal(err)
+		}
+		wait("restarted broker", func() bool {
+			c, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 100*time.Millisecond)
+			if err == nil {
+				c.Close()
+				return true
+			}
+			return false
+		})
+	}
 	start("")
 	for _, q := range queued {
 		wait("offline queue replay", func() bool { return count(q.EventID) == 2 && acked(q.EventID) == 1 })
@@ -279,5 +329,8 @@ func TestIntegrationMQTTAdmissionCandidateBoundary(t *testing.T) {
 			t.Fatal("offline state", qw, err)
 		}
 	}
-	t.Log("candidate-only stable persistent subscriber: failed admission has no PUBACK, restart redelivers to one pending pair; commit-before-ACK process kill reconciles terminal exact admission without rearm; live broker only, production unchanged")
+	if brokerRestart {
+		t.Log("candidate-only graceful broker restart reloads nonempty persistence file and retained subscriber session/offline queue; not abrupt broker kill, disk/fsync failure, replica or production configuration acceptance")
+	}
+	t.Log("candidate-only stable persistent subscriber: failed admission has no PUBACK, restart redelivers to one pending pair; commit-before-ACK process kill reconciles terminal exact admission without rearm; subscriber-process boundaries only, production unchanged")
 }

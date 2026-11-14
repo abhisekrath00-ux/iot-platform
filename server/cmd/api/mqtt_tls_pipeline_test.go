@@ -104,6 +104,7 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	t.Run("OpenDerivedWorkGap", TestIntegrationCompiledIngestDerivedWorkGap)
 	// Separate plaintext candidate experiment, NOT an additional TLS assertion.
 	t.Run("CandidatePlaintextPersistentAdmission", TestIntegrationMQTTAdmissionCandidateBoundary)
+	t.Run("CandidatePlaintextGracefulBrokerRestart", TestIntegrationMQTTAdmissionCandidateBrokerRestart)
 }
 
 // Both identities use production client options and the generated ACL. An own
