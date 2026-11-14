@@ -1099,3 +1099,44 @@ wide pair windows, source revocation, retained manual coordinates, trail/state
 fault rollback, concurrent axes and caller rollback. The stage remains default
 off with no API/MQTT/startup caller. Rule/history stages, real sender adapters,
 operational UI, transport/receipt and deployment acceptance gates remain open.
+
+
+### Read-only retained processing evidence view (local, 2026-11-15)
+
+System health has a collapsed **Staged processing evidence (read only)** panel.
+An interactive workspace admin can inspect one exact event ID and original
+RFC3339 observation timestamp. Opening the panel, loading the page, or editing
+identity does not fetch evidence; only the explicit Inspect button makes a GET.
+The API refuses API keys, customer-scoped admins and non-admin roles. The query
+is tenant-scoped, bounded to one exact identity and five seconds, sends no-store,
+and never applies a schema, claims work, repairs state or invokes execution.
+An absent staged table is reported as absent, not installed on demand. Missing
+records do not prove the input was never received or processed; failed or invalid
+integrity checks remain unknown, with no automatic retry.
+
+The response validates the retained canonical envelope/plan/state using the same
+read path as processing-v1. It returns identity, policy/selection time, state,
+attempt ID, counts and planning/attempt quarantine reasons only. Destinations,
+message bodies, definitions and raw plans are omitted. Pending is not execution;
+executing and outcome_unknown prohibit takeover/resend; completed means batch
+callbacks/checkpoint finished, not recipient delivery or device actuation.
+Editing identity clears stale evidence. A failed refresh also clears it, and a
+slow older response cannot refill another identity. Microseconds are compared,
+not silently rounded to browser milliseconds.
+
+Local isolated PostgreSQL/race tests cover absent staged schema, tenant/role/key/
+customer boundaries, exact identity validation, real immutable admission and
+unsupported-history quarantine, response redaction, state inspection and bad
+plan-digest refusal. State-display cases are synthetic retained SQL fixtures;
+they do not assert an actual provider sent anything. Chromium at1440/390 tests
+pending/unknown/completed labels, five explicit read-only checks and no writes,
+microsecond-mismatch refusal, cleared evidence after failure, no page overflow
+or browser errors; those browser responses are synthetic API fixtures.
+
+This is an inspection control, not operational recovery or a working enabled
+production processing pipeline. There is no Activate, Retry, Resume, Send or
+Take over button. Current MQTT/HTTP/legacy evaluators and exact93 Update guards
+remain unchanged. Production ACK/derived-replay defects, broker durability,
+real sender adapters, admission receipt/edge outbox, immutable-image restore/
+rollback and owner-update acceptance remain open. Inspect the exact published
+commit's full CI before treating local tests as remote acceptance.

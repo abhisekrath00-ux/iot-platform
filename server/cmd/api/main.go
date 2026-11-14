@@ -297,6 +297,7 @@ func main() {
 	api.HandleFunc("POST /v1/system/endpoints/check", s.checkEndpoint)
 	api.HandleFunc("DELETE /v1/system/endpoints/{id}", s.deleteEndpoint)
 	api.HandleFunc("GET /v1/system/health", s.systemHealth)
+	api.HandleFunc("GET /v1/system/processing-evidence", s.processingEvidence)
 	api.HandleFunc("GET /v1/system/metrics", s.systemMetrics)
 	api.HandleFunc("GET /v1/system/logs", s.systemLogs)
 	api.HandleFunc("GET /v1/system/prom", s.systemProm)

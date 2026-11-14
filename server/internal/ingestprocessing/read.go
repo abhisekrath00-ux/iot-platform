@@ -11,8 +11,8 @@ import (
 )
 
 // Record is retained evidence, not permission to execute. Planning quarantine
-// is Plan.Blocked, distinct from an uncertain already-started attempt. A future
-// operator view must show both; it must never label pending/unknown as delivered.
+// is Plan.Blocked, distinct from an uncertain already-started attempt. The read-only
+// operator view shows both; it must never label pending/unknown as delivered.
 type Record struct {
 	State      string `json:"state"`
 	AttemptID  string `json:"attempt_id,omitempty"`

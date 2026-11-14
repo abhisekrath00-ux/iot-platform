@@ -1,3 +1,4 @@
+import ProcessingEvidence from '../components/ProcessingEvidence';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import LineChart, { Series } from '../components/LineChart';
@@ -68,6 +69,7 @@ export default function SystemHealth() {
         <LineChart title="API process memory" unit="MB" series={[s('api_heap_mb', 'heap', '#2563eb')]} />
         <LineChart title="Goroutines" series={[s('api_goroutines', 'goroutines', '#64748b')]} />
       </div>}
+      <ProcessingEvidence/>
       <div className="card" style={{ marginTop: 12 }}>
         <strong>What is measured</strong>
         <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
