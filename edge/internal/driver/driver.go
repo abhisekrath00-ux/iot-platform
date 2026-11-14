@@ -30,11 +30,14 @@ type PortOpener func(name string, mode *serial.Mode) (serial.Port, error)
 
 // New returns the driver for the device profile.
 func New(d config.Device) (Driver, error) {
-	return NewWithOpener(serial.Open, d)
+	return NewWithOpener(OpenOwnedSerial, d)
 }
 
 // NewWithOpener is New with the port opener injected.
 func NewWithOpener(open PortOpener, d config.Device) (Driver, error) {
+	if open == nil {
+		open = OpenOwnedSerial
+	}
 	// Network profiles need no serial port.
 	switch d.Profile {
 	case "modbus-tcp":

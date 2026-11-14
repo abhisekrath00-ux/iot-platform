@@ -12,6 +12,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/autodetect"
 	"io"
 	"log"
+	"net"
 	"os"
 	"runtime"
 	"strings"
@@ -99,10 +100,30 @@ func main() {
 	setupSerial := flag.String("setup-serial", "", "serial matching the saved gateway identity")
 	setupOutput := flag.String("setup-output", "", "new staging file for downloaded configuration")
 	setupManaged := flag.Bool("allow-managed-devices", false, "explicitly allow signed source-list updates after local import")
-	explorerListen := flag.String("explorer-listen", "", "opt-in read-only Modbus explorer on literal loopback IP:port; reuses already-owned connections, disabled by default")
+	openExplorerFlag := flag.Bool("open-explorer", false, "request a temporary loopback explorer from the running agent; no service restart or device read")
+	closeExplorerFlag := flag.Bool("close-explorer", false, "close the running agent explorer and temporary connections without stopping telemetry")
+	explorerListen := flag.String("explorer-listen", "", "opt-in read-only Modbus explorer on literal loopback IP:port; owned or explicitly opened temporary connections, disabled by default")
 	flag.Parse()
 
 	switch {
+	case *openExplorerFlag || *closeExplorerFlag:
+		if *openExplorerFlag && *closeExplorerFlag {
+			fmt.Fprintln(os.Stderr, "choose Open or Close explorer, not both")
+			os.Exit(1)
+		}
+		action := "open"
+		if *closeExplorerFlag {
+			action = "close"
+		}
+		receipt, err := explorer.RequestControl(context.Background(), *identityDir, action)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(receipt); err != nil {
+			os.Exit(1)
+		}
+		return
 	case *reportPortsFlag:
 		os.Exit(reportSetupPorts(*setupServer, *identityDir, os.Stdout))
 	case *requestPairingFlag:
@@ -347,9 +368,7 @@ func main() {
 	// them without restarting the agent (or dropping the MQTT connection).
 	sup := startSupervisor(cfg, q, telemetryTopic, tracker)
 	defer sup.stop()
-	if err := startExplorer(ctx, *explorerListen); err != nil {
-		log.Printf("explorer disabled: %v", err)
-	}
+	startExplorerControl(ctx, *identityDir, *explorerListen)
 
 	var sourceReady atomic.Bool
 	sourceReady.Store(true)
@@ -660,7 +679,7 @@ func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string, 
 					if port == 0 {
 						port = 502
 					}
-					endpoint = fmt.Sprintf("%s:%d", dev.Host, port)
+					endpoint = net.JoinHostPort(dev.Host, fmt.Sprint(port))
 				}
 				remove := explorerDrivers.Add(explorer.Connection{Name: dev.ID, Transport: transport, Endpoint: endpoint, Unit: dev.Address}, reader)
 				defer remove() // LIFO: detach and drain before the driver closes

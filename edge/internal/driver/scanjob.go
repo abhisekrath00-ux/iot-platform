@@ -77,7 +77,7 @@ type fc struct{ fn, reg int }
 func SweepModbusRTU(ctx context.Context, open PortOpener, req SweepRequest) SweepResult {
 	var res SweepResult
 	if open == nil {
-		open = serial.Open
+		open = OpenOwnedSerial
 	}
 	if req.From < 1 || req.To > 247 || req.From > req.To {
 		res.Error = "scan range must be within 1-247"

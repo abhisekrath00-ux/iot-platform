@@ -65,6 +65,25 @@ function Invoke-SetupPairing([string]$ServerAddress,[string]$GatewaySerial,[stri
   Assert-SetupExit $LASTEXITCODE "Secure pairing: $text"
   return ($text -join "`r`n")
 }
+function Invoke-SetupExplorer([string]$Action) {
+  if ($Action -notin @('open','close')) { throw 'Choose Open or Close explorer.' }
+  if (-not (Test-Path $exe)) { throw 'Install the edge application first.' }
+  $service=Get-Service HexmonEdge -ErrorAction SilentlyContinue
+  if (-not $service -or $service.Status -ne 'Running') { throw 'Start the configured edge service first. Explorer never starts or restarts it for you.' }
+  $flag=if ($Action -eq 'open') { '-open-explorer' } else { '-close-explorer' }
+  $text=& $exe $flag -identity-dir "$dir\data" 2>&1
+  Assert-SetupExit $LASTEXITCODE "Explorer request: $text"
+  $receipt=($text -join "`n") | ConvertFrom-Json
+  $id=[guid]::Empty
+  if ($receipt.state -ne 'complete' -or $receipt.error -or -not [guid]::TryParse([string]$receipt.id,[ref]$id)) { throw 'No verified explorer receipt. No browser was opened.' }
+  if ($Action -eq 'open') {
+    $uri=$null
+    if (-not [uri]::TryCreate([string]$receipt.url,[UriKind]::Absolute,[ref]$uri) -or $uri.Scheme -ne 'http' -or $uri.Host -ne '127.0.0.1' -or $uri.Port -lt 1 -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.AbsolutePath -notin @('','/')) { throw 'Explorer returned an unexpected local address. No browser was opened.' }
+    $expiry=[DateTimeOffset]::Parse([string]$receipt.expires_at)
+    if ($expiry -le [DateTimeOffset]::UtcNow -or $expiry -gt [DateTimeOffset]::UtcNow.AddMinutes(61)) { throw 'Explorer receipt has an invalid lifetime. No browser was opened.' }
+  }
+  return $receipt
+}
 if ($ContractOnly) { return }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -74,7 +93,7 @@ $form.Text = 'HexThings Edge - Install and manage'
 $workArea=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $form.Size=New-Object System.Drawing.Size(700,([Math]::Min(800,$workArea.Height-40)))
 $form.MinimumSize=New-Object System.Drawing.Size(700,500)
-$form.AutoScroll=$true;$form.AutoScrollMinSize=New-Object System.Drawing.Size(0,805)
+$form.AutoScroll=$true;$form.AutoScrollMinSize=New-Object System.Drawing.Size(0,854)
 $form.StartPosition = 'CenterScreen'; $form.AutoScaleMode = 'Dpi'
 $font = New-Object System.Drawing.Font('Segoe UI',10); $form.Font = $font
 function Label($text,$y) { $x=New-Object System.Windows.Forms.Label; $x.Text=$text;$x.Location=New-Object System.Drawing.Point(22,$y);$x.Size=New-Object System.Drawing.Size(635,30);$form.Controls.Add($x);return $x }
@@ -93,7 +112,7 @@ $boot=New-Object System.Windows.Forms.CheckBox;$boot.Text='Start automatically w
 $svc=Get-Service HexmonEdge -ErrorAction SilentlyContinue
 if ($svc) { $boot.Checked = $svc.StartType -eq 'Automatic' };if (Test-Path "$dir\start-on-boot") { $boot.Checked=$true }
 $null=Label 'No automatic discovery or commands. Config is checked before startup.' 330
-$output=New-Object System.Windows.Forms.TextBox;$output.Multiline=$true;$output.ReadOnly=$true;$output.ScrollBars='Vertical';$output.Location=New-Object System.Drawing.Point(22,587);$output.Size=New-Object System.Drawing.Size(635,160);$form.Controls.Add($output)
+$output=New-Object System.Windows.Forms.TextBox;$output.Multiline=$true;$output.ReadOnly=$true;$output.ScrollBars='Vertical';$output.Location=New-Object System.Drawing.Point(22,636);$output.Size=New-Object System.Drawing.Size(635,160);$form.Controls.Add($output)
 $output.Text="Install requires Administrator access. The agent runs as a Windows service. This build is unsigned.`r`nInstall does not prove a sensor is connected. Existing identity/config are retained."
 function Run-Action([scriptblock]$Action) { try { $output.Text='Working...';$form.Refresh(); & $Action; } catch { $output.Text="FAILED: $($_.Exception.Message)`r`nNo claim of complete setup. Check the existing service/config before retrying." } }
 function Button($text,$x,$y,$width,[scriptblock]$action) { $b=New-Object System.Windows.Forms.Button;$b.Text=$text;$b.Location=New-Object System.Drawing.Point($x,$y);$b.Size=New-Object System.Drawing.Size($width,38);$b.Add_Click($action);$form.Controls.Add($b) }
@@ -139,7 +158,16 @@ Button 'Send USB ports to dashboard' 447 470 210 { Run-Action {
 Button 'Request secure pairing'  22 519 190 { Run-Action { $output.Text=Invoke-SetupPairing $server.Text $serial.Text 'request' } }
 Button 'Finish secure pairing' 227 519 205 { Run-Action { $output.Text=Invoke-SetupPairing $server.Text $serial.Text 'finish' } }
 Button 'Recover pairing' 447 519 210 { Run-Action { $output.Text=Invoke-SetupPairing $server.Text $serial.Text 'recover' } }
-$null=Label 'Local status when running: http://127.0.0.1:8088 (on this PC only)' 759
+Button 'Open device explorer' 22 568 290 { Run-Action {
+ $receipt=Invoke-SetupExplorer 'open'
+ Start-Process -FilePath ([string]$receipt.url)
+ $output.Text='Explorer opened on this PC only, for up to one hour. No service restart or meter read. Choose a connection and Start reading in the browser. Temporary ports are not saved. Close explorer releases them without stopping telemetry.'
+} }
+Button 'Close device explorer' 327 568 330 { Run-Action {
+ $null=Invoke-SetupExplorer 'close'
+ $output.Text='Explorer listener and temporary connections closed. Existing source telemetry, configuration, identity and startup choice are unchanged.'
+} }
+$null=Label 'Local status when running: http://127.0.0.1:8088 (on this PC only)' 808
 if ($RenderPreview) {
   $form.Show();$form.Refresh();[System.Windows.Forms.Application]::DoEvents()
   $bitmap=New-Object System.Drawing.Bitmap($form.Width,$form.Height)

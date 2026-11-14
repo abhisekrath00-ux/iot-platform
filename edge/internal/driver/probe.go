@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
-	"go.bug.st/serial"
 )
 
 // ProbeRequest mirrors the commissioning API's validated probe payload.
@@ -59,7 +58,7 @@ type ProbeResult struct {
 // nil in production to use the real serial port.
 func RunProbe(ctx context.Context, open PortOpener, req ProbeRequest) ProbeResult {
 	if open == nil {
-		open = serial.Open
+		open = OpenOwnedSerial
 	}
 	start := time.Now()
 	res := ProbeResult{SessionID: req.SessionID, RequestID: req.RequestID}

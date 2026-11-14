@@ -57,6 +57,16 @@ devices: []
   if($LASTEXITCODE -in @(0,2)){$ready=$true;break};Start-Sleep -Seconds 1
  }
  if(-not $ready){throw 'No local health response'}
+ # Actual running-service local control. No device is configured or read.
+ $receipt=Invoke-SetupExplorer 'open'
+ $page=Invoke-WebRequest -UseBasicParsing -Uri $receipt.url -TimeoutSec 5
+ if($page.Content -notmatch 'Modbus explorer'){throw 'Explorer receipt did not identify the actual handler'}
+ if((Get-FileHash "$dir/edge-agent.yaml").Hash -ne $hash -or (Get-FileHash "$dir/data/identity.key").Hash -ne $keyHash){throw 'Explorer changed saved config or identity'}
+ $null=Invoke-SetupExplorer 'close'
+ $closed=$false;try{$null=Invoke-WebRequest -UseBasicParsing -Uri $receipt.url -TimeoutSec 2}catch{$closed=$true};if(-not $closed){throw 'Explorer listener survived Close'}
+ if((Get-Service HexmonEdge).Status -ne 'Running'){throw 'Explorer stopped telemetry service'}
+ Write-Host 'PASS native Open/Close explorer receipt, local handler, no configured device or service restart. GUI pixels/clicks are separate.'
+
  Stop-Service HexmonEdge
  (Get-Service HexmonEdge).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))
  & "$stage/install-windows.ps1"

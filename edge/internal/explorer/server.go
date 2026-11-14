@@ -10,6 +10,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -25,11 +26,13 @@ var page string
 // Connection is a snapshot of an owned connection. ID must change when the
 // connection is replaced, even if the configured device name is unchanged.
 type Connection struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Transport string `json:"transport"`
-	Endpoint  string `json:"endpoint"`
-	Unit      int    `json:"unit"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Transport string    `json:"transport"`
+	Endpoint  string    `json:"endpoint"`
+	Unit      int       `json:"unit"`
+	Temporary bool      `json:"temporary,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
 // Range always uses the zero-based wire offset, not a 40001-style reference.
@@ -61,6 +64,7 @@ type reply struct {
 	Range
 	Words   []uint16  `json:"words,omitempty"`
 	Error   string    `json:"error,omitempty"`
+	Expired bool      `json:"expired,omitempty"`
 	At      time.Time `json:"at"`
 	Latency int64     `json:"latency_ms"`
 }
@@ -134,6 +138,73 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(s.source.Connections())
+	case "/api/connect", "/api/disconnect":
+		if r.Method != "POST" {
+			http.Error(w, "POST only", 405)
+			return
+		}
+		if origin != s.origin {
+			http.Error(w, "same-origin request required", 403)
+			return
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "JSON only", 415)
+			return
+		}
+		manager, ok := s.source.(interface {
+			OpenTemporary(context.Context, Connect) (Connection, error)
+			DisconnectTemporary(string) error
+		})
+		if !ok {
+			http.Error(w, "temporary connections unavailable", 409)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 2048)
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		var req Connect
+		var closeReq struct {
+			ID string `json:"id"`
+		}
+		var target any = &req
+		if r.URL.Path == "/api/disconnect" {
+			target = &closeReq
+		}
+		if err := dec.Decode(target); err != nil {
+			http.Error(w, "invalid connection request", 400)
+			return
+		}
+		var extra any
+		if err := dec.Decode(&extra); err != io.EOF {
+			http.Error(w, "one connection request required", 400)
+			return
+		}
+		if !s.pending.TryLock() {
+			http.Error(w, "a read or connection change is in progress; nothing was queued", 409)
+			return
+		}
+		defer s.pending.Unlock()
+		if r.URL.Path == "/api/disconnect" {
+			if closeReq.ID == "" || len(closeReq.ID) > 128 {
+				http.Error(w, "choose a temporary connection", 400)
+				return
+			}
+			if err := manager.DisconnectTemporary(closeReq.ID); err != nil {
+				http.Error(w, err.Error(), 409)
+				return
+			}
+			w.WriteHeader(204)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+		defer cancel()
+		info, err := manager.OpenTemporary(ctx, req)
+		if err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		h.Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(info)
 	case "/api/read":
 		if r.Method != "POST" {
 			http.Error(w, "POST only", 405)
@@ -190,6 +261,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			res.Error = err.Error()
+			res.Expired = errors.Is(err, ErrConnectionExpired)
 		} else {
 			res.Words = words
 		}

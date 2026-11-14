@@ -4,11 +4,13 @@ Status: first implementation, local/synthetic acceptance only. Not an owner upda
 
 ## What exists
 
-The edge agent can serve a separate interactive explorer when explicitly started with `-explorer-listen 127.0.0.1:8089`. It is disabled by default. This is an engineering entry point, not yet the nontechnical desktop launch flow. No existing installation, service arguments, source configuration or identity is changed by this work.
+The edge agent can serve a separate interactive explorer when explicitly started with `-explorer-listen 127.0.0.1:8089`. It is disabled by default. This engineering flag is optional. The desktop manager now has explicit Open device explorer and Close device explorer actions for an already-running service. Open requests an ephemeral literal-loopback listener from that same process; it does not restart the service or change its arguments. The listener closes after one hour unless the operator explicitly opens it again. Close drains its reads and closes temporary connections, not existing telemetry drivers. No source configuration or identity is changed. Windows GUI pixels and native service execution of these new actions remain unaccepted; only the PowerShell contracts, real local listener/control tests and cross-build have run.
 
 The explorer lists Modbus connections that the polling supervisor already owns. Selecting one does not open a second serial handle or dial another TCP connection. A selected connection's transport, endpoint and unit are fixed. Each driver lifetime has a new opaque ID. Closing/reloading a driver expires its ID rather than silently routing an old selection to the replacement.
 
 The browser supports:
+
+- Explicit Open and Disconnect for one temporary, unconfigured RTU/TCP connection. RTU needs the exact port, baud, 8 data bits, parity, stop bits and unit. TCP needs a literal unicast IP, port and unit. Mixed transport fields are refused. Opening serial configures local line framing and may change adapter line state; it sends no Modbus request. TCP is lazy and does not dial before Start. Temporary connections are never persisted or applied, expire after 10 idle minutes or 30 total minutes, and close with the listener. Stop leaves the connection open; Disconnect closes it. Expired IDs stop browser sampling without reconnecting automatically.
 
 - FC1 coils, FC2 discrete inputs, FC3 holding registers and FC4 input registers, explicitly selected by the operator.
 - Zero-based wire offsets or one-based addresses. One-based address 1 means wire offset 0. These are not 40001-style reference numbers. The selected range must fit wire offsets 0-65535 and contain 1-32 addresses.
@@ -20,6 +22,8 @@ The browser supports:
 - Stale values on Stop/error, plus a stale-age watchdog. Stop cancels the request and prevents another sample; it cannot recall bytes already sent to a device. The underlying transaction keeps its finite driver I/O timeout and holds the one-pending fence until it returns.
 - Desktop table and narrow-screen address cards, with labels, raw words and decoded values visible without page-level horizontal overflow. Same-range restart/error keeps last-known rows and editable labels visibly stale; a genuinely new range has editable Not sampled rows and resets range counters/time. A restart no longer clears values while retaining old counters.
 
+A displayed range keeps its source/transport/endpoint/unit/function/wire context even after a disconnect.
+
 Viewing the page, refreshing the connection list, editing labels and importing/exporting labels do not read a meter. Start initiates reads. This tool has no write endpoint, raw frame operation, arbitrary function code, automatic source apply or clock-setting action.
 
 ## Ownership and local request boundary
@@ -28,10 +32,20 @@ Viewing the page, refreshing the connection list, editing labels and importing/e
 
 The interactive handler is not attached to the existing configurable LAN status page. Its separate listener requires a literal loopback IP, an exact Host match, a loopback peer, matching Origin for reads, and a random per-server session header. Cross-site and same-site-but-not-same-origin fetch metadata is refused. The session is delivered only by the no-store local page, not a query string. There is no CORS grant. Framing is disabled by CSP. JSON read bodies are bounded, reject unknown fields and accept exactly one object. Concurrent reads receive a busy response without touching the source. Request correlation, exact count, bit values and cancellation are checked before returning values.
 
-This does not protect against a hostile program running as the same local user. It also does not supply cross-process ownership for unrelated third-party tools. New/unconfigured-port exploration remains unwired until its ownership path exists. This slice does not widen the existing remote commissioning or discovery APIs.
+All production serial driver, probe and sweep opens use a shared reservation before the library can change framing. Unix identity is the canonical character-device ID, so symlink aliases share the in-process fence. A nonblocking device flock coordinates participating processes; Windows retains the serial library's exclusive CreateFile behavior. Failed opens release reservations; Close is once-only; another owner is refused rather than silently stopped. Unix programs that ignore advisory locks, privileged programs and older programs without a working exclusive lock are not reliably detectable. Close third-party serial tools yourself before opening a temporary RTU connection. This is a cooperative ownership guarantee, not a claim that arbitrary serial programs cannot interfere. Hardware/OS-driver acceptance remains open.
+
+The desktop control uses fresh UUID requests and matching receipts in the local protected state directory, never an unauthenticated network control API. It marks an attempt processing durably before changing the listener. An interrupted processing receipt becomes visible uncertainty and is not replayed. Requests are bounded, strict, expire after 15 seconds, refuse concurrent CLI requests and have an eight-second confirmation limit without retry. The manager validates the returned literal 127.0.0.1 HTTP URL, request receipt and lifetime before opening a browser; a stopped service is refused without starting it. No listener is bound by the watcher alone. Unix receipts use file and directory sync; Windows replacement requests write-through. Native Windows durability/lifecycle acceptance is still required.
+
+This does not protect against a hostile program running as the same local user. The existing optional LAN status, remote commissioning and discovery interfaces are not widened.
 
 ## Acceptance performed
 
+- Twenty race-enabled serial-owner repetitions on synthetic PTYs: canonical aliases, competing probes, twenty concurrent contenders with exactly one winner, ordinary-file refusal, failed-open cleanup and a separate cooperating process whose crash releases its lock. These are virtual TTYs, not USB hardware.
+- Temporary connection validation before opening, explicit single-session lifecycle, idle/hard expiry, in-flight refusal, borrowed-driver protection, close/shutdown, stale lifetime and protected connection API tests.
+- Actual Chromium 1440/390 form tests over a real synthetic loopback TCP Modbus peer: opening does not dial/read, second-open refusal preserves selection, Start decodes 100, Stop/Disconnect, missing-port refusal, stale-ID rejection and terminal-expiry stop without reopen.
+- PowerShell manager contracts with a fake agent: exact Open/Close flags and identity directory, receipt/local-URL/lifetime guards, no config change, stopped-service and native-error refusal. These ran with PowerShell on Linux, not WinForms or Windows SCM.
+- `python scripts/test-edge-explorer-local.py` builds/runs the actual binary with disposable state, no devices and a reserved non-listening loopback broker port; its actual CLI Open/Close/reopen receipts and local HTTP page pass, with the running process/config/fixture marker retained. No installed service or real identity is used.
+- Actual local controller -> receipt -> HTTP handler -> temporary connection -> Close -> reopen with a fresh capability -> agent cancellation, keeping borrowed drivers unread and attached. Processing-before-effect, completed/interrupted replay refusal, invalid/future/stale requests, CLI concurrency/timeout cleanup and abandoned-lock recovery are tested.
 - Three race-enabled repetitions of the explorer, driver and edge-agent packages, plus full edge tests and vet.
 - Synthetic supervisor lifetime registration, expiry and no read on inventory.
 - Loopback/Host/Origin/session/method/content-type/body/bounds guards before any source call; one-pending no queue; malformed bit/count/cancelled responses never published as values.
@@ -42,12 +56,12 @@ This does not protect against a hostile program running as the same local user. 
 - Real Chromium desktop/mobile portable-template path: explicit point inclusion, duplicate/overlap refusal, metadata change invalidates review, reviewed JSON download, actual Dashboard draft import with manual/names/decoder preserved, no automatic save, then exactly one explicit synthetic profile save and no source Apply/write. Preview/editor and Create profile areas inspected as pixels.
 - The actual browser-exported synthetic JSON is a checked-in API test fixture. An isolated-PostgreSQL API test verifies profile name/driver/point/manual/limits round-trip and unchanged device count.
 
-No physical serial adapter or meter, owner PC, production gateway, Windows service, desktop launch or real clock-setting procedure was exercised.
+No physical serial adapter or meter, owner PC, production gateway, Windows service/GUI launch or real clock-setting procedure was exercised. The new desktop entry has not been rendered or clicked on Windows.
 
 ## Still open before the joint product handoff
 
-- Nontechnical desktop entry and controlled local listener lifecycle.
-- Adding or selecting an unconfigured RTU/TCP connection with explicit serial ownership. Do not add an unrestricted probe API or silently pause the service.
+- Native Windows desktop Open/Close layout/click/service/lifetime acceptance. The entry/control code and portable contracts now exist, but native pixels and service execution are not accepted.
+- Physical USB/COM acceptance of the new explicit temporary RTU/TCP path and cooperative ownership fence. No unrestricted probe API or silent service pause was added.
 - Completing the portable-profile-to-source selection/assignment/Apply path as one guided workflow rather than a file handoff, and its owner-facing source-list/receipt acceptance. Label-only JSON remains distinct from the new reviewed portable profile JSON. Neither changes telemetry by export/import.
 - Physical USB/COM and model-specific register/address-order/timing acceptance. The synthetic fragmented-read matrix is not a physical-device result.
 - Supported exact-model time sync as a separate confirmed operation, if a documented procedure is actually supported. The supplied meter family manual has not established that support. No arbitrary register write or physical write is approved by the explorer build request.

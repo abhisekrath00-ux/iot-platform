@@ -82,6 +82,31 @@ $global:LASTEXITCODE=0
  Write-Host 'PASS pairing request/finish/recover flags, same saved identity/config, running-service refusal and agent nonzero failure. Fake agent only.'
 
 
+ # Explorer launch is a local request to a running agent, never a service
+ # restart, config import, browser launch or meter read in this contract test.
+ @'
+@{args=@($args)}|ConvertTo-Json -Depth 3|Set-Content ($MyInvocation.MyCommand.Path+'.args')
+$url=if($env:HEXTHINGS_EXPLORER_FIXTURE_URL){$env:HEXTHINGS_EXPLORER_FIXTURE_URL}else{'http://127.0.0.1:12345'}
+@{id=[guid]::NewGuid().ToString();state='complete';url=$url;expires_at=[DateTimeOffset]::UtcNow.AddHours(1).ToString('o')}|ConvertTo-Json -Compress
+$global:LASTEXITCODE=0
+'@ | Set-Content $exe
+ $script:serviceState='Running';$hashBefore=(Get-FileHash $config).Hash
+ foreach($action in @('open','close')) {
+  $receipt=Invoke-SetupExplorer $action
+  $argv=(Get-Content ($exe+'.args') -Raw|ConvertFrom-Json).args
+  if($argv[0] -ne ('-'+$action+'-explorer') -or $argv -notcontains '-identity-dir' -or $receipt.state -ne 'complete'){throw 'Explorer request lost exact action/identity/receipt'}
+ }
+ if((Get-FileHash $config).Hash -ne $hashBefore){throw 'Explorer changed config'}
+ foreach($url in @('https://server.example','http://localhost:12345','http://127.0.0.1:12345/other','http://127.0.0.1:12345?q=1','http://user:pass@127.0.0.1:12345')) {
+  $env:HEXTHINGS_EXPLORER_FIXTURE_URL=$url;$blocked=$false;try{$null=Invoke-SetupExplorer 'open'}catch{$blocked=$true};if(-not $blocked){throw 'Unexpected explorer browser destination accepted'}
+ }
+ Remove-Item Env:HEXTHINGS_EXPLORER_FIXTURE_URL
+ $before=Get-Content ($exe+'.args') -Raw;$script:serviceState='Stopped';$blocked=$false
+ try{$null=Invoke-SetupExplorer 'open'}catch{$blocked=$true};if(-not $blocked -or (Get-Content ($exe+'.args') -Raw) -ne $before){throw 'Explorer tried to run/start a stopped service'}
+ $script:serviceState='Running';Set-Content $exe 'exit 23';$blocked=$false;try{$null=Invoke-SetupExplorer 'open'}catch{$blocked=$true};if(-not $blocked){throw 'Unconfirmed explorer request reported success'}
+ Write-Host 'PASS explorer Open/Close receipts, exact local URI, saved identity/config, stopped-service and native-failure refusal. No browser/service/hardware execution.'
+
+
 } finally {$env:ProgramData=$old;Remove-Item $tmp -Recurse -Force}
 foreach ($address in @('https://server.example','http://127.0.0.1:8000')) { Assert-SecureSetupServer $address }
 foreach ($address in @('http://server.example','https://user:pass@server.example','https://server.example/path','https://server.example?q=1','ftp://localhost')) {
