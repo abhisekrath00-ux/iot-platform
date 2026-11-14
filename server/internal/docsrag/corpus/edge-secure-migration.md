@@ -1866,3 +1866,11 @@ automatic alarm-output policy means control is not assumed request-only.
 No worker, claim binding, new migration or production caller is added. Full
 background/previous-image/secure Update and combined installer gates stay open.
 See enterprise-readiness.md for the exact evidence and unresolved dependencies.
+
+Candidate-only flow-evidence retention can now attach one exact snapshot to an
+already-admitted pending input under the same row lock as Claim. It refuses
+replacement/late new binding and permits only no-rearm exact evidence inspection
+after execution. Claim itself is NOT changed or gated; admission and config
+capture remain separate, and complete mutable/multi-flow/rule/position bindings
+remain open. The separate candidate SQL is outside migrations/startup. No worker,
+retry, runtime durability acceptance or production Update availability follows.

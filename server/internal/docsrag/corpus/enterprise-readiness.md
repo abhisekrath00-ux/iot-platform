@@ -746,3 +746,36 @@ revocation/authorization checks and operator recovery remain unresolved. No
 product caller, migration, executor, automatic retry or MQTT ACK/session change
 is added. Both runtime durability gaps, exact93 previous-image acceptance and
 the combined secure-server/fresh-dashboard-EXE handoff remain open gates.
+
+### Unwired retention of one flow-evidence selection (2026-11-14)
+
+A separate `flow_binding_candidate.sql` prepares a candidate-only evidence table,
+never a product migration/startup install. Its primary/foreign keys allow one
+retained flow snapshot per existing admitted event. This intentionally cannot
+represent all matching flows or the complete ingest configuration. It retains
+up to 128 KiB per admission in addition to the bounded admission record; that is a
+large worst-case storage cost, not an accepted production retention design.
+
+BindFlowEvidence validates the exact input-bound evidence and locks its existing
+tenant-scoped admission row, serializing with candidate Claim. New evidence can
+be attached only while pending. An exact retained replay is inspection only in
+any valid state; it cannot rearm work. Changed input/configuration, foreign or
+corrupt evidence and late new bindings are refused, never overwritten or fixed
+silently. Commit errors are uncertain and require exact evidence reconciliation.
+ReadFlowEvidence joins both tenant identities and validates the retained bytes
+against the canonical admission, not the latest mutable flow version.
+
+Three real-PG race repetitions cover 12 simultaneous same-evidence bindings with
+one inserted record, 20 concurrent bind-versus-Claim orderings per repetition, independent-pool inspection, changed input/config refusal,
+terminal exact replay without rearming, late new-binding refusal, injected
+storage failure with no half record/admission change, recovery after the fault,
+corruption refusal and cancellation. No flow-run record or external effect is
+created. Pool reopen is not process-kill/commit-ack-loss/disk/failover proof.
+
+Claim is unchanged and still works WITHOUT a binding: this is a tested boundary,
+not a new execution gate. Telemetry admission and configuration capture/binding
+are separate operations, so publish changes between them remain an unresolved
+window. All mutable dependencies and multi-flow/rule/position binding remain
+open. No runtime caller, worker, retry, ACK/session change, additive migration
+or owner rollout is enabled. Full background/previous-image and joint fresh
+installer/server handoff acceptance remain blocked, not waived by retention.
