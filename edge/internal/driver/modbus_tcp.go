@@ -82,6 +82,9 @@ func (t *tcpConn) exchange(fn, reg, count int) ([]byte, error) {
 	if _, err := io.ReadFull(t.conn, hdr); err != nil {
 		return nil, err
 	}
+	if binary.BigEndian.Uint16(hdr[2:]) != 0 || hdr[6] != t.unit {
+		return nil, fmt.Errorf("unexpected Modbus protocol or unit identifier")
+	}
 	if binary.BigEndian.Uint16(hdr[0:]) != tid {
 		return nil, fmt.Errorf("transaction id mismatch")
 	}

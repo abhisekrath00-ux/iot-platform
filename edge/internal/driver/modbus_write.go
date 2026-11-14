@@ -62,6 +62,9 @@ func (g *modbusGeneric) Write(ctx context.Context, pointID string, value float64
 		raw := value / scale
 		g.mu.Lock()
 		defer g.mu.Unlock()
+		if g.closed {
+			return fmt.Errorf("device connection closed")
+		}
 		switch p.Func {
 		case 5:
 			if value != 0 && value != 1 {

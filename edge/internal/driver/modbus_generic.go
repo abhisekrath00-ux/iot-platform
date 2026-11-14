@@ -22,9 +22,10 @@ type modbusGeneric struct {
 	read func(fn, reg, count int) ([]byte, error)
 	// write performs one Modbus write (fn 5, 6 or 16); body is the bytes after
 	// the register address. It returns nil only when the device echoed the request.
-	write func(fn, reg int, body []byte) error
-	close func() error
-	mu    sync.Mutex // one bus transaction sequence at a time (poll vs write)
+	write  func(fn, reg int, body []byte) error
+	close  func() error
+	mu     sync.Mutex // one bus transaction sequence at a time (poll vs write)
+	closed bool       // protected by mu; stale explorer connections cannot reopen after close
 }
 
 func newModbusGeneric(port serial.Port, dev config.Device) *modbusGeneric {
@@ -156,6 +157,9 @@ func (g *modbusGeneric) readRegisters(fn, reg, count int) ([]byte, error) {
 func (g *modbusGeneric) Poll(ctx context.Context) ([]Reading, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.closed {
+		return nil, fmt.Errorf("device connection closed")
+	}
 	if g.read == nil {
 		g.read = g.readRegisters
 	}
@@ -206,6 +210,12 @@ func (g *modbusGeneric) Poll(ctx context.Context) ([]Reading, error) {
 }
 
 func (g *modbusGeneric) Close() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return nil
+	}
+	g.closed = true
 	if g.close == nil {
 		return g.port.Close()
 	}

@@ -25,6 +25,7 @@ import (
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/config"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/discover"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/driver"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/explorer"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/fleetctl"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/localrules"
 	"github.com/abhisekrath00-ux/iot-platform/edge/internal/localui"
@@ -98,6 +99,7 @@ func main() {
 	setupSerial := flag.String("setup-serial", "", "serial matching the saved gateway identity")
 	setupOutput := flag.String("setup-output", "", "new staging file for downloaded configuration")
 	setupManaged := flag.Bool("allow-managed-devices", false, "explicitly allow signed source-list updates after local import")
+	explorerListen := flag.String("explorer-listen", "", "opt-in read-only Modbus explorer on literal loopback IP:port; reuses already-owned connections, disabled by default")
 	flag.Parse()
 
 	switch {
@@ -345,6 +347,9 @@ func main() {
 	// them without restarting the agent (or dropping the MQTT connection).
 	sup := startSupervisor(cfg, q, telemetryTopic, tracker)
 	defer sup.stop()
+	if err := startExplorer(ctx, *explorerListen); err != nil {
+		log.Printf("explorer disabled: %v", err)
+	}
 
 	var sourceReady atomic.Bool
 	sourceReady.Store(true)
@@ -647,6 +652,19 @@ func startSupervisor(cfg *config.Config, q *queue.Queue, telemetryTopic string, 
 				continue
 			}
 			defer d.Close()
+			if reader, ok := d.(driver.RangeReader); ok {
+				transport, endpoint := "rtu", dev.Port
+				if dev.Profile == "modbus-tcp" {
+					transport = "tcp"
+					port := dev.NetPort
+					if port == 0 {
+						port = 502
+					}
+					endpoint = fmt.Sprintf("%s:%d", dev.Host, port)
+				}
+				remove := explorerDrivers.Add(explorer.Connection{Name: dev.ID, Transport: transport, Endpoint: endpoint, Unit: dev.Address}, reader)
+				defer remove() // LIFO: detach and drain before the driver closes
+			}
 			if w, ok := d.(driver.Writer); ok && len(dev.Writes) > 0 {
 				writers.set(dev.ID, w)
 			}
