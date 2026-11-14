@@ -1140,3 +1140,39 @@ remain unchanged. Production ACK/derived-replay defects, broker durability,
 real sender adapters, admission receipt/edge outbox, immutable-image restore/
 rollback and owner-update acceptance remain open. Inspect the exact published
 commit's full CI before treating local tests as remote acceptance.
+
+### Default-off one-attempt Slack adapter (local, 2026-11-15)
+
+The staged processing package has a separate explicit-credential Slack sender,
+with NO environment lookup, startup/MQTT/API worker wiring or change to the old
+production notifier. Its constructor fixes the official HTTPS chat.postMessage
+endpoint, normal certificate/hostname verification, TLS1.2 minimum, no inherited
+proxy, bounded dial/header/body/total time, no redirects, no reusable connections
+or retry path. Exact C/G/D conversation IDs only: names and U user IDs that might
+open a DM are refused. Text is nonempty valid UTF8, at most4000 characters; explicit
+mention/channel markup is refused and automatic expansion/markup/link/media
+unfurls are disabled. No identity override, alternate recipient or remote lookup.
+
+HTTP200 alone is not acceptance. The complete response is at most64KiB, valid
+JSON without duplicate or case-colliding keys, bounded nesting, literal ok=true,
+exact retained channel and a valid message timestamp, with no truncation/warning.
+Refusal, rate limit, timeout, partial response, redirect or lost response returns
+a generic unknown result without provider body, token or automatic retry. Through
+ExecuteOnce, the whole claimed batch becomes outcome_unknown and cannot be
+rearmed, including remaining occurrences not attempted. A changed channel policy
+between two requests prevents the second request. Completed is provider response
+acceptance only, not recipient delivery. No per-effect durable receipt is added.
+
+Current Slack semantics checked against its method documentation:
+https://docs.slack.dev/reference/methods/chat.postMessage/ . Tests use only local
+synthetic TLS HTTP servers and synthetic credentials, plus isolated PostgreSQL
+for actual claim/history/attempt/no-rearm checks. They cover success, false/missing
+ok, wrong channel, missing timestamp, warnings, duplicates/case collisions,
+oversize/deep/trailing JSON, redirects, dropped response, rate limits, cancellation,
+body/header timeout, invalid audiences/text and untrusted TLS. Three local PG race
+repetitions and a fresh isolated-database full server suite/vet pass. An initial
+full run on reused development PostgreSQL hit retained fixture-ID conflicts and
+is not acceptance evidence; the final fresh-database run passed. No real Slack credential/channel, actual provider acceptance,
+SMTP support, production activation or delivery claim follows from these tests.
+Enabled production ACK/derived-replay defects and transport/deployment acceptance
+remain open; exact93 Update behavior is unchanged.
