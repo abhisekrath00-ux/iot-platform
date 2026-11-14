@@ -91,3 +91,11 @@ test('old preview rows do not announce commissioning complete',async()=>{
  const box=document.createElement('div'),root=createRoot(box);await act(async()=>root.render(<Onboarding/>));
  expect(box.textContent).toContain('Historical, estimated or stale');expect(box.textContent).not.toContain('Commissioning complete');expect(box.textContent).not.toContain('Recent measured data is arriving');await act(async()=>root.unmount());
 });
+
+test('source assignment is one-attempt and a lost response requires saved-session recovery',async()=>{
+ window.history.replaceState(null,'','/onboarding?session=session-999');let writes=0;
+ vi.mocked(api).mockImplementation(async(path,init)=>{if(init?.method==='POST'){writes++;throw Error('lost response')};if(path==='/v1/sites')return[];if(path==='/v1/profiles')return[{id:'portable',name:'Portable meter',driver_profile:'modbus-generic',points:[]}];if(path==='/v1/me')return{role:'operator'};return{session_id:'session-999',gateway_id:'gw-999',serial:'999',gateway_status:'active',device_id:null,state:'claimed'}});
+ const box=document.createElement('div'),root=createRoot(box);await act(async()=>root.render(<Onboarding/>));
+ const profile=box.querySelector<HTMLSelectElement>('[aria-label="Source profile"]')!;await act(async()=>{profile.value='portable';profile.dispatchEvent(new Event('change',{bubbles:true}))});const input=box.querySelector<HTMLInputElement>('[aria-label="Source name"]')!;await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'Bench source');input.dispatchEvent(new Event('input',{bubbles:true}))});const form=box.querySelector<HTMLFormElement>('[aria-label="Assign saved profile"]')!;
+ await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))});expect(writes).toBe(1);expect(box.textContent).toContain('Could not confirm whether this source was assigned');expect(box.textContent).toContain('Reload this saved setup');expect(box.querySelector('[aria-label="Saved source"]')).toBeNull();await act(async()=>root.unmount());
+});

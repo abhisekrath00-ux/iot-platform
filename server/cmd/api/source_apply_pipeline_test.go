@@ -26,12 +26,21 @@ import (
 // Disposable loopback broker, compiled ingest and edge, real Postgres, synthetic
 // read-only Modbus TCP device. Restart is supervised here, not a Windows SCM proof.
 func TestIntegrationCompiledSourceApplyAndReading(t *testing.T) {
+	compiledSourceApplyAndReading(t, false)
+}
+func TestIntegrationCompiledExplorerTemplateSourceAndReading(t *testing.T) {
+	compiledSourceApplyAndReading(t, true)
+}
+func compiledSourceApplyAndReading(t *testing.T, portable bool) {
 	brokerBin, edgeBin, ingestBin := os.Getenv("TEST_MOSQUITTO_BINARY"), os.Getenv("TEST_EDGE_BINARY"), os.Getenv("TEST_INGEST_BINARY")
 	if brokerBin == "" || edgeBin == "" || ingestBin == "" {
 		t.Skip("compiled edge/ingest and disposable broker binaries required")
 	}
 	s, _ := testServer(t)
 	tenant := "itest-source-pipeline"
+	if portable {
+		tenant += "-explorer"
+	}
 	seed(t, s, tenant)
 	dir := t.TempDir()
 	listen, err := net.Listen("tcp", "127.0.0.1:0")
@@ -162,7 +171,14 @@ func TestIntegrationCompiledSourceApplyAndReading(t *testing.T) {
 					}
 					data := []byte{}
 					for i := uint16(0); i < cnt; i++ {
-						data = binary.BigEndian.AppendUint16(data, 110+i)
+						word := 110 + i
+						if portable && binary.BigEndian.Uint16(req[8:]) == 0 {
+							word = 0
+							if i == 0 {
+								word = 17096
+							}
+						}
+						data = binary.BigEndian.AppendUint16(data, word)
 					}
 					header := []byte{req[0], req[1], 0, 0, 0, byte(3 + len(data)), req[6], 3, byte(len(data))}
 					if _, e := c.Write(append(header, data...)); e != nil {
@@ -172,15 +188,97 @@ func TestIntegrationCompiledSourceApplyAndReading(t *testing.T) {
 			}()
 		}
 	}()
-	profile := tenant + "-profile"
-	_, err = s.st.Pool.Exec(t.Context(), `INSERT INTO device_profiles(id,tenant_id,name,driver_profile,points,created_by) VALUES($1,$2,'Synthetic meter','modbus-tcp',$3,'test-user')`, profile, tenant, `[{"id":"temp","register":10,"func":3,"type":"u16","scale":1,"unit":"C","min":0,"max":1000}]`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, _ := json.Marshal(map[string]any{"device_profile_id": profile, "connection": map[string]any{"host": "127.0.0.1", "net_port": simulator.Addr().(*net.TCPAddr).Port, "address": 1, "interval_seconds": 1}})
-	_, err = s.st.Pool.Exec(t.Context(), `UPDATE devices SET config=$1 WHERE id=$2`, cfg, tenant+"-dev")
-	if err != nil {
-		t.Fatal(err)
+	deviceID, pointID, expectedValue := tenant+"-dev", "temp", float64(110)
+	sourceSession := ""
+	if portable {
+		// Start from the actual synthetic browser-exported fixture. Its TCP form
+		// changes only the explicit transport, never point meanings or decoding.
+		payload, err := os.ReadFile("testdata/explorer-profile.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var imported map[string]any
+		if err := json.Unmarshal(payload, &imported); err != nil {
+			t.Fatal(err)
+		}
+		imported["driver_profile"] = "modbus-tcp"
+		payload, err = json.Marshal(imported)
+		if err != nil {
+			t.Fatal(err)
+		}
+		profileAPI := http.NewServeMux()
+		profileAPI.HandleFunc("POST /v1/profiles", s.createProfile)
+		profileAPI.HandleFunc("POST /v1/commissioning/sessions/{id}/profile", s.assignCommissionProfile)
+		profileAPI.HandleFunc("GET /v1/commissioning/sessions/{id}", s.getCommissionSession)
+		var initialDevices int
+		s.st.Pool.QueryRow(t.Context(), `SELECT count(*) FROM devices WHERE tenant_id=$1`, tenant).Scan(&initialDevices)
+		saved := call(profileAPI, tenant, "admin", "POST", "/v1/profiles", string(payload))
+		if saved.Code != 201 {
+			t.Fatal(saved.Code, saved.Body)
+		}
+		var profile struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(saved.Body.Bytes(), &profile) != nil || profile.ID == "" {
+			t.Fatal("missing profile receipt")
+		}
+		var afterSave int
+		s.st.Pool.QueryRow(t.Context(), `SELECT count(*) FROM devices WHERE tenant_id=$1`, tenant).Scan(&afterSave)
+		if afterSave != initialDevices {
+			t.Fatal("profile import assigned a source")
+		}
+		// Remove only this test's seeded device, so every applied endpoint stays on
+		// our loopback simulator. No API effect or reading is hidden by a placeholder.
+		for _, q := range []string{`DELETE FROM telemetry WHERE tenant_id=$1`, `DELETE FROM points WHERE device_id IN (SELECT id FROM devices WHERE tenant_id=$1)`, `DELETE FROM devices WHERE tenant_id=$1`} {
+			if _, err := s.st.Pool.Exec(t.Context(), q, tenant); err != nil {
+				t.Fatal(err)
+			}
+		}
+		sourceSession = tenant + "-source-session"
+		if _, err := s.st.Pool.Exec(t.Context(), `INSERT INTO commissioning_sessions(id,tenant_id,site_id,gateway_id,serial,state,created_by) VALUES($1,$2,$3,$4,$5,'claimed','test-user')`, sourceSession, tenant, tenant+"-site", tenant+"-gw", "SER-"+tenant); err != nil {
+			t.Fatal(err)
+		}
+		assignBody, _ := json.Marshal(map[string]any{"profile_id": profile.ID, "device_name": "Explorer-reviewed temperature", "connection": map[string]any{"host": "127.0.0.1", "net_port": simulator.Addr().(*net.TCPAddr).Port, "address": 1, "interval_seconds": 1}})
+		assigned := call(profileAPI, tenant, "admin", "POST", "/v1/commissioning/sessions/"+sourceSession+"/profile", string(assignBody))
+		if assigned.Code != 201 {
+			t.Fatal(assigned.Code, assigned.Body)
+		}
+		var assignment struct {
+			ID string `json:"device_id"`
+		}
+		if json.Unmarshal(assigned.Body.Bytes(), &assignment) != nil || assignment.ID == "" {
+			t.Fatal("missing source receipt")
+		}
+		deviceID = assignment.ID
+		pointID = "temperature"
+		expectedValue = 100
+		resumed := call(profileAPI, tenant, "admin", "GET", "/v1/commissioning/sessions/"+sourceSession, "")
+		if resumed.Code != 200 || !strings.Contains(resumed.Body.String(), deviceID) || !strings.Contains(resumed.Body.String(), "Explorer-reviewed temperature") {
+			t.Fatal("saved source recovery", resumed.Code, resumed.Body)
+		}
+		again := call(profileAPI, tenant, "admin", "POST", "/v1/commissioning/sessions/"+sourceSession+"/profile", string(assignBody))
+		if again.Code != 409 {
+			t.Fatal("duplicate source assignment accepted", again.Code)
+		}
+		var afterAssignment, pushes int
+		s.st.Pool.QueryRow(t.Context(), `SELECT count(*) FROM devices WHERE tenant_id=$1`, tenant).Scan(&afterAssignment)
+		s.st.Pool.QueryRow(t.Context(), `SELECT count(*) FROM gateway_config_pushes WHERE tenant_id=$1`, tenant).Scan(&pushes)
+		if afterAssignment != 1 || pushes != 0 {
+			t.Fatal("assignment applied config or duplicated source", afterAssignment, pushes)
+		}
+		t.Log("PASS browser-export-derived portable profile API save -> separate explicit source assignment -> saved session recovery; no config push until reviewed Apply")
+	} else {
+		profile := tenant + "-profile"
+		_, err = s.st.Pool.Exec(t.Context(), `INSERT INTO device_profiles(id,tenant_id,name,driver_profile,points,created_by) VALUES($1,$2,'Synthetic meter','modbus-tcp',$3,'test-user')`, profile, tenant, `[{"id":"temp","register":10,"func":3,"type":"u16","scale":1,"unit":"C","min":0,"max":1000}]`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, _ := json.Marshal(map[string]any{"device_profile_id": profile, "connection": map[string]any{"host": "127.0.0.1", "net_port": simulator.Addr().(*net.TCPAddr).Port, "address": 1, "interval_seconds": 1}})
+		_, err = s.st.Pool.Exec(t.Context(), `UPDATE devices SET config=$1 WHERE id=$2`, cfg, tenant+"-dev")
+		if err != nil {
+			t.Fatal(err)
+		}
+
 	}
 	s.st.Pool.Exec(t.Context(), `DELETE FROM telemetry WHERE tenant_id=$1`, tenant)
 	edgeData := filepath.Join(dir, "edge-data")
@@ -281,9 +379,18 @@ func TestIntegrationCompiledSourceApplyAndReading(t *testing.T) {
 	wait("confirmed from running edge", func() bool { return state() == "confirmed" })
 	wait("synthetic source reading", func() bool {
 		var n int
-		s.st.Pool.QueryRow(t.Context(), `SELECT count(*) FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND point_id='temp' AND value=110`, tenant, tenant+"-dev").Scan(&n)
+		s.st.Pool.QueryRow(t.Context(), `SELECT count(*) FROM telemetry WHERE tenant_id=$1 AND device_id=$2 AND point_id=$3 AND value=$4`, tenant, deviceID, pointID, expectedValue).Scan(&n)
 		return n > 0
 	})
+	if portable {
+		previewAPI := http.NewServeMux()
+		previewAPI.HandleFunc("GET /v1/commissioning/sessions/{id}/preview", s.commissionPreview)
+		preview := call(previewAPI, tenant, "admin", "GET", "/v1/commissioning/sessions/"+sourceSession+"/preview", "")
+		if preview.Code != 200 || !strings.Contains(preview.Body.String(), `"live":true`) || !strings.Contains(preview.Body.String(), `"value":100`) || !strings.Contains(preview.Body.String(), `"quality":"measured"`) {
+			t.Fatal("recent source reading receipt", preview.Code, preview.Body)
+		}
+		t.Log("PASS portable template source applied by actual compiled edge; matching confirmation fingerprint and recent measured f32=100 from synthetic TCP meter")
+	}
 	w = call(m, tenant, "admin", "GET", base+"/config-push", "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"confirmed"`) || !strings.Contains(w.Body.String(), ready.SHA) {
 		t.Fatalf("scoped status %d %s", w.Code, w.Body)
@@ -297,5 +404,5 @@ func TestIntegrationCompiledSourceApplyAndReading(t *testing.T) {
 		t.Fatal("identity overwritten")
 	}
 	b, _ = os.ReadFile(edgeLog)
-	t.Logf("authenticated_mtls=%t actual compiled edge->MQTT->ingest->Postgres confirmed and110 reading; live poll-supervisor reload without service restart; no Windows SCM/physical meter proof. edge=%s", secure, b)
+	t.Logf("authenticated_mtls=%t actual compiled edge->MQTT->ingest->Postgres confirmed andexpected reading; live poll-supervisor reload without service restart; no Windows SCM/physical meter proof. edge=%s", secure, b)
 }

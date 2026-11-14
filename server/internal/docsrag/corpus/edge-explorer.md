@@ -26,6 +26,16 @@ A displayed range keeps its source/transport/endpoint/unit/function/wire context
 
 Viewing the page, refreshing the connection list, editing labels and importing/exporting labels do not read a meter. Start initiates reads. This tool has no write endpoint, raw frame operation, arbitrary function code, automatic source apply or clock-setting action.
 
+## Guided saved-source handoff
+
+In Dashboard Add device, resume the saved gateway setup and choose **Use a template from the edge explorer**. Import the exported JSON. Review the manual reference, each point's wire offset/function, type/order, scale/unit and accepted limits before **Save and select imported template**. This saves one reusable profile. It does not send a probe or assign/apply anything. Connection identity is not portable: the serial port/host/unit remain blank for explicit entry.
+
+Enter the source name and actual gateway connection, then **Assign profile**. This saves the source in the commissioning session. The saved source remains visible after reloading that session. A lost or malformed assignment receipt stops further assignment and asks you to reload the saved setup; it never automatically repeats the mutation. An uncertain profile save similarly directs you to check Profiles before creating another.
+
+Review the full saved source list separately, then **Apply saved source settings**. Review is tied to this gateway, source list and desired configuration fingerprint; a changed list invalidates it. A mismatched/lost Apply receipt stays unconfirmed, with no automatic retry. Sent, applied and confirmed are different states. Applied means the gateway saved settings, not that reload or readings succeeded. Even matching confirmation still requires a recent measured source reading. **Check live source readings without a probe** only reads server-side preview. Historical, estimated or stale data does not complete setup. Close a temporary explorer serial connection before applying a saved source using that port; the application does not secretly pause another owner.
+
+These controls do not enable signed source updates, provision secrets, activate a deployment, authorize physical writes or certify device calibration. The separate advanced config download/import remains available but downloading a file does not start source polling.
+
 ## Ownership and local request boundary
 
 `driver.RangeReader` borrows an already-open generic Modbus RTU/TCP driver and uses its transaction mutex with TryLock. It permits only FC1-4, validates the wire range before I/O and validates exact response length before exposing words. It never performs an internal automatic retry. RTU response reads assemble bounded fragments, verify unit/function/count/CRC, handle exception PDUs and fail on zero progress or a short write without resending. TCP response reads verify transaction/protocol/unit/function/count and reject malformed/truncated exceptions without a panic. Driver Close drains a transaction and prevents a stale reference from reopening it. The registry detaches/drains a source before its owner closes the driver.
@@ -39,6 +49,10 @@ The desktop control uses fresh UUID requests and matching receipts in the local 
 This does not protect against a hostile program running as the same local user. The existing optional LAN status, remote commissioning and discovery interfaces are not widened.
 
 ## Acceptance performed
+
+- Guided browser flow at 1440/390 with the actual exported portable JSON: explicit reviewed profile save/select, blank endpoint/unit, explicit source assignment, changed-list review invalidation, one Apply, applied versus confirmed status, stale versus recent measured preview, saved-session recovery without repeated writes and lost-assignment quarantine. These use synthetic API fixtures; they are not physical or native Windows acceptance.
+- Real profile API and isolated Postgres, compiled edge/ingest, synthetic read-only Modbus TCP peer and certificate-required broker: the export-derived template is saved, explicitly assigned, recovered from its saved session, duplicate assignment refused, signed config applied and matching fingerprint confirmed, then the actual measured Float32 100 reaches preview. Plaintext and mTLS variants pass locally with race detection. The existing mTLS CI entry now calls the source and portable-template regressions with an actual compiled edge; no workflow file changed. Remote acceptance still requires inspecting that exact commit's run.
+
 
 - Twenty race-enabled serial-owner repetitions on synthetic PTYs: canonical aliases, competing probes, twenty concurrent contenders with exactly one winner, ordinary-file refusal, failed-open cleanup and a separate cooperating process whose crash releases its lock. These are virtual TTYs, not USB hardware.
 - Temporary connection validation before opening, explicit single-session lifecycle, idle/hard expiry, in-flight refusal, borrowed-driver protection, close/shutdown, stale lifetime and protected connection API tests.

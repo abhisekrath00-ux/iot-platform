@@ -1,3 +1,4 @@
+import ExplorerTemplateImport from '../components/ExplorerTemplateImport';
 import MapRegisters from '../components/MapRegisters';
 import SerialPortPicker from '../components/SerialPortPicker';
 import SecurePairing from '../components/SecurePairing';
@@ -62,6 +63,8 @@ export default function Onboarding() {
   const [preview, setPreview] = useState<PreviewPoint[]>([]);
   const [msg, setMsg] = useState('');
   const creationAttempted = useRef(false);
+  const assignmentAttempt=useRef(false);
+  const [assigning,setAssigning]=useState(false),[assignmentUncertain,setAssignmentUncertain]=useState(false);
   const [creating, setCreating] = useState(false);
   const [creationUncertain, setCreationUncertain] = useState(false);
   const driver = session?.source?.driver ?? profiles.find(p => p.id === profileId)?.driver_profile ?? '';
@@ -162,15 +165,17 @@ export default function Onboarding() {
   }
 
   async function assignProfile(e: React.FormEvent) {
-    e.preventDefault(); setMsg('');
+    e.preventDefault(); if(assignmentAttempt.current||assignmentUncertain||!session||session.device_id||!profileId||!deviceName.trim())return;assignmentAttempt.current=true;setAssigning(true);setMsg('');
     try {
       const created=await api<{device_id:string}>(`/v1/commissioning/sessions/${session!.session_id}/profile`, {
         method: 'POST', body: JSON.stringify({ profile_id: profileId, device_name: deviceName, connection: connectionPayload() })
       });
+      if(typeof created.device_id!=='string'||!created.device_id||created.device_id.length>80)throw Error('missing source receipt');
       if (!isNet) {const first=profiles.find(p=>p.id===profileId)?.points?.[0];setProbe(pr => ({ ...pr, port: conn.port, baud: +conn.baud, data_bits:+conn.data_bits, stop_bits:+conn.stop_bits, parity:conn.parity, address: +conn.address,...(first?{register:first.register,func:first.func??4,type:first.type??'u16',word_order:first.word_order??'abcd',count:['f32','u32','i32'].includes(first.type??'')?2:1}:{}) }));}
       setSession(prev=>prev?({...prev,device_id:created.device_id,profile_id:profileId,source:{device_id:created.device_id,name:deviceName,driver,connection:connectionPayload()??{}},state:'profiled'}):prev);
       setStep(3);
-    } catch (e2) { setMsg(String(e2)); }
+    } catch {setAssignmentUncertain(true);setMsg('Could not confirm whether this source was assigned. Reload this saved setup to recover its source before trying anything else. No automatic retry was sent.');}
+    finally{setAssigning(false);}
   }
 
   async function runProbe(e: React.FormEvent) {
@@ -229,28 +234,29 @@ export default function Onboarding() {
       )}
 
       {step === 2 && (
-        <>
+        <fieldset disabled={assigning||assignmentUncertain} style={{minWidth:0,border:0,padding:0}}><legend>Review and save a source</legend>
+          <ExplorerTemplateImport onSaved={p=>{setProfiles(prev=>[p,...prev.filter(x=>x.id!==p.id)]);setProfileId(p.id);setConn(c=>({...c,port:'',host:'',net_port:0,address:''}));}}/>
           <MapRegisters session={session!.session_id} gateway={session!.gateway_id} onSaved={(p,c)=>{setProfiles(prev=>[p,...prev]);setProfileId(p.id);setConn({...c});}}/>
-        <form onSubmit={assignProfile}>
+        <form onSubmit={assignProfile} aria-label="Assign saved profile"><fieldset disabled={assigning||assignmentUncertain} style={{minWidth:0}}><legend>Saved profile and source connection</legend>
           <SchneiderMeterTemplate onSaved={p=>{setProfiles(prev=>[p,...prev]);setProfileId(p.id);const d=p.connection_defaults;setConn(c=>({...c,baud:String(d.baud),data_bits:String(d.data_bits),stop_bits:String(d.stop_bits),parity:String(d.parity),port:'',address:''}));}}/>
           <h2>Assign a device profile</h2>
           <label>Profile</label>
-          <select value={profileId} onChange={e => {setProfileId(e.target.value);const p=profiles.find(x=>x.id===e.target.value);if(p?.connection_defaults){const d=p.connection_defaults;setConn(c=>({...c,baud:String(d.baud??c.baud),data_bits:String(d.data_bits??c.data_bits),stop_bits:String(d.stop_bits??c.stop_bits),parity:String(d.parity??c.parity),port:'',address:''}));}}} required>
+          <select aria-label="Source profile" value={profileId} onChange={e => {setProfileId(e.target.value);const p=profiles.find(x=>x.id===e.target.value);if(p?.connection_defaults){const d=p.connection_defaults;setConn(c=>({...c,baud:String(d.baud??c.baud),data_bits:String(d.data_bits??c.data_bits),stop_bits:String(d.stop_bits??c.stop_bits),parity:String(d.parity??c.parity),port:'',address:''}));}}} required>
             <option value="">Choose...</option>
             {profiles.map(p => <option key={p.id} value={p.id}>{p.name} ({p.driver_profile})</option>)}
           </select>
           <label>Device name</label>
-          <input value={deviceName} onChange={e => setDeviceName(e.target.value)} placeholder="Main energy meter" required />
+          <input aria-label="Source name" value={deviceName} onChange={e => setDeviceName(e.target.value)} placeholder="Main energy meter" required />
           {driver && (
             <>
               <h3 style={{ marginTop: 20 }}>Connection</h3>
               {driver === 'opcua' && (<><label>OPC UA endpoint</label><input value={conn.endpoint} onChange={e => setConn({ ...conn, endpoint: e.target.value })} placeholder="opc.tcp://192.168.1.60:4840" required /></>)}
               {driver === 'can' && (<>
-                <label>CAN interface on the gateway</label><input value={conn.port} onChange={e => setConn({ ...conn, port: e.target.value })} placeholder="can0" pattern="[a-z]{1,8}[0-9]{1,3}" required />
+                <label>CAN interface on the gateway</label><input aria-label="Source CAN interface" value={conn.port} onChange={e => setConn({ ...conn, port: e.target.value })} placeholder="can0" pattern="[a-z]{1,8}[0-9]{1,3}" required />
                 <p className="muted">Linux SocketCAN, receive only. The gateway never sends a frame. Each point is a signal: id:start bit:length:le|be:u|s, for example 0x123:0:16:le:u.</p>
               </>)}
               {EXTRA_DRIVERS[driver] && driver !== 'can' && (<>
-                <label>Host / IP</label><input value={conn.host} onChange={e => setConn({ ...conn, host: e.target.value })} placeholder="192.168.1.50" required />
+                <label>Host / IP</label><input aria-label="Source host" value={conn.host} onChange={e => setConn({ ...conn, host: e.target.value })} placeholder="192.168.1.50" required />
                 <label>Port (blank = protocol default)</label><input type="number" value={conn.net_port || ''} onChange={e => setConn({ ...conn, net_port: +e.target.value })} />
                 {(driver === 'iec104' || driver === 'dnp3') && (<><label>{driver === 'iec104' ? 'Common address (ASDU)' : 'Outstation address'}</label><input type="number" min={0} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} /></>)}
                 {driver === 'snmp' && (<>
@@ -265,23 +271,24 @@ export default function Onboarding() {
                 </>)}
               </>)}
               {driver === 'modbus-tcp' && (<>
-                <label>Host / IP</label><input value={conn.host} onChange={e => setConn({ ...conn, host: e.target.value })} placeholder="192.168.1.50" required />
-                <label>TCP port</label><input type="number" value={conn.net_port || 502} onChange={e => setConn({ ...conn, net_port: +e.target.value })} />
-                <label>Unit / slave id</label><input type="number" min={0} max={255} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} />
+                <label>Host / IP</label><input aria-label="Source host" value={conn.host} onChange={e => setConn({ ...conn, host: e.target.value })} placeholder="192.168.1.50" required />
+                <label>TCP port</label><input aria-label="Source TCP port" type="number" value={conn.net_port || 502} onChange={e => setConn({ ...conn, net_port: +e.target.value })} />
+                <label>Unit / slave id</label><input aria-label="Source unit address" required type="number" min={0} max={255} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} />
               </>)}
               {!isNet && (<>
-                <SerialPortPicker gateway={session!.gateway_id} value={conn.port??''} onChange={port=>setConn(c=>({...c,port}))}/><label>Serial port (manual override)</label><input value={conn.port} onChange={e => setConn({ ...conn, port: e.target.value })} required />
+                <SerialPortPicker gateway={session!.gateway_id} value={conn.port??''} onChange={port=>setConn(c=>({...c,port}))}/><label>Serial port (manual override)</label><input aria-label="Source serial port" value={conn.port} onChange={e => setConn({ ...conn, port: e.target.value })} required />
                 <label>Baud</label><input type="number" value={conn.baud} onChange={e => setConn({ ...conn, baud: +e.target.value })} />
                 <label>Data bits</label><select value={conn.data_bits} onChange={e=>setConn({...conn,data_bits:+e.target.value})}>{[5,6,7,8].map(n=><option key={n}>{n}</option>)}</select>
                 <label>Parity</label><select value={conn.parity} onChange={e=>setConn({...conn,parity:e.target.value})}><option value="none">None</option><option value="even">Even</option><option value="odd">Odd</option></select>
                 <label>Stop bits</label><select value={conn.stop_bits} onChange={e=>setConn({...conn,stop_bits:+e.target.value})}><option>1</option><option>2</option></select>
-                {driver !== 'serial-json' && (<><label>Modbus address</label><input type="number" min={1} max={247} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} /></>)}
+                {driver !== 'serial-json' && (<><label>Modbus address</label><input aria-label="Source unit address" required type="number" min={1} max={247} value={conn.address} onChange={e => setConn({ ...conn, address: +e.target.value })} /></>)}
               </>)}
               <label>Poll interval (seconds)</label><input type="number" min={1} value={conn.interval_seconds} onChange={e => setConn({ ...conn, interval_seconds: +e.target.value })} />
             </>
           )}
-          <div style={{ marginTop: 16 }}><button type="submit">Assign profile</button></div>
-        </form></>
+          <p>Assign saves this source on gateway {session?.serial}; it does not apply it to the edge agent. Review the saved source and Apply separately.</p><div style={{ marginTop: 16 }}><button type="submit" disabled={assigning||assignmentUncertain}>{assigning?'Saving source...':'Assign profile'}</button></div></fieldset>
+ {assignmentUncertain&&<p role="alert">Source assignment is unconfirmed. <a href={'/onboarding?session='+encodeURIComponent(session!.session_id)}>Reload this saved setup</a> before any further assignment.</p>}
+        </form></fieldset>
       )}
 
       {session?.source && <section className="card" aria-label="Saved source" style={{marginBottom:16}}><h2>{session.source.name}</h2><p>Saved {session.source.driver} connection. These settings are stored, but that does not prove they are applied on the gateway.</p><dl>{Object.entries(session.source.connection).filter(([k])=>!["community_env","snmp_auth_pass_env","snmp_priv_pass_env"].includes(k)).map(([k,v])=><div key={k}><dt>{k.replaceAll('_',' ')}</dt><dd>{String(v)}</dd></div>)}</dl></section>}
@@ -297,11 +304,11 @@ export default function Onboarding() {
 
       {step === 3 && (
         <div>
-          <h2>Port test (read-only)</h2>
+          <h2>Port test (read-only)</h2><p>A port test is optional. If you already checked the device in the edge explorer, disconnect its temporary connection before applying a saved source that uses the same port. Preview only checks readings; it sends no device probe.</p><button type="button" className="ghost" onClick={()=>setStep(4)}>Check live source readings without a probe</button>
           {resumeId && <div className="card"><p>{session?.port_test?.config ? 'Your last requested probe settings are restored. They are not proof of a successful reading.' : 'No saved probe request was found. These are example test settings, not your saved gateway configuration.'} Confirm the port, serial settings, slave address, register and word order against your working device before sending a test. Loading this page sends no probe.</p><label><input type="checkbox" style={{width:"auto",marginRight:8,boxShadow:"none"}} checked={resumeProbeReviewed} onChange={e => setResumeProbeReviewed(e.target.checked)} /> I reviewed the probe settings for this device.</label></div>}
           {(isNet || driver === 'serial-json') && (
             <div className="card" style={{ marginBottom: 16 }}>
-              <p className="muted">The read-only port test covers Modbus RTU registers. For {driver || 'this'} devices, skip to the live preview: the gateway starts polling as soon as it has the config below.</p>
+              <p className="muted">This form tests Modbus RTU registers. For {driver || 'this'} sources, review and Apply the saved settings, then check live preview. Merely saving or downloading a config does not start source polling.</p>
               <button onClick={() => setStep(4)}>Skip to live preview</button>
             </div>
           )}

@@ -99,6 +99,23 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	verifyGeneratedACLReads(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
 	verifyOneShotCommandTransport(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
 	runMQTTPipeline(t, map[string]string{"MQTT_TLS": "true", "MQTT_PORT": port, "MQTT_HOST": "127.0.0.1", "MQTT_CA_FILE": filepath.Join(dir, "ca.crt"), "MQTT_CERT_FILE": ic, "MQTT_KEY_FILE": ik, "PUBLISHER_CERT": gc, "PUBLISHER_KEY": gk})
+	// Exercise the source-template -> assignment -> signed Apply -> measured
+	// reading path on its own disposable certificate-required broker too.
+	t.Run("CompiledSourceCommissioning", func(t *testing.T) {
+		edge := os.Getenv("TEST_EDGE_BINARY")
+		if edge == "" {
+			edge = filepath.Join(t.TempDir(), "edge-pipeline")
+			build := exec.Command("go", "build", "-o", edge, "./cmd/edge-agent")
+			build.Dir = "../../../edge"
+			if out, err := build.CombinedOutput(); err != nil {
+				t.Fatalf("compile actual edge: %v: %s", err, out)
+			}
+			t.Setenv("TEST_EDGE_BINARY", edge)
+		}
+		t.Setenv("TEST_SOURCE_MTLS", "1")
+		t.Run("SavedSource", TestIntegrationCompiledSourceApplyAndReading)
+		t.Run("PortableExplorerTemplate", TestIntegrationCompiledExplorerTemplateSourceAndReading)
+	})
 	// Separate plaintext loopback fault fixture, not additional TLS proof.
 	// A green characterization asserts an OPEN gap, never durability acceptance.
 	t.Run("OpenDerivedWorkGap", TestIntegrationCompiledIngestDerivedWorkGap)

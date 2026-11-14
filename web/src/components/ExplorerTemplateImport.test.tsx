@@ -1,0 +1,21 @@
+// @vitest-environment jsdom
+import {act} from 'react';
+import {createRoot,Root} from 'react-dom/client';
+import {afterEach,beforeEach,expect,test,vi} from 'vitest';
+import ExplorerTemplateImport from './ExplorerTemplateImport';
+import {api} from '../lib/api';
+vi.mock('../lib/api',()=>({api:vi.fn()}));
+let root:Root,box:HTMLDivElement;
+const template={format:'hexthings-explorer-template',version:1,name:'Synthetic verified meter',driver_profile:'modbus-generic',manual_reference:'SYNTHETIC map, p2',connection_defaults:{},points:[{id:'temperature',name:'Temperature',description:'Register map: SYNTHETIC map, p2',register:0,func:3,type:'f32',word_order:'abcd',scale:1,unit:'C',min:-40,max:150}]};
+beforeEach(()=>{(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;box=document.createElement('div');root=createRoot(box);vi.mocked(api).mockResolvedValue({id:'saved-template'})});
+afterEach(async()=>{await act(async()=>root.unmount());vi.clearAllMocks()});
+async function render(){const selected=vi.fn();await act(async()=>root.render(<ExplorerTemplateImport onSaved={selected}/>));return selected}
+async function upload(doc:unknown,size=100){const file={size,text:async()=>JSON.stringify(doc)};const field=box.querySelector('input[type=file]')!;Object.defineProperty(field,'files',{value:[file],configurable:true});await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})))}
+const save=()=>[...box.querySelectorAll('button')].find(x=>x.textContent==='Save and select imported template')!;
+async function review(){await act(async()=>box.querySelector<HTMLInputElement>('[aria-label="Explorer import review"]')!.click())}
+test('import is draft-only, manual/decoder visible and explicit review saves/selects once without connection fields',async()=>{
+ const selected=await render();await upload(template);expect(vi.mocked(api)).not.toHaveBeenCalled();expect(selected).not.toHaveBeenCalled();expect(box.textContent).toContain('SYNTHETIC map, p2');expect(box.textContent).toContain('f32 / abcd');expect(save().disabled).toBe(true);await review();await act(async()=>{save().click();save().click()});expect(vi.mocked(api)).toHaveBeenCalledTimes(1);const [path,init]=vi.mocked(api).mock.calls[0];const body=JSON.parse(String(init?.body));expect(path).toBe('/v1/profiles');expect(body).toEqual({name:template.name,driver_profile:template.driver_profile,connection_defaults:{},points:template.points});expect(selected).toHaveBeenCalledWith({...body,id:'saved-template'});expect(box.textContent).toContain('Nothing is applied');expect(save().disabled).toBe(true);
+});
+test.each([{...template,connection_defaults:{port:'COM3'}},{...template,command_permission:true},{format:'hexthings-explorer-labels',version:1,labels:[]},[{id:'raw',register:0,type:'u16'}]])('rejects nonportable/effectful file without saving or selecting',async doc=>{const selected=await render();await upload(doc);expect(box.querySelector('[role=alert]')).not.toBeNull();expect(box.querySelector('[aria-label="Explorer import review"]')).toBeNull();expect(vi.mocked(api)).not.toHaveBeenCalled();expect(selected).not.toHaveBeenCalled()});
+test('replacement file invalidates review; size refusal does not retain a saveable draft',async()=>{await render();await upload(template);await review();await upload({...template,name:'Another reviewed meter'});expect(save().disabled).toBe(true);expect(box.querySelector<HTMLInputElement>('[aria-label="Explorer import review"]')!.checked).toBe(false);await upload(template,262145);expect(box.textContent).toContain('exceeds 256 KiB');expect(box.querySelector('button')).toBeNull();expect(vi.mocked(api)).not.toHaveBeenCalled()});
+test.each([undefined,{}])('lost/malformed save receipt quarantines attempt and cannot save again',async response=>{await render();await upload(template);await review();if(response===undefined)vi.mocked(api).mockRejectedValue(Error('lost response'));else vi.mocked(api).mockResolvedValue(response);await act(async()=>{save().click();save().click()});expect(box.textContent).toContain('Could not confirm whether');expect(box.textContent).toContain('No automatic retry');expect(save().disabled).toBe(true);expect(box.querySelector<HTMLInputElement>('input[type=file]')!.disabled).toBe(true);expect(vi.mocked(api)).toHaveBeenCalledTimes(1)});
