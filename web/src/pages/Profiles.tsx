@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, EXTRA_DRIVERS } from '../lib/api';
 import { EDGE_TEMPLATES } from '../lib/edgeSetup';
-import { Issue, MapPoint, parseAny, templatePoints, toCsv, validateMap } from '../lib/registerMap';
+import { ImportedProfile, Issue, MapPoint, parseAny, templatePoints, toCsv, validateMap } from '../lib/registerMap';
 
 interface PointDef { name?: string; description?:string; id: string; register?: number; key?: string; node_id?: string; oid?: string; ioa?: number; func?: number; type?: string; word_order?: string; scale?: number; unit?: string; min?: number; max?: number; }
 interface ProfileRow { id: string; name: string; driver_profile: string; points: PointDef[]; created_at: string; }
@@ -23,7 +23,7 @@ export default function Profiles() {
   const [pendingOrder,setPendingOrder]=useState(''),[pendingBase,setPendingBase]=useState(''),[pendingFunc,setPendingFunc]=useState('');
   const liveIssues = isModbus && points.some(p => p.id) ? validateMap(points.filter(p => p.id) as MapPoint[]) : [];
   const shown = issues.length ? issues : liveIssues;
-  function loadMap(pts: MapPoint[], iss: Issue[]) { if (pts.length) setPoints(pts); setIssues(iss); }
+  function loadMap(pts: MapPoint[], iss: Issue[], imported?:ImportedProfile) { if (pts.length) setPoints(pts); setIssues(iss); if(imported&&!iss.length){setName(imported.name);setDriver(imported.driver_profile);setConnectionDefaults({});setMsg('Explorer template imported into this draft only. Review names, manual references and every point before Create profile. Source assignment and Apply remain separate.');} }
   function save(name: string, text: string) { const u = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const a = document.createElement('a'); a.href = u; a.download = name; a.click(); URL.revokeObjectURL(u); }
   const extra = EXTRA_DRIVERS[driver];
 
@@ -87,7 +87,7 @@ export default function Profiles() {
                   <option value="">Load a built-in template…</option>
                   {EDGE_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}{t.provisional ? ' (provisional)' : ''}</option>)}
                 </select>
-                <input type="file" accept=".csv,.json,.txt" aria-label="Import file" style={{ width: '100%', maxWidth:340 }} onChange={async e => { const f = e.target.files?.[0]; if (f) { const r = parseAny(await f.text()); loadMap(r.points, r.issues); } e.target.value = ''; }} />
+                <input type="file" accept=".csv,.json,.txt" aria-label="Import file" style={{ width: '100%', maxWidth:340 }} onChange={async e => { const f = e.target.files?.[0]; if (f && f.size>262144) {setIssues([{row:0,text:'Register map exceeds 256 KiB. No editor values were replaced.'}]);} else if (f) { const r = parseAny(await f.text()); loadMap(r.points, r.issues, r.profile); } e.target.value = ''; }} />
                 <button type="button" className="ghost" onClick={() => save('register-map.csv', toCsv(points.filter(p => p.id) as MapPoint[]))}>Export CSV</button>
                 <button type="button" className="ghost" onClick={() => save('register-map.json', JSON.stringify(points.filter(p => p.id), null, 2))}>Export JSON</button>
               </div>
@@ -112,7 +112,7 @@ export default function Profiles() {
                 );
               })()}
               <textarea aria-label="Paste a register map" rows={3} style={{ width: '100%', marginTop: 8 }} placeholder="Or paste CSV / JSON here" value={paste} onChange={e => setPaste(e.target.value)} />
-              <button type="button" className="ghost" disabled={!paste.trim()} onClick={() => { const r = parseAny(paste); loadMap(r.points, r.issues); }}>Import pasted text</button>
+              <button type="button" className="ghost" disabled={!paste.trim()} onClick={() => { const r = parseAny(paste); loadMap(r.points, r.issues, r.profile); }}>Import pasted text</button>
               {shown.length > 0 && <ul role="alert" style={{ color: '#dc2626', margin: '8px 0 0', paddingLeft: 18 }}>{shown.slice(0, 12).map((i, k) => <li key={k}>{i.row ? `Row ${i.row}: ` : ''}{i.text}</li>)}{shown.length > 12 && <li>…and {shown.length - 12} more</li>}</ul>}
               {!shown.length && points.some(p => p.id) && <p className="muted" style={{ color: '#16a34a' }}>Register map checks passed (ids unique, no overlaps, types and ranges valid).</p>}
             </div>
@@ -124,6 +124,7 @@ export default function Profiles() {
             return <fieldset key={i} style={{minWidth:0,border:'1px solid var(--line)',borderRadius:14,padding:16,margin:'14px 0'}}>
              <legend style={{padding:'0 6px'}}>Point {i+1}{p.name?` - ${p.name}`:p.id?` - ${p.id}`:''}</legend>{p.description&&<p className="muted">{p.description}</p>}
              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,180px),1fr))',gap:12}}>
+              {field('Friendly name',<input aria-label={`Point ${i+1} name`} maxLength={128} value={p.name??''} onChange={e=>setPoint(i,'name',e.target.value)}/>)}
               {field('Point ID',<input aria-label={`Point ${i+1} ID`} value={p.id} onChange={e=>setPoint(i,'id',e.target.value)} placeholder="temp" required/>)}
               {driver==='opcua'&&field('OPC UA node ID',<input aria-label={`Point ${i+1} node ID`} value={p.node_id??''} onChange={e=>setPoint(i,'node_id',e.target.value)} placeholder="ns=2;s=Boiler.Temp" required/>)}
               {extra&&field(extra.f==='oid'?'Numeric OID':extra.f==='ioa'?'IOA':'Protocol key',<input aria-label={`Point ${i+1} protocol address`} value={extra.f==='oid'?(p.oid??''):extra.f==='ioa'?(p.ioa??''):(p.key??'')} onChange={e=>setPoint(i,extra.f,e.target.value)} placeholder={extra.ph} required/>)}

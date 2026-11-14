@@ -123,35 +123,86 @@ func decodeWords(words []uint16, typ, order string) (float64, error) {
 
 // readRegisters issues one Modbus request and returns the data words (fn 3/4)
 // or packed status bytes (fn 1/2).
+// readRTUExact assembles one response across OS read fragments. A zero-byte
+// serial timeout is an error, not io.ReadFull's unbounded zero-progress loop.
+// Only the response is continued; the request is never sent again.
+func readRTUExact(port serial.Port, dst []byte, deadline time.Time) error {
+	for len(dst) > 0 {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("RTU response deadline exceeded")
+		}
+		if remaining > 500*time.Millisecond {
+			remaining = 500 * time.Millisecond
+		}
+		if err := port.SetReadTimeout(remaining); err != nil {
+			return err
+		}
+		n, err := port.Read(dst)
+		if n < 0 || n > len(dst) {
+			return fmt.Errorf("invalid serial read length")
+		}
+		dst = dst[n:]
+		if len(dst) == 0 {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("RTU response timed out without progress")
+		}
+	}
+	return nil
+}
+
 func (g *modbusGeneric) readRegisters(fn, reg, count int) ([]byte, error) {
+	if fn < 1 || fn > 4 || reg < 0 || reg > 65535 || count < 1 || count > 125 || reg+count > 65536 || g.dev.Address < 1 || g.dev.Address > 247 {
+		return nil, fmt.Errorf("invalid read-only RTU request")
+	}
 	req := []byte{byte(g.dev.Address), byte(fn), byte(reg >> 8), byte(reg), byte(count >> 8), byte(count)}
 	c := crc16(req)
 	req = append(req, byte(c), byte(c>>8))
-	g.port.ResetInputBuffer()
-	if _, err := g.port.Write(req); err != nil {
+	if err := g.port.ResetInputBuffer(); err != nil {
 		return nil, err
 	}
-	g.port.SetReadTimeout(500 * time.Millisecond)
-	// Response: addr fn bytecount data... crc(2). Read generously, then parse.
-	buf := make([]byte, 5+2*count+2)
-	n, err := g.port.Read(buf)
+	n, err := g.port.Write(req)
 	if err != nil {
 		return nil, err
 	}
-	if n < 5 {
-		return nil, fmt.Errorf("short frame: %d bytes", n)
+	if n != len(req) {
+		return nil, fmt.Errorf("short RTU request write; no retry sent")
 	}
-	if crc16(buf[:n-2]) != binary.LittleEndian.Uint16(buf[n-2:]) {
+	deadline := time.Now().Add(2 * time.Second)
+	hdr := make([]byte, 3)
+	if err := readRTUExact(g.port, hdr, deadline); err != nil {
+		return nil, err
+	}
+	if hdr[0] != byte(g.dev.Address) || (hdr[1] != byte(fn) && hdr[1] != byte(fn)|0x80) {
+		return nil, fmt.Errorf("unexpected RTU response address/function")
+	}
+	size := count * 2
+	if fn <= 2 {
+		size = (count + 7) / 8
+	}
+	exception := hdr[1] == byte(fn)|0x80
+	if exception {
+		size = 0
+	} else if int(hdr[2]) != size {
+		return nil, fmt.Errorf("unexpected RTU response byte count")
+	}
+	tail := make([]byte, size+2)
+	if err := readRTUExact(g.port, tail, deadline); err != nil {
+		return nil, err
+	}
+	frame := append(hdr, tail...)
+	if crc16(frame[:len(frame)-2]) != binary.LittleEndian.Uint16(frame[len(frame)-2:]) {
 		return nil, fmt.Errorf("crc mismatch")
 	}
-	if buf[0] != byte(g.dev.Address) || buf[1] != byte(fn) {
-		return nil, fmt.Errorf("unexpected response header %x %x", buf[0], buf[1])
+	if exception {
+		return nil, fmt.Errorf("modbus exception code %d", hdr[2])
 	}
-	byteCount := int(buf[2])
-	if n < 3+byteCount+2 {
-		return nil, fmt.Errorf("frame shorter than declared byte count")
-	}
-	return buf[3 : 3+byteCount], nil
+	return tail[:size], nil
 }
 
 func (g *modbusGeneric) Poll(ctx context.Context) ([]Reading, error) {

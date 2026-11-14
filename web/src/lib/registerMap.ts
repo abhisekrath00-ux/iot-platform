@@ -4,6 +4,8 @@ import { EDGE_TEMPLATES } from './edgeSetup';
 
 export interface MapPoint { name?: string; description?: string; id: string; register: number; func: number; type: string; word_order: string; scale: number; unit: string; min: number; max: number; }
 export interface Issue { row: number; text: string; }
+export interface ImportedProfile { name:string; driver_profile:'modbus-generic'|'modbus-tcp'; }
+export interface ImportResult { points:MapPoint[]; issues:Issue[]; profile?:ImportedProfile; }
 
 const TYPES = ['u16', 'i16', 'u32', 'i32', 'f32', 'bool'];
 const ORDERS = ['abcd', 'badc', 'cdab', 'dcba'];
@@ -43,24 +45,36 @@ export function parseCsv(text: string): { points: MapPoint[]; issues: Issue[] } 
 }
 
 /** Parse a JSON array of points, or an object with a "points" array (the shape /v1/profiles returns). */
-export function parseJson(text: string): { points: MapPoint[]; issues: Issue[] } {
+export function parseJson(text: string): ImportResult {
   let v: unknown;
   try { v = JSON.parse(text); } catch { return { points: [], issues: [{ row: 0, text: 'Not valid JSON.' }] }; }
+  const doc = v && typeof v==='object'&&!Array.isArray(v) ? v as Record<string,unknown> : undefined;
+  const explorer = doc?.format==='hexthings-explorer-template';
+  const safeText=(v:unknown,n:number)=>typeof v==='string'&&v.length<=n&&!/[<>\x00]/.test(v);
+  if(explorer && (doc.version!==1 || !safeText(doc.name,128) || !(doc.name as string).trim() || !safeText(doc.manual_reference,200) || !(doc.manual_reference as string).trim() || !['modbus-generic','modbus-tcp'].includes(String(doc.driver_profile)) || !doc.connection_defaults || typeof doc.connection_defaults!=='object' || Array.isArray(doc.connection_defaults) || Object.keys(doc.connection_defaults).length!==0 || Object.keys(doc).some(k=>!['format','version','name','driver_profile','manual_reference','connection_defaults','points'].includes(k))))return {points:[],issues:[{row:0,text:'Unsupported or invalid explorer template metadata. No editor values were replaced.'}]};
   const arr = Array.isArray(v) ? v : (v as { points?: unknown })?.points;
   if (!Array.isArray(arr)) return { points: [], issues: [{ row: 0, text: 'Expected an array of points or an object with a "points" array.' }] };
   const malformed:Issue[]=[];
   arr.forEach((r:unknown,i:number)=>{if(!r||typeof r!=='object'||Array.isArray(r))malformed.push({row:i+1,text:'Expected a point object, not null, an array or a primitive.'})});
   // Preserve the current editor on malformed structure instead of replacing it
   // with a partial map that silently drops rows.
+  if(explorer && (arr.length<1||arr.length>64))malformed.push({row:0,text:'Explorer templates require 1-64 points.'});
+  arr.forEach((r:Record<string,unknown>,i:number)=>{
+    if(!r||typeof r!=='object'||Array.isArray(r))return;
+    for(const [k,n] of [['name',128],['description',256],['unit',32]] as const)if(k in r&&!safeText(r[k],n))malformed.push({row:i+1,text:`Invalid point ${k}.`});
+    if(explorer && (Object.keys(r).some(k=>!['id','name','description','register','func','type','word_order','scale','unit','min','max'].includes(k)) || !safeText(r.name,128) || !(r.name as string).trim() || r.description!=='Register map: '+doc.manual_reference || ['register','func','scale','min','max'].some(k=>typeof r[k]!=='number'||!Number.isFinite(r[k]))))malformed.push({row:i+1,text:'Explorer point has unsupported fields or incomplete numeric/name data.'});
+  });
   if(malformed.length)return {points:[],issues:malformed};
   const points = arr.map((r: Record<string, unknown>) => ({
-    id: String(r.id ?? ''), register: Number(r.register ?? NaN), func: Number(r.func ?? 4), type: String(r.type ?? 'u16').toLowerCase(), word_order: String(r.word_order ?? 'abcd').toLowerCase(),
+    ...(typeof r.name==='string'?{name:r.name}:{}), ...(typeof r.description==='string'?{description:r.description}:{}), id: String(r.id ?? ''), register: Number(r.register ?? NaN), func: Number(r.func ?? 4), type: String(r.type ?? 'u16').toLowerCase(), word_order: String(r.word_order ?? 'abcd').toLowerCase(),
     scale: Number(r.scale ?? 1), unit: String(r.unit ?? ''), min: Number(r.min ?? 0), max: Number(r.max ?? 1000000),
   }));
-  return { points: points.some(p=>!TYPES.includes(p.type))?[]:points, issues: validateMap(points) };
+  const issues=validateMap(points);
+  return { points: (explorer&&issues.length)||points.some(p=>!TYPES.includes(p.type))?[]:points, issues, ...(explorer&&!issues.length?{profile:{name:(doc.name as string).trim(),driver_profile:doc.driver_profile as ImportedProfile['driver_profile']}}:{}) };
 }
 
-export function parseAny(text: string): { points: MapPoint[]; issues: Issue[] } {
+export function parseAny(text: string): ImportResult {
+  if(text.length>262144)return {points:[],issues:[{row:0,text:'Register map exceeds 256 KiB. No editor values were replaced.'}]};
   return text.trim().startsWith('[') || text.trim().startsWith('{') ? parseJson(text) : parseCsv(text);
 }
 

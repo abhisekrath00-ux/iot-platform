@@ -47,3 +47,21 @@ it('rejects malformed JSON rows with row numbers instead of throwing or dropping
 it('refuses unsupported f64 imports without returning a replacement map',()=>{
  for(const text of ['[{"id":"energy","register":0,"type":"f64"}]','id,register,type\nenergy,0,f64\n']){const r=parseAny(text);expect(r.points).toEqual([]);expect(r.issues.map(x=>x.text).join(' ')).toContain('type must be');}
 });
+
+const explorerTemplate=()=>({format:'hexthings-explorer-template',version:1,name:'Synthetic temperature',driver_profile:'modbus-tcp',manual_reference:'SYNTHETIC fixture, p2',connection_defaults:{},points:[{id:'temperature',name:'Temperature',description:'Register map: SYNTHETIC fixture, p2',register:0,func:3,type:'f32',word_order:'abcd',scale:1,unit:'C',min:-40,max:150}]});
+it('loads portable explorer metadata and preserves friendly names/manual provenance in draft points',()=>{
+ const r=parseAny(JSON.stringify(explorerTemplate()));expect(r.issues).toEqual([]);expect(r.profile).toEqual({name:'Synthetic temperature',driver_profile:'modbus-tcp'});expect(r.points[0]).toMatchObject({name:'Temperature',description:'Register map: SYNTHETIC fixture, p2',register:0,func:3,type:'f32',scale:1});
+});
+it('rejects explorer identity/connection/write fields, incomplete numeric metadata and unsupported versions without replacement points',()=>{
+ const bad=[{...explorerTemplate(),version:2},{...explorerTemplate(),driver_profile:'opcua'},{...explorerTemplate(),name:'<x>'},{...explorerTemplate(),manual_reference:''},{...explorerTemplate(),gateway_id:'other'},{...explorerTemplate(),writes:[{register:0,value:1}]},{...explorerTemplate(),connection_defaults:{port:'COM3'}},{...explorerTemplate(),points:[{...explorerTemplate().points[0],register:'0'}]},{...explorerTemplate(),points:[{...explorerTemplate().points[0],writes:[]}]},{...explorerTemplate(),points:[{...explorerTemplate().points[0],name:'<img>'}]},{...explorerTemplate(),points:[{...explorerTemplate().points[0],type:'f64'}]}];
+ for(const v of bad){const r=parseAny(JSON.stringify(v));expect(r.issues.length).toBeGreaterThan(0);expect(r.points).toEqual([]);expect(r.profile).toBeUndefined();}
+});
+it('preserves optional friendly names in ordinary profile JSON and rejects nontext provenance',()=>{
+ expect(parseJson('[{"id":"p","register":0,"name":"Pressure","description":"Manual p2"}]').points[0]).toMatchObject({name:'Pressure',description:'Manual p2'});
+ expect(parseJson('[{"id":"p","register":0,"description":{"text":"bad"}}]').points).toEqual([]);
+});
+
+it('refuses invalid portable point maps or inconsistent manual provenance without replacing the draft',()=>{
+ const doc=explorerTemplate();for(const points of [[doc.points[0],doc.points[0]],[{...doc.points[0],description:'Different manual'}],[{...doc.points[0],scale:0}],[{...doc.points[0],max:-41}]]){const r=parseAny(JSON.stringify({...doc,points}));expect(r.points).toEqual([]);expect(r.profile).toBeUndefined();expect(r.issues.length).toBeGreaterThan(0);}
+ expect(parseAny(' '.repeat(262145)).points).toEqual([]);expect(parseAny(' '.repeat(262145)).issues[0].text).toContain('256 KiB');
+});

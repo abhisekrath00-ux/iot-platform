@@ -96,11 +96,24 @@ func (t *tcpConn) exchange(fn, reg, count int) ([]byte, error) {
 	if _, err := io.ReadFull(t.conn, pdu); err != nil {
 		return nil, err
 	}
+	if len(pdu) < 2 {
+		return nil, fmt.Errorf("truncated Modbus response PDU")
+	}
 	if pdu[0] == byte(fn)|0x80 {
+		if len(pdu) != 2 {
+			return nil, fmt.Errorf("malformed Modbus exception PDU")
+		}
 		return nil, fmt.Errorf("modbus exception code %d", pdu[1])
 	}
 	if pdu[0] != byte(fn) || len(pdu) < 2 || int(pdu[1]) != len(pdu)-2 {
 		return nil, fmt.Errorf("malformed response")
+	}
+	want := count * 2
+	if fn <= 2 {
+		want = (count + 7) / 8
+	}
+	if len(pdu) != want+2 {
+		return nil, fmt.Errorf("Modbus response count does not match request")
 	}
 	return pdu[2:], nil
 }

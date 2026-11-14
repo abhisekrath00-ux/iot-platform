@@ -1,0 +1,23 @@
+{
+  "format": "hexthings-explorer-template",
+  "version": 1,
+  "name": "Synthetic temperature reviewed",
+  "driver_profile": "modbus-generic",
+  "manual_reference": "SYNTHETIC fixture map, p2",
+  "connection_defaults": {},
+  "points": [
+    {
+      "id": "temperature",
+      "name": "Temperature",
+      "register": 0,
+      "func": 3,
+      "type": "f32",
+      "word_order": "abcd",
+      "scale": 1,
+      "unit": "C",
+      "min": -40,
+      "max": 150,
+      "description": "Register map: SYNTHETIC fixture map, p2"
+    }
+  ]
+}
