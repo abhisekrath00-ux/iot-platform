@@ -105,6 +105,7 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	// Separate plaintext candidate experiment, NOT an additional TLS assertion.
 	t.Run("CandidatePlaintextPersistentAdmission", TestIntegrationMQTTAdmissionCandidateBoundary)
 	t.Run("CandidatePlaintextGracefulBrokerRestart", TestIntegrationMQTTAdmissionCandidateBrokerRestart)
+	t.Run("CandidatePlaintextCheckpointedBrokerKill", TestIntegrationMQTTAdmissionCandidateBrokerCrash)
 }
 
 // Both identities use production client options and the generated ACL. An own

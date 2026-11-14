@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -65,17 +66,25 @@ func TestAdmissionMQTTCandidateHelper(t *testing.T) {
 }
 
 // Candidate transport experiments ONLY. The default broker stays alive; the
-// separate variant tests graceful file-backed restart. Neither accepts abrupt
-// disk loss, shared-subscription/fleet, TLS or production ingest behavior.
-func TestIntegrationMQTTAdmissionCandidateBoundary(t *testing.T) { runMQTTAdmissionCandidate(t, false) }
+// separate variants test graceful file reload and checkpointed process kill.
+// None accepts power loss, fleet, TLS or production ingest behavior.
+func TestIntegrationMQTTAdmissionCandidateBoundary(t *testing.T) {
+	runMQTTAdmissionCandidate(t, "memory")
+}
 
 // Graceful broker persistence is separate from the live in-memory boundary.
 // This does not prove power-loss/fsync/disk-failure or production config safety.
 func TestIntegrationMQTTAdmissionCandidateBrokerRestart(t *testing.T) {
-	runMQTTAdmissionCandidate(t, true)
+	runMQTTAdmissionCandidate(t, "graceful")
 }
 
-func runMQTTAdmissionCandidate(t *testing.T, brokerRestart bool) {
+// Process kill after an explicit broker checkpoint is not power-loss proof.
+func TestIntegrationMQTTAdmissionCandidateBrokerCrash(t *testing.T) {
+	runMQTTAdmissionCandidate(t, "checkpoint-kill")
+}
+
+func runMQTTAdmissionCandidate(t *testing.T, brokerMode string) {
+	brokerRestart := brokerMode != "memory"
 	broker := os.Getenv("TEST_MOSQUITTO_BINARY")
 	if broker == "" {
 		t.Skip("TEST_MOSQUITTO_BINARY required")
@@ -108,7 +117,7 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerRestart bool) {
 	conf := filepath.Join(dir, "broker.conf")
 	persistence := "persistence false\n"
 	if brokerRestart {
-		persistence = "persistence true\npersistence_location " + dir + "/\npersistence_file candidate.db\n"
+		persistence = "persistence true\npersistence_location " + dir + "/\npersistence_file candidate.db\nautosave_interval 0\n"
 	}
 	if err := os.WriteFile(conf, []byte("listener "+port+" 127.0.0.1\nallow_anonymous true\n"+persistence+"max_inflight_messages 1\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -184,7 +193,7 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerRestart bool) {
 			return strings.Contains(string(b), "CANDIDATE_MQTT_READY")
 		})
 	}
-	publisher := mqtt.NewClient(mqtt.NewClientOptions().AddBroker("tcp://127.0.0.1:" + port).SetClientID("synthetic-admission-publisher"))
+	publisher := mqtt.NewClient(mqtt.NewClientOptions().AddBroker("tcp://127.0.0.1:" + port).SetClientID("synthetic-admission-publisher").SetAutoReconnect(false))
 	tok := publisher.Connect()
 	if !tok.WaitTimeout(3*time.Second) || tok.Error() != nil {
 		t.Fatal(tok.Error())
@@ -284,17 +293,46 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerRestart bool) {
 			t.Fatal("offline event admitted without subscriber")
 		}
 	}
+	var uncheckpointed ingestjournal.Envelope
 	if brokerRestart {
-		// Graceful termination asks Mosquitto to write its retained session and
-		// offline queue. Restart the same binary/config/data, not a fresh broker.
-		if err := bc.Process.Signal(os.Interrupt); err != nil {
+		// Restart the same binary/config/data, not a fresh broker. The crash
+		// variant checkpoints explicitly before SIGKILL; graceful uses SIGINT.
+		if brokerMode == "checkpoint-kill" {
+			// SIGUSR1 requests a broker checkpoint, not delivery/DB acceptance. The
+			// replay assertions below determine whether the queued data survived.
+			checkpointAt := time.Now()
+			if err := bc.Process.Signal(syscall.SIGUSR1); err != nil {
+				t.Fatal(err)
+			}
+			wait("broker explicit checkpoint", func() bool {
+				f, err := os.Stat(filepath.Join(dir, "candidate.db"))
+				return err == nil && f.Size() > 0 && !f.ModTime().Before(checkpointAt)
+			})
+			// Publisher acceptance after that checkpoint is deliberately not
+			// on disk. A killed broker can lose it despite the durable candidate DB.
+			uncheckpointed = e
+			uncheckpointed.EventID = "itest-mqtt-admission-after-checkpoint"
+			send(uncheckpointed)
+			if count(uncheckpointed.EventID) != 0 {
+				t.Fatal("offline input admitted")
+			}
+			if err := bc.Process.Kill(); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := bc.Process.Signal(os.Interrupt); err != nil {
 			t.Fatal(err)
 		}
 		stopped := make(chan error, 1)
 		go func() { stopped <- bc.Wait() }()
 		select {
 		case err := <-stopped:
-			if err != nil {
+			if brokerMode == "checkpoint-kill" {
+				status, ok := bc.ProcessState.Sys().(syscall.WaitStatus)
+				if err == nil || !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+					t.Fatal("expected broker SIGKILL termination", err, bc.ProcessState)
+				}
+			}
+			if brokerMode != "checkpoint-kill" && err != nil {
 				t.Fatal("graceful broker stop", err)
 			}
 		case <-time.After(5 * time.Second):
@@ -329,7 +367,27 @@ func runMQTTAdmissionCandidate(t *testing.T, brokerRestart bool) {
 			t.Fatal("offline state", qw, err)
 		}
 	}
-	if brokerRestart {
+	if brokerMode == "checkpoint-kill" {
+		liveBarrier := e
+		liveBarrier.EventID = "itest-mqtt-admission-after-broker-restart"
+		// Publisher's prior TCP connection was killed too. Reconnect explicitly.
+		if publisher.IsConnected() {
+			publisher.Disconnect(0)
+		}
+		tok = publisher.Connect()
+		if !tok.WaitTimeout(3*time.Second) || tok.Error() != nil {
+			t.Fatal("publisher reconnect", tok.Error())
+		}
+		send(liveBarrier)
+		wait("post-broker-restart ordered barrier", func() bool { return count(liveBarrier.EventID) == 2 && acked(liveBarrier.EventID) == 1 })
+		if count(uncheckpointed.EventID) != 0 || deliveries(uncheckpointed.EventID) != 0 || acked(uncheckpointed.EventID) != 0 {
+			t.Fatal("unexpected uncheckpointed input recovery")
+		}
+		t.Log("OPEN CANDIDATE TRANSPORT GAP: publisher-accepted offline input after broker checkpoint is lost on SIGKILL with autosave disabled; no subscriber delivery/admission/ACK after restart and unique ordered barrier; not a production setting or default-policy claim")
+	}
+	if brokerMode == "checkpoint-kill" {
+		t.Log("candidate-only broker SIGKILL after explicit checkpoint reloads retained session/offline queue; not uncheckpointed crash, power-loss/fsync/disk-full, replica or production settings acceptance")
+	} else if brokerRestart {
 		t.Log("candidate-only graceful broker restart reloads nonempty persistence file and retained subscriber session/offline queue; not abrupt broker kill, disk/fsync failure, replica or production configuration acceptance")
 	}
 	t.Log("candidate-only stable persistent subscriber: failed admission has no PUBACK, restart redelivers to one pending pair; commit-before-ACK process kill reconciles terminal exact admission without rearm; subscriber-process boundaries only, production unchanged")

@@ -1908,3 +1908,15 @@ race repetitions and its separately named plaintext subtest in the mTLS suite
 pass. This is graceful file reload only: abrupt broker kill/power loss, fsync or
 disk-full behavior, production persistence settings, shutdown policy, replicas
 and capacity remain unaccepted. Both production durability defects remain open.
+
+A separate test-only broker SIGKILL variant now distinguishes checkpointed
+recovery from unsaved publisher acceptance. Three offline readings saved by an
+explicit broker checkpoint survive a new process on the same files. A fourth
+publisher-accepted input sent after that checkpoint is absent after SIGKILL,
+restart and a successfully admitted unique ordered barrier (automatic saves are
+explicitly disabled in this fixture). This OPEN CANDIDATE TRANSPORT GAP means
+the database candidate alone cannot promise durable MQTT transport. It is not a
+production incident/default-setting claim or a production persistence change.
+Local race tests and the separately named plaintext subtest in the mTLS suite
+pass; power loss/fsync/disk-full/fleet/capacity and both production durability
+fixes remain unaccepted. No owner Update or joint installer handoff is enabled.

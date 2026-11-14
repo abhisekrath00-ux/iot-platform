@@ -881,3 +881,27 @@ Shared subscriptions, stable client-ID allocation for replicas, backpressure,
 sustained load, MQTT identity and full config/effect binding remain unaccepted.
 Candidate evidence does not close either runtime durability gap or enable the
 held owner update/server/fresh-installer handoff.
+
+### Candidate broker checkpoint versus abrupt process kill (2026-11-14)
+
+A third, separate plaintext test-only variant enables broker file persistence
+with automatic saves explicitly disabled. With the candidate subscriber offline,
+three queued readings are checkpointed using broker SIGUSR1; the test waits for
+a nonempty persistence file modified after that request. It then publishes a
+fourth input and observes publisher-to-broker acceptance, without another save,
+and SIGKILLs the broker. A new broker process on the same config/data reloads
+the session and three checkpointed readings: each produces one candidate pending
+pair and subscriber PUBACK. The publisher reconnects and sends a unique ordered
+barrier, which is admitted and ACKed. The fourth, uncheckpointed input has no
+subscriber delivery, database pair or ACK. This is an intentionally reproduced
+OPEN CANDIDATE TRANSPORT GAP, not a production incident or default-policy claim.
+
+Three local real-PG race repetitions pass for both graceful and kill variants.
+The separately named CandidatePlaintextCheckpointedBrokerKill subtest passes
+inside the fresh-DB compiled-ingest mTLS suite but is NOT additional TLS proof.
+This accepts only checkpointed broker process recovery on the same local files;
+it does not accept general abrupt crash, power-loss/fsync, disk-full, replicas,
+capacity or production MQTT/persistence settings. Publisher acceptance cannot
+be promoted to durable database admission by the candidate journal alone. No
+runtime option, broker config, schema migration or worker is added. Both actual
+production durability defects and combined owner-update/installer gates stay open.
