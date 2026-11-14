@@ -102,6 +102,8 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	// Separate plaintext loopback fault fixture, not additional TLS proof.
 	// A green characterization asserts an OPEN gap, never durability acceptance.
 	t.Run("OpenDerivedWorkGap", TestIntegrationCompiledIngestDerivedWorkGap)
+	// Separate plaintext candidate experiment, NOT an additional TLS assertion.
+	t.Run("CandidatePlaintextPersistentAdmission", TestIntegrationMQTTAdmissionCandidateBoundary)
 }
 
 // Both identities use production client options and the generated ACL. An own

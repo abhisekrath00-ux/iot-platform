@@ -834,3 +834,37 @@ are refused; enabled-feature admin publishes configuration using a one-connectio
 pool with a bounded request context. No evaluator, notification client or device
 is invoked, and flow_runs remains empty. This is local transaction acceptance,
 not crash/commit-ack-loss, full owner deployment or either durability-gap closure.
+
+### Isolated candidate subscriber admission boundary (2026-11-14)
+
+A separate test-only child process combines candidate Admit with an explicit
+manual subscriber PUBACK, a stable client ID and a non-clean MQTT session. It is
+NOT compiled ingest or a new product option/worker; it does not change production
+MQTT configuration, topic validation, ACK/session behavior, schema or effects.
+The harness supplies complete synthetic envelopes on a disposable loopback topic,
+not the production envelope resolver or broker identity/ACL path.
+
+A real loopback broker and packet-decoding forwarding proxy observe the
+subscriber's actual PUBACK separately from publisher-to-broker acceptance. A
+scoped trigger refuses a telemetry INSERT: the callback reports failure, neither
+telemetry nor pending record exists and no subscriber PUBACK is observed. Killing
+that child, removing the fault and reconnecting the same persistent subscriber
+redelivers the input, commits one telemetry/pending pair and then emits PUBACK.
+
+For another input the child stops after successful Admit but before ACK. The
+parent confirms the committed pair and no ACK, kills the process, marks its
+single candidate attempt outcome_unknown, then restarts the subscriber. Exact
+admission replay is acknowledged without adding telemetry/work or rearming the
+terminal attempt. An ordered unique barrier and three readings published while
+the subscriber is offline are each admitted/acknowledged once on restart.
+These are a tiny bounded queue experiment, not backlog capacity acceptance.
+
+Three local real-PG race repetitions pass. A fresh-DB compiled-ingest mTLS suite
+also passes with this separate plaintext candidate experiment as an explicitly
+named subtest. That subtest is NOT extra TLS proof. The same run still reproduces
+BOTH open defects in actual production ingest. Broker stays alive with in-memory
+session persistence only: broker restart/disk loss, broker persistence settings,
+shared subscriptions, stable client-ID allocation for replicas, backpressure,
+shutdown, sustained load, MQTT identity and full config/effect binding remain
+unaccepted. Candidate evidence does not close either runtime durability gap or
+enable the held owner update/server/fresh-installer handoff.

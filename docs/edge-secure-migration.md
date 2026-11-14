@@ -1889,3 +1889,13 @@ fail closed; competing publishes serialize per flow, and pointer-update failure
 rolls back statuses. Feature lookup stays on the transaction connection. No new
 migration, worker, executor, device action or durable replay is introduced; an
 uncertain publish commit still requires inspection before another attempt.
+
+A test-only persistent-session/manual-ACK subscriber now exercises candidate
+Admit with real loopback broker packets and process kills: failed DB admission
+is not ACKed; reconnect redelivers to one pending pair; commit-before-ACK replay
+retains a terminal unknown attempt without rearming. Three offline readings and
+an ordered barrier pass. This is not compiled ingest, a production option or
+broker disk/restart/replica/backpressure acceptance. The separate plaintext
+experiment is named within the mTLS suite but is NOT additional TLS proof.
+Production's two durability defects still reproduce; no runtime activation,
+MQTT setting change or schema migration follows from this fixture.
