@@ -17,6 +17,11 @@ import (
 // docs/security.md does not apply.
 type Probe struct {
 	SessionID string `json:"session_id"`
+	RequestID string `json:"request_id,omitempty"`
+	Transport string `json:"transport,omitempty"`
+	Host      string `json:"host,omitempty"`
+	NetPort   int    `json:"net_port,omitempty"`
+	RawRange  bool   `json:"raw_range,omitempty"`
 	Port      string `json:"port"`
 	Baud      int    `json:"baud"`
 	DataBits  int    `json:"data_bits"`
@@ -37,22 +42,34 @@ var validBaud = map[int]bool{1200: true, 2400: true, 4800: true, 9600: true, 192
 
 // ValidateProbe rejects anything outside the read-only diagnostic envelope.
 func ValidateProbe(p Probe) error {
-	if !portPath.MatchString(p.Port) {
-		return fmt.Errorf("port must look like COM3 or /dev/ttyUSB0 (got %q)", p.Port)
+	if p.Transport != "" && p.Transport != "rtu" && p.Transport != "tcp" {
+		return fmt.Errorf("transport must be rtu or tcp")
 	}
-	if !validBaud[p.Baud] {
-		return fmt.Errorf("baud %d not in standard set", p.Baud)
+	if p.Transport == "tcp" {
+		if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$`).MatchString(p.Host) || p.NetPort < 1 || p.NetPort > 65535 {
+			return fmt.Errorf("valid TCP host and port required")
+		}
+	} else {
+		if !portPath.MatchString(p.Port) {
+			return fmt.Errorf("port must look like COM3 or /dev/ttyUSB0 (got %q)", p.Port)
+		}
+		if !validBaud[p.Baud] {
+			return fmt.Errorf("baud %d not in standard set", p.Baud)
+		}
+		if p.DataBits < 5 || p.DataBits > 8 {
+			return fmt.Errorf("data_bits must be 5-8")
+		}
+		if p.StopBits != 1 && p.StopBits != 2 {
+			return fmt.Errorf("stop_bits must be 1 or 2")
+		}
+		switch p.Parity {
+		case "none", "odd", "even":
+		default:
+			return fmt.Errorf("parity must be none|odd|even")
+		}
 	}
-	if p.DataBits < 5 || p.DataBits > 8 {
-		return fmt.Errorf("data_bits must be 5-8")
-	}
-	if p.StopBits != 1 && p.StopBits != 2 {
-		return fmt.Errorf("stop_bits must be 1 or 2")
-	}
-	switch p.Parity {
-	case "none", "odd", "even":
-	default:
-		return fmt.Errorf("parity must be none|odd|even")
+	if p.RawRange && ((p.Func <= 2 && p.Type != "bool") || (p.Func > 2 && p.Type != "u16") || p.WordOrder != "abcd") {
+		return fmt.Errorf("raw range requires bool/u16 and wire byte order")
 	}
 	if p.Address < 1 || p.Address > 247 {
 		return fmt.Errorf("modbus address must be 1-247")
@@ -65,6 +82,16 @@ func ValidateProbe(p Probe) error {
 	}
 	if p.Count < 1 || p.Count > 32 || p.Register+p.Count > 65536 {
 		return fmt.Errorf("count must be 1-32 within register space")
+	}
+	if (p.Func <= 2 && p.Type != "bool") || (p.Func > 2 && p.Type == "bool") {
+		return fmt.Errorf("bool is required only for coil/discrete reads")
+	}
+	width := 1
+	if p.Type == "u32" || p.Type == "i32" || p.Type == "f32" {
+		width = 2
+	}
+	if p.Count%width != 0 {
+		return fmt.Errorf("count must contain whole decoded values")
 	}
 	switch p.Type {
 	case "", "u16", "i16", "u32", "i32", "f32", "bool":

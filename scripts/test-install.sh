@@ -13,7 +13,13 @@ echo "docker $*" >> "$FAKE_LOG"
 case "$1 $2" in
   "info "*) [ "${FAKE_DOCKER_DOWN:-0}" = 1 ] && exit 1; exit 0 ;;
   "compose version") exit 0 ;;
-  "compose ps") [ "${FAKE_RUNNING:-0}" = 1 ] && echo abc; exit 0 ;;
+  "compose ps")
+    if [ "${FAKE_MANY_IDS:-0}" = 1 ]; then
+      # More than a pipe buffer makes grep -q/SIGPIPE reproducible.
+      python3 -c 'import sys;sys.stdout.write("a"*64+"\n");sys.stdout.flush();sys.stdout.write(("b"*64+"\n")*20000)'
+      exit $?
+    fi
+    [ "${FAKE_RUNNING:-0}" = 1 ] && echo abc; exit 0 ;;
 esac
 if [ "$1" = compose ]; then
   case " $* " in
@@ -53,6 +59,16 @@ cp "$T/w/.env" "$T/env.before"; : > "$FAKE_LOG"
 FAKE_TENANT_EXISTS=1 run --yes --workspace my-plant && rc=0 || rc=$?
 check "re-run keeps .env and secrets" 'cmp -s "$T/w/.env" "$T/env.before"'
 check "re-run does not create a second administrator" '! grep -q "tenantctl create" "$FAKE_LOG" && grep -q "already exists" "$T/out"'
+
+# A busy port owned by this running project must not be mistaken for a stranger.
+cat > "$T/bin/ss" <<'S'
+#!/usr/bin/env bash
+echo 'LISTEN 0 100 127.0.0.1:18431 0.0.0.0:*'
+S
+chmod +x "$T/bin/ss"
+FAKE_MANY_IDS=1 FAKE_TENANT_EXISTS=1 run --yes --workspace my-plant && rc=0 || rc=$?
+check "running project detection consumes all IDs under pipefail despite busy web port" '[ $rc -eq 0 ] && grep -q "existing install is running" "$T/out"'
+rm "$T/bin/ss"
 
 run --yes --workspace "Bad Name" && rc=0 || rc=$?
 check "bad workspace name is refused" '[ $rc -ne 0 ] && grep -q "must be 3-40" "$T/out"'

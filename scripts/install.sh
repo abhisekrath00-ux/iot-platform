@@ -166,7 +166,12 @@ port_busy() {
 }
 WEB_PORT="${WEB_PORT:-$( [ -f .env ] && sed -n 's/^WEB_PORT=//p' .env | head -1 || true )}"
 WEB_PORT="${WEB_PORT:-8080}"
-RUNNING=0; docker compose ps --status running -q 2>/dev/null | grep -q . && RUNNING=1
+# Consume the complete Compose output before testing for IDs. With pipefail,
+# grep -q can close early and turn a healthy Compose process into SIGPIPE.
+RUNNING=0
+if running_ids=$(docker compose ps --status running -q 2>/dev/null); then
+  [ -n "$running_ids" ] && RUNNING=1
+fi
 if [ "$RUNNING" = 1 ]; then ok "an existing install is running; this will update it in place"
 else
   for p in "$WEB_PORT" 8000 1883 5432; do

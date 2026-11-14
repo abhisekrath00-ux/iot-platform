@@ -76,3 +76,47 @@ tenantctl, replaces first-run credentials and verifies old-token rejection. A
 local prerequisite check reported Docker absent and warned about ~2 GB RAM; no
 Docker install was attempted. Actual Windows installation, Docker Desktop/WSL,
 Linux Docker host, reverse proxy/TLS and real multi-server failover remain gates.
+
+## Read-first Modbus register mapping (development build)
+
+After a gateway is claimed, Add device offers Map registers before profile
+assignment. Choose RTU (USB/RS-485) or TCP explicitly. Enter the target connection,
+read function FC01-04, manual-listed starting address, explicit wire-address
+convention and a bounded count of 1-32 registers/bits. Read sends one range request,
+not a device-wide scan. No profile is needed and no register writes are issued.
+
+The returned table preserves each wire address and raw decimal/hex word or bit.
+Select the rows to include, then enter manual-backed meaning/name, stable point
+ID, unit, data type, byte/word order, multiplier and accepted min/max range. The
+converted preview uses decoded words multiplied by the chosen scale, with no
+offset support. A 32-bit point consumes its adjacent returned word; overlapping
+points, duplicate IDs, partial words and invalid/non-finite conversions block save.
+Names and decoder choices are never inferred from values.
+
+Review saves one tenant-scoped reusable profile, with all selected points and
+serial framing when applicable. It selects that profile for the source form.
+It does not assign a device or apply configuration. Finish source naming and
+connection review, assignment, signed Apply, reload confirmation and a recent
+measured reading separately. The supplied 26-row Schneider EM1X00 template remains
+a separate option; its exact-model/word-order/address-convention gates still apply.
+
+The request and reply carry an exact request ID, also fenced by tenant/gateway
+when ingest stores a result. A late older reply cannot validate a newer read.
+New previews require the matching updated server, ingest and edge. A prior edge
+image that omits request IDs will time out explicitly rather than settle a new
+preview. Older empty-ID requests can still accept their legacy empty-ID replies.
+Changing connection/range invalidates the preview. No automatic retry follows an
+uncertain send/save. Labels remain local to the open page until saved; unfinished
+labels are not restored after reload. Check Profiles after an uncertain save.
+
+Evidence: synthetic browser checks at 1440px and 390px, fake-serial/real-loopback TCP
+raw reads, real-Postgres request fences, and a disposable broker with compiled
+edge+ingest exercising the raw range before source Apply. These checks do not
+prove the owner's physical meter, USB adapter, address base or decoder choice.
+
+Installer re-run guard: running-project detection now consumes the entire Compose
+ID list before testing whether it is empty. This avoids `grep -q` closing the pipe
+early under `pipefail` and incorrectly treating the project's own web port as an
+unrelated listener. A busy unrelated web port is still refused. The regression
+uses more than a pipe buffer of fake IDs and fails against the earlier detector;
+actual Docker re-run acceptance still depends on the next exact-commit CI run.

@@ -1,3 +1,4 @@
+import MapRegisters from '../components/MapRegisters';
 import SerialPortPicker from '../components/SerialPortPicker';
 import SecurePairing from '../components/SecurePairing';
 import SchneiderMeterTemplate from '../components/SchneiderMeterTemplate';
@@ -228,6 +229,8 @@ export default function Onboarding() {
       )}
 
       {step === 2 && (
+        <>
+          <MapRegisters session={session!.session_id} gateway={session!.gateway_id} onSaved={(p,c)=>{setProfiles(prev=>[p,...prev]);setProfileId(p.id);setConn({...c});}}/>
         <form onSubmit={assignProfile}>
           <SchneiderMeterTemplate onSaved={p=>{setProfiles(prev=>[p,...prev]);setProfileId(p.id);const d=p.connection_defaults;setConn(c=>({...c,baud:String(d.baud),data_bits:String(d.data_bits),stop_bits:String(d.stop_bits),parity:String(d.parity),port:'',address:''}));}}/>
           <h2>Assign a device profile</h2>
@@ -278,7 +281,7 @@ export default function Onboarding() {
             </>
           )}
           <div style={{ marginTop: 16 }}><button type="submit">Assign profile</button></div>
-        </form>
+        </form></>
       )}
 
       {session?.source && <section className="card" aria-label="Saved source" style={{marginBottom:16}}><h2>{session.source.name}</h2><p>Saved {session.source.driver} connection. These settings are stored, but that does not prove they are applied on the gateway.</p><dl>{Object.entries(session.source.connection).filter(([k])=>!["community_env","snmp_auth_pass_env","snmp_priv_pass_env"].includes(k)).map(([k,v])=><div key={k}><dt>{k.replaceAll('_',' ')}</dt><dd>{String(v)}</dd></div>)}</dl></section>}

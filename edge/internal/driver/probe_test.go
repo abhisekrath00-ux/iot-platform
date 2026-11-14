@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -110,5 +111,50 @@ func TestRunProbeWindowsCOMPreservesSerialMode(t *testing.T) {
 	}, req)
 	if !called || !res.OK || len(res.Readings) != 1 || res.Readings[0].Value != 100 {
 		t.Fatalf("probe %+v", res)
+	}
+}
+
+func TestProbeRawRangeRTUAndTCP(t *testing.T) {
+	for _, transport := range []string{"rtu", "tcp"} {
+		t.Run(transport, func(t *testing.T) {
+			req := probeReq()
+			req.RequestID = "exact-read"
+			req.Transport = transport
+			req.RawRange = true
+			req.Type = "u16"
+			req.Count = 3
+			fp := &fakePort{regs: map[int]uint16{10: 0x42c8, 11: 0, 12: 42}}
+			if transport == "tcp" {
+				req.Host, req.NetPort = fakeModbusTCP(t)
+			}
+			res := RunProbe(context.Background(), openerFor(fp, nil), req)
+			if !res.OK || res.RequestID != req.RequestID || len(res.Readings) != 3 {
+				t.Fatal(res)
+			}
+			for i, r := range res.Readings {
+				want := float64([]int{0x42c8, 0, 42}[i])
+				if transport == "tcp" {
+					want = float64(110 + i)
+				}
+				if r.Value != want || r.PointID != fmt.Sprintf("r%d", 10+i) {
+					t.Fatal(r, want)
+				}
+			}
+			if transport == "rtu" && fp.sawFn != 3 {
+				t.Fatal("non-read function", fp.sawFn)
+			}
+		})
+	}
+}
+
+func TestProbeRangeRefusesUnsafeParametersBeforeOpening(t *testing.T) {
+	for _, change := range []func(*ProbeRequest){func(p *ProbeRequest) { p.Func = 16 }, func(p *ProbeRequest) { p.Register = 65535; p.Count = 2 }, func(p *ProbeRequest) { p.Register = -1 }, func(p *ProbeRequest) { p.Type = "bool"; p.Func = 3 }, func(p *ProbeRequest) { p.Type = "f32"; p.Count = 1 }, func(p *ProbeRequest) { p.Transport = "http" }, func(p *ProbeRequest) { p.Transport = "tcp"; p.Host = "bad/path"; p.NetPort = 502 }} {
+		req := probeReq()
+		change(&req)
+		opened := false
+		res := RunProbe(context.Background(), func(string, *serial.Mode) (serial.Port, error) { opened = true; return nil, errTest }, req)
+		if res.OK || opened {
+			t.Fatal("unsafe probe opened transport", req, res)
+		}
 	}
 }

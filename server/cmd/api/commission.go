@@ -278,6 +278,7 @@ func (s *server) requestPortTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.SessionID = id
+	p.RequestID = uuid.NewString()
 	cfgJSON, _ := json.Marshal(p)
 	if _, err := s.st.Pool.Exec(r.Context(),
 		`UPDATE commissioning_sessions
@@ -292,7 +293,7 @@ func (s *server) requestPortTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "commission.port_test", id, map[string]any{"port": p.Port, "address": p.Address, "register": p.Register})
-	writeJSON(w, 202, map[string]any{"status": "probe sent", "session_id": id})
+	writeJSON(w, 202, map[string]any{"status": "probe sent", "session_id": id, "request_id": p.RequestID})
 }
 
 // commissionPreview is the wizard's final step: latest reading per point for

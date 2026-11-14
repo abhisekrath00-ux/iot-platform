@@ -560,6 +560,8 @@ func main() {
 			log.Printf("diag: probe for session %s: ok=%v (%dms)", res.SessionID, res.OK, res.LatencyMs)
 		}); err != nil {
 			log.Printf("diag subscribe: %v", err)
+		} else {
+			log.Printf("diag subscription ready")
 		}
 
 		// Dashboard discovery scans (read-only): answered on scan/result. Runs in

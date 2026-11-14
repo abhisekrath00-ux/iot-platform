@@ -25,6 +25,21 @@ func profileShapeGuards(driver string, pts []map[string]any) error {
 			return fmt.Errorf("duplicate point id %q", id)
 		}
 		ids[id] = true
+		for _, key := range []string{"name", "description", "unit"} {
+			if v, ok := p[key]; ok {
+				text, valid := v.(string)
+				limit := 256
+				if key == "name" {
+					limit = 128
+				}
+				if key == "unit" {
+					limit = 32
+				}
+				if !valid || len(text) > limit || strings.ContainsAny(text, "<>\x00") {
+					return fmt.Errorf("point %s: invalid %s", id, key)
+				}
+			}
+		}
 		if v, exists := p["scale"]; exists {
 			n, ok := finite(v)
 			if !ok || n == 0 {

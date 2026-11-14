@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -201,8 +202,51 @@ func TestIntegrationCompiledSourceApplyAndReading(t *testing.T) {
 	_, edgeLog := start("edge-first", edgeBin, []string{"-config", agentConfig, "-identity-dir", edgeData}, []string{"HEXMON_DATA_DIR=" + edgeData})
 	wait("edge config subscription", func() bool {
 		b, _ := os.ReadFile(edgeLog)
-		return strings.Contains(string(b), "config push subscription ready")
+		return strings.Contains(string(b), "config push subscription ready") && strings.Contains(string(b), "diag subscription ready")
 	})
+	// Read-first mapping is independent of profile assignment or config push.
+	// These exact raw words traverse API -> broker -> compiled edge -> simulated
+	// TCP meter -> broker -> compiled ingest -> the saved session response.
+	mapSession := tenant + "-raw-map-session"
+	_, err = s.st.Pool.Exec(t.Context(), `INSERT INTO commissioning_sessions(id,tenant_id,site_id,gateway_id,serial,state,created_by) VALUES($1,$2,$3,$4,'raw-map','claimed','test-user')`, mapSession, tenant, tenant+"-site", tenant+"-gw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Commissioning's real publish path uses its process-wide broker client.
+	// Scope that client to the already-connected disposable broker for this test.
+	previousClient, previousErr := mqttClient, mqttErr
+	mqttOnce.Do(func() {})
+	mqttClient, mqttErr = publisher, nil
+	t.Cleanup(func() { mqttClient, mqttErr = previousClient, previousErr; mqttOnce = sync.Once{} })
+	mapAPI := http.NewServeMux()
+	mapAPI.HandleFunc("POST /v1/commissioning/sessions/{id}/port-test", s.requestPortTest)
+	probeJSON, _ := json.Marshal(map[string]any{"transport": "tcp", "host": "127.0.0.1", "net_port": simulator.Addr().(*net.TCPAddr).Port, "raw_range": true, "address": 1, "func": 3, "register": 10, "count": 2, "type": "u16", "word_order": "abcd", "timeout_ms": 5000})
+	response := call(mapAPI, tenant, "admin", "POST", "/v1/commissioning/sessions/"+mapSession+"/port-test", string(probeJSON))
+	if response.Code != 202 {
+		t.Fatalf("range request %d %s", response.Code, response.Body)
+	}
+	var requested struct {
+		ID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &requested); err != nil || requested.ID == "" {
+		t.Fatal("request identity", err)
+	}
+	wait("compiled read-first raw range", func() bool {
+		var result []byte
+		if err := s.st.Pool.QueryRow(t.Context(), `SELECT port_test->'result' FROM commissioning_sessions WHERE id=$1`, mapSession).Scan(&result); err != nil {
+			return false
+		}
+		var got struct {
+			ID       string `json:"request_id"`
+			OK       bool   `json:"ok"`
+			Readings []struct {
+				ID    string  `json:"point_id"`
+				Value float64 `json:"value"`
+			} `json:"readings"`
+		}
+		return json.Unmarshal(result, &got) == nil && got.ID == requested.ID && got.OK && len(got.Readings) == 2 && got.Readings[0].ID == "r10" && got.Readings[0].Value == 110 && got.Readings[1].ID == "r11" && got.Readings[1].Value == 111
+	})
+	t.Log("PASS compiled read-first raw range request identity and complete wire words before config apply")
 	m := http.NewServeMux()
 	m.HandleFunc("POST /v1/gateways/{id}/config-push", s.pushGatewayConfig)
 	m.HandleFunc("GET /v1/gateways/{id}/config-push", s.listConfigPushes)

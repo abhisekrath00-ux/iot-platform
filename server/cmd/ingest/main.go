@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/commission"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/flow/jsfn"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/mqttconfig"
@@ -115,31 +116,17 @@ func main() {
 			log.Printf("diag drop: bad topic %q", m.Topic())
 			return
 		}
-		var res struct {
-			SessionID  string          `json:"session_id"`
-			OK         bool            `json:"ok"`
-			Error      string          `json:"error"`
-			Readings   json.RawMessage `json:"readings"`
-			LatencyMs  int64           `json:"latency_ms"`
-			FinishedAt time.Time       `json:"finished_at"`
-		}
+		var res commission.ProbeResult
 		if err := json.Unmarshal(m.Payload(), &res); err != nil || res.SessionID == "" {
 			log.Printf("diag drop: bad payload")
 			return
 		}
-		payload, _ := json.Marshal(res)
-		tag, err := st.Pool.Exec(ctx,
-			`UPDATE commissioning_sessions
-			 SET port_test = COALESCE(port_test,'{}'::jsonb) - 'result' || jsonb_build_object('result', $1::jsonb),
-			     state = CASE WHEN $2 THEN 'tested' ELSE 'failed' END,
-			     updated_at = now()
-			 WHERE id = $3 AND tenant_id = $4 AND gateway_id = $5`,
-			payload, res.OK, res.SessionID, parts[1], parts[3])
+		n, err := commission.RecordResult(ctx, st.Pool, parts[1], parts[3], res)
 		if err != nil {
 			log.Printf("diag update %s: %v", res.SessionID, err)
 			return
 		}
-		if tag.RowsAffected() == 0 {
+		if n == 0 {
 			log.Printf("diag drop: no session %s for topic identity %s/%s", res.SessionID, parts[1], parts[3])
 		}
 	}

@@ -91,3 +91,24 @@ func TestValidateWindowsProbePort(t *testing.T) {
 		}
 	}
 }
+
+func TestRawRangeTransportsAndBounds(t *testing.T) {
+	p := goodProbe()
+	p.Type = "u16"
+	p.RawRange = true
+	p.Count = 32
+	p.Transport = "tcp"
+	p.Host = "192.0.2.5"
+	p.NetPort = 502
+	p.Port = ""
+	if err := ValidateProbe(p); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*Probe){func(p *Probe) { p.Transport = "http" }, func(p *Probe) { p.Host = "bad/path" }, func(p *Probe) { p.NetPort = 65536 }, func(p *Probe) { p.Func = 16 }, func(p *Probe) { p.Count = 33 }, func(p *Probe) { p.Register = 65535; p.Count = 2 }, func(p *Probe) { p.Type = "f32" }, func(p *Probe) { p.WordOrder = "cdab" }} {
+		bad := p
+		change(&bad)
+		if err := ValidateProbe(bad); err == nil {
+			t.Fatal("unsafe raw range accepted", bad)
+		}
+	}
+}
