@@ -1856,3 +1856,13 @@ Its corrected byte-preserving frame transport is locally tested against a
 SCRAM-authenticated disposable PostgreSQL role, not just trust authentication.
 That was a fixture defect; no production authentication/ACK/migration policy
 was weakened. Skipped downstream steps in the red run are not accepted.
+
+The unwired admission candidate now also prepares a tenant-scoped published-flow
+snapshot and static effect inventory. Republish/rename cannot silently replace
+retained evidence, but the snapshot is only one flow's definition plus input,
+not a full rule/position/channel/policy/context snapshot. HTTP, notifications,
+context mutations and control requests remain unsafe for automatic replay;
+automatic alarm-output policy means control is not assumed request-only.
+No worker, claim binding, new migration or production caller is added. Full
+background/previous-image/secure Update and combined installer gates stay open.
+See enterprise-readiness.md for the exact evidence and unresolved dependencies.

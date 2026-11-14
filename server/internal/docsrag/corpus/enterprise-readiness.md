@@ -704,3 +704,45 @@ boundary and one-attempt test. Authentication is not bypassed or weakened.
 The failed remote run's downstream MQTT/mTLS/Valkey/edge steps were skipped;
 it provides no acceptance for those paths. This correction changes only the
 fault fixture, not product admission, work states, transport or migrations.
+
+### Unwired published-flow evidence and static effect inventory (2026-11-14)
+
+The admission candidate can now prepare evidence for ONE enabled published flow.
+A single PostgreSQL statement joins its published-version pointer to the same
+flow and tenant, requires published status, and captures version ID/number,
+flow name and exact stored definition. The retained JSON bytes bind that data
+to the canonical complete telemetry envelope and a versioned evidence policy.
+A SHA256 detects substitution against the caller-retained original digest.
+The digest is NOT a signature, permission or proof of who authored the data.
+
+Inspection validates the current flow grammar and exact input stream without
+calling Exec, a notifier, HTTP, context store or control requester. Every graph
+node is conservatively inventoried, including conditional branches; this is
+not an evaluated path or a per-occurrence effect plan. Split/join can visit a
+node more than once. Unknown fields/node kinds fail closed. Legacy linear
+notification flows are covered too; scheduled inject flows are outside this
+telemetry-input candidate.
+
+The inventory names external notifications, HTTP GET and POST (GET is not
+assumed replay-safe), mutable context reads, context set/increment writes,
+sandbox computation and control requests. Control is not assumed approval-only:
+existing automatic alarm-output policy can dispatch after a request is raised.
+It also names live flow-run history, notification channels/targets, feature and
+egress policy, control policy/rate/pending state, context ordering, delayed
+wall-clock dispatch and process-local rate limits as unresolved dependencies.
+A pure computation upstream does not make a notification flow replay-safe.
+
+Real-PG tests retain old evidence across publish-pointer/name changes, assert
+new captures change, reject disabled/archived/cross-tenant versions and wrong
+input streams, ignore mutable draft definition fields, and produce no flow-run
+record. Unit cases bind tenant/event/time/value/device/point, preserve canonical
+time equivalence, reject altered bytes/digests/unknown policy or grammar, and
+classify the known effect nodes. Three local race repetitions pass.
+
+This is PARTIAL configuration evidence, not complete immutable configuration
+binding. Snapshots are not stored with admissions or required by Claim. Rules,
+position tracking, live dependencies, exact side-effect occurrence identities,
+revocation/authorization checks and operator recovery remain unresolved. No
+product caller, migration, executor, automatic retry or MQTT ACK/session change
+is added. Both runtime durability gaps, exact93 previous-image acceptance and
+the combined secure-server/fresh-dashboard-EXE handoff remain open gates.
