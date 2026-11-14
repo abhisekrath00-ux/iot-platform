@@ -965,3 +965,54 @@ outcomes, execution-time revocation, session/backpressure/shutdown and end-to-en
 admission receipt remain required. No automatic external-effect retry is added.
 Both actual runtime durability gaps and combined owner-server/fresh-EXE handoff
 remain open. Nothing in this path changes existing deployment authority.
+
+### Default-off product admission and retained planning quarantine (2026-11-14)
+
+`internal/ingestprocessing` now implements the actual processing-v1 admission
+operation against the separate staged94 table. No startup caller, MQTT handler,
+HTTP ingest endpoint or Update path calls it. A zero-value Engine refuses before
+DB access. Enabled instances exist only in isolated acceptance tests.
+
+Admission validates a bounded reading with an explicit stable timestamp and
+commits telemetry plus its retained configuration selection/plan together in one
+serializable transaction. Conservative global admission serialization, SQL/lock
+bounds and a100000 retained-row cap fail closed; serialization or commit errors
+require reconciliation, not external-effect retries. Legacy telemetry without a
+plan is not backfilled. Conflicting identity/payloads refuse. Exact duplicates
+return the first retained plan/state before reading today's configuration, even
+when the state is outcome_unknown, config has changed, or capacity is now full.
+
+The single snapshot selects tenant/device/gateway binding, position-point config,
+maintenance decision, bounded tenant feature policy, every enabled rule and flow
+with its exact published binding/definition, and all tenant channels including
+disabled ones. Cross-tenant/broken published pointers do not silently disappear.
+Limits:128 rules/flows/channels each,64 features,64KiB per definition,8192-byte
+channel targets,1024 derived occurrences/reasons and256KiB total plan. Oversized
+selection refuses the entire admission, with no telemetry-only commit.
+
+Only fully classified stateless flow nodes are evaluated to derive occurrence
+intents; HTTP/context/control/function/rate-limit nodes are classified BEFORE
+Exec and never run. Position/alert transactions, history/scoped rules, flow
+latch/cooldown and unsupported adapters are explicit durable planning quarantine,
+not skipped success. A blocked stage prohibits execution of the entire plan.
+The plan is a complete bounded selection with explicit unsupported dependencies,
+NOT an implemented complete executor for every stored automation. SHA256 checks
+integrity, not permission. Replay re-derives intents/reasons from the retained
+selection and rejects mismatches even with a recomputed checksum. Tenant-scoped
+Read exposes pending/unknown and planning reasons while processing stays disabled;
+no owner UI or recovery button is claimed yet.
+
+Real-PG tests cover paired rollback on processing-insert fault, conflicting and
+legacy inputs, concurrent exact duplicates, old/new configuration snapshot
+consistency, changed-config/unknown-state replay, tenant isolation, cancellation,
+capacity including terminal records, bounded selection and explicit unsafe-node
+quarantine. No notifier, HTTP/control/context runner or legacy void evaluator is
+called. Three local race repetitions and fresh full-server/vet checks pass.
+
+Still open: transactional internal stages, per-effect durable attempt/receipt
+records, execution-time authorization/revocation, one-attempt external execution,
+visible operational recovery, stable clockless transport identity, all-handler
+manual-ACK/session/backpressure/shutdown, application admission receipt/edge
+outbox, immutable-image/restore/rollback acceptance and combined server/fresh EXE.
+This code does not fix either enabled production durability defect or the
+publisher-accepted unsaved transport loss. Existing exact93 guards are unchanged.

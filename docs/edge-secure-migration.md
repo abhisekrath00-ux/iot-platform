@@ -1942,3 +1942,15 @@ and four HTTP write/retry readings across93->94 and switching back to previous
 code. This is limited binary/default-path proof, not immutable-image/full-job,
 backup/restore, full rollback or owner activation acceptance. Complete durable
 plan/effect/transport semantics and combined server/fresh-EXE gates stay open.
+
+The separate default-off processing-v1 admission operation now atomically stores
+telemetry plus one bounded configuration selection/plan. Exact replay retains
+original config/state, including unknown; legacy/conflicting/capacity/oversized
+inputs fail closed. Unsupported position/alert/history/scoped/side-effect stages
+remain explicit planning quarantine, not silently executed or omitted. Only a
+classified stateless flow subset derives notification occurrences without I/O.
+Tenant-scoped inspection is available while disabled. No MQTT/API startup caller,
+worker, external effect, owner UI or current Update contract is enabled. Three
+local race repetitions/fresh full-server/vet checks pass; detailed bounds and
+remaining acceptance gates are in enterprise-readiness.md. Both runtime defects,
+unsaved transport loss and combined owner-server/fresh-EXE handoff remain open.
