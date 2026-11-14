@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -131,48 +133,69 @@ func newAdmissionWireGate(t *testing.T, rawURL, mode string) admissionWireGate {
 		go func() {
 			defer stop()
 			for {
-				msg, err := backend.Receive()
+				frame, err := readAdmissionFrame(client)
 				if err != nil {
 					return
 				}
 				commit := false
-				switch m := msg.(type) {
-				case *pgproto3.Query:
-					commit = strings.EqualFold(strings.TrimSpace(m.String), "commit")
-				case *pgproto3.Parse:
-					commit = strings.EqualFold(strings.TrimSpace(m.Query), "commit")
+				switch frame[0] {
+				case 'Q':
+					commit = strings.EqualFold(strings.TrimRight(string(frame[5:]), "\x00"), "commit")
+				case 'P':
+					body := frame[5:]
+					if i := bytes.IndexByte(body, 0); i >= 0 {
+						body = body[i+1:]
+						if end := bytes.IndexByte(body, 0); end >= 0 {
+							commit = strings.EqualFold(string(body[:end]), "commit")
+						}
+					}
 				}
 				if mode == "before-commit" && commit {
 					close(reached)
 					<-release
 					return
 				}
-				frontend.Send(msg)
-				if frontend.Flush() != nil {
+				if _, err := io.Copy(upstream, bytes.NewReader(frame)); err != nil {
 					return
 				}
 			}
 		}()
 		defer stop()
 		for {
-			msg, err := frontend.Receive()
+			frame, err := readAdmissionFrame(upstream)
 			if err != nil {
 				return
 			}
-			if m, ok := msg.(*pgproto3.CommandComplete); ok && string(m.CommandTag) == "COMMIT" && mode != "before-commit" {
+			if frame[0] == 'C' && string(frame[5:]) == "COMMIT\x00" && mode != "before-commit" {
 				close(reached)
 				if mode == "after-commit-kill" {
 					<-release
 				}
 				return // drop committed response and close both directions
 			}
-			backend.Send(msg)
-			if backend.Flush() != nil {
+			if _, err := io.Copy(client, bytes.NewReader(frame)); err != nil {
 				return
 			}
 		}
 	}()
 	return admissionWireGate{u.String(), reached, release, stop}
+}
+
+// Authentication 'p' frames have several incompatible SASL/password layouts.
+// Do not decode/re-encode them as PasswordMessage: preserve every byte instead.
+func readAdmissionFrame(r io.Reader) ([]byte, error) {
+	header := make([]byte, 5)
+	if _, err := io.ReadFull(r, header); err != nil {
+		return nil, err
+	}
+	n := int(binary.BigEndian.Uint32(header[1:]))
+	if n < 4 || n > 16*1024*1024 {
+		return nil, fmt.Errorf("invalid PostgreSQL frame length %d", n)
+	}
+	frame := make([]byte, n+1)
+	copy(frame, header)
+	_, err := io.ReadFull(r, frame[5:])
+	return frame, err
 }
 
 func TestIntegrationAdmissionCandidateProcessCrash(t *testing.T) {
@@ -371,5 +394,23 @@ func TestIntegrationAdmissionCandidateProcessCrash(t *testing.T) {
 	var ledger int
 	if err := s.st.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&ledger); err != nil || ledger != 93 {
 		t.Fatal("candidate changed migration ledger", ledger, err)
+	}
+}
+
+func TestAdmissionWireFramesPreserveAuthentication(t *testing.T) {
+	for _, payload := range [][]byte{[]byte("SCRAM-SHA-256\x00\x00\x00\x00\x0bn,,n=,r=x"), []byte("c=biws,r=x,p=proof"), []byte("md5fixture\x00")} {
+		frame := make([]byte, 5+len(payload))
+		frame[0] = 'p'
+		binary.BigEndian.PutUint32(frame[1:], uint32(4+len(payload)))
+		copy(frame[5:], payload)
+		got, err := readAdmissionFrame(bytes.NewReader(frame))
+		if err != nil || !bytes.Equal(got, frame) {
+			t.Fatal("authentication frame changed", err)
+		}
+	}
+	for _, b := range [][]byte{{'p', 0, 0, 0, 3}, {'p', 127, 255, 255, 255}, {'p', 0, 0, 0, 8, 1}} {
+		if _, err := readAdmissionFrame(bytes.NewReader(b)); err == nil {
+			t.Fatal("invalid/truncated frame accepted")
+		}
 	}
 }

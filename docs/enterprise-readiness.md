@@ -690,3 +690,17 @@ remains outside migrations and product startup; exact93 guards and existing
 runtime paths are unchanged. Both runtime durability gaps remain OPEN. Secure
 Update, final matching installer, full-background and previous-image acceptance
 remain separate held gates, not implied by these candidate tests.
+
+
+The first remote process-fixture run on `c4dad0c` failed during SCRAM SASL
+sign-in, before any COMMIT boundary: the proxy decoded authentication `p`
+frames using the wrong password-message layout. Local trust-auth tests had
+missed this harness defect. The corrected proxy forwards bounded PostgreSQL
+frames byte-for-byte, inspecting only query/parse COMMIT and server COMMIT
+completion. Unit tests preserve SASL initial/continuation and password frames
+and refuse invalid/truncated lengths. Three real-PG race repetitions now pass
+with an explicitly SCRAM-authenticated disposable role, including every process
+boundary and one-attempt test. Authentication is not bypassed or weakened.
+The failed remote run's downstream MQTT/mTLS/Valkey/edge steps were skipped;
+it provides no acceptance for those paths. This correction changes only the
+fault fixture, not product admission, work states, transport or migrations.

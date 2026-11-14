@@ -1849,3 +1849,10 @@ requeued. No executor, config/effect binding, production migration or runtime
 integration is added. The plaintext SQL fault fixture is not compiled-ingest,
 TLS, broker, disk-loss or failover acceptance. See the enterprise-readiness
 candidate sections for limits and remaining gates.
+
+
+The process-fault proxy's first remote run failed SCRAM sign-in before COMMIT.
+Its corrected byte-preserving frame transport is locally tested against a
+SCRAM-authenticated disposable PostgreSQL role, not just trust authentication.
+That was a fixture defect; no production authentication/ACK/migration policy
+was weakened. Skipped downstream steps in the red run are not accepted.
