@@ -5,7 +5,9 @@ CREATE TABLE ingest_admission_candidate (
  observed_at TIMESTAMPTZ NOT NULL,
  tenant_id TEXT NOT NULL,
  envelope BYTEA NOT NULL CHECK (octet_length(envelope) <= 8192),
- state TEXT NOT NULL DEFAULT 'pending' CHECK (state = 'pending'),
+ state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','executing','completed','outcome_unknown')),
+ attempt_id UUID,
+ CHECK ((state = 'pending' AND attempt_id IS NULL) OR (state <> 'pending' AND attempt_id IS NOT NULL)),
  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
  PRIMARY KEY (event_id, observed_at)
 );

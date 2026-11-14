@@ -63,7 +63,7 @@ func TestIntegrationAdmissionCandidate(t *testing.T) {
 	if err != nil || read.Value != 42 || read.ObservedAt.Nanosecond()%1000 != 0 {
 		t.Fatal("canonical original", read, err)
 	}
-	// Fresh pool simulates an independent process reopening persisted records.
+	// Fresh pool verifies independent connection access, not process restart.
 	reopen, err := store.Connect(ctx, os.Getenv("TEST_DATABASE_URL"))
 	if err != nil {
 		t.Fatal(err)

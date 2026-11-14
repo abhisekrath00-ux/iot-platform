@@ -28,7 +28,7 @@ var (
 
 // Envelope binds the canonical reading and original candidate work intent.
 // No config snapshot or effect plan is inferred. Exactly matching duplicates
-// preserve the first pending record, even if telemetry is later retained away.
+// preserve the first work record and its state, even if telemetry is later retained away.
 type Envelope struct {
 	EventID       string    `json:"event_id"`
 	TenantID      string    `json:"tenant_id"`
@@ -71,7 +71,7 @@ func canonical(e Envelope) (Envelope, []byte, error) {
 type Journal struct{ Pool *pgxpool.Pool }
 
 // Admit returns true only for a newly COMMITTED reading+pending intent pair.
-// False,nil means exact journal replay, NOT derived work completed or delivered.
+// False,nil means exact journal replay in ANY state, NOT derived work completed or delivered.
 // Any commit error is an uncertain result; an exact retry reconciles evidence.
 // The existing telemetry global(event_id,observed_at) key is preserved: another
 // tenant/payload cannot silently take over a collision. No old telemetry is

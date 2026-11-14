@@ -638,8 +638,9 @@ admissions with one winner, failure of the second INSERT rolling back telemetry,
 legacy-row refusal, raw-telemetry deletion without journal replay, cancellation,
 12 contenders for the last capacity slot with one winner/11 refusals, corrupt
 pending evidence and missing candidate table refusal without partial telemetry.
-Three race repetitions pass locally. Reopening a pool is not process-kill,
-commit-ack-loss, disk-failure or database failover acceptance.
+Three race repetitions pass locally. Reopening a pool alone is not process-kill,
+commit-ack-loss, disk-failure or database failover acceptance. The separate
+process-boundary fixture below covers only its stated transaction cases.
 
 The journal retains the reading, not a reviewed rule/config version or effect
 plan. No work executor exists. Integration still requires durable MQTT admission
@@ -647,3 +648,45 @@ and persistent-session/backpressure/shutdown tests, explicit staged migration
 and previous-image compatibility, configuration binding, effect uncertainty and
 operator recovery controls. This candidate does not enable production Update
 or the held server/dashboard installer handoff.
+
+
+### Unwired admission crash and one-attempt state model (2026-11-14)
+
+A separate process-boundary fixture now runs the real candidate in child OS
+processes through a PostgreSQL protocol forwarding proxy. Killing the child
+before forwarding COMMIT leaves neither telemetry nor journal row. Killing it
+after PostgreSQL emits COMMIT CommandComplete but before that response reaches
+the child leaves exactly one pair. Dropping that committed response instead
+returns an explicit uncertain-result error. Separate-process exact retries
+reconcile absent/committed evidence without another admission. These are real
+process kills and committed-response-loss cases, not fresh-pool simulations.
+The proxy is a disposable plaintext fixture, not a TLS, disk-loss, database
+failover, compiled-ingest or MQTT persistence test.
+
+The candidate-only SQL and Go API now model `pending -> executing -> completed`
+or `pending -> executing -> outcome_unknown`. A claim row lock admits at most
+one random attempt ID. Every terminal checkpoint requires the matching tenant,
+event, timestamp and attempt; canonical envelope integrity is checked before
+transition. Completed means an explicit internal checkpoint, never receipt or
+physical actuation. Neither terminal state can be claimed again or overwritten
+by a late callback. There is no clock-based lease, expiry, automatic requeue,
+takeover or cleanup. All retained states still count against the same hard cap.
+
+A child killed after its claim commit but before receiving the response leaves
+`executing` evidence on a separate connection. Another claim is refused; an
+explicit matching-attempt quarantine makes it terminal `outcome_unknown` and
+late completion/replay cannot rearm it. Twelve concurrent claimers yield one
+winner; twelve competing completion/quarantine calls yield one terminal winner.
+Tests cover foreign-tenant and wrong-token refusal, both terminal states,
+corrupt-envelope refusal, cancelled claim and raw-deletion replay preserving
+state. Three race repetitions pass locally. The first extended fixture failed
+because its row counter required `pending` after explicit quarantine; the state-
+aware assertion was corrected. No product failure was hidden or fixed there.
+
+This state model has NO executor, immutable config/version binding, per-stage
+plan, effect idempotency contract or operator recovery UI. It cannot safely run
+or retry existing flow HTTP, notifications, control or context increments. SQL
+remains outside migrations and product startup; exact93 guards and existing
+runtime paths are unchanged. Both runtime durability gaps remain OPEN. Secure
+Update, final matching installer, full-background and previous-image acceptance
+remain separate held gates, not implied by these candidate tests.

@@ -1841,5 +1841,11 @@ bounded capacity. Its SQL is NOT in migrations or installed by product startup;
 no runtime caller, broker ACK/session change, worker or effect retry is enabled.
 The exact93 ledger/previous-image guards remain unchanged and both open runtime
 admission/derived-work gaps still reproduce. Real-PG concurrent/fault/reopen tests
-are preparation, not process-kill/commit-ack-loss or production acceptance. See
-the enterprise-readiness candidate section for limits and remaining gates.
+are preparation, not production acceptance. A separate candidate child-process
+fixture now checks kill-before/after-commit, lost committed response and exact
+retry. The candidate also models one attempt with fenced completion/terminal
+unknown; interrupted executing work cannot be taken over or automatically
+requeued. No executor, config/effect binding, production migration or runtime
+integration is added. The plaintext SQL fault fixture is not compiled-ingest,
+TLS, broker, disk-loss or failover acceptance. See the enterprise-readiness
+candidate sections for limits and remaining gates.
