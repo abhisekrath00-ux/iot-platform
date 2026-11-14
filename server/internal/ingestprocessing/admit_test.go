@@ -231,7 +231,7 @@ func TestAdmissionConcurrentExactReplay(t *testing.T) {
 	counts(t, x.Pool, e.EventID, 1)
 }
 func TestAdmissionBoundedAndUnsupported(t *testing.T) {
-	for _, mode := range []string{"oversize-definition", "too-many-channels", "plan-byte-limit", "cross-tenant-version", "http-stage", "scoped-rule", "position-stage"} {
+	for _, mode := range []string{"oversize-definition", "too-many-channels", "plan-byte-limit", "cross-tenant-version", "http-stage", "scoped-rule"} {
 		t.Run(mode, func(t *testing.T) {
 			x, e := fixture(t)
 			switch mode {
@@ -296,7 +296,7 @@ func TestSelectionSingleSnapshot(t *testing.T) {
 func TestReadWhileDisabledAndCancellation(t *testing.T) {
 	x, e := fixture(t)
 	ctx := t.Context()
-	exec(t, x.Pool, `UPDATE devices SET lat_point='p' WHERE id='d'`)
+	exec(t, x.Pool, `INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES('r','a','Synthetic','{"group_id":"synthetic-group","point_id":"p","op":">","threshold":0,"severity":"warning"}',true,'u')`)
 	a, err := x.Admit(ctx, e)
 	if err != nil {
 		t.Fatal(err)

@@ -1071,3 +1071,31 @@ helper could exit normally before the parent's kill); the helper now stays alive
 and the parent verifies actual stopped process state before SIGKILL. The final
 fresh full run passes; the earlier failed run is not accepted evidence. No
 product policy or test assertion was weakened. No remote acceptance is inherited.
+
+### Default-off transactional position stage (2026-11-14)
+
+The processing-v1 claim now applies supported position metadata in the SAME
+transaction as flow history and its executing/attempt checkpoint. Position-point
+configuration is retained at admission and current policy must still match;
+there is no cached or substituted point mapping. Per-device row locking retains
+monotonic per-axis observation times, the existing two-minute pairing window,
+hand-set coordinates until a fresh pair, and no-op handling for invalid/stale
+axes. Sampling uses the existing trail distance/heartbeat/retention operation,
+now exposed as RecordTrailTx without committing its caller's transaction. The
+existing RecordTrail wrapper still owns its own transaction and current runtime
+PositionTracker still uses its previous post-commit best-effort trail behavior;
+this default-off stage does NOT silently fix the enabled production path.
+
+A trail failure or attempt-state failure rolls back the axis, published position,
+trail, internal history and claim together. A committed claim that is then
+interrupted retains the position and the unclaimable attempt; there is no second
+metadata or external attempt. Concurrent axes serialize on the same device row;
+an unstarted serialization loser remains pending, not implicitly completed.
+Unsupported rules/history/side-effect nodes still quarantine the entire plan
+BEFORE any position change. No geofence evaluation or notification is added here.
+
+Three local real-PG race repetitions cover pair/stale/equal-time/invalid axes,
+wide pair windows, source revocation, retained manual coordinates, trail/state
+fault rollback, concurrent axes and caller rollback. The stage remains default
+off with no API/MQTT/startup caller. Rule/history stages, real sender adapters,
+operational UI, transport/receipt and deployment acceptance gates remain open.

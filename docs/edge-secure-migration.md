@@ -1965,3 +1965,12 @@ senders exist. Actual child SIGKILL after claim/after synthetic acceptance prove
 zero/one retained receipts and no resend. Rules/position/history stages, real
 adapters, owner UI, all transport/durability and deployment acceptance gates stay
 open. Existing exact93 guards and staged-schema activation boundaries stay intact.
+
+Processing-v1 now also supports its position stage transactionally: retained
+source mapping/current-policy check, per-axis ordering and pairing, sampled trail,
+flow history and attempt progress commit together. Trail/state faults roll the
+whole claim back; invalid/stale axes remain no-ops and manual coordinates stay
+until a fresh valid pair. Existing runtime PositionTracker is unchanged; no
+startup/MQTT/API caller activates the new stage. Unsupported rule/history/effect
+stages still quarantine the whole plan before metadata changes. This is not a
+new geofence, device-write or deployment permission.

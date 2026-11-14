@@ -115,6 +115,9 @@ func (x Engine) startAttempt(ctx context.Context, tenant, event string, at time.
 	if err = authorize(ctx, tx, rec.Plan); err != nil {
 		return Record{}, err
 	}
+	if err = applyPosition(ctx, tx, rec.Plan); err != nil {
+		return Record{}, err
+	}
 	rec.AttemptID = uuid.NewString()
 	rec.State = "executing"
 	// Deterministic history IDs bind input+flow; unlike the old evaluator, no

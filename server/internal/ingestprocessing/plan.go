@@ -226,9 +226,6 @@ func derive(p *Plan) error {
 	}
 	block := func(source string) { p.Blocked = append(p.Blocked, source) }
 	e := p.Envelope
-	if e.PointID == p.Device.LatPoint || e.PointID == p.Device.LonPoint {
-		block("position:transactional_axis_and_trail_stage_required")
-	}
 	channels := map[string]Channel{}
 	for _, c := range p.Channels {
 		if c.ID == "" || len(c.ID) > 256 || len(c.Target) > 8192 || channels[c.ID].ID != "" {

@@ -203,7 +203,7 @@ func TestExecuteQuarantineDisabledAndMissingSender(t *testing.T) {
 	}
 	x.Enabled = true
 	e.EventID = "blocked"
-	exec(t, x.Pool, `UPDATE devices SET lat_point='p' WHERE id='d'`)
+	exec(t, x.Pool, `INSERT INTO rules(id,tenant_id,name,definition,enabled,created_by) VALUES('r','a','Synthetic','{"group_id":"synthetic-group","point_id":"p","op":">","threshold":0,"severity":"warning"}',true,'u')`)
 	mustAdmit(t, x, e)
 	if err := x.ExecuteOnce(ctx, e.TenantID, e.EventID, e.ObservedAt, syntheticSender(func(context.Context, Envelope, Intent) error { return fmt.Errorf("must never be called") })); !errors.Is(err, ErrQuarantined) {
 		t.Fatal(err)

@@ -22,6 +22,21 @@ func RecordTrail(ctx context.Context, pool *pgxpool.Pool, tenant, device string,
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err = RecordTrailTx(ctx, tx, tenant, device, lat, lon, at, source); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RecordTrailTx is the same sampling/retention operation inside an existing
+// transaction. It locks the tenant-owned device and NEVER commits or rolls back
+// its caller's transaction. Processing-v1 uses it to commit fixes, trail and
+// attempt progress together, instead of losing a best-effort post-commit trail.
+func RecordTrailTx(ctx context.Context, tx pgx.Tx, tenant, device string, lat, lon float64, at time.Time, source string) error {
+	if !validAxis(lat, 90) || !validAxis(lon, 180) || at.Before(time.Now().Add(-7*24*time.Hour)) {
+		return nil
+	}
+	var err error
 	var id string
 	if err = tx.QueryRow(ctx, `SELECT id FROM devices WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, device, tenant).Scan(&id); err != nil {
 		return err
@@ -44,7 +59,7 @@ func RecordTrail(ctx context.Context, pool *pgxpool.Pool, tenant, device string,
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 func trailDistM(a, b, c, d float64) float64 {
 	p1, p2 := a*math.Pi/180, c*math.Pi/180
