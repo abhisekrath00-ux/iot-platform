@@ -165,3 +165,18 @@ func ApplyReviewed(ctx context.Context, pool *pgxpool.Pool, dir string) (Result,
 	}
 	return Result{Status: "additive_schema_committed_not_runtime_accepted", Applied: append([]string{}, added...)}, nil
 }
+
+// ReviewedNames validates the packaged exact93 catalog and returns its names.
+// It applies no SQL and grants no runtime or migration authority.
+func ReviewedNames(dir string) ([]string, error) {
+	files, err := catalog(dir)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}

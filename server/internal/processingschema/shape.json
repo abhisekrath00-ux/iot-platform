@@ -1,0 +1,260 @@
+[
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "attempt_id",
+    "definition": {
+      "type": "uuid",
+      "default": null,
+      "identity": "",
+      "not_null": false,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "created_at",
+    "definition": {
+      "type": "timestamp with time zone",
+      "default": "clock_timestamp()",
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "envelope",
+    "definition": {
+      "type": "bytea",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "event_id",
+    "definition": {
+      "type": "text",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "observed_at",
+    "definition": {
+      "type": "timestamp with time zone",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "plan",
+    "definition": {
+      "type": "bytea",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "plan_sha256",
+    "definition": {
+      "type": "bytea",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "policy",
+    "definition": {
+      "type": "text",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "state",
+    "definition": {
+      "type": "text",
+      "default": "'pending'::text",
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "ingest_processing_v1",
+    "name": "tenant_id",
+    "definition": {
+      "type": "text",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK ((((state = 'pending'::text) AND (attempt_id IS NULL)) OR ((state <> 'pending'::text) AND (attempt_id IS NOT NULL))))"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_envelope_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK (((octet_length(envelope) >= 1) AND (octet_length(envelope) <= 8192)))"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_event_id_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK (((octet_length(event_id) >= 1) AND (octet_length(event_id) <= 256)))"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_pkey",
+    "definition": {
+      "type": "p",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "PRIMARY KEY (event_id, observed_at)"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_plan_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK (((octet_length(plan) >= 1) AND (octet_length(plan) <= 262144)))"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_plan_sha256_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK ((octet_length(plan_sha256) = 32))"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_policy_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK ((policy = 'processing-v1'::text))"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_state_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK ((state = ANY (ARRAY['pending'::text, 'executing'::text, 'completed'::text, 'outcome_unknown'::text])))"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_tenant_id_fkey",
+    "definition": {
+      "type": "f",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id)"
+    }
+  },
+  {
+    "kind": "index",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_pending",
+    "definition": {
+      "ready": true,
+      "valid": true,
+      "definition": "CREATE INDEX ingest_processing_v1_pending ON ingest_processing_v1 USING btree (tenant_id, created_at, event_id, observed_at) WHERE (state = 'pending'::text)"
+    }
+  },
+  {
+    "kind": "index",
+    "relation": "ingest_processing_v1",
+    "name": "ingest_processing_v1_pkey",
+    "definition": {
+      "ready": true,
+      "valid": true,
+      "definition": "CREATE UNIQUE INDEX ingest_processing_v1_pkey ON ingest_processing_v1 USING btree (event_id, observed_at)"
+    }
+  },
+  {
+    "kind": "relation",
+    "relation": "ingest_processing_v1",
+    "name": "",
+    "definition": {
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    }
+  }
+]

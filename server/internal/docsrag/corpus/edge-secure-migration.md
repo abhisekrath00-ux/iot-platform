@@ -1926,3 +1926,19 @@ was read-only. Corrective test transport keeps config/certs read-only and adds
 only a writable broker-data submount, plus explicit actual-container signaling
 for restart/kill tests. This does not change deployed broker policy. The red
 run's skipped Valkey/edge steps remain unaccepted pending corrected exact CI.
+
+Corrected f5a337d exactCI43599337939 now passes all four jobs, including actual
+Docker graceful/checkpoint-kill fixtures and previously skipped Valkey/edge.
+Unsaved publisher acceptance loss and both product durability defects remain.
+
+A separate staged processing-v1 schema/operator path is now under development.
+Its SQL is embedded outside server/migrations, so startup/current Update retain
+exact93. Distinct setupctl actions inspect/apply the separately catalogued94
+addition only after explicit maintenance acknowledgement and exact core checks;
+the existing93 operator deliberately refuses94. No worker/processing is enabled.
+Local race tests cover atomic DDL/ledger rollback and fail-closed shape/history;
+actual previous/current API processes plus local setupctl retain identity/source
+and four HTTP write/retry readings across93->94 and switching back to previous
+code. This is limited binary/default-path proof, not immutable-image/full-job,
+backup/restore, full rollback or owner activation acceptance. Complete durable
+plan/effect/transport semantics and combined server/fresh-EXE gates stay open.

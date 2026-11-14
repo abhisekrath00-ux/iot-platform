@@ -17,6 +17,9 @@ import (
 )
 
 func run(ctx context.Context, args []string, input io.Reader, output io.Writer) error {
+	if len(args) == 1 && (args[0] == "inspect-staged-processing" || args[0] == "apply-staged-processing") {
+		return runProcessing(ctx, args[0] == "apply-staged-processing", input, output)
+	}
 	if len(args) == 1 && args[0] == "connection-readiness" {
 		return setupconnection.Run(ctx, input, output)
 	}

@@ -95,9 +95,45 @@ func InspectReviewed(ctx context.Context, pool *pgxpool.Pool, dir string) (Inspe
 	if len(missing) != 0 && !baseline {
 		return Inspection{}, fmt.Errorf("partial or unknown migration history")
 	}
-	rows, err = tx.Query(ctx, shapeQuery, []string{"edge_identity_migrations", "edge_serial_port_inventory", "edge_pairing_proofs"})
+	actual, err := readReviewedShape(ctx, tx, schema)
 	if err != nil {
-		return Inspection{}, fmt.Errorf("cannot inspect reviewed schema shape")
+		return Inspection{}, err
+	}
+	if baseline {
+		if len(actual) != 0 {
+			return Inspection{}, fmt.Errorf("unrecorded additive schema objects exist")
+		}
+		return Inspection{Version: 1, Status: "exact_reviewed_baseline_89"}, nil
+	}
+	var expected []shapeItem
+	if err = json.Unmarshal(reviewedShapeJSON, &expected); err != nil || !reflect.DeepEqual(actual, expected) {
+		return Inspection{}, fmt.Errorf("reviewed additive schema shape differs; keep deployment blocked")
+	}
+	return Inspection{Version: 1, Status: "exact_reviewed_additive_93"}, nil
+}
+
+// Inspect93Objects verifies only the existing reviewed93 additions on the
+// caller's transaction. It does not validate or widen any migration ledger.
+// Separate staged schema operators combine it with their own exact catalog.
+func Inspect93Objects(ctx context.Context, tx pgx.Tx) error {
+	var schema string
+	if err := tx.QueryRow(ctx, "SELECT current_schema()").Scan(&schema); err != nil || schema == "" {
+		return fmt.Errorf("exact current schema required")
+	}
+	actual, err := readReviewedShape(ctx, tx, schema)
+	if err != nil {
+		return err
+	}
+	var expected []shapeItem
+	if json.Unmarshal(reviewedShapeJSON, &expected) != nil || !reflect.DeepEqual(actual, expected) {
+		return fmt.Errorf("reviewed93 object shape differs")
+	}
+	return nil
+}
+func readReviewedShape(ctx context.Context, tx pgx.Tx, schema string) ([]shapeItem, error) {
+	rows, err := tx.Query(ctx, shapeQuery, []string{"edge_identity_migrations", "edge_serial_port_inventory", "edge_pairing_proofs"})
+	if err != nil {
+		return nil, fmt.Errorf("cannot inspect reviewed schema shape")
 	}
 	actual := []shapeItem{}
 	for rows.Next() {
@@ -105,11 +141,11 @@ func InspectReviewed(ctx context.Context, pool *pgxpool.Pool, dir string) (Inspe
 		var definition string
 		if err = rows.Scan(&item.Kind, &item.Relation, &item.Name, &definition); err != nil {
 			rows.Close()
-			return Inspection{}, fmt.Errorf("invalid reviewed schema shape")
+			return nil, fmt.Errorf("invalid reviewed schema shape")
 		}
 		if err = json.Unmarshal([]byte(definition), &item.Definition); err != nil {
 			rows.Close()
-			return Inspection{}, fmt.Errorf("invalid schema definition")
+			return nil, fmt.Errorf("invalid schema definition")
 		}
 		if item.Kind == "index" {
 			// pg_get_indexdef qualifies the indexed table. Normalize only that
@@ -118,7 +154,7 @@ func InspectReviewed(ctx context.Context, pool *pgxpool.Pool, dir string) (Inspe
 			text, ok := item.Definition["definition"].(string)
 			if !ok {
 				rows.Close()
-				return Inspection{}, fmt.Errorf("invalid index definition")
+				return nil, fmt.Errorf("invalid index definition")
 			}
 			for _, namespace := range []string{pgx.Identifier{schema}.Sanitize(), schema} {
 				for _, table := range []string{pgx.Identifier{item.Relation}.Sanitize(), item.Relation} {
@@ -132,17 +168,7 @@ func InspectReviewed(ctx context.Context, pool *pgxpool.Pool, dir string) (Inspe
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
-		return Inspection{}, fmt.Errorf("incomplete schema shape inspection")
+		return nil, fmt.Errorf("incomplete schema shape inspection")
 	}
-	if baseline {
-		if len(actual) != 0 {
-			return Inspection{}, fmt.Errorf("unrecorded additive schema objects exist")
-		}
-		return Inspection{Version: 1, Status: "exact_reviewed_baseline_89"}, nil
-	}
-	var expected []shapeItem
-	if err = json.Unmarshal(reviewedShapeJSON, &expected); err != nil || !reflect.DeepEqual(actual, expected) {
-		return Inspection{}, fmt.Errorf("reviewed additive schema shape differs; keep deployment blocked")
-	}
-	return Inspection{Version: 1, Status: "exact_reviewed_additive_93"}, nil
+	return actual, nil
 }

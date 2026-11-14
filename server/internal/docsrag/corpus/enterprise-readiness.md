@@ -916,3 +916,52 @@ signals distinguish killing the actual broker from killing the Docker client;
 checkpoint-kill requires native SIGKILL or container exit137. Native-broker race
 and fresh-suite checks do not by themselves accept this Docker correction; the
 next exact remote run must execute the named tests and downstream steps.
+
+### Separate staged processing schema path (2026-11-14)
+
+The corrected f5a337d CI43599337939 is all-four green. Both graceful broker file
+reload and checkpointed SIGKILL subtests execute under the corrected Docker
+launcher; Valkey and edge tests/cross-builds previously skipped now pass. This
+closes the fixture portability issue, not the documented unsaved transport loss
+or either actual production durability defect.
+
+The next product-path prerequisite is a separately embedded, staged processing-v1
+schema. It is NOT in server/migrations, so normal API startup and the existing
+Update adapter still package exactly93. setupctl has distinct inspect-staged-
+processing/apply-staged-processing actions; the latter requires an explicit
+staged_processing_v1 maintenance acknowledgement, a readable exact93 catalog,
+exact core ledger/object checks, bounded shared migration lock and no other
+current database clients. Acknowledgements are not owner permission or proof
+that an external client cannot reconnect. The current Update adapter never calls
+these actions. No API/ingest startup applies this SQL or activates processing.
+
+One additive table binds bounded immutable input/plan bytes, digest, versioned
+policy and pending/executing/completed/outcome_unknown attempt state. A separate
+catalog checks embedded SQL bytes and exact columns/constraints/indexes; unknown
+ledger entries, unrecorded objects, altered core/staged shape and extra triggers
+fail closed. DDL and the94 ledger entry commit together. A commit error requires
+fresh inspection; no delete, schema downgrade or restore action is provided.
+The current exact93 operator still REFUSES94, as intended, rather than silently
+accepting a widened Update contract. The extracted core shape reader preserves
+its existing93 comparison; its full regression suite runs unchanged.
+
+Three local real-PG race repetitions pass for staged apply/inspection, repeat
+inspection, legacy93 refusal, injected ledger failure with all DDL rolled back,
+retained identities/source config, unknown/altered object refusal, other-client
+refusal and cancellation. An optional local script builds the exact bfe5d89
+previous API and current API/setupctl. The actual local staged operator applies94
+in an isolated DB between stopped API processes. Previous API before94, current
+API on94, previous API on94 and current again boot successfully and perform
+JWT-authenticated retained gateway/profile/device reads plus HTTP telemetry
+write/retry, retaining four unique readings. The new processing table stays empty
+and both runtime_accepted and processing_enabled remain false. This is limited
+actual-binary/default-path compatibility, NOT immutable-image/full-background,
+backup/restore, complete rollback acceptance, runtime worker or effect recovery.
+
+The staged table is a prerequisite, not a worker, complete configuration plan or
+safe execution decision. Complete input identity/config/occurrence binding,
+transactional internal stages, one-attempt external effects with visible unknown
+outcomes, execution-time revocation, session/backpressure/shutdown and end-to-end
+admission receipt remain required. No automatic external-effect retry is added.
+Both actual runtime durability gaps and combined owner-server/fresh-EXE handoff
+remain open. Nothing in this path changes existing deployment authority.
