@@ -1213,3 +1213,42 @@ Neither failed test run is acceptance evidence. No real email/provider/credentia
 was used. Standard library protocol semantics checked at https://pkg.go.dev/net/smtp .
 Production ACK/replay defects, admission/outbox, staged94 image/restore/rollback,
 real-provider acceptance and combined server/EXE deployment gates remain open.
+
+### Default-off mixed SMTP/Slack batches and preflight (local, 2026-11-15)
+
+NewNotificationSender joins the separate staged SMTP and Slack adapters under
+explicit copied configuration, with no environment lookup or provider call in
+the constructor. Only the configured email/Slack capabilities are available;
+unknown types, missing adapters and invalid targets/text are refused. The
+complete retained intent list is preflighted inside the claim transaction BEFORE
+position metadata, flow history or attempt state can change. This pure check
+makes no network calls and does not prove credentials, authorization or delivery.
+Direct built-in SMTP-only/Slack-only senders perform the same full-plan check;
+a mixed batch cannot partially send before discovering an unsupported later
+occurrence. Package-private preflight cannot be implemented by external packages.
+The engine still permits separately reviewed synthetic/test Sender implementations.
+
+The existing authorization check still runs after preflight and immediately
+before each callback. Dispatch preserves exact retained order and targets, never
+substitutes a channel, and uses the same one-attempt whole-batch quarantine:
+uncertain SMTP/Slack responses or a policy change stop all remaining occurrences,
+including those not started. Neither a new sender nor duplicate input can rearm
+an executing/unknown/completed attempt. There is no automatic retry, fallback to
+a different provider, per-effect receipt, worker, API/startup wiring or activation.
+Enabled production ingest/legacy notifier/exact93 guards remain unchanged.
+
+Isolated PostgreSQL with actual local TLS SMTP+HTTPS fixtures exercises
+email -> Slack -> email order, position/history/claim committed before first
+network operation, mixed success, SMTP lost final receipt, Slack refusal and
+revocation after either provider. Missing/typed-nil adapters and invalid later
+recipients fail while input stays pending, without position/history/attempt or
+network changes; repeated refusals release the transaction/row lock. Constructors
+copy configuration and do not dial; unknown channel types and leaked input detail
+are refused. Three real-PG race repetitions, fresh full-server suite (four package
+workers) and vet pass. An initial unbounded-package-concurrency full command hit
+the execution time budget and was not accepted; the final fresh run exited0.
+These are synthetic protocol
+endpoints, not real-provider acceptance, delivery or enabled-pipeline durability.
+Full transport admission/ACK/outbox, rules/history stages, per-effect evidence,
+immutable staged94 images/restore/rollback, GUI click/UAC/reboot/physical meter
+and the joint secure-server/fresh-EXE handoff remain open.

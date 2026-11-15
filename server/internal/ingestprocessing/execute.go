@@ -26,7 +26,7 @@ var (
 // redirect. nil means provider acceptance, NEVER final recipient delivery.
 // Production SMTP/Slack adapters are deliberately NOT wired here: their timeout
 // and application-result handling need separate acceptance. The separate staged
-// Slack and SMTP adapters is exercised only against synthetic TLS fixtures, with no
+// Slack and SMTP adapters are exercised only against synthetic TLS fixtures, with no
 // production startup wiring or real-provider acceptance.
 type Sender interface {
 	SendOnce(context.Context, Envelope, Intent) error
@@ -44,7 +44,7 @@ func (x Engine) ExecuteOnce(ctx context.Context, tenant, event string, at time.T
 	if !x.Enabled {
 		return ErrDisabled
 	}
-	rec, err := x.startAttempt(ctx, tenant, event, at, s != nil)
+	rec, err := x.startAttempt(ctx, tenant, event, at, s)
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func (x Engine) ExecuteOnce(ctx context.Context, tenant, event string, at time.T
 	}
 	return nil
 }
-func (x Engine) startAttempt(ctx context.Context, tenant, event string, at time.Time, hasSender bool) (Record, error) {
+func (x Engine) startAttempt(ctx context.Context, tenant, event string, at time.Time, sender Sender) (Record, error) {
 	tx, err := x.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return Record{}, err
@@ -110,8 +110,16 @@ func (x Engine) startAttempt(ctx context.Context, tenant, event string, at time.
 	if len(rec.Plan.Blocked) > 0 {
 		return Record{}, ErrQuarantined
 	}
-	if len(rec.Plan.Intents) > 0 && !hasSender {
+	if len(rec.Plan.Intents) > 0 && sender == nil {
 		return Record{}, errors.New("a reviewed one-attempt sender is required")
+	}
+	// Built-in sender preflight is pure: validate the complete retained batch
+	// before any internal position/history/claim change or external I/O. No
+	// provider lookup or credential test is performed in this transaction.
+	if preflight, ok := sender.(intentPreflight); ok {
+		if err = preflight.validateIntents(rec.Plan.Intents); err != nil {
+			return Record{}, err
+		}
 	}
 	if err = authorize(ctx, tx, rec.Plan); err != nil {
 		return Record{}, err

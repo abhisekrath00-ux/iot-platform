@@ -228,7 +228,7 @@ func TestPositionStageCommitAndCallerRollback(t *testing.T) {
 	x, e := positionFixture(t)
 	e.Value = 12
 	mustAdmit(t, x, e)
-	rec, err := x.startAttempt(t.Context(), e.TenantID, e.EventID, e.ObservedAt, false)
+	rec, err := x.startAttempt(t.Context(), e.TenantID, e.EventID, e.ObservedAt, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -71,9 +71,26 @@ func (c *smtpWireBudget) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (s *smtpSender) SendOnce(ctx context.Context, _ Envelope, i Intent) error {
+func validSMTPIntent(i Intent) error {
 	if i.ChannelType != "email" || !exactMailbox(i.Target) || !utf8.ValidString(i.Message) || strings.TrimSpace(i.Message) == "" || len(i.Message) > 65536 || strings.IndexByte(i.Message, 0) >= 0 {
 		return ErrSMTPInput
+	}
+	return nil
+}
+func (s *smtpSender) validateIntents(intents []Intent) error {
+	if s == nil || s.tls == nil {
+		return ErrSenderUnavailable
+	}
+	for _, intent := range intents {
+		if err := validSMTPIntent(intent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (s *smtpSender) SendOnce(ctx context.Context, _ Envelope, i Intent) error {
+	if err := s.validateIntents([]Intent{i}); err != nil {
+		return err
 	}
 	if ctx.Err() != nil {
 		return ErrSMTPOutcome

@@ -56,9 +56,26 @@ func NewSlackSender(token string) (Sender, error) {
 	}}, nil
 }
 
-func (s *slackSender) SendOnce(ctx context.Context, _ Envelope, intent Intent) error {
+func validSlackIntent(intent Intent) error {
 	if intent.ChannelType != "slack" || !slackChannelID.MatchString(intent.Target) || !utf8.ValidString(intent.Message) || strings.TrimSpace(intent.Message) == "" || utf8.RuneCountInString(intent.Message) > 4000 || strings.IndexByte(intent.Message, 0) >= 0 || strings.Contains(intent.Message, "<@") || strings.Contains(intent.Message, "<!") || strings.Contains(intent.Message, "<#") {
 		return ErrSlackInput
+	}
+	return nil
+}
+func (s *slackSender) validateIntents(intents []Intent) error {
+	if s == nil || s.client == nil || s.token == "" {
+		return ErrSenderUnavailable
+	}
+	for _, intent := range intents {
+		if err := validSlackIntent(intent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (s *slackSender) SendOnce(ctx context.Context, _ Envelope, intent Intent) error {
+	if err := s.validateIntents([]Intent{intent}); err != nil {
+		return err
 	}
 	if ctx.Err() != nil {
 		return ErrSlackOutcome

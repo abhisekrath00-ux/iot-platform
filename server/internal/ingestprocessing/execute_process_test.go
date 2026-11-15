@@ -36,7 +36,7 @@ func TestProcessingExecuteChild(t *testing.T) {
 	}
 	x := Engine{Pool: p, Enabled: true}
 	if os.Getenv("SYNTHETIC_PROCESSING_CHILD_STOP") == "after-claim" {
-		if _, err = x.startAttempt(t.Context(), e.TenantID, e.EventID, e.ObservedAt, true); err != nil {
+		if _, err = x.startAttempt(t.Context(), e.TenantID, e.EventID, e.ObservedAt, syntheticSender(func(context.Context, Envelope, Intent) error { return nil })); err != nil {
 			t.Fatal(err)
 		}
 		fmt.Println("SYNTHETIC_CHECKPOINT after-claim")

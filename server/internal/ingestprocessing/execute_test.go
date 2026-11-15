@@ -217,7 +217,7 @@ func TestInterruptedStartedBatchUnclaimableAndCancellation(t *testing.T) {
 	mustAdmit(t, x, e)
 	// Simulate process loss immediately after committed start, before any send.
 	// Inspection preserves executing/attempt evidence but cannot take it over.
-	rec, err := x.startAttempt(ctx, e.TenantID, e.EventID, e.ObservedAt, true)
+	rec, err := x.startAttempt(ctx, e.TenantID, e.EventID, e.ObservedAt, syntheticSender(func(context.Context, Envelope, Intent) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
