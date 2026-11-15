@@ -1252,3 +1252,40 @@ endpoints, not real-provider acceptance, delivery or enabled-pipeline durability
 Full transport admission/ACK/outbox, rules/history stages, per-effect evidence,
 immutable staged94 images/restore/rollback, GUI click/UAC/reboot/physical meter
 and the joint secure-server/fresh-EXE handoff remain open.
+
+### Default-off strict MQTT telemetry admission boundary (local, 2026-11-15)
+
+Engine.AdmitMQTT binds the existing transactional processing-v1 admission to a
+bounded exact telemetry wire envelope and topic identity. The caller MUST already
+have authenticated the publisher and enforced broker ACLs; parsing a topic string
+is not authentication. No production handler, startup or ACK mode calls this
+method. Existing enabled MQTT acknowledgement/replay defects are NOT fixed.
+
+The boundary rejects unknown/case-folded/duplicate JSON keys, null or missing
+required fields (including value), invalid UTF8, oversized payloads, wildcard or
+malformed topic identities and payload/topic tenant/gateway disagreement. Topic
+identities may be omitted from the body but cannot be substituted. It requires an
+original stable publisher timestamp exactly representable in microseconds, with
+NO receive-time fallback or silent rounding. Current sources emitting arbitrary
+nanoseconds/clockless readings need a separately reviewed stable wire identity;
+this boundary does not pretend they are compatible or change their output.
+
+A receipt is returned only after the existing Admit commits or reconciles an
+identical retained input. It contains exact event/time, retained state and new vs
+replay only, no plan/targets/message text. Pending/unknown/executing/completed
+remain distinct and do not authorize execution, rearm, MQTT PUBACK or an edge
+application receipt. Admission makes no derived or external call. Database/commit
+errors return a zero receipt, including uncertain outcomes; explicit exact-input
+reconciliation is distinct from automatic external-effect retries. Replays return
+the original plan/state even after configuration changes or terminal attempt state.
+
+Isolated PostgreSQL tests cover commit/insert refusal with zero receipt and paired
+rollback, legacy/no-journal input, identity conflict, foreign topic, cancellation,
+absent staged schema, strict wire rejection, concurrent exact admissions and
+explicit loser reconciliation. Three race repetitions, a fresh full-server suite
+(four package workers) and vet pass. An initial legacy
+fixture omitted telemetry's required unit and was corrected; only final passes
+are accepted. No broker/session/manual ACK, all-handler/backpressure/shutdown,
+edge outbox, actual publisher retransmit or power-loss durability is claimed.
+Production activation, staged94 immutable-image/restore/rollback, rules/history
+stages, per-effect evidence and joint server/fresh-EXE readiness remain open.
