@@ -1176,3 +1176,40 @@ is not acceptance evidence; the final fresh-database run passed. No real Slack c
 SMTP support, production activation or delivery claim follows from these tests.
 Enabled production ACK/derived-replay defects and transport/deployment acceptance
 remain open; exact93 Update behavior is unchanged.
+
+### Default-off mandatory-TLS SMTP adapter (local, 2026-11-15)
+
+The same staged package has an explicit SMTP sender; no production notifier or
+startup/transport worker is changed. The constructor requires either implicit
+TLS or STARTTLS with normal certificate/hostname verification, TLS1.2 minimum
+and an explicit host/port/sender. There is no plaintext fallback, insecure TLS
+option, environment lookup, MX discovery or automatic resend. Optional PLAIN
+credentials are used only after verified TLS and advertised AUTH PLAIN support;
+explicit empty credentials select a TLS relay without AUTH. Invalid or partial
+credentials/configuration are refused rather than silently downgraded.
+
+Each occurrence opens one connection with bounded dial and total context/socket
+deadlines, closes on cancellation and caps total inbound SMTP/TLS bytes64KiB to
+bound multiline replies. It sends one exact ASCII mailbox recipient, one fixed
+sender and one DATA transaction. Valid bounded UTF8 text is quoted-printable MIME
+under constant headers, without HTML, attachments, CC/BCC or recipient lookup.
+A final DATA acknowledgement establishes relay acceptance only. Lost/failing final
+responses quarantine the whole batch, including unstarted occurrences; no retry,
+RSET/resubmit or recovery send follows. Successful DATA is not turned unknown
+because of a later QUIT failure: the connection is simply closed. No recipient
+delivery, durable per-effect receipt, mail queue or production activation claim.
+
+Synthetic local TLS SMTP fixtures plus isolated PostgreSQL cover implicit TLS and
+STARTTLS, exact MIME/body/recipient, optional explicit no-AUTH relay, missing TLS
+or AUTH extensions, wrong hostname/untrusted CA, injection/list/display-name input
+refusal, auth/MAIL/RCPT/DATA/final refusal, oversized greeting, canceled/stalled
+connections, lost final receipt, actual committed claim/history before DATA and
+revoked-between-occurrences refusal. Uncertain attempts cannot rearm. Three local
+real-PG race repetitions, final fresh-database full server suite and separate vet
+pass. An initial fixture did not handle SMTP auth cancel;
+that fixture was corrected. The first extension-negative test also caught missing
+explicit AUTH capability validation; the product now refuses before sending AUTH.
+Neither failed test run is acceptance evidence. No real email/provider/credential
+was used. Standard library protocol semantics checked at https://pkg.go.dev/net/smtp .
+Production ACK/replay defects, admission/outbox, staged94 image/restore/rollback,
+real-provider acceptance and combined server/EXE deployment gates remain open.

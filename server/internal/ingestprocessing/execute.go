@@ -26,7 +26,7 @@ var (
 // redirect. nil means provider acceptance, NEVER final recipient delivery.
 // Production SMTP/Slack adapters are deliberately NOT wired here: their timeout
 // and application-result handling need separate acceptance. The separate staged
-// Slack adapter is exercised only against synthetic TLS fixtures, with no
+// Slack and SMTP adapters is exercised only against synthetic TLS fixtures, with no
 // production startup wiring or real-provider acceptance.
 type Sender interface {
 	SendOnce(context.Context, Envelope, Intent) error
