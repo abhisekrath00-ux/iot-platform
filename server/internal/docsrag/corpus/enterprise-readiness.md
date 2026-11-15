@@ -1289,3 +1289,37 @@ are accepted. No broker/session/manual ACK, all-handler/backpressure/shutdown,
 edge outbox, actual publisher retransmit or power-loss durability is claimed.
 Production activation, staged94 immutable-image/restore/rollback, rules/history
 stages, per-effect evidence and joint server/fresh-EXE readiness remain open.
+
+### Isolated MQTT admission gate (default-off, no subscriber wiring)
+
+`NewMQTTGate` now constructs an explicitly enabled Engine's bounded synchronous
+adapter with 1-64 admitted handlers. Zero/nil gates refuse. It accepts only
+non-retained QoS1 messages, copies the bounded payload and invokes that message's
+`Ack` only after `AdmitMQTT` returns committed or exact-replay evidence. Failed
+insert/commit, missing schema, malformed/foreign input, legacy/conflicting input,
+cancellation and capacity/closed refusal return zero evidence without ACK.
+Each duplicate delivery may need its own protocol ACK; no derived work is run.
+ACK invocation is not proof of broker receipt, edge application acceptance or
+provider delivery. An interrupted ACK is uncertain; exact-input reconciliation
+retains one admission without rerunning effects.
+
+Capacity refusal is immediate, with no internal queue, worker or retry. Close
+permanently refuses new calls and waits for admitted handlers including ACK to
+return. A timed-out Close leaves the gate closed and may be called again to wait;
+it does not cancel in-flight transactions or prove rollback. Caller-owned
+contexts bound their work. Real isolated PostgreSQL tests observe an admission
+blocked on the actual advisory lock, refusal at capacity before commit, canceled
+rollback with no ACK, and drain during a blocked ACK after commit. They also cover
+concurrent Close calls, timeout remaining closed, ACK panic releasing capacity,
+commit-visible independent reads during ACK, exact replay and the refusal matrix.
+Three race repetitions and a fresh full-server suite/vet are the local gates.
+
+This is NOT an all-handler/manual-ACK production fix. No production subscriber
+constructs the gate, changes AutoAck/session mode or switches telemetry. Its caller
+still must establish authenticated topic ACLs, manual ACK, stable persistent
+sessions, all-handler failure/shutdown behavior and broker/publisher durability.
+Returning a refused-message error alone does not make Paho redeliver it. No real
+broker/PUBACK recovery, source retransmit/outbox, GUI/native installer, hardware,
+provider delivery, owner activation or staged94 image/restore acceptance is
+claimed by these adapter tests. Existing runtime ACK/replay and unsaved broker
+input-loss findings stay open. Existing exact93 update guards remain unchanged.
