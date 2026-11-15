@@ -1364,3 +1364,32 @@ restart, unsaved broker input recovery, disk/fsync/power-loss, edge publisher
 outbox/application receipt, production ACK/session policy, real provider or owner
 readiness. Existing open runtime/unsaved-input findings and exact93 update guards
 remain unchanged. The normal exact-head suite still must pass before acceptance.
+
+### Staged gate direct certificate-required transport (test-only)
+
+`StagedCertificateProcessingGate` adds a SEPARATE disposable mTLS broker variant
+of the actual staged Engine/MQTTGate subscriber subprocess test. Broker config
+requires certificates and certificate-CN usernames, uses generated `brokeracl`
+entries, and the gateway/subscriber use production `mqttconfig.Options` to verify
+the local server certificate. A missing-client-certificate handshake is actually
+refused. The test-only ingest subscriber reads `t/#` under its service identity;
+a gateway's foreign-topic publish has zero callback/admission before an ordered
+authorized same-publisher telemetry barrier. The broad subscription makes that
+ACL assertion meaningful rather than merely failing to subscribe to the target.
+
+The direct TLS variant also exercises DB refusal, subscriber SIGKILL/restart,
+commit-before-ACK interruption, one-pair exact replay with complete retained
+plan/unknown attempt unchanged despite target edits, and zero derived history.
+It connects directly, not through a TLS-terminating observer. Its callback and
+ACK-invocation markers are NOT encrypted wire PUBACK evidence. Actual forwarded
+wire PUBACK observation remains the separate plaintext variant's bounded proof.
+Three local race repetitions of BOTH variants pass. The initial test helper
+passed `1` instead of transport `true` for TLS; fixed before final passes.
+
+These are synthetic certificates/loopback services and test-only subscriber
+options, not a production processing startup mode, identity permission grant or
+all-handler ACK/session policy. No broker restart/disk/fsync/power-loss,
+unsaved-input recovery, publisher outbox/application receipt, provider delivery,
+GUI/native installer/hardware or owner readiness is accepted. Runtime ACK/replay
+and candidate unsaved broker-input findings, exact93 guards and staged94 image/
+restore gates remain unchanged. A new remote exact-head suite must pass too.

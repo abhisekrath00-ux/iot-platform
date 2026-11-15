@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/brokeracl"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/ingestprocessing"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/mqttconfig"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/processingschema"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -52,9 +54,25 @@ func TestProcessingMQTTGateHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := mqtt.NewClientOptions().AddBroker("tcp://127.0.0.1:" + os.Getenv("HEX_PROCESSING_MQTT_PORT")).SetClientID(os.Getenv("HEX_PROCESSING_MQTT_ID")).SetCleanSession(false).SetAutoReconnect(false).SetAutoAckDisabled(true)
+	if os.Getenv("HEX_PROCESSING_MQTT_TLS") == "1" {
+		opts, err = mqttconfig.Options(func(k string) string {
+			if k == "MQTT_TLS" {
+				return "true"
+			}
+			if k == "MQTT_PORT" {
+				return os.Getenv("HEX_PROCESSING_MQTT_PORT")
+			}
+			return os.Getenv("HEX_PROCESSING_" + k)
+		}, os.Getenv("HEX_PROCESSING_MQTT_ID"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		opts.SetCleanSession(false).SetAutoReconnect(false).SetAutoAckDisabled(true)
+	}
 	opts.SetDefaultPublishHandler(func(_ mqtt.Client, m mqtt.Message) {
 		var e ingestprocessing.Envelope
 		_ = json.Unmarshal(m.Payload(), &e)
+		fmt.Println("PROCESSING_DELIVERY:" + e.EventID)
 		c, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		_, err := gate.Handle(c, processingAckBarrier{Message: m, event: e.EventID, block: e.EventID == os.Getenv("HEX_PROCESSING_MQTT_STOP_BEFORE_ACK")})
@@ -81,6 +99,14 @@ func TestProcessingMQTTGateHelper(t *testing.T) {
 // Real plaintext live-broker test only. Subscriber SIGKILL is not broker crash,
 // disk/power-loss, all-handler, TLS, source outbox or production acceptance.
 func TestIntegrationProcessingMQTTGateTransport(t *testing.T) {
+	runProcessingMQTTGateTransport(t, false)
+}
+
+// Separate certificate-required direct-broker variant. Markers observe callback
+// and ACK INVOCATION, not encrypted wire PUBACK receipt. Restart/replay retains
+// the same actual Engine evidence; no production subscriber is configured.
+func TestIntegrationProcessingMQTTGateMTLS(t *testing.T) { runProcessingMQTTGateTransport(t, true) }
+func runProcessingMQTTGateTransport(t *testing.T, secure bool) {
 
 	broker := os.Getenv("TEST_MOSQUITTO_BINARY")
 	if broker == "" {
@@ -164,8 +190,30 @@ func TestIntegrationProcessingMQTTGateTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	conf := filepath.Join(dir, "broker.conf")
-	persistence := "persistence false\n"
-	if err := os.WriteFile(conf, []byte("listener "+port+" 127.0.0.1\nallow_anonymous true\n"+persistence+"max_inflight_messages 1\n"), 0600); err != nil {
+	brokerConfig := "listener " + port + " 127.0.0.1\nallow_anonymous true\npersistence false\nmax_inflight_messages 1\n"
+	var childTLS []string
+	var gatewayOptions *mqtt.ClientOptions
+	if secure {
+		issue := pipelineTestCerts(t, dir)
+		bc, bk := issue("broker", true)
+		ic, ik := issue("ingest", false)
+		gc, gk := issue("staged-gateway", false)
+		ca := filepath.Join(dir, "ca.crt")
+		acl := filepath.Join(dir, "acl")
+		if err := brokeracl.WriteAtomic(acl, brokeracl.Generate([]brokeracl.Entry{{Serial: "staged-gateway", TenantID: tenant, GatewayID: tenant + "-gw"}})); err != nil {
+			t.Fatal(err)
+		}
+		brokerConfig = fmt.Sprintf("listener %s 127.0.0.1\ncafile %s\ncertfile %s\nkeyfile %s\nrequire_certificate true\nuse_identity_as_username true\nallow_anonymous false\nacl_file %s\npersistence false\nmax_inflight_messages 1\n", port, ca, bc, bk, acl)
+		childTLS = []string{"HEX_PROCESSING_MQTT_TLS=1", "HEX_PROCESSING_MQTT_HOST=127.0.0.1", "HEX_PROCESSING_MQTT_CA_FILE=" + ca, "HEX_PROCESSING_MQTT_CERT_FILE=" + ic, "HEX_PROCESSING_MQTT_KEY_FILE=" + ik}
+		gatewayOptions, err = mqttconfig.Options(func(k string) string {
+			return map[string]string{"MQTT_HOST": "127.0.0.1", "MQTT_PORT": port, "MQTT_TLS": "true", "MQTT_CA_FILE": ca, "MQTT_CERT_FILE": gc, "MQTT_KEY_FILE": gk}[k]
+		}, "synthetic-admission-publisher")
+		if err != nil {
+			t.Fatal(err)
+		}
+		gatewayOptions.SetAutoReconnect(false)
+	}
+	if err := os.WriteFile(conf, []byte(brokerConfig), 0600); err != nil {
 		t.Fatal(err)
 	}
 	bl, err := os.Create(filepath.Join(dir, "broker.log"))
@@ -207,7 +255,31 @@ func TestIntegrationProcessingMQTTGateTransport(t *testing.T) {
 		}
 		return false
 	})
-	proxy, acked, deliveries := admissionWireProxy(t, "127.0.0.1:"+port)
+	proxy := port
+	var acked, deliveries func(string) int
+	if !secure {
+		proxy, acked, deliveries = admissionWireProxy(t, "127.0.0.1:"+port)
+	} else {
+		// TLS goes directly to the certificate-required broker. Do not interpret
+		// callback markers as wire packets; plaintext coverage owns wire observation.
+		markerCount := func(marker string) func(string) int {
+			return func(id string) int {
+				logs, _ := filepath.Glob(filepath.Join(dir, "processing-*.log"))
+				n := 0
+				for _, log := range logs {
+					raw, _ := os.ReadFile(log)
+					for _, line := range strings.Split(string(raw), "\n") {
+						if line == marker+id {
+							n++
+						}
+					}
+				}
+				return n
+			}
+		}
+		acked = markerCount("PROCESSING_ACK_CALLED:")
+		deliveries = markerCount("PROCESSING_DELIVERY:")
+	}
 	topic := "t/" + tenant + "/g/" + tenant + "-gw/telemetry"
 	var child *exec.Cmd
 	var childLog *os.File
@@ -234,6 +306,10 @@ func TestIntegrationProcessingMQTTGateTransport(t *testing.T) {
 		}
 		child = exec.Command(os.Args[0], "-test.run=^TestProcessingMQTTGateHelper$", "-test.timeout=50s")
 		child.Env = append(os.Environ(), "HEX_PROCESSING_MQTT_CHILD=1", "HEX_PROCESSING_MQTT_PORT="+proxy, "HEX_PROCESSING_MQTT_ID=synthetic-persistent-processing", "HEX_PROCESSING_MQTT_TOPIC="+topic, "HEX_PROCESSING_MQTT_STOP_BEFORE_ACK="+blockID)
+		child.Env = append(child.Env, childTLS...)
+		if secure {
+			child.Env = append(child.Env, "HEX_PROCESSING_MQTT_TOPIC=t/#")
+		}
 		child.Stdout = childLog
 		child.Stderr = childLog
 		if err := child.Start(); err != nil {
@@ -244,7 +320,26 @@ func TestIntegrationProcessingMQTTGateTransport(t *testing.T) {
 			return strings.Contains(string(b), "PROCESSING_MQTT_READY")
 		})
 	}
-	publisher := mqtt.NewClient(mqtt.NewClientOptions().AddBroker("tcp://127.0.0.1:" + port).SetClientID("synthetic-admission-publisher").SetAutoReconnect(false))
+	if !secure {
+		gatewayOptions = mqtt.NewClientOptions().AddBroker("tcp://127.0.0.1:" + port).SetClientID("synthetic-admission-publisher").SetAutoReconnect(false)
+	}
+	if secure {
+		// Own the negative handshake, rather than infer mTLS from a config string.
+		noCert := *gatewayOptions
+		noCert.TLSConfig = gatewayOptions.TLSConfig.Clone()
+		noCert.TLSConfig.Certificates = nil
+		noCert.SetClientID("synthetic-missing-client-cert").SetConnectTimeout(time.Second)
+		denied := mqtt.NewClient(&noCert)
+		token := denied.Connect()
+		if !token.WaitTimeout(3 * time.Second) {
+			t.Fatal("missing-cert handshake did not finish")
+		}
+		if token.Error() == nil {
+			denied.Disconnect(0)
+			t.Fatal("broker accepted absent client certificate")
+		}
+	}
+	publisher := mqtt.NewClient(gatewayOptions)
 	tok := publisher.Connect()
 	if !tok.WaitTimeout(3*time.Second) || tok.Error() != nil {
 		t.Fatal(tok.Error())
@@ -271,6 +366,24 @@ func TestIntegrationProcessingMQTTGateTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	start("")
+	if secure {
+		// MQTT3 QoS1 publisher success is not an authorization receipt. The own
+		// allowed telemetry barrier proves this same publisher continued in order.
+		foreign := e
+		foreign.EventID = "itest-processing-foreign-denied"
+		b, _ := json.Marshal(foreign)
+		tok := publisher.Publish("t/foreign/g/foreign/telemetry", 1, false, b)
+		if !tok.WaitTimeout(3*time.Second) || tok.Error() != nil {
+			t.Fatal("foreign publish transport", tok.Error())
+		}
+		allowed := e
+		allowed.EventID = "itest-processing-authorized-barrier"
+		send(allowed)
+		wait("authorized TLS barrier", func() bool { return count(allowed.EventID) == 2 && acked(allowed.EventID) == 1 })
+		if count(foreign.EventID) != 0 || deliveries(foreign.EventID) != 0 || acked(foreign.EventID) != 0 {
+			t.Fatal("gateway escaped generated ACL")
+		}
+	}
 	send(e)
 	wait("refused callback", func() bool {
 		b, _ := os.ReadFile(childLog.Name())
@@ -352,6 +465,10 @@ func TestIntegrationProcessingMQTTGateTransport(t *testing.T) {
 	}
 	if len(after.Plan.Intents) != 1 || after.Plan.Intents[0].Target != "synthetic@example.invalid" {
 		t.Fatal("retained plan changed", after)
+	}
+	if secure {
+		t.Log("staged direct mTLS gate: generated certificate-CN ACL denied foreign publish before authorized same-publisher barrier; subscriber-process refusal/commit-before-ACK kill replay keeps one original unknown plan; callback/ACK-invocation markers only, NOT TLS wire PUBACK evidence, broker restart/disk/outbox/production acceptance")
+		return
 	}
 	t.Log("isolated staged gate: actual wire no PUBACK on insert refusal; stable persistent subscriber restart redelivers; committed-before-ACK SIGKILL reconciles one retained unknown plan without rearm or derived work; live plaintext broker only, production unchanged")
 }
