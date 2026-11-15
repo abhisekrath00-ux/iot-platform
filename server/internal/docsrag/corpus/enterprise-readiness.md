@@ -1333,3 +1333,34 @@ could still be undoing accounting after freeing its global slot. The failure sai
 map under its mutex; no report-gate production behavior or capacity was changed.
 One hundred local race repetitions pass. A replacement needs its own full-server
 and remote exact-head acceptance; the red run is not reclassified as passing.
+
+### Staged gate live-broker subprocess acceptance (test-only)
+
+The actual `MQTTGate` now has an opt-in isolated PostgreSQL and live Mosquitto
+subprocess test, also reached by the existing local mTLS pipeline suite as the
+separately named `StagedPlaintextProcessingGate` subtest. That name matters: this
+fixture uses anonymous PLAINTEXT LOOPBACK only, a stable subscriber ID, manual ACK
+and a live in-memory broker. It does not extend the pipeline's TLS/ACL proof to
+staged processing, and creates no production subscriber, activation option or
+all-handler configuration.
+
+An existing packet observer records subscriber deliveries and actual forwarded
+PUBACK packets. A synthetic database insert refusal produces neither retained
+telemetry/work pair nor observed PUBACK. Killing and restarting that test
+subscriber with the same persistent session redelivers and retains one pending
+pair. A second input stops inside an ACK wrapper after the real gate commits but
+before Paho Ack; SIGKILL and restart reconcile the same pair without duplicate
+admission. A synthetic retained `outcome_unknown`/attempt ID and the ENTIRE
+captured plan survive that replay even after a notification target changes.
+An ordered unique publisher barrier confirms resumed delivery; no derived-flow
+history is created. There are no provider sends or credentials.
+
+Three local race repetitions pass. Initial harness failures used the base URL
+instead of the child database (a connection config's original ConnString was not
+rewritten), and queried a nonexistent flow_runs tenant column; the fixture now
+passes the explicit isolated database URL and joins through flows. Only final
+passes count. This is subscriber-process/live-broker recovery evidence, NOT broker
+restart, unsaved broker input recovery, disk/fsync/power-loss, edge publisher
+outbox/application receipt, production ACK/session policy, real provider or owner
+readiness. Existing open runtime/unsaved-input findings and exact93 update guards
+remain unchanged. The normal exact-head suite still must pass before acceptance.
