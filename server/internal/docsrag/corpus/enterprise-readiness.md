@@ -1323,3 +1323,13 @@ broker/PUBACK recovery, source retransmit/outbox, GUI/native installer, hardware
 provider delivery, owner activation or staged94 image/restore acceptance is
 claimed by these adapter tests. Existing runtime ACK/replay and unsaved broker
 input-loss findings stay open. Existing exact93 update guards remain unchanged.
+
+The first remote gate successor `de0f568` normal CI43738528642 was RED in
+`TestReportGateWaitsThenGetsSlotAndHonoursCancel`. Other jobs passed, but later
+Go edge/mTLS steps were skipped and that tip is not accepted. Investigation found
+an existing test reading the report gate's tenant map while the release goroutine
+could still be undoing accounting after freeing its global slot. The failure said
+"leak after cancel: map[]". The test now joins the full release and inspects the
+map under its mutex; no report-gate production behavior or capacity was changed.
+One hundred local race repetitions pass. A replacement needs its own full-server
+and remote exact-head acceptance; the red run is not reclassified as passing.

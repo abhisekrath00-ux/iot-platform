@@ -51,7 +51,12 @@ func TestReportGatePerTenantFairness(t *testing.T) {
 func TestReportGateWaitsThenGetsSlotAndHonoursCancel(t *testing.T) {
 	g := newReportGate(1, 5, time.Second)
 	r, _ := g.acquire(context.Background(), "a")
-	go func() { time.Sleep(30 * time.Millisecond); r() }()
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		r()
+		close(released)
+	}()
 	r2, err := g.acquire(context.Background(), "b")
 	if err != nil {
 		t.Fatalf("should have waited for the slot: %v", err)
@@ -62,6 +67,13 @@ func TestReportGateWaitsThenGetsSlotAndHonoursCancel(t *testing.T) {
 		t.Fatalf("want canceled, got %v", err)
 	}
 	r2()
+	// A global slot is released before its prior tenant accounting is undone.
+	// Acquiring the next slot does not join that goroutine. Wait for the FULL
+	// release before reading active: otherwise this assertion races with undo,
+	// and can fail while formatting an already-empty map (seen on CI).
+	<-released
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if len(g.active) != 0 {
 		t.Fatalf("leak after cancel: %v", g.active)
 	}
