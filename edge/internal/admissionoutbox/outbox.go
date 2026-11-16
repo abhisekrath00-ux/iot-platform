@@ -1,7 +1,7 @@
 // Package admissionoutbox is an unwired, opt-in processing-v1 durability
 // foundation. No production caller opens it. It does NOT replace queue.Queue.
-// No network receiver, publisher, retry loop, receipt authentication or deletion
-// API exists here. Matching an untrusted receipt never changes retained input.
+// No network receiver, publisher or retry loop exists. The separately guarded
+// ReconcileSigned API is opt-in only; matching untrusted receipts stays pure.
 package admissionoutbox
 
 import (
@@ -307,8 +307,8 @@ func (s *Store) Next(ctx context.Context, n int) ([]Item, error) {
 
 // MatchReceipt is PURE comparison, NOT authentication or an acknowledgment.
 // Even a perfect forgery can match these public fields. There is intentionally
-// no way to delete, mark delivered, rearm or retry from this API. Future transport
-// must authenticate the server separately and apply a reviewed atomic protocol.
+// deletion or rearm through this function. Only the separate ReconcileSigned
+// path verifies a pinned signature and atomically reconciles retained evidence.
 func MatchReceipt(it Item, r Receipt) error {
 	b, d, err := canonical(it.Reading)
 	e := it.Reading

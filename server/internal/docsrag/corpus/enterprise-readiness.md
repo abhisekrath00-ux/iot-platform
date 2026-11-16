@@ -1473,3 +1473,62 @@ update behavior, owner activation or deployment changes are included. All-handle
 manual ACK/persistent sessions, authenticated application receipt, runtime edge
 outbox wiring and capacity UX, immutable staged94 restore/rollback and the joint
 secure-server/fresh Windows installer acceptance remain open.
+
+### Signed admission and exact staged reconciliation (unwired, opt-in only)
+
+This next isolated path adds to the non-destructive foundation above. It does
+NOT activate a publisher/receiver, migrate an owner database or change the
+existing production broker-ACK queue. No startup handler uses either new API.
+
+Engine.AdmitSignedMQTT requires BOTH the existing explicit enabled engine and
+explicit enabled signing configuration. Bad audience/key/config refuses before
+DB access. It signs only the existing committed/exact-replay AdmissionReceipt,
+not arbitrary caller-provided receipt data, and returns no token on admission
+failure/conflict or observed cancellation. Caller-authenticated publisher/topic
+ACLs are still prerequisites. It does not publish or execute derived work.
+
+The version1 signed wrapper uses Ed25519, a domain-separation prefix, SHA256
+public-key identifier, exact deployment audience and the complete existing
+receipt. Canonical JSON bytes are signed. Edge verification requires an explicitly
+pinned public key, exact audience and tenant/gateway scope, not a key supplied
+by the message or auto-discovered from the server. Exact re-encoding rejects
+alternate/duplicate/unknown/case-folded keys, malformed/trailing/oversized input
+and noncanonical encoding. Cryptographic validity alone never grants trust.
+Ephemeral isolated tests generate keys; no runtime keys, token, permission,
+enrollment, storage, rotation, revocation or trust/rollback policy is provisioned.
+Those production pairing and key-management decisions remain acceptance gates.
+
+Store.ReconcileSigned is a separate explicit opt-in staged API. It verifies the
+signature/scope, rereads the caller-selected sequence inside a SQLite transaction,
+checks full original route/event/time/canonical payload/digest against the signed
+receipt, then deletes only that exact row and commits. Failed verification,
+foreign/changed input, corrupt retained evidence, cancellation and failed DELETE
+return false without positive deletion evidence. A commit error is uncertain,
+not proof of rollback. Reconciliation must inspect the SAME stable identity;
+never create a fresh event or retry external effects. Missing already-deleted
+rows return ErrMissing, not a second positive acknowledgment. Existing pure
+MatchReceipt remains non-destructive. Broker PUBACK/unsigned receipts cannot
+invoke a trusted deletion path. Terminal receipt states mean retained admission
+only, never notification execution, provider delivery or recipient read.
+
+Isolated tests exercise an actual server PostgreSQL admission/signature whose
+public evidence is passed to an independent edge Go test, retained in its staged
+SQLite outbox, verified and atomically deleted. The bridge contains only a
+synthetic reading, public key and signed evidence, never the ephemeral private
+key. It also covers failed admission/conflict producing no token, replay after
+configuration/state changes, all trust/binding mutations, wrong key/domain,
+properly signed but noncanonical/foreign evidence, duplicate/unknown/trailing
+encodings, failed DELETE rollback, corrupted retained row, cancelled operation,
+concurrent reconciliation with one positive result, exact missing-row handling,
+and actual child SIGKILL after committed deletion followed by reopen. These are
+in-process/cross-module and process-restart tests, NOT network receipt delivery,
+disk power-loss or owner/hardware evidence. The first local compile attempt
+caught a test import/helper name collision; it was fixed before passing tests.
+
+No network endpoint, receipt MQTT topic/subscription/ACL, signer key provisioning,
+publisher retry policy or runtime edge reconciliation caller is added. Full fresh
+server/edge/vet and exact-head remote tests remain required before accepting this
+slice. All-handler manual ACK/session/shutdown, authenticated runtime pairing and
+transport/key lifecycle, capacity UX, derived stages/per-effect receipts,
+staged94 immutable-image restore/rollback and the joint secure-server/fresh
+Windows installer/hardware acceptance remain open. Exact93 guards are unchanged.
