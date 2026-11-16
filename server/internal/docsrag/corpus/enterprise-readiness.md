@@ -1532,3 +1532,54 @@ slice. All-handler manual ACK/session/shutdown, authenticated runtime pairing an
 transport/key lifecycle, capacity UX, derived stages/per-effect receipts,
 staged94 immutable-image restore/rollback and the joint secure-server/fresh
 Windows installer/hardware acceptance remain open. Exact93 guards are unchanged.
+
+### Bounded staged publisher adapter (unwired, no transport implementation)
+
+The explicit opt-in admissionoutbox.Publisher now connects the separate retained
+input store, a one-call Exchange contract, pinned receipt verification and atomic
+reconciliation. It is NOT a daemon or runtime switch. No production caller or
+network Exchange implementation exists; mqttc.Publish/PUBACK alone cannot satisfy
+its requirement for signed SERVER ADMISSION evidence.
+
+RunOnce snapshots at most1-256 rows, revalidates the whole batch and preflights
+its complete tenant/gateway scope before the FIRST send. It invokes Exchange
+sequentially at most once per selected row, using a copied payload and frozen
+trust pin. Errors, missing/bad receipts, observed cancellation or uncertain local
+commit stop the batch before the next row. Only successfully pinned, fully bound
+signed evidence permits the existing exact-row transactional deletion. Selected,
+Attempted, Reconciled and StoppedSequence report partial progress without calling
+remaining snapshot size a live queue depth. Reconciled means admission ONLY,
+never derived effects/provider delivery.
+
+There is no internal retry, reconnect, redirect, identity/time substitution,
+parallel send or automatic next batch. A caller must explicitly invoke a later
+SAME-input reconciliation after an uncertain result. Close permanently refuses
+new batches and waits for the current batch including reconciliation; timeout
+stays closed, not proof of cancellation or rollback. Panic releases the local
+batch gate but does not convert uncertainty into success. Exchange must honor
+context and perform exactly one operation without retries/fanout. That contract
+is not a tested network implementation. Dedicated store/Exchange ownership is
+required during a run; the gate protects this instance only, NOT other processes
+or publisher instances. Cross-process ownership/lease and crash-mid-network
+coordination remain runtime acceptance gates.
+
+Isolated tests cover disabled/invalid/typed-nil config, frozen trust pin,
+whole-batch scope/corruption refusal before any send, empty batches, batch bounds,
+partial success then failure without sending a third row, broker-only ACK,
+unsigned/wrong/tampered receipts, send error/cancel/panic retention, concurrent
+invocation refusal, Close timeout/drain, transport payload mutation isolation,
+store reopen retaining the exact same sequence/payload and later explicit signed
+reconciliation. The existing real PostgreSQL server-to-independent-edge fixture
+now also supplies actual committed and terminal-replay signed evidence through
+this publisher contract: a synthetic first exchange loses the response, retains
+the input, and a second EXPLICIT call reconciles the same input. No network
+exchange occurs in that fixture. Both verbose bridge markers are local evidence;
+normal full-package CI does not separately print passing subtest logs. Initial
+local frozen-pin test failure was a signing-fixture key-ID mutation, fixed before
+passing repetitions. No production key provisioning, transport/topic/ACL,
+publisher worker, original queue switch, owner migration, native installer or
+exact93 behavior change is included. Full fresh server/edge/vet and a new exact-
+head remote suite remain the acceptance gates. Runtime authenticated pairing/key
+lifecycle, one-attempt network transport, all-handler persistent ACK/session,
+capacity UX, derived stages/per-effect receipts, staged94 images/restore and the
+joint secure-server/fresh Windows installer/hardware outcome remain OPEN.

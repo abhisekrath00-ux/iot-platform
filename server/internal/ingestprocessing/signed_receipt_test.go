@@ -82,6 +82,7 @@ func TestSignedReceiptCommittedPGReplayAndEdge(t *testing.T) {
 		}
 	}
 	exec(t, x.Pool, `UPDATE notification_channels SET target='changed@example.invalid' WHERE id='c'`)
+	var replayWire []byte
 	for _, state := range []string{"pending", "executing", "outcome_unknown", "completed"} {
 		if state != "pending" {
 			exec(t, x.Pool, `UPDATE ingest_processing_v1 SET state=$1,attempt_id='12345678-1234-1234-1234-123456789012'`, state)
@@ -90,6 +91,7 @@ func TestSignedReceiptCommittedPGReplayAndEdge(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		replayWire = append([]byte(nil), b...)
 		got := verifySigned(t, b, c)
 		want := r
 		want.State = state
@@ -114,11 +116,12 @@ func TestSignedReceiptCommittedPGReplayAndEdge(t *testing.T) {
 	// not a recreated server verifier or a handwritten claim of compatibility.
 	// The temporary bridge contains only synthetic public key/input/signed evidence.
 	data, err := json.Marshal(struct {
-		PublicKey []byte
-		Audience  string
-		Reading   Envelope
-		Wire      []byte
-	}{c.PrivateKey.Public().(ed25519.PublicKey), c.Audience, e, wire})
+		PublicKey  []byte
+		Audience   string
+		Reading    Envelope
+		Wire       []byte
+		ReplayWire []byte
+	}{c.PrivateKey.Public().(ed25519.PublicKey), c.Audience, e, wire, replayWire})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,4 +139,8 @@ func TestSignedReceiptCommittedPGReplayAndEdge(t *testing.T) {
 		t.Fatalf("edge bridge failed: %v\n%s", err, out)
 	}
 	t.Log("SERVER_SIGNED_ATOMIC_RECONCILIATION_OK")
+	if !bytes.Contains(out, []byte("SERVER_SIGNED_EXPLICIT_REPLAY_PUBLISHER_OK")) {
+		t.Fatal("publisher bridge did not run", string(out))
+	}
+	t.Log("SERVER_SIGNED_EXPLICIT_REPLAY_PUBLISHER_OK")
 }

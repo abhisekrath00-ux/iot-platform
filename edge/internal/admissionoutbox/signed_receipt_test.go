@@ -49,10 +49,11 @@ func TestServerSignedFixture(t *testing.T) {
 		t.Skip("server cross-module bridge only")
 	}
 	var f struct {
-		PublicKey []byte
-		Audience  string
-		Reading   Reading
-		Wire      []byte
+		PublicKey  []byte
+		Audience   string
+		Reading    Reading
+		Wire       []byte
+		ReplayWire []byte
 	}
 	b, e := os.ReadFile(p)
 	if e != nil || json.Unmarshal(b, &f) != nil {
@@ -70,6 +71,43 @@ func TestServerSignedFixture(t *testing.T) {
 		t.Fatal(rows, e)
 	}
 	t.Log("SERVER_SIGNED_ATOMIC_RECONCILIATION_OK")
+	// Feed actual server-produced initial/replay evidence through the bounded
+	// publisher contract. The first synthetic exchange loses the response AFTER
+	// that real server admission. A later explicit call uses the actual terminal
+	// replay signature. This is NOT network delivery or runtime transport proof.
+	staged := openStore(t, config(t, 1))
+	retained := mustPut(t, staged, f.Reading)
+	calls := 0
+	pub := publisher(t, staged, c, func(_ context.Context, sent Item) ([]byte, error) {
+		calls++
+		if sent.Sequence != retained.Sequence || !bytes.Equal(sent.Payload, retained.Payload) {
+			t.Fatal("identity substituted")
+		}
+		if calls == 1 {
+			if _, e := verifyReceipt(f.Wire, c); e != nil {
+				t.Fatal(e)
+			}
+			return nil, errors.New("synthetic lost server admission response")
+		}
+		return f.ReplayWire, nil
+	}, 1)
+	if r, e := pub.RunOnce(t.Context()); e == nil || r.Attempted != 1 || r.Reconciled != 0 {
+		t.Fatal(r, e)
+	}
+	if rows, e := staged.Next(t.Context(), 1); e != nil || len(rows) != 1 {
+		t.Fatal(rows, e)
+	}
+	if r, e := pub.RunOnce(t.Context()); e != nil || r.Attempted != 1 || r.Reconciled != 1 {
+		t.Fatal(r, e)
+	}
+	if rows, e := staged.Next(t.Context(), 1); e != nil || len(rows) != 0 {
+		t.Fatal(rows, e)
+	}
+	if calls != 2 {
+		t.Fatal(calls)
+	}
+	t.Log("SERVER_SIGNED_EXPLICIT_REPLAY_PUBLISHER_OK")
+
 }
 func TestSignedReceiptTrustAndCompleteBinding(t *testing.T) {
 	s := openStore(t, config(t, 2))
