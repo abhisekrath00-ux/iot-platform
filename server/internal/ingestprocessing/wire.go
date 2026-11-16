@@ -3,6 +3,8 @@ package ingestprocessing
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -12,16 +14,50 @@ import (
 
 var ErrWire = errors.New("staged telemetry requires an exact authenticated topic and bounded stable envelope")
 
-// AdmissionReceipt is returned only after Admit reports committed evidence or
-// reconciles an identical retained input. It is NOT an MQTT PUBACK, edge receipt,
+// AdmissionReceipt is in-process committed-admission evidence only. It is NOT
+// an authenticated network message, MQTT PUBACK, edge application receipt,
 // work-completion, provider acceptance or permission to execute/retry effects.
-// Only the exact identity, retained state and commit/replay disposition escape;
-// destinations, definitions, message text and the retained plan stay private.
+// No caller currently publishes it or uses it to delete edge queue items.
+// A future transport must authenticate its source and bind the complete version,
+// policy, tenant/gateway/device/point/event/time and canonical input digest before
+// considering any acknowledgment. Destinations, message text and plan stay private.
+// InputSHA256 hashes the server's normalized canonical envelope JSON, NOT raw
+// MQTT bytes or a secret/signature. JSON whitespace/key order may differ. It
+// must not be used as a MAC or as evidence of publisher/server authentication.
 type AdmissionReceipt struct {
-	EventID    string    `json:"event_id"`
-	ObservedAt time.Time `json:"observed_at"`
-	State      string    `json:"state"`
-	New        bool      `json:"new"`
+	Version     int       `json:"version"`
+	Policy      string    `json:"policy"`
+	TenantID    string    `json:"tenant_id"`
+	GatewayID   string    `json:"gateway_id"`
+	DeviceID    string    `json:"device_id"`
+	PointID     string    `json:"point_id"`
+	EventID     string    `json:"event_id"`
+	ObservedAt  time.Time `json:"observed_at"`
+	InputSHA256 string    `json:"input_sha256"`
+	State       string    `json:"state"`
+	New         bool      `json:"new"`
+}
+
+// admissionReceipt binds the ORIGINAL retained envelope, never today's mutable
+// configuration or an unchecked incoming payload. All wire fields must already
+// be exact canonical values, including UTC and microsecond observation precision.
+func admissionReceipt(a Admission) (AdmissionReceipt, error) {
+	e := a.Plan.Envelope
+	normalized, b, err := canonical(e)
+	if err != nil || normalized != e || a.Plan.Policy != policy || (!receiptState(a.State) || (a.New && a.State != "pending")) {
+		return AdmissionReceipt{}, ErrPlan
+	}
+	sum := sha256.Sum256(b)
+	return AdmissionReceipt{Version: 1, Policy: policy, TenantID: e.TenantID, GatewayID: e.GatewayID, DeviceID: e.DeviceID, PointID: e.PointID, EventID: e.EventID, ObservedAt: e.ObservedAt, InputSHA256: hex.EncodeToString(sum[:]), State: a.State, New: a.New}, nil
+}
+
+// Admit already validates state/attempt consistency. Do not expose attempt IDs.
+func receiptState(state string) bool {
+	switch state {
+	case "pending", "executing", "outcome_unknown", "completed":
+		return true
+	}
+	return false
 }
 
 // AdmitMQTT is the disabled engine's strict telemetry-wire boundary. The caller
@@ -48,7 +84,7 @@ func (x Engine) AdmitMQTT(ctx context.Context, topic string, payload []byte) (Ad
 		return AdmissionReceipt{}, err
 	}
 	// Admit validated this identity against both canonical envelope and plan.
-	return AdmissionReceipt{EventID: a.Plan.Envelope.EventID, ObservedAt: a.Plan.Envelope.ObservedAt, State: a.State, New: a.New}, nil
+	return admissionReceipt(a)
 }
 func decodeMQTT(topic string, payload []byte) (Envelope, error) {
 	parts := strings.Split(topic, "/")

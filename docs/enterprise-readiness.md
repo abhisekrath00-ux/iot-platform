@@ -1393,3 +1393,39 @@ unsaved-input recovery, publisher outbox/application receipt, provider delivery,
 GUI/native installer/hardware or owner readiness is accepted. Runtime ACK/replay
 and candidate unsaved broker-input findings, exact93 guards and staged94 image/
 restore gates remain unchanged. A new remote exact-head suite must pass too.
+
+### Receipt identity binding groundwork (default-off, in-process only)
+
+The staged `AdmissionReceipt` now includes version1, policy `processing-v1`,
+tenant/gateway/device/point/event IDs, original UTC microsecond observation time,
+lowercase SHA256 of the ORIGINAL canonical envelope, retained state and new/replay
+flag. The digest hashes canonical Envelope JSON in its declared field order,
+including default optional fields, not raw MQTT bytes. A literal protocol vector
+pins that representation; whitespace/key order, omitted topic identities and
+same-instant offset timestamps normalize to the same digest. A changed canonical
+input field produces a different digest. A future incompatible canonical encoding
+needs a version decision rather than silently changing this representation.
+
+Receipt construction uses the original retained envelope after real transaction
+commit or exact replay, never mutable configuration/targets or unchecked wire
+bytes. It refuses unexpected policy/state or noncanonical time and returns zero
+on any admission error/conflict. State changes do not change input identity/digest
+or authorize replaying effects. Complete route/identity/digest binding is a
+prerequisite for a future edge outbox, not an implemented deletion protocol.
+
+Three local PostgreSQL race repetitions cover receipt vectors, wire/gate refusal,
+commit/replay, complete identity/digest binding, terminal retained states, changed
+targets and conflict-zero receipt, plus no plan/target/message/attempt disclosure
+or derived history. The local development checkout and services were restored
+from the exact published review tip after an environment reset before this work;
+no owner environment was restored or changed. Fresh full-server/vet and a new
+remote exact-head run remain the acceptance gates.
+
+NO receipt is published, no MQTT topic/ACL/permission is added, and no edge queue
+item is matched or deleted. A digest is not a MAC/signature, source authentication
+or evidence of MQTT/provider delivery. A future authenticated receipt receiver
+must match the complete version/policy/route/identity/time/digest and establish its
+sender before deleting anything. Existing broker-ACK-based queue behavior is
+unchanged and is not called application admission. Production transport/all-handler
+ACK/session, broker-disk/unsaved-input recovery, outbox, provider, native/hardware,
+staged94 image/restore and owner-readiness gates remain open. Exact93 guards remain.
