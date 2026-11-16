@@ -1429,3 +1429,47 @@ sender before deleting anything. Existing broker-ACK-based queue behavior is
 unchanged and is not called application admission. Production transport/all-handler
 ACK/session, broker-disk/unsaved-input recovery, outbox, provider, native/hardware,
 staged94 image/restore and owner-readiness gates remain open. Exact93 guards remain.
+
+### Separate staged edge admission outbox foundation (unwired)
+
+`edge/internal/admissionoutbox` is a new opt-in library, NOT the production
+`queue.Queue` and not an owner migration. Disabled Open refuses before touching
+its path. Enabled isolated tests use a separate absolute-path SQLite database,
+WAL/FULL, a pinned schema/version/policy and persisted capacity. Legacy queue
+schemas, altered schema/trigger/policy/version and capacity changes are refused,
+not migrated. No existing queue code, publisher or runtime startup calls it.
+
+Put retains caller-created stable event/time and complete canonical reading
+before returning positive evidence. It refuses missing clocks, non-UTC or
+submicrosecond time, non-finite values and invalid routes rather than inventing
+an observation time or silently rounding identity. Its literal canonical JSON
+vector matches the separately pinned server receipt vector. Exact duplicates
+return the original sequence even at capacity; conflicting payload/route at the
+same event/time is refused. A full store refuses the new input with no oldest-row
+eviction. Failures and uncertain commits return zero evidence. Callers must
+visibly surface failed retention; no runtime acquisition path does so yet.
+
+Next returns an ordered bounded batch only after rechecking every stored row's
+identity/time/topic/canonical payload/digest. Any bad row refuses the whole batch,
+not silent loss. Pure typed MatchReceipt compares version/policy/full route/event/
+time/digest/state, but is deliberately NON-DESTRUCTIVE. It is not a network JSON
+receiver or source authentication. A forged receipt with the same public fields
+can match, so there is NO deletion, delivered marker or acknowledgment API.
+Neither broker PUBACK nor completed state changes storage. Authenticated receipt
+transport and a reviewed atomic deletion/reconciliation protocol remain required.
+
+Local tests cover disabled/no-path access, legacy database preservation, schema
+refusal, canonical vector and invalid inputs, duplicate/conflict/capacity/reopen,
+WAL/FULL settings, all receipt binding mutations, terminal-state non-deletion,
+whole-batch corruption refusal, cancelled/closed operations, concurrent handles
+never overfilling, and actual child-process SIGKILL after committed Put followed
+by reopen/exact replay. That is process-restart evidence, NOT disk power-loss,
+filesystem/hardware, broker/publisher transport, physical meter or owner proof.
+Full edge/server and a new exact-head remote suite remain the publication gates.
+The initial cold-cache local full-server command exceeded its time budget and is
+NOT accepted; the fresh isolated final database run is the accepted local suite.
+No topic/ACL/permission, worker/retry, provider effect, native installer, exact93
+update behavior, owner activation or deployment changes are included. All-handler
+manual ACK/persistent sessions, authenticated application receipt, runtime edge
+outbox wiring and capacity UX, immutable staged94 restore/rollback and the joint
+secure-server/fresh Windows installer acceptance remain open.
