@@ -143,4 +143,8 @@ func TestSignedReceiptCommittedPGReplayAndEdge(t *testing.T) {
 		t.Fatal("publisher bridge did not run", string(out))
 	}
 	t.Log("SERVER_SIGNED_EXPLICIT_REPLAY_PUBLISHER_OK")
+	if !bytes.Contains(out, []byte("SERVER_SIGNED_MTLS_EXPLICIT_REPLAY_OK")) {
+		t.Fatal("mTLS bridge did not run", string(out))
+	}
+	t.Log("SERVER_SIGNED_MTLS_EXPLICIT_REPLAY_OK")
 }

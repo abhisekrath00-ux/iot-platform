@@ -15,8 +15,9 @@ var ErrPublisherClosed = errors.New("staged publisher closed; no new send starte
 // not broker PUBACK. The implementation MUST honor context, perform no internal
 // retry/reconnect/redirect/fanout, and never substitute event/time or mutate the
 // item concurrently. An error/empty response can follow a real server commit.
-// It must not report provider/effect completion. No production implementation
-// exists. In particular mqttc.Publish alone cannot satisfy this contract.
+// It must not report provider/effect completion. The opt-in HTTPSExchange is
+// separately tested; no startup caller or production endpoint exists.
+// In particular mqttc.Publish alone cannot satisfy this contract.
 type Exchange interface {
 	AdmitOnce(context.Context, Item) ([]byte, error)
 }

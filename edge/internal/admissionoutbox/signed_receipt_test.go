@@ -9,9 +9,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -107,6 +110,51 @@ func TestServerSignedFixture(t *testing.T) {
 		t.Fatal(calls)
 	}
 	t.Log("SERVER_SIGNED_EXPLICIT_REPLAY_PUBLISHER_OK")
+	// Actual network leg uses disposable loopback mTLS and ACTUAL server-produced
+	// PG signatures. The fixture handler only forwards precomputed evidence: it is
+	// not a production authenticated admission endpoint or runtime enablement.
+	tlsFixture := mtlsFixture(t)
+	networkStore := openStore(t, config(t, 1))
+	networkItem := mustPut(t, networkStore, f.Reading)
+	var posts atomic.Int32
+	server := tlsServer(t, tlsFixture, func(w http.ResponseWriter, r *http.Request) {
+		body, e := io.ReadAll(r.Body)
+		if e != nil || !bytes.Equal(body, networkItem.Payload) || r.Header.Get("X-HexThings-Telemetry-Topic") != networkItem.Topic {
+			t.Error("network identity changed", e)
+			w.WriteHeader(400)
+			return
+		}
+		n := posts.Add(1)
+		if n == 1 {
+			conn, _, e := w.(http.Hijacker).Hijack()
+			if e != nil {
+				t.Error(e)
+				return
+			}
+			conn.Close()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(f.ReplayWire)
+	})
+	networkExchange := exchange(t, tlsFixture, server.URL+"/isolated-admission")
+	networkPublisher, e := NewPublisher(PublisherConfig{Enabled: true, Store: networkStore, Trust: c, Exchange: networkExchange, BatchLimit: 1})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if r, e := networkPublisher.RunOnce(t.Context()); e == nil || r.Attempted != 1 || r.Reconciled != 0 || posts.Load() != 1 {
+		t.Fatal(r, e, posts.Load())
+	}
+	if rows, e := networkStore.Next(t.Context(), 1); e != nil || len(rows) != 1 || rows[0].Sequence != networkItem.Sequence {
+		t.Fatal(rows, e)
+	}
+	if r, e := networkPublisher.RunOnce(t.Context()); e != nil || r.Attempted != 1 || r.Reconciled != 1 || posts.Load() != 2 {
+		t.Fatal(r, e, posts.Load())
+	}
+	if rows, e := networkStore.Next(t.Context(), 1); e != nil || len(rows) != 0 {
+		t.Fatal(rows, e)
+	}
+	t.Log("SERVER_SIGNED_MTLS_EXPLICIT_REPLAY_OK")
 
 }
 func TestSignedReceiptTrustAndCompleteBinding(t *testing.T) {

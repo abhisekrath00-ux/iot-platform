@@ -1583,3 +1583,54 @@ head remote suite remain the acceptance gates. Runtime authenticated pairing/key
 lifecycle, one-attempt network transport, all-handler persistent ACK/session,
 capacity UX, derived stages/per-effect receipts, staged94 images/restore and the
 joint secure-server/fresh Windows installer/hardware outcome remain OPEN.
+
+### Explicit one-attempt HTTPS Exchange (unwired, loopback mTLS tests)
+
+The separate admissionoutbox.HTTPSExchange now implements the staged Exchange
+contract behind explicit enabled configuration. It requires exact HTTPS endpoint
+without URL credentials/query/fragment, supplied trust roots, matching client
+certificate/private key and a1-30second whole-operation timeout. The roots and
+certificate bytes are detached from caller configuration; private-key objects
+must not be mutated concurrently. TLS validates the endpoint hostname and CA;
+the server must request/verify the client certificate. No runtime caller, endpoint
+registration, key enrollment/provisioning, owner setting or production queue
+switch is added. TLS is NOT a replacement for the independent signed receipt pin.
+
+AdmitOnce preflights the full canonical retained item before network access,
+sends one HTTP/1.1 POST with the exact retained payload and derived topic header,
+and uses a fresh connection/Transport per invocation. POST has no GetBody or
+idempotency header, redirects are refused, environment proxies are ignored,
+keepalive/HTTP2 are disabled, and there is no application retry or automatic next
+request. Standard DNS/TCP address selection remains the normal dialer, not a claim
+of one IP lookup or TCP packet. Request/response header/body/whole-operation
+bounds apply; non200, nonJSON, encoded, truncated, empty or over8192byte responses
+fail without positive evidence. Automatic compression is disabled. Any error can
+follow a real server commit and MUST retain the SAME input for explicit later
+reconciliation. Returned bytes still require the existing pinned signature/full
+identity/atomic deletion path; a successful TLS/HTTP response alone cannot delete.
+
+Disposable loopback tests cover client-certificate-required handshake, wrong CA,
+wrong hostname SAN and absent client certificate refusal before any HTTP handler,
+exact topic/body/HTTP1.1/close semantics, inherited bad proxies not used, no redirect
+or503retry, empty/oversize/encoded/nonJSON/unsigned/truncated responses, abrupt
+response loss, cancellation, preflight refusal before network and bounded timeout.
+The real PostgreSQL server-to-independent-edge fixture additionally forwards
+ACTUAL committed and terminal-replay server signatures through this mTLS network
+leg: the first handler abruptly loses the response, exactly one POST occurs and
+the row remains; a second EXPLICIT publisher invocation sends the same input,
+verifies the actual replay evidence and atomically deletes it. Its HTTP handler
+only forwards precomputed PostgreSQL-backed evidence, not live transactional
+admission at request time. It is NOT a production authenticated admission handler,
+server authorization/pairing or end-to-end owner integration. Local verbose marker
+SERVER_SIGNED_MTLS_EXPLICIT_REPLAY_OK is separate from normal package-CI output.
+
+The first cold-cache transport-test command exceeded its time budget and is NOT
+accepted. A bounded verbose run and final repetitions are the accepted tests;
+fixture cancellation cleanup was bounded and wrong-host certificate installed
+before listener start. Full fresh server/edge/vet and exact-head remote acceptance
+remain required. Runtime server handler/client identity authorization, deployment
+endpoint/key lifecycle, cross-process publisher ownership, all-handler ACK/session,
+capacity UX, derived stages/per-effect receipts, staged94 images/restore and joint
+secure-server/fresh Windows installer/hardware acceptance remain OPEN. Exact93,
+production queue and owner state are unchanged; no new token/permission or physical
+write is included.
