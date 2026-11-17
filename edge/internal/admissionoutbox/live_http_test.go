@@ -86,7 +86,14 @@ func TestLiveAdmissionHTTPFixture(t *testing.T) {
 	if len(collector.pending) != 1 || collector.pending[0] != frozen {
 		t.Fatal("changed journal input")
 	}
-	if r, e := collector.RetainPending(t.Context()); e != nil || r.Retained != 1 || r.Pending != 0 {
+	review, e := collector.ReviewPending(t.Context())
+	if e != nil || review.Pending != 1 || review.Durability != "journal-committed" {
+		t.Fatal(review, e)
+	}
+	if _, e := collector.RetainReviewed(t.Context(), "unreviewed"); !errors.Is(e, ErrCollectionReview) {
+		t.Fatal(e)
+	}
+	if r, e := collector.RetainReviewed(t.Context(), review.Token); e != nil || r.Retained != 1 || r.Pending != 0 {
 		t.Fatal(r, e)
 	}
 	if e = collector.Stop(t.Context()); e != nil {
@@ -145,6 +152,7 @@ func TestLiveAdmissionHTTPFixture(t *testing.T) {
 		t.Fatal(status, e)
 	}
 	t.Log("LIVE_JOURNALED_COLLECTOR_PG_MTLS_EDGE_REPLAY_OK")
+	t.Log("LIVE_REVIEWED_RECOVERY_PG_MTLS_EDGE_REPLAY_OK")
 	t.Log("LIVE_COLLECTOR_SESSION_PG_MTLS_EDGE_REPLAY_OK")
 	t.Log("LIVE_SESSION_PG_MTLS_EDGE_REPLAY_OK")
 	t.Log("LIVE_HANDLER_PG_MTLS_EDGE_REPLAY_OK")

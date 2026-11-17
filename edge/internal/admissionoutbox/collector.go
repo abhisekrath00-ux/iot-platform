@@ -68,6 +68,7 @@ type Collector struct {
 	pending                           []Reading
 	last                              CollectionResult
 	outcome                           string
+	reviewToken                       string
 }
 
 func NewCollector(c CollectorConfig) (*Collector, error) {
@@ -116,6 +117,9 @@ func (c *Collector) enter(ctx context.Context, newPoll bool) error {
 	}
 	if newPoll && len(c.pending) > 0 {
 		return ErrCollectorPending
+	}
+	if newPoll {
+		c.reviewToken = ""
 	}
 	c.active = true
 	c.done = make(chan struct{})
@@ -180,6 +184,8 @@ func (c *Collector) RetainPending(ctx context.Context) (CollectionResult, error)
 }
 func (c *Collector) retain(ctx context.Context) (CollectionResult, error) {
 	c.mu.Lock()
+	// Any explicit retention attempt invalidates a prior operator review.
+	c.reviewToken = ""
 	pending := append([]Reading(nil), c.pending...)
 	if len(pending) == 0 {
 		c.outcome = "retained"
@@ -250,16 +256,7 @@ func (c *Collector) Status() CollectorStatus {
 			state = "stopping"
 		}
 	}
-	durability := "none"
-	if len(c.pending) > 0 {
-		durability = "memory"
-		if c.journal != nil {
-			durability = "journal-unconfirmed"
-			if c.journalConfirmed {
-				durability = "journal-committed"
-			}
-		}
-	}
+	durability := c.pendingDurability()
 	return CollectorStatus{PendingDurability: durability, State: state, Active: c.active, Pending: len(c.pending), Last: c.last, Outcome: c.outcome}
 }
 

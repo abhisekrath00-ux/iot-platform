@@ -1996,3 +1996,52 @@ confirmed journal commit. That interval can STILL lose a reading. SQLite/device
 power-loss semantics, full operational recovery UX, runtime authenticated
 pairing/key lifecycle, production ACK/derived replay, staged image/restore and
 joint secure-server/fresh EXE handoff remain open. No blanket no-loss claim.
+
+### Reviewed local pending retention (unwired, no operator authentication)
+
+Collector.ReviewPending creates an explicit process-local single-attempt review
+of the existing frozen whole sample. It does not poll, retain, clear or send.
+The review contains only a fresh opaque token, pending count and the existing
+memory/journal-unconfirmed/journal-committed classification. It contains no
+reading values, event IDs, route identities, keys or private paths. Classification
+is not an independent disk check or a power-loss guarantee. Counts can still
+overlap retained rows after a failed/uncertain journal clear.
+
+RetainReviewed accepts only the current review from that exact Collector.
+Replacement reviews, completed/failed retention attempts, a new poll and a new
+Collector after reopen invalidate old reviews. Valid review is consumed BEFORE
+journal/store IO, including on capacity/save/clear failure or uncertainty. A
+second explicit attempt requires a fresh review of the SAME frozen pending
+sample. Cancellation or busy refusal before the operation starts does not consume
+it. A forged/stale/cross-collector/replayed token performs no storage/source or
+network work. Concurrent same-token attempts permit at most one retention attempt.
+Stop continues to allow review/recovery without reading the source. Close blocks
+new calls. Existing RetainPending remains an explicit low-level API; this new API
+does NOT prohibit direct callers or establish operator identity/permission.
+
+The token is NOT an authentication credential or grant. Do not place it in URLs,
+automatic status JSON or logs. No HTTP recovery endpoint, GUI action, startup
+registration, scheduler, source replacement, discard or network send is added.
+The existing local status listener can be explicitly bound off loopback and stays
+read-only. Authenticated runtime/pairing and a separately protected operator
+review/confirm boundary are prerequisites to exposing a recovery action there.
+An on-screen preview or possession of a token alone must never grant that access.
+
+Three whole-outbox local race repeats and three real-PG/mTLS live bridges pass.
+The live bridge uses actual TCP sample -> journal commit -> retained INSERT fault
+-> Collector/Session close and reopen -> explicit review -> forged-token refusal
+-> matching reviewed retention of original identities/time -> explicit mTLS
+admission/lost response/explicit same-input replay -> atomic retained deletion.
+Required marker LIVE_REVIEWED_RECOVERY_PG_MTLS_EDGE_REPLAY_OK, two requests, one
+original admitted row, zero effects. Additional tests cover review replacement,
+no-pending refusal, stale/reopen/cross-collector/replay refusal, concurrent/busy/
+cancelled requests, Stop/Close, capacity and clear uncertainty, volatile versus
+unconfirmed pending, exact retained rows and no automatic poll/send/token leak.
+These are isolated synthetic local tests, not native/owner/runtime acceptance.
+
+Current review e29 CI44165217539 was RED solely on full npm audit. Go, compose and
+web passed; earlier historical green7128 is NOT current security clearance.
+GHSA-fc5q-39xc-vjpf affects locked picomatch4.0.7 in Vite/Vitest tooling; no patched
+release was available at 18 November 2026 01:52 IST. Production-only audit0 and a
+final nginx static-only image do NOT clear the full security gate. No suppression,
+forced downgrade, workflow weakening or new permissions have been applied.
