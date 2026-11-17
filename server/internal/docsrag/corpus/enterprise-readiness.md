@@ -1781,3 +1781,61 @@ GUI, enabled owner runtime, new Windows native or physical meter acceptance.
 Runtime authenticated pairing/endpoint/key lifecycle, durable status UX,
 all-handler ACK/session/shutdown, derived work replay, staged image/restore
 compatibility and the joint secure-server/fresh EXE handoff remain open.
+
+### Explicit read-to-retain collector (unwired, no polling daemon)
+
+The separate opt-in Collector now joins a caller-owned PollReader to the scoped
+Session. No startup/legacy supervisor constructs it. PollOnce invokes only Poll,
+not source writes, rules, actuators, discovery, send or source Close. Reader
+ownership and an appropriate read-only source configuration remain the caller's
+responsibility; a narrow interface does not authenticate arbitrary supplied code.
+The existing production supervisor, broker-ACK queue and local rules are unchanged.
+
+One call requires a complete sample of the exact configured device/point/unit
+set (1-256 points), with no duplicate, missing, foreign or nonfinite values.
+Partial poll/error/cancellation refuses the WHOLE sample before retaining any
+of it. A complete sample gets unique event IDs once and one gateway post-poll
+UTC microsecond observation time. This is NOT the meter clock, synchronized
+clock proof or an invented timestamp on replay. Frozen readings are then saved
+one at a time. Any failed/uncertain Retain stops and leaves the SAME unresolved
+reading plus remaining sample in memory. A new PollOnce refuses before a source
+read while that batch is pending. Only explicit RetainPending retries retention
+of those exact identities, without polling, sending or generating new events.
+
+This is deliberately NOT a no-loss claim before durable retention: the pending
+batch is volatile and process death before confirmed Put can lose it. Status
+makes pending count and retention-unresolved distinct from confirmed retained
+count; it exposes no raw readings, source address or private key. Capacity full
+never evicts. A committed-but-uncertain exact duplicate resolves through the
+existing duplicate Put path. Durable collector intent/spooling and UI warnings
+remain required before enabled runtime acceptance. There is no automatic retry
+or background polling cadence in this adapter.
+
+Stop permanently prevents new reads and drains an active call; timeout stays
+stopping and does not pretend a blocked reader finished. It never closes source
+or Session, clears pending or sends. Explicit RetainPending is allowed after Stop
+because it does not touch the source. Caller must inspect unresolved pending and
+drain Stop before replacing/closing source; then close Session separately. Poll
+must honor context or have bounded IO. The tested existing Modbus TCP driver has
+its own IO deadlines, not instant context-driven interrupt of each socket read.
+
+Five local collector race repeats and five full outbox race repeats pass:
+invalid/typed-nil/no-file config, complete-sample refusal, capacity partial save,
+no second poll while pending, exact pending identity/time, explicit retention
+after Stop, duplicate-commit reconciliation, busy/Stop timeout/drain and closed
+Session before source read. An actual disposable Modbus TCP fixture observes
+only function3/4 reads, then verifies Session retention and exact reopen hashes.
+Marker `ACTUAL_READ_ONLY_TCP_COLLECTOR_SESSION_REOPEN_OK`.
+
+The real server PG/mTLS bridge now starts with an actual disposable function3
+Modbus TCP sample -> Collector -> Session Retain -> first explicit SendOnce ->
+actual server commit/sign -> deliberately lost response -> retained original ->
+second explicit SAME-input request -> actual replay signature -> pinned atomic
+delete. Server checks two requests, one original telemetry/processing row and
+zero started effects using the exact collected evidence, not a prefilled event.
+Required marker `LIVE_COLLECTOR_SESSION_PG_MTLS_EDGE_REPLAY_OK` joins the earlier
+session/handler markers. Three local race repetitions pass. These are synthetic
+loopback sources, not physical USB/meter/model/decoder/clock or owner proof.
+All runtime authenticated pairing/key lifecycle/GUI/durable operational UX,
+production ACK/derived replay, staged image/restore and joint handoff gates stay
+open. No new runtime activation, owner update, schema or physical write occurs.

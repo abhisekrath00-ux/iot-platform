@@ -41,8 +41,31 @@ func TestLiveAdmissionHTTPFixture(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer session.Close(t.Context())
-	it, e := session.Retain(t.Context(), f.Reading)
+	source := collectorLoopbackSource(t, f.Reading)
+	collector, e := NewCollector(CollectorConfig{Enabled: true, Session: session, Reader: source, DeviceID: f.Reading.DeviceID, Points: map[string]string{f.Reading.PointID: f.Reading.Unit}})
 	if e != nil {
+		t.Fatal(e)
+	}
+	if r, e := collector.PollOnce(t.Context()); e != nil || r.Retained != 1 || r.Pending != 0 {
+		t.Fatal(r, e)
+	}
+	if e = collector.Stop(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	retained, e := session.store.Next(t.Context(), 1)
+	if e != nil || len(retained) != 1 {
+		t.Fatal(retained, e)
+	}
+	it := retained[0]
+	evidence, e := json.Marshal(it.Reading)
+	if e != nil {
+		t.Fatal(e)
+	}
+	collectedPath := os.Getenv("TEST_COLLECTED_READING_PATH")
+	if collectedPath == "" {
+		t.Fatal("missing synthetic collected evidence path")
+	}
+	if e = os.WriteFile(collectedPath, evidence, 0600); e != nil {
 		t.Fatal(e)
 	}
 	status, e := session.Status(t.Context())
@@ -81,6 +104,7 @@ func TestLiveAdmissionHTTPFixture(t *testing.T) {
 	if e != nil || status.State != "closed" || status.Capacity != nil {
 		t.Fatal(status, e)
 	}
+	t.Log("LIVE_COLLECTOR_SESSION_PG_MTLS_EDGE_REPLAY_OK")
 	t.Log("LIVE_SESSION_PG_MTLS_EDGE_REPLAY_OK")
 	t.Log("LIVE_HANDLER_PG_MTLS_EDGE_REPLAY_OK")
 }

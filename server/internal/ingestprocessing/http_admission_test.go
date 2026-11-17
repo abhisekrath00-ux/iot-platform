@@ -223,7 +223,8 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 	defer cancel()
 	cmd := osexec.CommandContext(ctx, "go", "test", "./internal/admissionoutbox", "-run", "^TestLiveAdmissionHTTPFixture$", "-count=1", "-v")
 	cmd.Dir = filepath.Join("..", "..", "..", "edge")
-	cmd.Env = append(os.Environ(), "TEST_LIVE_ADMISSION_HTTP="+path)
+	collectedPath := filepath.Join(t.TempDir(), "collected-reading.json")
+	cmd.Env = append(os.Environ(), "TEST_LIVE_ADMISSION_HTTP="+path, "TEST_COLLECTED_READING_PATH="+collectedPath)
 	out, e := cmd.CombinedOutput()
 	if e != nil || !bytes.Contains(out, []byte("LIVE_HANDLER_PG_MTLS_EDGE_REPLAY_OK")) {
 		t.Fatalf("live handler bridge: %v\n%s", e, out)
@@ -232,6 +233,17 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 		t.Fatal("composed session bridge did not run", string(out))
 	}
 	t.Log("LIVE_SESSION_PG_MTLS_EDGE_REPLAY_OK")
+	if !bytes.Contains(out, []byte("LIVE_COLLECTOR_SESSION_PG_MTLS_EDGE_REPLAY_OK")) {
+		t.Fatal("actual collector bridge did not run", string(out))
+	}
+	collected, err := os.ReadFile(collectedPath)
+	if err != nil || json.Unmarshal(collected, &envelope) != nil {
+		t.Fatal("missing actual retained reading", err)
+	}
+	if envelope.DeviceID != "d" || envelope.PointID != "p" || envelope.Value != 42 || envelope.TenantID != "a" || envelope.GatewayID != "g" {
+		t.Fatal(envelope)
+	}
+	t.Log("LIVE_COLLECTOR_SESSION_PG_MTLS_EDGE_REPLAY_OK")
 	if requests.Load() != 2 {
 		t.Fatal("unexpected automatic request", requests.Load())
 	}
