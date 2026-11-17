@@ -228,6 +228,10 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 	if e != nil || !bytes.Contains(out, []byte("LIVE_HANDLER_PG_MTLS_EDGE_REPLAY_OK")) {
 		t.Fatalf("live handler bridge: %v\n%s", e, out)
 	}
+	if !bytes.Contains(out, []byte("LIVE_SESSION_PG_MTLS_EDGE_REPLAY_OK")) {
+		t.Fatal("composed session bridge did not run", string(out))
+	}
+	t.Log("LIVE_SESSION_PG_MTLS_EDGE_REPLAY_OK")
 	if requests.Load() != 2 {
 		t.Fatal("unexpected automatic request", requests.Load())
 	}

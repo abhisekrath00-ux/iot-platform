@@ -1729,3 +1729,55 @@ test is local Linux execution, not Windows native or network-filesystem proof.
 Enabled runtime/pairing/key lifecycle, capacity UX, all-handler ACK/session,
 derived work replay, staged image/restore compatibility, GUI/UAC/reboot/physical
 meter checks and the combined secure-server/fresh EXE handoff remain open.
+
+### Explicit scoped edge admission session (unwired composition)
+
+`admissionoutbox.Session` now joins the retained Store, real HTTPSExchange,
+pinned Publisher, local ownership guard and permanent Close/drain lifecycle.
+OpenSession requires explicit outer AND component opt-ins, stable tenant/gateway
+scope, deployment receipt pin/audience, TLS roots/client certificate, exact
+endpoint and bounded batch configuration. Invalid transport/trust configuration
+refuses before opening a file. No startup/collector/GUI route opens it yet; this
+is not pairing, enrollment, a trust grant or an owner enable switch.
+
+Retain accepts only the configured tenant/gateway, retains the caller's SAME
+stable canonical event/time and returns committed evidence or explicit failure.
+It never sends. SendOnce performs only the existing explicit bounded batch and
+never schedules another one. Status exposes current session open/closing/closed,
+its own send-in-progress flag, instantaneous retained/capacity/available/full
+counts and a COPY of the last explicit batch result/outcome. Full refuses NEW
+input without eviction; exact retained duplicates can still succeed. Count is
+not a corruption/receipt health check, provider delivery estimate or promise of
+space after the snapshot. No payload, endpoint, key or filesystem path is in the
+status shape. Another process's active send is not this session's sending flag.
+
+LastSend is process-local and absent after reopening, not a durable audit log.
+Its outcomes distinguish idle, admission-confirmed, refused before an attempt,
+and uncertain after an attempt. Batch counts preserve positive reconciliations
+without implying effects completed. Another overlapping call refuses as busy
+without overwriting the in-flight result. A failed/uncertain call is NOT rollback
+or authority to retry effects. Only a later explicit SAME-input reconciliation
+may follow. UI/persistent operational history and authenticated configuration
+changes remain separate work, not silently inferred from these status fields.
+
+Close permanently refuses new collection/send operations, drains outstanding
+collection/status/send operations, then closes the retained DB. A timeout leaves
+it closing with the active publisher/ownership intact. Status still reports
+closing and current send activity but no stale queue count. A later explicit
+Close can finish draining. Closing never deletes keys/config/input or rolls back
+a possible server commit. Reopening preserves retained input and does not send.
+
+The real PG/mTLS/live-handler bridge now drives the public Session composition:
+Retain -> full capacity -> first explicit SendOnce loses the response AFTER real
+commit/sign -> uncertain status/retained exact row -> second explicit SendOnce
+gets real replay -> verified atomic reconcile -> empty capacity -> closed with
+no current count. Server checks exactly two requests and one original admission,
+with zero started effects. Required marker `LIVE_SESSION_PG_MTLS_EDGE_REPLAY_OK`
+adds to the existing live handler marker. Tests also cover no-file config refusal,
+foreign-route/conflict/capacity failure, exact duplicate at capacity, copied last
+status, busy concurrency, Close timeout holding ownership and reopen retention.
+Five full local outbox race repetitions pass. This is isolated composition, NOT
+GUI, enabled owner runtime, new Windows native or physical meter acceptance.
+Runtime authenticated pairing/endpoint/key lifecycle, durable status UX,
+all-handler ACK/session/shutdown, derived work replay, staged image/restore
+compatibility and the joint secure-server/fresh EXE handoff remain open.
