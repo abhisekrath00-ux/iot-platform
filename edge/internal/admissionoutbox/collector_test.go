@@ -25,8 +25,10 @@ func collectorConfig(s *Session, r PollReader) CollectorConfig {
 	return CollectorConfig{Enabled: true, Session: s, Reader: r, DeviceID: "d", Points: map[string]string{"p": "V", "q": "A"}}
 }
 func TestCollectorSamplePreflightAndConfig(t *testing.T) {
-	s := sessionOpen(t, sessionConfig(t))
-	for _, mode := range []string{"disabled", "session", "reader", "typednil", "device", "points", "point", "unit"} {
+	cfg := sessionConfig(t)
+	cfg.Store.Capacity = 2
+	s := sessionOpen(t, cfg)
+	for _, mode := range []string{"disabled", "session", "reader", "typednil", "device", "points", "point", "unit", "sample-over-capacity"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := collectorConfig(s, pollFunc(func(context.Context) ([]driver.Reading, error) { t.Fatal("read during construction"); return nil, nil }))
 			switch mode {
@@ -45,6 +47,8 @@ func TestCollectorSamplePreflightAndConfig(t *testing.T) {
 				cfg.Points = nil
 			case "point":
 				cfg.Points = map[string]string{"+": "V"}
+			case "sample-over-capacity":
+				cfg.Points["extra"] = "V"
 			case "unit":
 				cfg.Points["p"] = string(make([]byte, 65))
 			}
@@ -94,32 +98,39 @@ func TestCollectorSamplePreflightAndConfig(t *testing.T) {
 }
 func TestCollectorCapacityPendingSameIdentityAndStoppedRetention(t *testing.T) {
 	cfg := sessionConfig(t)
+	cfg.Store.Capacity = 2
 	pin, key := trust(t)
 	cfg.Trust = pin
 	s := sessionOpen(t, cfg)
+	existing := reading()
+	existing.TenantID = pin.TenantID
+	existing.GatewayID = pin.GatewayID
+	first, e := s.Retain(t.Context(), existing)
+	if e != nil {
+		t.Fatal(e)
+	}
 	calls := 0
 	c, e := NewCollector(collectorConfig(s, pollFunc(func(context.Context) ([]driver.Reading, error) { calls++; return sourceSamples(), nil })))
 	if e != nil {
 		t.Fatal(e)
 	}
 	result, e := c.PollOnce(t.Context())
-	if !errors.Is(e, ErrCapacity) || result.Sampled != 2 || result.Retained != 1 || result.Pending != 1 || calls != 1 {
+	if !errors.Is(e, ErrCapacity) || result.Sampled != 2 || result.Retained != 0 || result.Pending != 2 || calls != 1 {
 		t.Fatal(result, e, calls)
 	}
-	pending := c.pending[0]
-	if result, e := c.PollOnce(t.Context()); !errors.Is(e, ErrCollectorPending) || result.Sampled != 0 || calls != 1 {
-		t.Fatal(result, e, calls)
+	pending := append([]Reading(nil), c.pending...)
+	if r, e := c.PollOnce(t.Context()); !errors.Is(e, ErrCollectorPending) || r.Sampled != 0 || calls != 1 {
+		t.Fatal(r, e, calls)
 	}
-	if _, e = c.RetainPending(t.Context()); !errors.Is(e, ErrCapacity) || c.pending[0] != pending || calls != 1 {
+	if _, e = c.RetainPending(t.Context()); !errors.Is(e, ErrCapacity) || c.pending[0] != pending[0] || c.pending[1] != pending[1] || calls != 1 {
 		t.Fatal(e, c.Status())
 	}
-	rows, e := s.store.Next(t.Context(), 1)
-	if e != nil || len(rows) != 1 {
+	rows, e := s.store.Next(t.Context(), 2)
+	if e != nil || len(rows) != 1 || rows[0].Sequence != first.Sequence {
 		t.Fatal(rows, e)
 	}
-	first := rows[0]
-	if first.Reading.ObservedAt != pending.ObservedAt || first.Reading.EventID == pending.EventID || first.Reading.ObservedAt.Nanosecond()%1000 != 0 {
-		t.Fatal(first.Reading, pending)
+	if pending[0].ObservedAt != pending[1].ObservedAt || pending[0].EventID == pending[1].EventID {
+		t.Fatal(pending)
 	}
 	if e = c.Stop(t.Context()); e != nil {
 		t.Fatal(e)
@@ -134,8 +145,8 @@ func TestCollectorCapacityPendingSameIdentityAndStoppedRetention(t *testing.T) {
 	if e != nil || result.Retained != 2 || result.Pending != 0 || calls != 1 {
 		t.Fatal(result, e, calls)
 	}
-	rows, e = s.store.Next(t.Context(), 1)
-	if e != nil || len(rows) != 1 || rows[0].Reading != pending {
+	rows, e = s.store.Next(t.Context(), 2)
+	if e != nil || len(rows) != 2 || rows[0].Reading != pending[0] || rows[1].Reading != pending[1] {
 		t.Fatal(rows, e, pending)
 	}
 	if c.Status().State != "stopped" {
@@ -255,6 +266,7 @@ func TestCollectorActualTCPReadsToRetainedSession(t *testing.T) {
 
 func TestCollectorAlreadyRetainedPendingAndClosedSession(t *testing.T) {
 	cfg := sessionConfig(t)
+	cfg.Store.Capacity = 2
 	s := sessionOpen(t, cfg)
 	calls := 0
 	c, e := NewCollector(collectorConfig(s, pollFunc(func(context.Context) ([]driver.Reading, error) { calls++; return sourceSamples(), nil })))

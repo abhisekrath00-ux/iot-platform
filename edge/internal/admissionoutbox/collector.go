@@ -46,10 +46,10 @@ type CollectorStatus struct {
 // Collector is an explicit read-to-retain adapter, not a poll scheduler or runtime
 // switch. No startup constructs it. It never sends. It accepts one whole exact
 // configured sample, assigns fresh event IDs ONCE and a single UTC microsecond
-// post-poll observation time, then retains sequentially. This is gateway sample
+// post-poll observation time, then retains atomically as one batch. This is gateway sample
 // time, NOT a meter's clock or proof of clock synchronization. Error after Put
 // may be uncertain; the SAME frozen pending reading remains for explicit
-// RetainPending. No new poll is allowed until it resolves. Pending is volatile:
+// RetainPending. No new poll is allowed until it resolves. The complete batch commits all-or-none. Pending is volatile:
 // process death before a confirmed Put can lose that reading. No powerloss claim.
 type Collector struct {
 	mu              sync.Mutex
@@ -68,7 +68,7 @@ func NewCollector(c CollectorConfig) (*Collector, error) {
 	if !c.Enabled {
 		return nil, ErrDisabled
 	}
-	if c.Session == nil || c.Reader == nil || !validID(c.DeviceID) || len(c.Points) < 1 || len(c.Points) > 256 {
+	if c.Session == nil || c.Reader == nil || !validID(c.DeviceID) || len(c.Points) < 1 || len(c.Points) > 256 || len(c.Points) > c.Session.store.capacity {
 		return nil, ErrInput
 	}
 	v := reflect.ValueOf(c.Reader)
@@ -172,29 +172,29 @@ func (c *Collector) RetainPending(ctx context.Context) (CollectionResult, error)
 	return c.retain(ctx)
 }
 func (c *Collector) retain(ctx context.Context) (CollectionResult, error) {
-	for {
-		c.mu.Lock()
-		if len(c.pending) == 0 {
-			c.outcome = "retained"
-			r := c.last
-			c.mu.Unlock()
-			return r, nil
-		}
-		reading := c.pending[0]
+	c.mu.Lock()
+	pending := append([]Reading(nil), c.pending...)
+	if len(pending) == 0 {
+		c.outcome = "retained"
+		r := c.last
 		c.mu.Unlock()
-		if _, err := c.session.Retain(ctx, reading); err != nil {
-			c.mu.Lock()
-			c.outcome = "retention-unresolved"
-			r := c.last
-			c.mu.Unlock()
-			return r, err
-		}
-		c.mu.Lock()
-		c.pending = c.pending[1:]
-		c.last.Retained++
-		c.last.Pending = len(c.pending)
-		c.mu.Unlock()
+		return r, nil
 	}
+	c.mu.Unlock()
+	if _, err := c.session.RetainBatch(ctx, pending); err != nil {
+		c.mu.Lock()
+		c.outcome = "retention-unresolved"
+		r := c.last
+		c.mu.Unlock()
+		return r, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.last.Retained += len(c.pending)
+	c.pending = nil
+	c.last.Pending = 0
+	c.outcome = "retained"
+	return c.last, nil
 }
 func (c *Collector) setOutcome(s string) {
 	c.mu.Lock()

@@ -1796,9 +1796,9 @@ set (1-256 points), with no duplicate, missing, foreign or nonfinite values.
 Partial poll/error/cancellation refuses the WHOLE sample before retaining any
 of it. A complete sample gets unique event IDs once and one gateway post-poll
 UTC microsecond observation time. This is NOT the meter clock, synchronized
-clock proof or an invented timestamp on replay. Frozen readings are then saved
-one at a time. Any failed/uncertain Retain stops and leaves the SAME unresolved
-reading plus remaining sample in memory. A new PollOnce refuses before a source
+clock proof or an invented timestamp on replay. Frozen readings are now retained in ONE SQLite transaction as described below,
+not a saved prefix. Any failed/uncertain batch retain leaves the SAME whole
+sample unresolved in memory. A new PollOnce refuses before a source
 read while that batch is pending. Only explicit RetainPending retries retention
 of those exact identities, without polling, sending or generating new events.
 
@@ -1820,7 +1820,7 @@ must honor context or have bounded IO. The tested existing Modbus TCP driver has
 its own IO deadlines, not instant context-driven interrupt of each socket read.
 
 Five local collector race repeats and five full outbox race repeats pass:
-invalid/typed-nil/no-file config, complete-sample refusal, capacity partial save,
+invalid/typed-nil/no-file config, complete-sample refusal, whole-sample capacity refusal,
 no second poll while pending, exact pending identity/time, explicit retention
 after Stop, duplicate-commit reconciliation, busy/Stop timeout/drain and closed
 Session before source read. An actual disposable Modbus TCP fixture observes
@@ -1839,3 +1839,43 @@ loopback sources, not physical USB/meter/model/decoder/clock or owner proof.
 All runtime authenticated pairing/key lifecycle/GUI/durable operational UX,
 production ACK/derived replay, staged image/restore and joint handoff gates stay
 open. No new runtime activation, owner update, schema or physical write occurs.
+
+
+### Atomic complete-sample retention (unwired)
+
+Collector now uses Session.RetainBatch -> Store.PutBatch, one bounded 1-256 row
+transaction on the SAME unchanged processing-v1 SQLite schema. Session checks
+every route before any store access. Store preflights all canonical identities,
+rejects repeated identities within a request, compares retained duplicates by
+exact topic/payload/hash, and checks capacity for only genuinely new rows. All
+new rows commit together or return zero saved evidence. No prefix is reported
+as retained on a later conflict, full capacity, insert failure or cancellation.
+An uncertain commit still requires explicit retry of the SAME frozen whole
+sample, never fresh IDs or a new source read. Existing exact duplicates do not
+use new capacity. Single-row Put and older compatible readers remain unchanged.
+Collector refuses construction when configured sample size exceeds the store's
+total capacity, before any poll. No new schema, migration, startup, daemon,
+external effect, send or automatic retry is introduced.
+
+Five batch/collector race repetitions and five complete outbox race repetitions
+pass. Tests cover invalid last row, duplicate identities, conflicting last row,
+full capacity, failure at the second actual INSERT after the first INSERT,
+rollback/reopen with no prefix, existing-plus-new at exact capacity, exact whole
+batch duplicate at full capacity, foreign route refusal before retain, competing
+local Store connections, and original single-row API reads of committed batches.
+A child process exits without closing SQLite both after an uncommitted prefix
+and after a complete batch commit; reopening sees zero or the complete batch,
+respectively, and explicit same-batch retry preserves IDs/hashes/sequence.
+Marker ATOMIC_BATCH_PROCESS_EXIT_REOPEN_OK. The uncommitted-prefix child stages
+SQL directly to test SQLite process recovery, not a forced crash inside PutBatch.
+Actual disposable TCP function3/4 collector retention/reopen and the real
+Collector -> Session -> mTLS/PG lost-response explicit replay bridge still pass,
+including three local race bridge repetitions.
+
+This closes partial sample capacity/insert retention, NOT the interval between
+source read and durable commit. Pending remains VOLATILE and not a durable retry
+intention; process death before confirmed retention can lose the sample. No host
+power-loss, physical meter, native Windows runtime, GUI operational recovery or
+production no-loss acceptance is claimed. Durable collector intent/operator UX,
+authenticated pairing/key lifecycle, production ACK/derived work replay, staged
+image/restore compatibility and the joint server/fresh EXE handoff stay open.
