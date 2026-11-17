@@ -1634,3 +1634,52 @@ capacity UX, derived stages/per-effect receipts, staged94 images/restore and joi
 secure-server/fresh Windows installer/hardware acceptance remain OPEN. Exact93,
 production queue and owner state are unchanged; no new token/permission or physical
 write is included.
+
+### Certificate-bound real admission HTTP handler (unwired)
+
+`ingestprocessing.AdmissionHTTP` is an explicitly constructed, default-off
+handler, not a registered API route, listener or owner deployment. It freezes
+an explicit administrator-supplied full leaf-certificate SHA256 -> exact
+telemetry topic map (1-256 entries, no duplicate certificates), a signing key
+copy and deployment audience. It requires actual request TLS handshake evidence
+with a verified chain matching the peer leaf, then checks the exact certificate
+pin, topic header and payload route before invoking the real transactional
+`AdmitSignedMQTT`. Common names and proxy authentication headers grant nothing.
+This is a static isolated binding, NOT pairing, revocation, key enrollment or
+rotation. A future dedicated server must require verified client certificates,
+protect keys and configure header/idle timeouts and header size limits. Do not
+mount behind TLS termination or treat a proxy header as request TLS evidence.
+
+The handler accepts only HTTP/1.1 POST at the fixed staged path, with no query or
+encoded alternate path, exactly one JSON content type and exact topic header,
+no content encoding and at most 8192 input bytes. It sets actual connection
+read/write deadlines (1-30 seconds) and a transaction deadline; wrappers without
+deadline support refuse. It returns only the actual committed/exact-replay
+signed receipt, with no-store/connection-close. Any database, deadline, short
+write or connection-loss outcome is uncertain, not rollback. No retry, derived
+execution, provider send, MQTT ACK or existing production queue change occurs.
+
+New isolated acceptance invokes this actual handler over disposable loopback
+mTLS, real PostgreSQL admission and the independent edge retained store,
+HTTPSExchange, Publisher, pinned signature verification and atomic deletion.
+The first response is dropped AFTER real handler admission/signing. Edge keeps
+the exact row. Only a second explicit RunOnce sends the SAME input; actual
+request-time replay signs the original committed plan and edge deletes only
+after verification. The server asserts exactly two requests, one telemetry and
+processing row and zero started effects. Unlike the earlier forwarding fixture,
+this test does NOT forward precomputed receipt bytes. Marker:
+`LIVE_HANDLER_PG_MTLS_EDGE_REPLAY_OK`. A conflicting input gets no signature.
+Other tests cover invalid configuration, copied key/routes, foreign same-CA
+client, absent client certificate, unverified/mismatched chain, proxy spoof,
+foreign or duplicate topic, malformed/cross-tenant/oversized body, duplicate
+content type and unsupported method/path/query/encoding before database access.
+Actual connection-deadline tests refuse a slow incomplete body; unsupported
+deadline wrappers fail closed. A PostgreSQL insert trigger refusal yields no
+signature and neither telemetry nor processing row for that new input.
+
+This is still isolated handler acceptance, not an enabled production service or
+end-to-end owner readiness. Runtime listener/pairing/key lifecycle and dynamic
+revocation, cross-process publisher ownership, capacity UX, all-handler
+ACK/session/shutdown, derived work replay, staged image/restore compatibility,
+GUI/UAC/reboot/physical meter checks and combined server/fresh EXE handoff remain
+open. Existing exact93 update guards and native evidence scope are unchanged.
