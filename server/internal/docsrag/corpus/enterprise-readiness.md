@@ -1683,3 +1683,49 @@ revocation, cross-process publisher ownership, capacity UX, all-handler
 ACK/session/shutdown, derived work replay, staged image/restore compatibility,
 GUI/UAC/reboot/physical meter checks and combined server/fresh EXE handoff remain
 open. Existing exact93 update guards and native evidence scope are unchanged.
+
+### Explicit publisher ownership across cooperating local processes
+
+The unwired Publisher now acquires a dedicated adjacent SQLite ownership guard
+before taking its input snapshot or invoking Exchange. `BEGIN IMMEDIATE` with
+zero busy timeout stays held through the entire explicit batch, including a
+blocked exchange and signed reconciliation. Another instance/process refuses
+before Exchange instead of waiting to perform a later send. Cancellation or a
+Close timeout cannot release a still-running exchange's ownership. Release runs
+with its own bounded context after the batch returns. Release failure is reported
+as uncertainty, never converted into permission to send again.
+
+The guard file is `<canonical-input-path>.publisher-owner.sqlite`, with an exact
+versioned single-table schema. Existing foreign/altered/extra-row/empty-row guard
+schemas refuse, not migrate or replace. It is separate from the retained input
+database, so collecting new retained rows does not wait on a network request.
+The input schema/capacity/policy and production queue remain unchanged. The
+in-process Publisher gate and permanent Close/drain semantics still apply.
+Existing path and parent symlinks are canonicalized so those aliases converge.
+The guard itself must be a regular file, not a symlink or special file.
+
+This is coordination between cooperating processes using the SAME canonical
+local input database. Both files must remain in a trusted local directory. Do
+not hardlink, rename, copy, replace, delete or independently restore either while
+publishing. Network filesystems, hostile local directory mutation, hardlink
+aliases, independent copies and distributed ownership are NOT covered. The
+guard does not authenticate a process, confer tenant authority or stop arbitrary
+code that bypasses Publisher and calls Exchange directly. Runtime packaging
+must preserve this single-path/private-directory contract and still coordinate
+collection, pairing, source changes and lifecycle. No startup uses it yet.
+
+Five local race repetitions cover two Store/Publisher instances, refusal before
+send, input collection during a blocked exchange, Close timeout retaining the
+guard, explicit later same-input reconciliation, canonical parent aliases and
+malformed/symlink/cancel refusal. An actual child process holds ownership inside
+Exchange while its parent is refused. The child is killed, its original retained
+payload is checked, and only a later explicit parent RunOnce reconciles it.
+Marker: `PUBLISHER_PROCESS_KILL_OWNER_RELEASE_SAME_INPUT_OK`. There is no PID-file
+lease, clock expiry, timed takeover or automatic restart/resend. Process death
+releases OS-managed SQLite locks; it does NOT roll back a remote admission,
+remove the retained row or prove power-loss/physical-disk durability. The process
+test is local Linux execution, not Windows native or network-filesystem proof.
+
+Enabled runtime/pairing/key lifecycle, capacity UX, all-handler ACK/session,
+derived work replay, staged image/restore compatibility, GUI/UAC/reboot/physical
+meter checks and the combined secure-server/fresh EXE handoff remain open.

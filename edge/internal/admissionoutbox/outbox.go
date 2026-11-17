@@ -79,6 +79,7 @@ type Config struct {
 	Capacity int
 }
 type Store struct {
+	path     string
 	db       *sql.DB
 	capacity int
 }
@@ -121,7 +122,11 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if ctx == nil || c.Path == "" || !filepath.IsAbs(c.Path) || c.Capacity < 1 || c.Capacity > MaxCapacity {
 		return nil, ErrInput
 	}
-	u := url.URL{Scheme: "file", Path: c.Path}
+	path, err := canonicalStorePath(c.Path)
+	if err != nil {
+		return nil, err
+	}
+	u := url.URL{Scheme: "file", Path: path}
 	q := u.Query()
 	q.Add("_pragma", "busy_timeout(5000)")
 	u.RawQuery = q.Encode()
@@ -203,7 +208,7 @@ func Open(ctx context.Context, c Config) (*Store, error) {
 	if _, err = db.ExecContext(ctx, "PRAGMA synchronous=FULL"); err != nil {
 		return fail(err)
 	}
-	return &Store{db: db, capacity: c.Capacity}, nil
+	return &Store{db: db, capacity: c.Capacity, path: path}, nil
 }
 
 // Put returns a committed stable row or an exact retained duplicate. A failed

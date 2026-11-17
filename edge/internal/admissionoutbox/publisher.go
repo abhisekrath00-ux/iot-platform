@@ -100,8 +100,9 @@ func (p *Publisher) leave() { p.mu.Lock(); p.active = false; close(p.done); p.mu
 // empty/bad receipts, uncertain commit or cancellation stop the batch. A later
 // explicit invocation may reconcile the SAME retained input; no automatic retry
 // or new identity is created. Store and Exchange must be dedicated to this
-// Publisher while running; other processes/instances are NOT locked out by this
-// in-process gate. Runtime cross-process ownership remains an acceptance gate.
+// Publisher while running; the dedicated SQLite ownership sidecar excludes other cooperating
+// local processes/instances for this same canonical store path. Trusted local
+// directory and intact sidecar are required. No network-filesystem guarantee.
 func (p *Publisher) RunOnce(ctx context.Context) (result BatchResult, err error) {
 	if err = p.enter(); err != nil {
 		return result, err
@@ -113,6 +114,15 @@ func (p *Publisher) RunOnce(ctx context.Context) (result BatchResult, err error)
 	if err = ctx.Err(); err != nil {
 		return result, err
 	}
+	owner, err := p.store.acquireOwnership(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		if e := owner.release(true); e != nil {
+			err = errors.Join(err, e)
+		}
+	}()
 	items, err := p.store.Next(ctx, p.limit)
 	if err != nil {
 		return result, err
