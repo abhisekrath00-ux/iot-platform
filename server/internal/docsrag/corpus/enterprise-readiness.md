@@ -1926,3 +1926,73 @@ No start/stop/send/retry button, configured runtime callback, native installer
 acceptance or hardware proof is added. Durable intent/operator actions,
 authenticated endpoint/pairing/key lifecycle, production ACK/derived replay,
 staged image/restore and the joint server/fresh EXE handoff remain open.
+
+
+### Separate explicit collection journal (unwired, no migration)
+
+NewJournalCollector is a second explicit opt-in constructor; ordinary
+NewCollector stays memory-only. It opens a NEW separate SQLite journal, never
+migrating/importing the retained or legacy queue. A strict two-table schema holds
+one whole pending sample plus version and scope fingerprint. Scope fixes tenant,
+gateway, device, exact point/unit map and canonical retained-store path. WAL and
+FULL synchronous are required. Payload has a bounded length, exact canonical
+bytes and SHA256, and every recovered reading must match the configured complete
+sample, common original observation time, identities and measured quality.
+Hashing detects accidental corruption, NOT a hostile local writer who can
+replace both data and digest. This is not encrypted storage or source authenticity.
+
+PollOnce freezes event IDs/time once, commits the WHOLE journal sample BEFORE
+RetainBatch, and clears the journal only after a positive retained-store commit.
+Full capacity leaves the exact journal sample intact. A failed/uncertain journal
+save starts NO retention and reports journal-unconfirmed. A failed/uncertain
+clear leaves exact recovery pending; retained rows may already exist. The next
+explicit RetainPending saves/compares the SAME journal bytes, retains the SAME
+identities idempotently and clears only matching journal content. No replacement,
+eviction, automatic poll, send or retry exists. If another explicit send already
+reconciled/deleted those rows, an explicit recovery can reinsert the same IDs;
+the existing server admission dedup/replay contract still applies. Do not treat
+pending and retained counts as disjoint or add them after an uncertain clear.
+
+Opening/reopening only validates/loads the sample; it NEVER polls, retains or
+sends. A new poll refuses until explicit recovery resolves pending. Dedicated
+SQLite ownership is held across the journal collector lifetime, including Stop.
+Close prevents ALL new collector calls, drains active work then closes/releases;
+timeout keeps ownership until a later successful Close. Stop still permits
+explicit retention, does not close caller-owned source/Session and does not
+release journal ownership. Cooperating local processes using the same canonical
+path and intact adjacent ownership sidecar exclude one another. Keep all journal,
+SQLite WAL/SHM and ownership files in a trusted LOCAL directory. No networkfs,
+hardlink/copy/rename/hostile-directory/distributed guarantee, no owner file move,
+no upgrade of existing databases, and no native Windows claim is made.
+
+Three complete local outbox race repetitions pass, including child process exit
+WITHOUT cleanup after actual Collector PollOnce journal commit/capacity failure.
+Reopen gets the exact original pending IDs/time/hash, zero new source polls or
+sends, then explicit retention reuses those inputs. Marker
+ACTUAL_COLLECTOR_JOURNAL_PROCESS_EXIT_EXACT_RECOVERY_OK. Save refusal causes no
+retained rows/false durability; clear refusal preserves exact rows and explicit
+retry/reopen preserves sequence; scope/schema/hash/payload mismatches refuse;
+second cooperating owner and Close-timeout takeover refuse before a new read.
+Stop keeps ownership; confirmed Close releases it. These are local process-exit
+and close/reopen tests, NOT a host power cut or native/hardware acceptance.
+
+The actual live bridge now reads disposable Modbus TCP function3 -> commits
+journal -> actual retained INSERT fault -> closes/reopens collector and Session
+-> explicit exact journal recovery with a reader that fails if polled -> real
+mTLS/PG commit and lost response -> second explicit signed replay -> atomic
+retained deletion. Three local race repetitions pass, two server requests, one
+original admitted row and zero effects. The server test requires the new
+LIVE_JOURNALED_COLLECTOR_PG_MTLS_EDGE_REPLAY_OK marker alongside existing markers.
+No owner endpoint/pairing/key enrollment or runtime startup is wired.
+
+Status adds pending_durability: none, memory, journal-unconfirmed or
+journal-committed. The read-only panel distinguishes confirmed journal pending
+from potentially volatile pending, warns to keep journal/ownership files intact,
+labels overlapping recovery/retained counts, and still has NO recovery action.
+Ten embedded-HTML JavaScript tests cover those branches. Desktop/mobile Chrome
+pixels are synthetic render evidence only. This narrows the previously open
+post-journal-commit restart gap, NOT the interval from source read to first
+confirmed journal commit. That interval can STILL lose a reading. SQLite/device
+power-loss semantics, full operational recovery UX, runtime authenticated
+pairing/key lifecycle, production ACK/derived replay, staged image/restore and
+joint secure-server/fresh EXE handoff remain open. No blanket no-loss claim.

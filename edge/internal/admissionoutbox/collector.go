@@ -33,14 +33,15 @@ type CollectorConfig struct {
 type CollectionResult struct {
 	Sampled  int `json:"sampled"`
 	Retained int `json:"retained"`
-	Pending  int `json:"pending"` // in memory until Retain succeeds, NOT durable
+	Pending  int `json:"pending"` // unresolved whole sample; see PendingDurability
 }
 type CollectorStatus struct {
-	State   string           `json:"state"`
-	Active  bool             `json:"active"`
-	Pending int              `json:"pending"`
-	Last    CollectionResult `json:"last"`
-	Outcome string           `json:"outcome"`
+	State             string           `json:"state"`
+	Active            bool             `json:"active"`
+	Pending           int              `json:"pending"`
+	Last              CollectionResult `json:"last"`
+	Outcome           string           `json:"outcome"`
+	PendingDurability string           `json:"pending_durability"`
 }
 
 // Collector is an explicit read-to-retain adapter, not a poll scheduler or runtime
@@ -49,26 +50,31 @@ type CollectorStatus struct {
 // post-poll observation time, then retains atomically as one batch. This is gateway sample
 // time, NOT a meter's clock or proof of clock synchronization. Error after Put
 // may be uncertain; the SAME frozen pending reading remains for explicit
-// RetainPending. No new poll is allowed until it resolves. The complete batch commits all-or-none. Pending is volatile:
-// process death before a confirmed Put can lose that reading. No powerloss claim.
+// RetainPending. No new poll is allowed until it resolves. The batch commits
+// all-or-none. NewCollector pending is volatile. NewJournalCollector first
+// journals the whole sample; until THAT commit confirms it is still volatile.
+// No source-read-to-journal-commit or host power-loss guarantee is claimed.
 type Collector struct {
-	mu              sync.Mutex
-	session         *Session
-	reader          PollReader
-	device          string
-	points          map[string]string
-	active, stopped bool
-	done            chan struct{}
-	pending         []Reading
-	last            CollectionResult
-	outcome         string
+	mu                                sync.Mutex
+	closeMu                           sync.Mutex
+	journal                           *collectionJournal
+	journalConfirmed, closing, closed bool
+	session                           *Session
+	reader                            PollReader
+	device                            string
+	points                            map[string]string
+	active, stopped                   bool
+	done                              chan struct{}
+	pending                           []Reading
+	last                              CollectionResult
+	outcome                           string
 }
 
 func NewCollector(c CollectorConfig) (*Collector, error) {
 	if !c.Enabled {
 		return nil, ErrDisabled
 	}
-	if c.Session == nil || c.Reader == nil || !validID(c.DeviceID) || len(c.Points) < 1 || len(c.Points) > 256 || len(c.Points) > c.Session.store.capacity {
+	if c.Session == nil || c.Session.store == nil || c.Reader == nil || !validID(c.DeviceID) || len(c.Points) < 1 || len(c.Points) > 256 || len(c.Points) > c.Session.store.capacity {
 		return nil, ErrInput
 	}
 	v := reflect.ValueOf(c.Reader)
@@ -102,7 +108,7 @@ func (c *Collector) enter(ctx context.Context, newPoll bool) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.stopped && newPoll {
+	if c.closing || c.stopped && newPoll {
 		return ErrSessionClosed
 	}
 	if c.active {
@@ -160,6 +166,7 @@ func (c *Collector) PollOnce(ctx context.Context) (CollectionResult, error) {
 	}
 	c.mu.Lock()
 	c.pending = pending
+	c.journalConfirmed = false
 	c.last = CollectionResult{Sampled: len(pending), Pending: len(pending)}
 	c.mu.Unlock()
 	return c.retain(ctx)
@@ -181,6 +188,24 @@ func (c *Collector) retain(ctx context.Context) (CollectionResult, error) {
 		return r, nil
 	}
 	c.mu.Unlock()
+	var journalBytes []byte
+	if c.journal != nil {
+		var err error
+		journalBytes, err = c.journalBytes(pending)
+		if err == nil {
+			err = c.journal.save(ctx, journalBytes)
+		}
+		if err != nil {
+			c.mu.Lock()
+			c.outcome = "journal-unresolved"
+			r := c.last
+			c.mu.Unlock()
+			return r, err
+		}
+		c.mu.Lock()
+		c.journalConfirmed = true
+		c.mu.Unlock()
+	}
 	if _, err := c.session.RetainBatch(ctx, pending); err != nil {
 		c.mu.Lock()
 		c.outcome = "retention-unresolved"
@@ -188,10 +213,20 @@ func (c *Collector) retain(ctx context.Context) (CollectionResult, error) {
 		c.mu.Unlock()
 		return r, err
 	}
+	if c.journal != nil {
+		if err := c.journal.clear(ctx, journalBytes); err != nil {
+			c.mu.Lock()
+			c.outcome = "journal-clear-unresolved"
+			r := c.last
+			c.mu.Unlock()
+			return r, err
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.last.Retained += len(c.pending)
 	c.pending = nil
+	c.journalConfirmed = false
 	c.last.Pending = 0
 	c.outcome = "retained"
 	return c.last, nil
@@ -215,7 +250,17 @@ func (c *Collector) Status() CollectorStatus {
 			state = "stopping"
 		}
 	}
-	return CollectorStatus{State: state, Active: c.active, Pending: len(c.pending), Last: c.last, Outcome: c.outcome}
+	durability := "none"
+	if len(c.pending) > 0 {
+		durability = "memory"
+		if c.journal != nil {
+			durability = "journal-unconfirmed"
+			if c.journalConfirmed {
+				durability = "journal-committed"
+			}
+		}
+	}
+	return CollectorStatus{PendingDurability: durability, State: state, Active: c.active, Pending: len(c.pending), Last: c.last, Outcome: c.outcome}
 }
 
 // Stop permanently prevents new reads and drains the current call. Explicit

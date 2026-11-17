@@ -32,7 +32,7 @@ h2{font-size:17px;margin:0 0 10px}
 <p class="dm">Read-only preview. This panel does not enable collection or change the gateway.</p>
 <div id="admission-state" role="status" aria-live="polite">Loading staged status...</div>
 <div id="admission-detail"></div>
-<p class="err">Pending readings are only in memory until confirmed saved. Closing the process can lose them.</p>
+<p class="err" id="admission-durability">New source readings are not protected until a journal or retained-store commit is confirmed.</p>
 <p class="dm">Counts are separate, momentary observations. Last send is process-local. Signed server admission does not confirm rules, commands or provider delivery. This is separate from the broker buffer above.</p>
 <p class="dm" id="admission-asof"></p>
 </section>
@@ -70,6 +70,7 @@ var n=(d.last_notes||[]).map(function(x){return'<div class="dm">'+esc(x)+"</div>
 }).catch(function(){})}
 function admissionUnavailable(){
  document.getElementById("admission-state").textContent="Staged status unavailable. No current counts.";
+ document.getElementById("admission-durability").textContent="Pending durability cannot be confirmed from this status. Do not discard input or assume recovery.";
  document.getElementById("admission-detail").replaceChildren();document.getElementById("admission-asof").textContent="";
 }
 var admissionActive=false;
@@ -83,11 +84,14 @@ function admission(){if(document.body.dataset.admission!=="enabled"||admissionAc
  var state=c.state==="open"?(c.active?"Collection call in progress":"Collector open - no automatic polling"):c.state==="stopping"?"Stopping - wait for the active call to finish":"Collector stopped - no new source reads";
  if(s.state!=="open")state+=". Session "+(s.state==="closed"?"closed":"closing");
  document.getElementById("admission-state").textContent=state;
- var h='<div class="vals"><span class="chip">In-memory pending: '+esc(c.pending)+'</span>';
+ if(c.pending_durability&&!['none','memory','journal-unconfirmed','journal-committed'].includes(c.pending_durability))throw Error("invalid durability");
+ var journal=c.pending_durability==="journal-committed";
+ document.getElementById("admission-durability").textContent=c.pending>0?(journal?"Exact pending sample has a confirmed local journal commit. Keep the journal and ownership files intact. Reopen requires explicit retention recovery, never an automatic send. Recovery pending can overlap saved rows after an uncertain clear; do not add these counts. This is not host power-loss proof.":"Pending readings are only in memory or journal persistence is unconfirmed. Closing the process can lose them. Keep it open until resolved."):"New source readings are not protected until a journal or retained-store commit is confirmed.";
+ var h='<div class="vals"><span class="chip">'+(journal?'Journal pending: ':'In-memory pending: ')+esc(c.pending)+'</span>';
  if(s.state==="open"&&s.queue)h+='<span class="chip">Saved rows: '+esc(s.queue.retained)+' / '+esc(s.queue.capacity)+'</span>';
  else h+='<span class="chip">Saved row count unavailable</span>';
  h+='</div>';
- if(c.pending>0)h+='<p class="err">Keep this process open. Do not start a new poll or replace the source. Exact pending input needs explicit retention recovery; this panel cannot retry it.</p>';
+ if(c.pending>0)h+='<p class="err">Do not start a new poll or replace the source. Exact pending input needs explicit retention recovery; this panel cannot retry it.</p>';
  if(s.queue&&s.queue.full)h+='<p class="err">Retained store is full. New samples cannot be saved. Existing rows are not evicted.</p>';
  if(s.sending)h+='<p>One send call is active. Do not start another.</p>';
  if(s.last_send){var l=s.last_send,b=l.batch;var label=l.outcome==="uncertain"?"Uncertain - the server may already have committed. Keep the same input for explicit reconciliation.":l.outcome==="admission-confirmed"?"Signed server admission confirmed. This is not effect delivery.":l.outcome==="idle"?"No rows selected in the last call.":"Last send refused. No automatic retry.";

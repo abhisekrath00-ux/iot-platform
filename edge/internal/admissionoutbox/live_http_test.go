@@ -1,9 +1,12 @@
 package admissionoutbox
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/driver"
 	"os"
 	"testing"
 	"time"
@@ -36,17 +39,54 @@ func TestLiveAdmissionHTTPFixture(t *testing.T) {
 	}
 	cfg := config(t, 1)
 	trust := ReceiptTrust{Enabled: true, Audience: f.Audience, TenantID: f.Reading.TenantID, GatewayID: f.Reading.GatewayID, PublicKey: f.PublicKey}
-	session, e := OpenSession(t.Context(), SessionConfig{Enabled: true, Store: cfg, HTTPS: HTTPSConfig{Enabled: true, Endpoint: f.Endpoint, RootCAs: roots, ClientCertificate: cert, Timeout: 5 * time.Second}, Trust: trust, BatchLimit: 1})
+	sessionCfg := SessionConfig{Enabled: true, Store: cfg, HTTPS: HTTPSConfig{Enabled: true, Endpoint: f.Endpoint, RootCAs: roots, ClientCertificate: cert, Timeout: 5 * time.Second}, Trust: trust, BatchLimit: 1}
+	session, e := OpenSession(t.Context(), sessionCfg)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer session.Close(t.Context())
 	source := collectorLoopbackSource(t, f.Reading)
-	collector, e := NewCollector(CollectorConfig{Enabled: true, Session: session, Reader: source, DeviceID: f.Reading.DeviceID, Points: map[string]string{f.Reading.PointID: f.Reading.Unit}})
+	collectorCfg := CollectorConfig{Enabled: true, Session: session, Reader: source, DeviceID: f.Reading.DeviceID, Points: map[string]string{f.Reading.PointID: f.Reading.Unit}}
+	journalCfg := journalConfig(t)
+	collector, e := NewJournalCollector(t.Context(), collectorCfg, journalCfg)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if r, e := collector.PollOnce(t.Context()); e != nil || r.Retained != 1 || r.Pending != 0 {
+	if _, e = session.store.db.Exec(`CREATE TRIGGER live_retention_fault BEFORE INSERT ON admission_inputs BEGIN SELECT RAISE(ABORT,'synthetic retention refusal after journal'); END`); e != nil {
+		t.Fatal(e)
+	}
+	if r, e := collector.PollOnce(t.Context()); e == nil || r.Retained != 0 || r.Pending != 1 || collector.Status().PendingDurability != "journal-committed" {
+		t.Fatal(r, e, collector.Status())
+	}
+	frozen := collector.pending[0]
+	if e = collector.Close(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = session.store.db.Exec("DROP TRIGGER live_retention_fault"); e != nil {
+		t.Fatal(e)
+	}
+	if e = session.Close(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	session, e = OpenSession(t.Context(), sessionCfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer session.Close(t.Context())
+	collectorCfg.Session = session
+	collectorCfg.Reader = pollFunc(func(context.Context) ([]driver.Reading, error) {
+		t.Fatal("journal recovery polled source")
+		return nil, errors.New("forbidden")
+	})
+	collector, e = NewJournalCollector(t.Context(), collectorCfg, journalCfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer collector.Close(t.Context())
+	if len(collector.pending) != 1 || collector.pending[0] != frozen {
+		t.Fatal("changed journal input")
+	}
+	if r, e := collector.RetainPending(t.Context()); e != nil || r.Retained != 1 || r.Pending != 0 {
 		t.Fatal(r, e)
 	}
 	if e = collector.Stop(t.Context()); e != nil {
@@ -104,6 +144,7 @@ func TestLiveAdmissionHTTPFixture(t *testing.T) {
 	if e != nil || status.State != "closed" || status.Capacity != nil {
 		t.Fatal(status, e)
 	}
+	t.Log("LIVE_JOURNALED_COLLECTOR_PG_MTLS_EDGE_REPLAY_OK")
 	t.Log("LIVE_COLLECTOR_SESSION_PG_MTLS_EDGE_REPLAY_OK")
 	t.Log("LIVE_SESSION_PG_MTLS_EDGE_REPLAY_OK")
 	t.Log("LIVE_HANDLER_PG_MTLS_EDGE_REPLAY_OK")

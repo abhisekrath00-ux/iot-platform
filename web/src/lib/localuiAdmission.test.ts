@@ -56,3 +56,13 @@ it('bounds a hung status request and refuses overlapping requests', async () => 
   expect(document.getElementById('admission-state')!.textContent).toContain('unavailable');
   expect(document.getElementById('admission-detail')!.innerHTML).toBe('');
 });
+it('distinguishes confirmed journal pending from unconfirmed memory without power-loss claims', async () => {
+  const d = initial() as any; d.collection.pending_durability = 'journal-committed';
+  page(true, d); await flush();
+  expect(document.getElementById('admission-detail')!.textContent).toContain('Journal pending: 2');
+  expect(document.getElementById('admission-durability')!.textContent).toContain('confirmed local journal commit');
+  expect(document.getElementById('admission-durability')!.textContent).toContain('not host power-loss proof');
+  expect(document.getElementById('admission-durability')!.textContent).not.toContain('Closing the process can lose them');
+  d.collection.pending_durability = 'journal-unconfirmed';page(true, d); await flush();
+  expect(document.getElementById('admission-durability')!.textContent).toContain('Closing the process can lose them');
+});

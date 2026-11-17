@@ -244,6 +244,10 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 		t.Fatal(envelope)
 	}
 	t.Log("LIVE_COLLECTOR_SESSION_PG_MTLS_EDGE_REPLAY_OK")
+	if !bytes.Contains(out, []byte("LIVE_JOURNALED_COLLECTOR_PG_MTLS_EDGE_REPLAY_OK")) {
+		t.Fatal("journal recovery bridge did not run", string(out))
+	}
+	t.Log("LIVE_JOURNALED_COLLECTOR_PG_MTLS_EDGE_REPLAY_OK")
 	if requests.Load() != 2 {
 		t.Fatal("unexpected automatic request", requests.Load())
 	}
