@@ -1,9 +1,11 @@
 package localui
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/admissionoutbox"
 	"net"
 	"net/http"
 	"time"
@@ -24,6 +26,9 @@ type Info struct {
 	QueueDepth func(context.Context) (int, error)
 	// Discoveries returns the auto-detect proposals (read-only view).
 	Discoveries func() any
+	// StagedAdmission is opt-in and read-only. Production supplies nil. It must
+	// honor cancellation and must not poll, send, retain, retry or change state.
+	StagedAdmission func(context.Context) (admissionoutbox.RecoveryStatus, error)
 }
 
 type statusDoc struct {
@@ -42,6 +47,21 @@ type statusDoc struct {
 // Handler builds the read-only mux. GET/HEAD only.
 func Handler(info Info, t *Tracker) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/admission-status", func(w http.ResponseWriter, r *http.Request) {
+		if info.StagedAdmission == nil {
+			http.NotFound(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+		doc, err := info.StagedAdmission(ctx)
+		if err != nil || ctx.Err() != nil {
+			http.Error(w, "Staged status unavailable. No current counts.", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(doc)
+	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		started, devs := t.Snapshot()
 		doc := statusDoc{
@@ -74,7 +94,11 @@ func Handler(info Info, t *Tracker) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(indexHTML)
+		page := indexHTML
+		if info.StagedAdmission != nil {
+			page = bytes.Replace(page, []byte(`data-admission="disabled"`), []byte(`data-admission="enabled"`), 1)
+		}
+		_, _ = w.Write(page)
 	})
 	return secure(readOnly(mux))
 }

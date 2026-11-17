@@ -11,7 +11,7 @@ h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin:0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:24px}
 .card{background:var(--card);border-radius:16px;padding:16px 18px;box-shadow:0 0 0 1px var(--line)}
 .k{color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
-.v{font-size:22px;font-weight:600;margin-top:4px;word-break:break-all}
+.v{font-size:22px;font-weight:600;margin-top:4px;overflow-wrap:anywhere}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;background:var(--mute)}
 .ok{background:var(--ok)}.bad{background:var(--bad)}.warn{background:var(--warn)}
 h2{font-size:17px;margin:0 0 10px}
@@ -19,7 +19,7 @@ h2{font-size:17px;margin:0 0 10px}
 .dev:first-child{border-top:0}.dn{font-weight:600;overflow-wrap:anywhere}.dm{color:var(--mute);font-size:13px}
 .vals{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.chip{background:var(--bg);border-radius:999px;padding:2px 10px;font-size:12px}
 .err{color:var(--bad);font-size:13px;margin-top:4px}.empty{color:var(--mute);padding:12px 0}
-</style></head><body><main>
+</style></head><body data-admission="disabled"><main>
 <h1>HexThings Edge</h1><p class="sub" id="sub">Local gateway status (read-only)</p>
 <div class="grid">
 <div class="card"><div class="k">Broker</div><div class="v"><span class="dot" id="bd"></span><span id="bs">...</span></div><div class="dm" id="bh"></div></div>
@@ -27,6 +27,15 @@ h2{font-size:17px;margin:0 0 10px}
 <div class="card"><div class="k">Uptime</div><div class="v" id="up">-</div></div>
 <div class="card"><div class="k">Version</div><div class="v" id="ver">-</div></div>
 </div>
+<section id="admission" class="card" hidden style="margin-bottom:24px" aria-labelledby="admission-title">
+<h2 id="admission-title">Staged collection recovery</h2>
+<p class="dm">Read-only preview. This panel does not enable collection or change the gateway.</p>
+<div id="admission-state" role="status" aria-live="polite">Loading staged status...</div>
+<div id="admission-detail"></div>
+<p class="err">Pending readings are only in memory until confirmed saved. Closing the process can lose them.</p>
+<p class="dm">Counts are separate, momentary observations. Last send is process-local. Signed server admission does not confirm rules, commands or provider delivery. This is separate from the broker buffer above.</p>
+<p class="dm" id="admission-asof"></p>
+</section>
 <div class="card"><h2>Devices</h2><div id="devs"><div class="empty">Loading...</div></div></div>
 <div class="card" style="margin-top:12px"><h2>Detected by this gateway</h2><div class="dm" id="dsub">Read-only proposals. Nothing is polled until someone adds it.</div><div id="found"><div class="empty">Loading...</div></div></div>
 </main>
@@ -59,5 +68,34 @@ h+='<div class="dev"><div><div class="dn">'+t+'</div><div class="dm">'+esc(f.sta
 document.getElementById("found").innerHTML=h||'<div class="empty">Nothing detected yet. The first scan starts shortly after the agent does.</div>';
 var n=(d.last_notes||[]).map(function(x){return'<div class="dm">'+esc(x)+"</div>"}).join("");if(n)document.getElementById("found").innerHTML+=n
 }).catch(function(){})}
-tick();found();setInterval(tick,3000);setInterval(found,15000)
+function admissionUnavailable(){
+ document.getElementById("admission-state").textContent="Staged status unavailable. No current counts.";
+ document.getElementById("admission-detail").replaceChildren();document.getElementById("admission-asof").textContent="";
+}
+var admissionActive=false;
+function admission(){if(document.body.dataset.admission!=="enabled"||admissionActive)return;
+ admissionActive=true;var controller=new AbortController();var timeout=setTimeout(function(){controller.abort()},3000);
+ document.getElementById("admission").hidden=false;
+ fetch("/api/admission-status",{signal:controller.signal}).then(function(r){if(!r.ok)throw Error("unavailable");return r.json()}).then(function(d){
+ var c=d.collection,s=d.session;
+ if(!c||!s||!d.as_of||!Number.isFinite(Date.parse(d.as_of))||!["open","stopping","stopped"].includes(c.state)||!["open","closing","closed"].includes(s.state)||!Number.isInteger(c.pending)||c.pending<0)throw Error("invalid status");
+ if(s.queue&&(!Number.isInteger(s.queue.retained)||!Number.isInteger(s.queue.capacity)||s.queue.retained<0||s.queue.capacity<1||s.queue.retained>s.queue.capacity))throw Error("invalid counts");
+ var state=c.state==="open"?(c.active?"Collection call in progress":"Collector open - no automatic polling"):c.state==="stopping"?"Stopping - wait for the active call to finish":"Collector stopped - no new source reads";
+ if(s.state!=="open")state+=". Session "+(s.state==="closed"?"closed":"closing");
+ document.getElementById("admission-state").textContent=state;
+ var h='<div class="vals"><span class="chip">In-memory pending: '+esc(c.pending)+'</span>';
+ if(s.state==="open"&&s.queue)h+='<span class="chip">Saved rows: '+esc(s.queue.retained)+' / '+esc(s.queue.capacity)+'</span>';
+ else h+='<span class="chip">Saved row count unavailable</span>';
+ h+='</div>';
+ if(c.pending>0)h+='<p class="err">Keep this process open. Do not start a new poll or replace the source. Exact pending input needs explicit retention recovery; this panel cannot retry it.</p>';
+ if(s.queue&&s.queue.full)h+='<p class="err">Retained store is full. New samples cannot be saved. Existing rows are not evicted.</p>';
+ if(s.sending)h+='<p>One send call is active. Do not start another.</p>';
+ if(s.last_send){var l=s.last_send,b=l.batch;var label=l.outcome==="uncertain"?"Uncertain - the server may already have committed. Keep the same input for explicit reconciliation.":l.outcome==="admission-confirmed"?"Signed server admission confirmed. This is not effect delivery.":l.outcome==="idle"?"No rows selected in the last call.":"Last send refused. No automatic retry.";
+ h+='<p>'+label+'</p><div class="dm">Last call only: attempted '+esc(b.Attempted)+', admission-reconciled '+esc(b.Reconciled)+'. Not a current backlog count.</div>';
+ }else h+='<p class="dm">No send result in this process session. Reopening does not restore send history.</p>';
+ document.getElementById("admission-detail").innerHTML=h;
+ document.getElementById("admission-asof").textContent="Observed on this gateway: "+d.as_of;
+ }).catch(admissionUnavailable).finally(function(){clearTimeout(timeout);admissionActive=false})
+}
+tick();found();admission();if(document.body.dataset.admission==="enabled")setInterval(admission,5000);setInterval(tick,3000);setInterval(found,15000)
 </script></body></html>

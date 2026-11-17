@@ -1879,3 +1879,50 @@ power-loss, physical meter, native Windows runtime, GUI operational recovery or
 production no-loss acceptance is claimed. Durable collector intent/operator UX,
 authenticated pairing/key lifecycle, production ACK/derived work replay, staged
 image/restore compatibility and the joint server/fresh EXE handoff stay open.
+
+
+### Opt-in read-only local recovery panel (no runtime activation)
+
+Collector.RecoveryStatus samples the real Collector and Session without polling,
+retaining, sending, reconciling or closing. It exposes bounded status/counts and
+process-local last-send summary, not payloads, event IDs, source addresses,
+endpoints, private paths or keys. Failed/cancelled reads return zero evidence.
+The two objects are sampled separately, NOT an atomic snapshot or delivery
+receipt. Observation time is the gateway clock, not meter-clock proof.
+
+Local UI Info.StagedAdmission is a separately supplied opt-in callback. Existing
+production callers leave it nil: the panel stays hidden and makes NO staged
+status fetch or cadence; /api/admission-status returns404. Only GET/HEAD is
+allowed, writes refuse before callback invocation. Opted-in probes get a one
+second context deadline; callbacks must be cheap/cancellable and read-only. A
+misbehaving callback cannot be forcibly interrupted by this context. Failures
+return503 generic text without partial counts or error strings. Existing no-store,
+CSP and content-sniffing/referrer headers apply. There is no network listener,
+new authentication grant, startup registration or operational action here.
+
+The read-only panel separates in-memory pending from saved rows, warns against
+new reads/source replacement while pending, marks full capacity without eviction,
+and distinguishes open/stopping/stopped and closing/closed session. It never
+shows a current queue count after session closure starts. A last send is clearly
+process-local; uncertain server commit needs SAME input explicit reconciliation,
+not a fresh event or automatic retry. Signed admission is NOT rules/commands or
+provider completion, and this store is separate from the legacy broker buffer.
+The panel cannot recover or retry pending input. Pending remains VOLATILE before
+confirmed commit; keeping the process open matters. It is not a durable journal.
+
+Enabled local status reads run every5seconds with no overlapping fetch and a
+3second browser timeout. Unavailable/malformed status clears prior counts and
+observation time rather than showing stale evidence. This is a local loopback
+preview cadence, not polling another person's logged-in external account.
+Actual Chrome desktop1280/mobile390 renders were pixel-inspected for pending,
+uncertain, closed and unavailable states, including after clearing prior data.
+They use synthetic fixture JSON and are render/behavior evidence, not owner or
+native runtime proof. Nine JavaScript regressions run the actual embedded HTML
+functions in DOM tests for default-hidden/no-fetch, pending, all four last-send
+outcomes, closed/no-stale-count, failure/malformed clearing, timeout and overlap.
+Real Collector/Session capacity-failure and stopped/closed objects, no-secret
+JSON, and handler opt-in/read-only/deadline/redaction pass three race repeats.
+No start/stop/send/retry button, configured runtime callback, native installer
+acceptance or hardware proof is added. Durable intent/operator actions,
+authenticated endpoint/pairing/key lifecycle, production ACK/derived replay,
+staged image/restore and the joint server/fresh EXE handoff remain open.
