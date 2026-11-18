@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+var ErrAdmissionDrain = errors.New("staged admission handler drain unconfirmed; keep database and signing authority alive until WaitDrained confirms")
+
 var ErrAdmissionServer = errors.New("staged admission server requires explicit bounded mutual TLS configuration")
 
 type AdmissionServerConfig struct {
@@ -33,6 +35,10 @@ type AdmissionServer struct {
 	server  *http.Server
 	mu      sync.Mutex
 	started bool
+	closing bool
+	active  int
+	drained chan struct{}
+	handler http.Handler
 }
 
 func NewAdmissionServer(c AdmissionServerConfig) (*AdmissionServer, error) {
@@ -92,17 +98,21 @@ func NewAdmissionServer(c AdmissionServerConfig) (*AdmissionServer, error) {
 	}
 	cert.SupportedSignatureAlgorithms = append([]tls.SignatureScheme(nil), c.Certificate.SupportedSignatureAlgorithms...)
 	cfg := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: c.ClientCAs.Clone(), NextProtos: []string{"http/1.1"}, SessionTicketsDisabled: true}
-	return &AdmissionServer{server: &http.Server{Handler: handler, TLSConfig: cfg, TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 8192}}, nil
+	s := &AdmissionServer{handler: handler, drained: make(chan struct{})}
+	s.server = &http.Server{Handler: http.HandlerFunc(s.handle), TLSConfig: cfg, TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 8192}
+	return s, nil
 }
 
 // Serve runs ONCE. Cancellation permanently closes admission, drains active
 // requests for up to two seconds, then closes remaining connections. A lost
 // response or timeout can follow a committed transaction: retain SAME input for
 // explicit reconciliation. No automatic re-admission/effect retry is performed.
+// Forced close with a still-active handler returns ErrAdmissionDrain, NOT nil.
+// Keep shared DB/signer alive until WaitDrained subsequently confirms completion.
 // Listener ownership transfers only once serving starts, including on errors.
 // Cancelled/nil/reused calls refuse before taking ownership of a new listener.
 func (s *AdmissionServer) Serve(ctx context.Context, ln net.Listener) error {
-	if s == nil || ctx == nil || ln == nil {
+	if s == nil || s.server == nil || s.drained == nil || ctx == nil || ln == nil {
 		return ErrAdmissionServer
 	}
 	if err := ctx.Err(); err != nil {
@@ -120,19 +130,87 @@ func (s *AdmissionServer) Serve(ctx context.Context, ln net.Listener) error {
 		defer close(stopped)
 		select {
 		case <-ctx.Done():
+			s.closeAdmission()
 			drain, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			if err := s.server.Shutdown(drain); err != nil {
 				_ = s.server.Close()
 			}
 		case <-done:
+			s.closeAdmission()
+			_ = s.server.Close()
 		}
 	}()
 	err := s.server.ServeTLS(ln, "", "")
 	close(done)
 	<-stopped
+	s.mu.Lock()
+	active := s.active
+	s.mu.Unlock()
+	if active != 0 {
+		return ErrAdmissionDrain
+	}
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
+}
+
+// handle tracks the ACTUAL handler lifetime, not merely its connection. A forced
+// connection close/cancel is not proof that a DB operation or response write ended.
+func (s *AdmissionServer) handle(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		http.Error(w, "staged admission closing; retain original input", http.StatusServiceUnavailable)
+		return
+	}
+	s.active++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.active--
+		if s.closing && s.active == 0 {
+			close(s.drained)
+		}
+	}()
+	s.handler.ServeHTTP(w, r)
+}
+func (s *AdmissionServer) closeAdmission() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.closing {
+		s.closing = true
+		if s.active == 0 {
+			close(s.drained)
+		}
+	}
+}
+
+// WaitDrained is an explicit local wait, NOT a send/retry/restart. It confirms
+// admission is permanently closed AND all tracked handler calls have returned.
+// On Serve's ErrAdmissionDrain, keep the shared DB/signer alive until this returns
+// nil. A timeout is still unconfirmed: do not free those resources. It refuses
+// before the single Serve has started, so a never-started server cannot be
+// mistaken for a stopped running endpoint. It may be called while Serve stops.
+func (s *AdmissionServer) WaitDrained(ctx context.Context) error {
+	if s == nil || s.server == nil || s.drained == nil || ctx == nil {
+		return ErrAdmissionServer
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	started, done := s.started, s.drained
+	s.mu.Unlock()
+	if !started {
+		return ErrAdmissionServer
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

@@ -9,7 +9,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -195,7 +197,7 @@ func TestAdmissionServerCancellationDrainsInFlightWithoutRetry(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	calls := 0
 	// Test-only block replaces the handler, not the product TLS/Serve lifecycle.
-	s.server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; close(started); <-release; w.WriteHeader(204) })
+	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; close(started); <-release; w.WriteHeader(204) })
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -287,5 +289,86 @@ func TestAdmissionServerActualUnknownRouteAndSlowHeaders(t *testing.T) {
 	_, err = io.ReadAll(conn)
 	if time.Since(start) > 6*time.Second {
 		t.Fatal("header timeout not enforced", err)
+	}
+}
+
+func TestAdmissionServerForcedCloseIsNotHandlerDrain(t *testing.T) {
+	f := httpTLSFixture(t)
+	s, err := NewAdmissionServer(serverConfig(t, f, Engine{Enabled: true, Pool: &pgxpool.Pool{}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&AdmissionServer{}).WaitDrained(t.Context()); !errors.Is(err, ErrAdmissionServer) {
+		t.Fatal(err)
+	}
+	if err := (&AdmissionServer{}).Serve(t.Context(), nil); !errors.Is(err, ErrAdmissionServer) {
+		t.Fatal(err)
+	}
+	if err := s.WaitDrained(t.Context()); !errors.Is(err, ErrAdmissionServer) {
+		t.Fatal("unstarted reported drained", err)
+	}
+	started, release, handlerDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		close(started)
+		<-release
+		close(handlerDone)
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx, ln) }()
+	response := make(chan error, 1)
+	go func() {
+		transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: f.roots, Certificates: []tls.Certificate{f.client}}, DisableKeepAlives: true}
+		defer transport.CloseIdleConnections()
+		client := &http.Client{Transport: transport, Timeout: 4 * time.Second}
+		r, e := client.Get("https://" + ln.Addr().String() + "/")
+		if r != nil {
+			r.Body.Close()
+		}
+		response <- e
+	}()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, ErrAdmissionDrain) {
+		t.Fatal("forced connection close falsely confirmed drain", err)
+	}
+	if err := <-response; err == nil {
+		t.Fatal("uncompleted response succeeded")
+	}
+	wait, stop := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	if err := s.WaitDrained(wait); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("active handler reported drained", err)
+	}
+	stop()
+	// No new handler may enter once shutdown begins, including direct dispatch.
+	rec := httptest.NewRecorder()
+	s.handle(rec, httptest.NewRequest("GET", "/", nil))
+	if rec.Code != 503 || calls.Load() != 1 {
+		t.Fatal(rec.Code, calls.Load())
+	}
+	close(release)
+	<-handlerDone
+	wait, stop = context.WithTimeout(t.Context(), time.Second)
+	defer stop()
+	if err := s.WaitDrained(wait); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatal("automatic retry", calls.Load())
+	}
+	if err := s.WaitDrained(nil); !errors.Is(err, ErrAdmissionServer) {
+		t.Fatal(err)
+	}
+	cancelled, stop := context.WithCancel(t.Context())
+	stop()
+	if err := s.WaitDrained(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
 	}
 }

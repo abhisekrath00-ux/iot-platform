@@ -196,9 +196,9 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	h := dedicated.server.Handler
+	h := dedicated.handler
 	var requests atomic.Int32
-	dedicated.server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	dedicated.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := requests.Add(1)
 		h.ServeHTTP(lostAdmissionResponse{w, n == 1}, r)
 	})

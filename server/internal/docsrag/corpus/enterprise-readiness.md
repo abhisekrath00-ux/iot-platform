@@ -2093,3 +2093,31 @@ TLS proxy support, authenticated operator GUI recovery, service startup and owne
 activation remain OPEN. The full npm security gate remains RED as recorded above;
 passing this transport does not clear that advisory or make a ready-to-update
 server/fresh Windows EXE handoff. No owner installation was changed.
+
+#### Correction: socket close does not confirm handler/DB drain
+
+The initial dedicated server preparation could return nil after a forced
+connection close while its handler was still active. That was NOT proof it was
+safe to close the shared DB/signer. The corrected server tracks actual handler
+entry/return independently from connection state. Shutdown permanently closes
+admission before draining; later dispatches return503 without entering the
+handler. A forced close with a still-active handler returns ErrAdmissionDrain,
+never a successful drain. No new poll/send/effect/restart is triggered.
+
+WaitDrained(ctx) is an explicit local wait for permanently closed admission AND
+zero active handler calls. It refuses nil/zero-value/unstarted servers and honors
+cancellation. If it times out, shared DB and signer must remain alive; there is
+still no confirmed drain. It may confirm before the final socket teardown ends,
+but no new handler can enter after admission closes. Existing in-flight commits
+can still be uncertain to the client. This is not a rollback or effect receipt.
+
+The cancellation-resistant-handler regression keeps a real authenticated TLS
+request active after cancellation and forced socket closure: Serve must return
+ErrAdmissionDrain, a short WaitDrained must time out, a new dispatch must refuse,
+and only the original handler returning allows a later WaitDrained to confirm.
+Exactly one handler ran. This is a controlled lifecycle test, not proof that every
+DB driver or external provider always honors cancellation. Existing actual
+PG/mTLS journal-reviewed exact-replay bridge remains separately required.
+No owner service, automatic resource cleanup/retry, production startup, key
+lifecycle, native installer or GUI acceptance is added. Full security gate remains
+red and historical green results must not be used as current advisory clearance.
