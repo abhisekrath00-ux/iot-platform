@@ -141,7 +141,7 @@ func (s *AdmissionServer) Serve(ctx context.Context, ln net.Listener) error {
 			_ = s.server.Close()
 		}
 	}()
-	err := s.server.ServeTLS(ln, "", "")
+	err := s.server.ServeTLS(newBoundedAdmissionListener(ln), "", "")
 	close(done)
 	<-stopped
 	s.mu.Lock()
@@ -163,6 +163,13 @@ func (s *AdmissionServer) handle(w http.ResponseWriter, r *http.Request) {
 	if s.closing {
 		s.mu.Unlock()
 		http.Error(w, "staged admission closing; retain original input", http.StatusServiceUnavailable)
+		return
+	}
+	if s.active >= admissionHandlerLimit {
+		s.mu.Unlock()
+		w.Header().Set("Connection", "close")
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, "staged admission capacity unavailable; retain original input", http.StatusServiceUnavailable)
 		return
 	}
 	s.active++

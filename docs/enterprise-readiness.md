@@ -2121,3 +2121,37 @@ PG/mTLS journal-reviewed exact-replay bridge remains separately required.
 No owner service, automatic resource cleanup/retry, production startup, key
 lifecycle, native installer or GUI acceptance is added. Full security gate remains
 red and historical green results must not be used as current advisory clearance.
+
+#### Per-instance transport and handler budgets (unwired)
+
+The dedicated server now acquires one of64 connection slots BEFORE accepting a
+socket. Slow/incomplete TLS handshakes therefore count, not only authenticated
+HTTP calls. The wrapper does not create one waiting goroutine per peer. Closing
+an accepted connection returns its slot exactly once. Listener Close wakes both
+an underlying Accept and a full-capacity wait, so cancellation cannot strand
+shutdown behind the budget. Listener ownership/lifecycle remains the same.
+
+At most16 handler calls enter concurrently per server instance. Additional HTTP
+calls return503/Connection:close/no-store without entering admission, waiting for
+the global DB lock, queuing a future handler or retrying. This refusal means keep
+original input, NOT permission to discard or manufacture new identities. A caller
+may explicitly reconcile the SAME retained input later. Existing closing and
+confirmed-handler-drain rules remain independent of these limits.
+
+Excess connections may remain in the operating system's TCP listen backlog; the
+budget does not promise immediate TCP refusal or an authenticated overload reply
+before TLS. These are fixed local resource bounds, not per-tenant fairness,
+request-per-second rate limiting, DDoS protection, distributed concurrency limits,
+a throughput/SLA measurement or native/owner acceptance. Many server instances
+multiply the bound. Ordinary kernel/TLS buffers, CA verification and logging still
+consume resources; the header/body/deadline limits remain separately required.
+No owner listener, startup enablement, database/schema/queue/key changes or
+background retries are added. Full npm security audit remains red.
+
+Three local race repetitions exercise exact pre-Accept capacity accounting,
+repeat-Close/no slot leak, full-budget listener cancellation, real64 incomplete
+TLS connections during shutdown, real mTLS16 blocked handlers plus a17th503,
+no delayed handler execution/retry, and all existing drain/TLS regressions. The
+controlled handler is test-only and never touches DB. The separate actual
+PG/mTLS/edge journal-reviewed recovery/lost-response/exact-replay bridge continues
+to pass with the product budgets in place. No general load acceptance is claimed.
