@@ -191,15 +191,18 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 	x, envelope := fixture(t)
 	f := httpTLSFixture(t)
 	c := httpConfig(t, f, x)
-	h, e := NewAdmissionHTTP(c)
+	dedicated, e := NewAdmissionServer(AdmissionServerConfig{Enabled: true, Admission: c, Certificate: f.server, ClientCAs: f.roots})
+
 	if e != nil {
 		t.Fatal(e)
 	}
+	h := dedicated.server.Handler
 	var requests atomic.Int32
-	s := httpTLSServer(t, f, func(w http.ResponseWriter, r *http.Request) {
+	dedicated.server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := requests.Add(1)
 		h.ServeHTTP(lostAdmissionResponse{w, n == 1}, r)
 	})
+	endpoint := startAdmissionServer(t, dedicated)
 	kb, e := x509.MarshalPKCS8PrivateKey(f.client.PrivateKey)
 	if e != nil {
 		t.Fatal(e)
@@ -211,7 +214,7 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 		Roots, Certificate, Key, PublicKey []byte
 		Audience                           string
 		Reading                            Envelope
-	}{s.URL + c.Path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: f.ca}), cert, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: kb}), c.Signing.PrivateKey.Public().(ed25519.PublicKey), c.Signing.Audience, envelope})
+	}{endpoint + c.Path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: f.ca}), cert, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: kb}), c.Signing.PrivateKey.Public().(ed25519.PublicKey), c.Signing.Audience, envelope})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -252,6 +255,7 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 		t.Fatal("reviewed recovery bridge did not run", string(out))
 	}
 	t.Log("LIVE_REVIEWED_RECOVERY_PG_MTLS_EDGE_REPLAY_OK")
+	t.Log("LIVE_DEDICATED_TLS13_SERVER_PG_MTLS_EDGE_REPLAY_OK")
 	if requests.Load() != 2 {
 		t.Fatal("unexpected automatic request", requests.Load())
 	}
@@ -260,7 +264,7 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 	// A conflicting same identity is refused with NO signed receipt.
 	changed := envelope
 	changed.Value++
-	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL+c.Path, bytes.NewReader(wirePayload(t, changed)))
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint+c.Path, bytes.NewReader(wirePayload(t, changed)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-HexThings-Telemetry-Topic", "t/a/g/g/telemetry")
 	response, e := client.Do(req)
@@ -276,7 +280,7 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 	exec(t, x.Pool, `CREATE FUNCTION http_refusal() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'synthetic refusal'; END $$ LANGUAGE plpgsql; CREATE TRIGGER http_refusal BEFORE INSERT ON telemetry FOR EACH ROW EXECUTE FUNCTION http_refusal()`)
 	fresh := envelope
 	fresh.EventID = "http-refused"
-	req, _ = http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL+c.Path, bytes.NewReader(wirePayload(t, fresh)))
+	req, _ = http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint+c.Path, bytes.NewReader(wirePayload(t, fresh)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-HexThings-Telemetry-Topic", "t/a/g/g/telemetry")
 	response, e = client.Do(req)
@@ -307,6 +311,7 @@ func TestAdmissionHTTPBodyDeadlineAndUnsupportedWriter(t *testing.T) {
 	c := httpConfig(t, f, Engine{Enabled: true, Pool: &pgxpool.Pool{}})
 	c.Timeout = time.Second
 	h, e := NewAdmissionHTTP(c)
+
 	if e != nil {
 		t.Fatal(e)
 	}

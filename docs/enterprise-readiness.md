@@ -2045,3 +2045,51 @@ GHSA-fc5q-39xc-vjpf affects locked picomatch4.0.7 in Vite/Vitest tooling; no pat
 release was available at 18 November 2026 01:52 IST. Production-only audit0 and a
 final nginx static-only image do NOT clear the full security gate. No suppression,
 forced downgrade, workflow weakening or new permissions have been applied.
+
+### Dedicated staged TLS transport (unwired, no owner endpoint)
+
+NewAdmissionServer is a separate explicit opt-in constructor for the existing
+certificate-bound admission handler. It opens NO socket and registers NO startup
+route. Its caller must explicitly supply an authorized listener and separately
+installed schema, signing authority, exact leaf/topic bindings and TLS keypair.
+No enrollment, key generation, owner address, config flag or automatic activation
+is added. Client certificate CA trust alone does not grant a telemetry route.
+
+The dedicated server requires TLS1.3 with verified client certificates, a nonempty
+explicit client CA pool, a matching unexpired non-CA server certificate with server
+usage and hostname/IP SAN, and frozen exact certificate routes. It advertises only
+HTTP/1.1, disables HTTP/2 and session tickets, and keeps header/read/write/idle
+limits at5/30/30/5seconds with MaxHeaderBytes8192 (Go's parser adds its documented
+read-buffer allowance; this is not an exact wire-byte cap). Handler still limits
+the input body to8192bytes and its own1-30second operation deadline. Certificate
+DER, parsed leaf, auxiliary certificate slices and client roots are detached from
+caller mutation; the crypto.Signer object remains caller-owned and must remain
+immutable/alive. This does not provide trust in an arbitrary key's storage.
+
+Serve transfers an explicit listener only when its single invocation starts.
+Nil/cancelled/reused calls refuse before taking a new listener. Cancellation
+stops admission and drains active requests for up to2seconds, then closes remaining
+connections if needed. DB lifetime must exceed draining. A shutdown/lost response
+can follow commit; preserve SAME input for explicit reconciliation, never infer
+rollback or retry external effects. No internal reconnect/restart/re-admission,
+worker or external effects are added. HTTP server handshake diagnostics remain
+available through the standard server logger; no keys or tokens are logged here.
+
+Three local race repetitions exercise actual TLS1.3, missing client/foreign CA/
+TLS1.2/h2-only refusal, verified but unbound client leaf403 before DB, oversized
+headers431, real slow-header timeout, frozen root/leaf configuration, cancellation
+with active-request drain, closed listeners and single-use refusal. Existing
+real-PG/mTLS/edge bridge now uses this product server rather than only a test
+server's TLS defaults: disposable TCP read, committed journal, retained INSERT
+fault, close/reopen, explicit reviewed exact retention, server commit/lost response,
+explicit signed same-input replay and atomic edge deletion. Three repeats pass;
+required LIVE_DEDICATED_TLS13_SERVER_PG_MTLS_EDGE_REPLAY_OK, two requests, one
+original admitted row, zero effects. The response-loss wrapper is test-only.
+
+These are isolated local tests, NOT native/owner or operational endpoint
+acceptance. Frozen routes require a new server for replacement; active hot
+revocation, certificate/key enrollment/rotation, rate/concurrency/load limits,
+TLS proxy support, authenticated operator GUI recovery, service startup and owner
+activation remain OPEN. The full npm security gate remains RED as recorded above;
+passing this transport does not clear that advisory or make a ready-to-update
+server/fresh Windows EXE handoff. No owner installation was changed.
