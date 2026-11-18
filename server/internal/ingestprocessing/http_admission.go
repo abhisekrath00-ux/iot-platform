@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -16,7 +17,8 @@ var ErrAdmissionHTTP = errors.New("staged admission HTTP requires explicit engin
 // CertificateRoute is an explicit administrator-supplied full leaf certificate
 // SHA256 binding, not a CN, forwarded header, discovery result or enrollment.
 // One certificate authorizes one exact tenant/gateway topic. Rotation/revocation
-// requires replacing configuration; there is no mutable enrollment endpoint.
+// requires separately authorized configuration; this handler also supports a
+// deny-only process-local fence, not a mutable enrollment endpoint.
 type CertificateRoute struct {
 	LeafSHA256 [32]byte
 	Topic      string
@@ -45,6 +47,8 @@ type AdmissionHTTP struct {
 	path    string
 	routes  map[[32]byte]string
 	timeout time.Duration
+	routeMu sync.Mutex
+	fences  map[[32]byte]*routeFence
 }
 
 func NewAdmissionHTTP(c AdmissionHTTPConfig) (*AdmissionHTTP, error) {
@@ -70,7 +74,11 @@ func NewAdmissionHTTP(c AdmissionHTTPConfig) (*AdmissionHTTP, error) {
 	}
 	signing := c.Signing
 	signing.PrivateKey = key
-	return &AdmissionHTTP{engine: c.Engine, signing: signing, path: c.Path, routes: routes, timeout: c.Timeout}, nil
+	fences := make(map[[32]byte]*routeFence, len(routes))
+	for leaf := range routes {
+		fences[leaf] = &routeFence{drained: make(chan struct{})}
+	}
+	return &AdmissionHTTP{fences: fences, engine: c.Engine, signing: signing, path: c.Path, routes: routes, timeout: c.Timeout}, nil
 }
 func validHTTPTopic(s string) bool {
 	// Reuse the exact wire parser, with a synthetic stable canonical input. No DB.
@@ -145,6 +153,14 @@ func (h *AdmissionHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuse(http.StatusBadRequest)
 		return
 	}
+	// This fence is immediately before DB admission and remains held logically
+	// through response completion. Earlier body reads do not reserve route access.
+	leafID := sha256.Sum256(leaf.Raw)
+	if h.beginRoute(leafID) != nil {
+		refuse(http.StatusForbidden)
+		return
+	}
+	defer h.endRoute(leafID)
 	wire, err := h.engine.AdmitSignedMQTT(ctx, topic, b, h.signing)
 	if err != nil || ctx.Err() != nil {
 		refuse(http.StatusServiceUnavailable)

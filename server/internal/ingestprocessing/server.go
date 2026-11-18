@@ -28,17 +28,18 @@ type AdmissionServerConfig struct {
 // or pairing/enrollment service. NewAdmissionServer opens no listener. Serve
 // requires a caller-owned, explicitly opened listener in an authorized environment.
 // No startup uses it. Frozen certificate routes must be replaced via a NEW server;
-// it supplies no hot rotation, revocation list or owner activation. The caller
+// it supplies no hot rotation, persistent revocation list or owner activation. The caller
 // must keep its crypto.Signer immutable/alive and close its DB after Serve drains.
 // TLS termination proxies are unsupported. Plaintext is never served.
 type AdmissionServer struct {
-	server  *http.Server
-	mu      sync.Mutex
-	started bool
-	closing bool
-	active  int
-	drained chan struct{}
-	handler http.Handler
+	server    *http.Server
+	mu        sync.Mutex
+	started   bool
+	closing   bool
+	active    int
+	drained   chan struct{}
+	handler   http.Handler
+	admission *AdmissionHTTP
 }
 
 func NewAdmissionServer(c AdmissionServerConfig) (*AdmissionServer, error) {
@@ -98,7 +99,7 @@ func NewAdmissionServer(c AdmissionServerConfig) (*AdmissionServer, error) {
 	}
 	cert.SupportedSignatureAlgorithms = append([]tls.SignatureScheme(nil), c.Certificate.SupportedSignatureAlgorithms...)
 	cfg := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: c.ClientCAs.Clone(), NextProtos: []string{"http/1.1"}, SessionTicketsDisabled: true}
-	s := &AdmissionServer{handler: handler, drained: make(chan struct{})}
+	s := &AdmissionServer{handler: handler, admission: handler, drained: make(chan struct{})}
 	s.server = &http.Server{Handler: http.HandlerFunc(s.handle), TLSConfig: cfg, TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 8192}
 	return s, nil
 }

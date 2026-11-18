@@ -2155,3 +2155,39 @@ no delayed handler execution/retry, and all existing drain/TLS regressions. The
 controlled handler is test-only and never touches DB. The separate actual
 PG/mTLS/edge journal-reviewed recovery/lost-response/exact-replay bridge continues
 to pass with the product budgets in place. No general load acceptance is claimed.
+
+#### Deny-only process-local leaf fence (not durable revocation)
+
+AdmissionHTTP/AdmissionServer.RevokeRoute accepts only an EXISTING exact full-leaf
+SHA256 binding and permanently denies NEW DB admission on that handler instance.
+No add, replace, un-revoke, enrollment, certificate creation, route grant or
+management HTTP endpoint exists. The frozen topic/route map remains unchanged.
+A separate synchronized deny fence is checked immediately before DB admission,
+after bounded body parsing. A body read begun earlier confers no reservation.
+
+Calls that crossed this fence BEFORE denial can still commit and return a signed
+receipt, or lose their response. RevokeRoute does not cancel, roll back, resend or
+retry them. It returns an explicit RouteRevocation.Wait(ctx) handle. Wait confirms
+only that earlier route handlers have returned, not rollback, effect delivery,
+queue deletion or absence of a committed reading. Timeout is unconfirmed. Repeat
+denial is idempotent; absent/nil bindings and invalid wait handles refuse. It does
+not disclose route data, edit a file, touch DB or start a listener by itself.
+
+IMPORTANT LIMITATION: this is PROCESS-LOCAL and NOT an operational revocation
+system. A new server constructed from stale authority configuration can authorize
+the old leaf again; the regression explicitly demonstrates that limitation.
+Durable authenticated authority must exclude revoked bindings from EVERY future
+construction before this can be exposed to an operator. No runtime caller uses
+this method. Certificate enrollment, persistent revocation, rotation, owner
+management UI and deployment remain open, as does current security acceptance.
+
+Three race repeats exercise concurrent admission/denial boundaries, repeat deny,
+unknown binding, wait cancellation/timeout and real mTLS403 before any DB access.
+A separate real PG test holds the existing global admission lock, starts one
+actual authenticated route request, observes it enter, denies the leaf, verifies
+Wait times out, releases the lock, and verifies the earlier request commits ONE
+original row and no effect. Only after that handler returns does Wait confirm;
+a subsequent exact request returns403 with no signed receipt or extra row.
+Marker LIVE_ROUTE_REVOCATION_FENCE_PG_COMMIT_NOT_ROLLBACK_OK. Existing real
+PG/mTLS/edge journal-reviewed recovery/lost-response/same-replay remains separately
+required. Controlled local tests do not establish native/owner/runtime acceptance.
