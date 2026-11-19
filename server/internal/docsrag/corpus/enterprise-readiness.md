@@ -2373,3 +2373,50 @@ Existing DB association is not global cross-gateway fingerprint uniqueness, tena
 admin denial authority, hostile-DB protection, key rotation/enrollment/recovery UX,
 broker ACL/session/manual-ACK replacement, immutable-image/restore compatibility or
 owner deployment. No new GUI or existing enrollment/update behavior was enabled.
+
+#### Fail-closed guarded server assembly, still no runtime activation
+
+`NewGuardedAdmissionServer` is a separate explicit assembly path; it requires BOTH
+`DurableDenials` and `GatewayAuthority` to be true rather than silently defaulting or
+upgrading legacy construction. Invalid TLS/signer/route config refuses BEFORE DB
+access. It reads exact95 catalog/core shape, then checks EVERY detached configured
+route under one bounded serializable transaction with the same admission advisory
+lock, durable denial epoch and current tenant/gateway row locks used for requests.
+A missing/denied/moved/revoked binding, exact94, wrong catalog directory, drift,
+cancelled context or old waiting snapshot returns NO server object. It performs
+no migration/repair, authority write, listener open, provider call or internal retry.
+No production startup calls it. Existing NewAdmissionServer/HTTP/direct engine/DB
+callers remain explicitly outside this constructor guarantee.
+
+This preflight is POINT-IN-TIME only. Schema inspection and route validation are
+separate transactions, not a hostile-DDL fence. It is not a new operator grant,
+tenant-admin recovery authorization, global fingerprint uniqueness or independent
+backup freshness/continuity proof. A restored older denial state can still have
+perfect shape. Independently preserve the original source witness and complete
+full image/rollback/restore acceptance BEFORE any future activation. No existing
+normal Update/exact93 migration behavior changed.
+
+The assembled handler keeps BOTH per-request guards, not a cached preflight yes.
+Actual PG/TLS tests admit once, mutate caller flags/routes without changing the
+frozen handler, then change the gateway status AFTER construction and refuse exact
+replay. Restoring gateway status does not bypass a subsequent durable denial.
+Reconstruction with the now-denied configured leaf refuses before Serve. Tests
+also validate multiple legitimate routes across tenants and zero authority writes,
+reject one bad route among valid routes, and refuse a constructor blocked with an
+OLD serializable snapshot after a gateway status change. Markers:
+GUARDED_SERVER_EXACT95_EVERY_ROUTE_PREFLIGHT_REFUSAL_NO_WRITES_OK,
+GUARDED_SERVER_REAL_PG_MTLS_PREFLIGHT_NOT_AUTHORITY_FROZEN_GUARDS_OK,
+GUARDED_SERVER_MULTIPLE_CURRENT_ROUTES_ZERO_AUTHORITY_WRITES_OK and
+GUARDED_SERVER_OLD_CONSTRUCTION_SNAPSHOT_REFUSED_OK.
+
+The current-gateway95 arm of the actual edge SQLite journal/reviewed recovery/
+PG/mTLS/lost-response/SAME replay bridge now uses THIS constructor. Legacy94 and
+durable-only95 modes still run separately, not silently upgraded. The explicit
+compiled setupctl/pg_dump/empty pg_restore proof also constructs the original
+server through this path; after restored denial the NEW guarded constructor refuses
+before any listener, with ACTUAL_PGRESTORE_GUARDED_SERVER_REFUSED_BEFORE_SERVE_OK.
+The legacy constructor with both per-request flags still separately starts and
+refuses that replay over actual TLS, proving runtime protection independently.
+This binary-backup proof remains OPTIONAL LOCAL evidence, SKIPPED ordinary CI
+without explicit TEST_DENIAL_* paths. This is not production/native/hardware or
+joint server/fresh Windows installer acceptance.

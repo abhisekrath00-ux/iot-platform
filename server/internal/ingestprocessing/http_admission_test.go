@@ -209,7 +209,14 @@ func livePGAndEdge(t *testing.T, durable, gateway bool) {
 	c.DurableDenials = durable
 	c.GatewayAuthority = gateway
 
-	dedicated, e := NewAdmissionServer(AdmissionServerConfig{Enabled: true, Admission: c, Certificate: f.server, ClientCAs: f.roots})
+	sc := AdmissionServerConfig{Enabled: true, Admission: c, Certificate: f.server, ClientCAs: f.roots}
+	var dedicated *AdmissionServer
+	var e error
+	if gateway {
+		dedicated, e = NewGuardedAdmissionServer(t.Context(), sc, filepath.Join("..", "..", "migrations"))
+	} else {
+		dedicated, e = NewAdmissionServer(sc)
+	}
 
 	if e != nil {
 		t.Fatal(e)

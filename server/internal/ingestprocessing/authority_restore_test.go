@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -108,7 +109,7 @@ func TestDenialActualOperatorLogicalBackupRestore(t *testing.T) {
 	config := serverConfig(t, f, x)
 	config.Admission.DurableDenials = true
 	config.Admission.GatewayAuthority = true
-	s, err := NewAdmissionServer(config)
+	s, err := NewGuardedAdmissionServer(t.Context(), config, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,6 +195,12 @@ func TestDenialActualOperatorLogicalBackupRestore(t *testing.T) {
 	// NEW server uses stale route plus restored DB. It must still deny exact replay
 	// unsigned without another row, proving restored denial is actually enforced.
 	config.Admission.Engine.Pool = pool
+	if guarded, err := NewGuardedAdmissionServer(t.Context(), config, dir); guarded != nil || !errors.Is(err, ErrGuardedAdmissionServer) {
+		t.Fatal("restored denied leaf returned a guarded server", guarded, err)
+	}
+	t.Log("ACTUAL_PGRESTORE_GUARDED_SERVER_REFUSED_BEFORE_SERVE_OK")
+	// The LEGACY constructor still returns an object; its enabled per-request
+	// guards must independently refuse the restored denial over actual TLS.
 	fresh, err := NewAdmissionServer(config)
 	if err != nil {
 		t.Fatal(err)
