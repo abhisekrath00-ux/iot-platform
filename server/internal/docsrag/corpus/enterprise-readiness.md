@@ -2420,3 +2420,74 @@ refuses that replay over actual TLS, proving runtime protection independently.
 This binary-backup proof remains OPTIONAL LOCAL evidence, SKIPPED ordinary CI
 without explicit TEST_DENIAL_* paths. This is not production/native/hardware or
 joint server/fresh Windows installer acceptance.
+
+#### Tracked-admin deny-only current-gateway quarantine, isolated controller only
+
+`NewGatewayQuarantineHTTP` is a separate explicit default-off controller. NO normal
+router/startup installs it. It changes ONLY the exact tenant/gateway status from
+active to revoked, plus one audit row in the SAME bounded serializable transaction.
+It NEVER calls global `DenyLeaf`, enrolls/rotates a key, grants access or unquarantines.
+A reused fingerprint on another tenant's gateway is not globally denied or changed.
+This is the current guarded-admission quarantine boundary, NOT broker certificate
+revocation/disconnection, all-handler protection, rollback or full recovery UX.
+
+The controller verifies its own HS256 bearer JWT using a detached copy of the
+explicit existing trusted issuer secret (minimum32 bytes). It requires expiry,
+non-future issued-at, subject, tenant, tracked session ID and admin role. Forwarded
+HTTPS headers, caller-injected role context, API keys and assistant-marked requests
+do not supply identity. Direct TLS is required, with no loopback plaintext exception.
+Only POST /staged/processing-v1/quarantine-gateway with bounded JSON is recognized.
+The exact gateway ID, canonical nonzero lowerhex full-leaf SHA256 and explicit
+compared-current-identity boolean are required; unknown fields including body tenant
+and trailing JSON refuse. A caller's comparison boolean is NOT proof of human
+presence, physical possession, reauthentication or a new owner permission.
+
+Before writes the SAME transaction locks the current exact-tenant user and tracked
+session rows FOR SHARE. Both token and live role must be admin; disabled/default-
+credential users, revoked/foreign/missing sessions, sessions not strictly newer than
+password-reset cutoff, and customer-scoped administrators refuse. No missing-user
+fallback exists. The current exact tenant/gateway must remain active edge/cert with
+the expected fingerprint. Locks survive through status/audit commit. An old waiting
+snapshot after demotion refuses. An already-entered authorized decision can commit
+BEFORE a waiting session revocation or scope change; that is not response delivery,
+retroactive rollback, handler drain or permission to retry. DB transaction deadline
+is bounded by ten seconds AND the JWT's expiry. An expired session during a blocked
+audit cancels and rolls back both status and audit in the actual PostgreSQL test.
+
+IMPORTANT LOCK COST: user_customer_scope has no absent-row/per-user writer protocol.
+The staged controller conservatively takes table SHARE NOWAIT BEFORE its first MVCC
+snapshot. This fences absent as well as existing scope rows but temporarily blocks
+ALL customer-scope inserts/updates/deletes until this bounded transaction ends.
+An already-busy scope writer makes it refuse503 immediately. No existing scope writer
+or production authorization behavior was changed. This conservative global scope
+fence needs operational review before any future activation; it is not advertised
+as scalable permission infrastructure. Live scope edits and session revocations
+are demonstrated waiting behind an entered decision, then completing after it.
+
+Actual PG/HTTPS tests use signed tracked-session tokens, deny demoted/disabled/
+password-reset/scoped/foreign users and changed gateway bindings with zero status,
+audit or global denial writes. Actual guarded mTLS admission commits one reading,
+admin HTTPS quarantines the gateway once, existing admission refuses exact replay
+unsigned, and reconstructed guarded server refuses before Serve. Blind repeated
+quarantine returns409 with one audit only, not an automatic retry or success claim.
+Another tenant deliberately reuses the leaf and keeps active status/current binding;
+the global denial epoch/list stays unchanged. Synthetic audit INSERT refusal rolls
+back the gateway change. Markers include:
+QUARANTINE_LIVE_SESSION_ROLE_TENANT_BINDING_REFUSAL_ZERO_WRITES_OK,
+QUARANTINE_ACTUAL_HTTPS_TRACKED_ADMIN_PG_MTLS_REPLAY_REFUSED_OTHER_TENANT_UNCHANGED_OK,
+QUARANTINE_AUDIT_REFUSAL_ROLLS_BACK_GATEWAY_STATUS_OK,
+QUARANTINE_OLD_ADMIN_SNAPSHOT_REFUSED_AFTER_DEMOTION_OK,
+QUARANTINE_ENTERED_COMMIT_PRECEDES_SESSION_SCOPE_CHANGES_NOT_RESPONSE_DRAIN_OK,
+QUARANTINE_BUSY_SCOPE_FENCE_FAILS_WITHOUT_AUTHORITY_WRITES_OK and
+QUARANTINE_SESSION_EXPIRY_CANCELS_ENTERED_TX_STATUS_AUDIT_ROLLBACK_OK.
+
+Commit/response errors remain UNCERTAIN; inspect current state/audit, never blindly
+retry or change identity. The caller must provide bounded HTTP transport limits and
+protect the existing issuer secret; no new token or permission was obtained. This
+controller is tested on isolated95 but does not install/repair any schema. Exact95
+and independently preserved restore continuity still precede any activation. The
+existing denial-only witness does NOT fingerprint gateway status, audit, sessions
+or customer scope, so it cannot certify preservation of this quarantine on restore.
+Immutable image/full identity+authorization restore and recovery remain OPEN. Legacy
+constructors/direct DB writers and already-entered admissions remain bypasses. No
+runtime route, normal Update/exact93 behavior, owner deployment or UI was enabled.
