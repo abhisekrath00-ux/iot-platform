@@ -77,6 +77,9 @@ func canonical(e Envelope) (Envelope, []byte, error) {
 type Engine struct {
 	Pool    *pgxpool.Pool
 	Enabled bool
+	// durableLeaf is private and only attached by the separately opted-in verified
+	// mTLS transport. Direct Engine admission is not certificate authorization.
+	durableLeaf *[32]byte
 }
 type Admission struct {
 	New   bool
@@ -113,6 +116,11 @@ func (x Engine) Admit(ctx context.Context, e Envelope) (Admission, error) {
 	}
 	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(731492068214)"); err != nil {
 		return Admission{}, err
+	}
+	if x.durableLeaf != nil {
+		if err = guardDurableLeaf(ctx, tx, *x.durableLeaf); err != nil {
+			return Admission{}, err
+		}
 	}
 	var original, raw, digest []byte
 	var state, owner, storedPolicy, attempt string

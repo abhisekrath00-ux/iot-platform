@@ -2191,3 +2191,73 @@ a subsequent exact request returns403 with no signed receipt or extra row.
 Marker LIVE_ROUTE_REVOCATION_FENCE_PG_COMMIT_NOT_ROLLBACK_OK. Existing real
 PG/mTLS/edge journal-reviewed recovery/lost-response/same-replay remains separately
 required. Controlled local tests do not establish native/owner/runtime acceptance.
+
+#### Separate staged95 durable leaf-denial transaction (still not operator auth)
+
+The separate `authorityschema` package embeds NEW
+`0095_admission_denial_v1.sql`, its exact byte catalog and reviewed object shape.
+It is NOT in the ordinary migrations directory or any startup path. Apply requires
+an already exact94 database, shares the migration lock, rejects other DB clients
+and unrecorded objects, and validates unchanged core93/94 plus new95 shapes inside
+one transaction. Commit failure is uncertain and requires inspection, never blind
+retry/repair/downgrade. Exact93 and exact94 public inspectors STILL REFUSE95.
+No existing93/94 SQL/catalog/shape bytes or owner update behavior were changed.
+This does not supply immutable old/new image, backup-restore or owner acceptance.
+
+The explicit `AdmissionHTTPConfig.DurableDenials` option is FALSE by default.
+When true, the verified full-leaf identity is attached privately to the existing
+engine admission call. The SAME serializable transaction takes a shared lock on
+the persistent singleton epoch and checks the exact denied-leaf table BEFORE any
+retained replay lookup, plan capture, telemetry insert or signed receipt. Missing
+schema/epoch, unavailable DB, denied leaf or serialization failure returns generic
+HTTP503 with no signature. This is not a retry instruction. Reconcile the SAME
+input explicitly, without retrying effects. No positive route grant is stored.
+
+`Engine.DenyLeaf` is a deny-only in-process maintenance primitive with NO runtime
+caller, management endpoint, owner authentication, token, enrollment, un-deny or
+rotation. The eventual controller must authenticate/authorize the owner separately.
+It increments the singleton revision and inserts the exact32-byte full-leaf hash
+in ONE transaction. It cannot authorize a new leaf/topic. Confirmation means only
+that the denial transaction committed. Earlier guarded admission transactions may
+commit BEFORE that confirmation and their signed responses can still arrive AFTER
+it. Denial does not cancel/roll back those commits or wait for response delivery.
+Any commit error is uncertain, not permission for an automatic retry.
+
+The epoch UPDATE matters: a serializable admission waiting on the existing global
+advisory lock already holds a snapshot. Merely selecting a revocation table after
+that wait could miss a denial committed meanwhile. Selecting the updated epoch
+FOR SHARE forces that old snapshot to serialize-fail instead. Conversely, a request
+that already holds the epoch's shared lock can finish its transaction before the
+denial's UPDATE can commit. No external effects are called by either path.
+
+Actual PG/mTLS tests cover an existing server and a NEW server/NEW database pool
+using identical stale leaf-route configuration, exact replay refusal after denial,
+an independently bound unrevoked leaf still working, missing/damaged authority and
+strict95 drift/maintenance refusal. A real mTLS request blocked on global admission
+before epoch check has its old snapshot refused after denial commits:
+LIVE_DURABLE_DENIAL_OLD_SERIALIZABLE_SNAPSHOT_REFUSED_OK. Another actual TLS request
+holds the epoch and blocks at telemetry insertion; denial waits, that request
+commits ONE row, then denial commits and subsequent exact replay refuses:
+LIVE_DURABLE_DENIAL_SERIALIZES_AFTER_ENTERED_REAL_TLS_COMMIT_OK. Reconstruction:
+LIVE_DURABLE_DENIAL_PG_MTLS_STALE_RECONSTRUCTION_REPLAY_REFUSAL_OK.
+
+The actual edge journal/reviewed recovery/PG/mTLS/lost-response/SAME-input explicit
+replay bridge also runs through the new durable option before denying that leaf:
+LIVE_DURABLE_DENIAL95_REVIEWED_JOURNAL_PG_MTLS_EDGE_REPLAY_OK. Legacy94 bridge remains
+separate. Tests exercise code used by the transport, not an unrelated fake store.
+
+LIMITS: this is durable denial only for explicitly guarded95 callers. Legacy
+non-durable constructors and direct unguarded Engine/DB writers STILL BYPASS it;
+a regression explicitly preserves that warning. Restoring an older database can
+lose denials, so retaining/validating authority through restore and enforcing guarded
+mode on every future runtime reconstruction remain activation gates. It is not
+hostile-DB protection, certificate/key provisioning, authenticated operator authority,
+provider rollback, edge queue deletion, native/owner deployment or a complete
+revocation product. No GUI button or production callback was enabled. The old
+process-local RevokeRoute/Wait contract remains separate and unchanged.
+
+Security checkpoint Nov19: the historical npm audit failure was an advisory-state
+change, not a patch. GHSA-fc5q-39xc-vjpf was withdrawn Nov18; unchanged full audit
+reported zero in exact e6ca901 CI44385778520. This does not make arbitrary untrusted
+globs safe. Go reachability reported zero called/imported findings with two unused
+required-module findings. Historical green/red runs are not owner readiness.

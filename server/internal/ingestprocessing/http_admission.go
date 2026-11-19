@@ -31,6 +31,9 @@ type AdmissionHTTPConfig struct {
 	Path    string
 	Routes  []CertificateRoute
 	Timeout time.Duration
+	// DurableDenials is separate explicit staging, requires exact authority95.
+	// False preserves historical process-local-only behavior, NOT operational safety.
+	DurableDenials bool
 }
 
 // AdmissionHTTP is an opt-in handler only: no production route/listener/startup
@@ -42,13 +45,14 @@ type AdmissionHTTPConfig struct {
 // A response error can follow commit; it is NOT rollback or permission to retry
 // external effects. There is no derived execution, MQTT ACK or internal retry.
 type AdmissionHTTP struct {
-	engine  Engine
-	signing ReceiptSigning
-	path    string
-	routes  map[[32]byte]string
-	timeout time.Duration
-	routeMu sync.Mutex
-	fences  map[[32]byte]*routeFence
+	engine         Engine
+	signing        ReceiptSigning
+	path           string
+	routes         map[[32]byte]string
+	timeout        time.Duration
+	routeMu        sync.Mutex
+	fences         map[[32]byte]*routeFence
+	durableDenials bool
 }
 
 func NewAdmissionHTTP(c AdmissionHTTPConfig) (*AdmissionHTTP, error) {
@@ -78,7 +82,7 @@ func NewAdmissionHTTP(c AdmissionHTTPConfig) (*AdmissionHTTP, error) {
 	for leaf := range routes {
 		fences[leaf] = &routeFence{drained: make(chan struct{})}
 	}
-	return &AdmissionHTTP{fences: fences, engine: c.Engine, signing: signing, path: c.Path, routes: routes, timeout: c.Timeout}, nil
+	return &AdmissionHTTP{durableDenials: c.DurableDenials, fences: fences, engine: c.Engine, signing: signing, path: c.Path, routes: routes, timeout: c.Timeout}, nil
 }
 func validHTTPTopic(s string) bool {
 	// Reuse the exact wire parser, with a synthetic stable canonical input. No DB.
@@ -161,7 +165,11 @@ func (h *AdmissionHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer h.endRoute(leafID)
-	wire, err := h.engine.AdmitSignedMQTT(ctx, topic, b, h.signing)
+	engine := h.engine
+	if h.durableDenials {
+		engine.durableLeaf = &leafID
+	}
+	wire, err := engine.AdmitSignedMQTT(ctx, topic, b, h.signing)
 	if err != nil || ctx.Err() != nil {
 		refuse(http.StatusServiceUnavailable)
 		return

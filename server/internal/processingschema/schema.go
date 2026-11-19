@@ -178,7 +178,20 @@ func Apply(ctx context.Context, pool *pgxpool.Pool, dir string) (Inspection, err
 	return Inspection{Version: 1, Status: "exact_staged_processing_v1_94"}, nil
 }
 
+// InspectAuthorityBase verifies the unchanged packaged94 and core93 objects
+// while allowing ONLY the separately staged authority95 ledger entry. It does
+// not inspect95 objects, install anything or relax the public exact94 inspector.
+// Only authorityschema uses this as one part of its own strict inspection.
+func InspectAuthorityBase(ctx context.Context, tx pgx.Tx, dir string) error {
+	if err := checkBytes(); err != nil {
+		return err
+	}
+	return inspectLedgerAnd94(ctx, tx, dir, true)
+}
 func inspect94(ctx context.Context, tx pgx.Tx, dir string) error {
+	return inspectLedgerAnd94(ctx, tx, dir, false)
+}
+func inspectLedgerAnd94(ctx context.Context, tx pgx.Tx, dir string, authority bool) error {
 	// Compare ledger with exact packaged93 names, not a count-only acceptance.
 	// Read the catalog through the same core validator used by exact93. Its
 	// exported name listing verifies every packaged byte without applying DDL.
@@ -187,6 +200,9 @@ func inspect94(ctx context.Context, tx pgx.Tx, dir string) error {
 		return err
 	}
 	want := map[string]bool{Filename: true}
+	if authority {
+		want["0095_admission_denial_v1.sql"] = true
+	}
 	for _, name := range names {
 		want[name] = true
 	}

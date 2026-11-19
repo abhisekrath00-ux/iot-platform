@@ -1,0 +1,150 @@
+[
+  {
+    "kind": "column",
+    "relation": "admission_denial_epoch_v1",
+    "name": "revision",
+    "definition": {
+      "type": "bigint",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "admission_denial_epoch_v1",
+    "name": "singleton",
+    "definition": {
+      "type": "boolean",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "admission_denied_leaf_v1",
+    "name": "denied_at",
+    "definition": {
+      "type": "timestamp with time zone",
+      "default": "clock_timestamp()",
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "column",
+    "relation": "admission_denied_leaf_v1",
+    "name": "leaf_sha256",
+    "definition": {
+      "type": "bytea",
+      "default": null,
+      "identity": "",
+      "not_null": true,
+      "generated": ""
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "admission_denial_epoch_v1",
+    "name": "admission_denial_epoch_v1_pkey",
+    "definition": {
+      "type": "p",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "PRIMARY KEY (singleton)"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "admission_denial_epoch_v1",
+    "name": "admission_denial_epoch_v1_revision_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK ((revision >= 0))"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "admission_denial_epoch_v1",
+    "name": "admission_denial_epoch_v1_singleton_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK (singleton)"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "admission_denied_leaf_v1",
+    "name": "admission_denied_leaf_v1_leaf_sha256_check",
+    "definition": {
+      "type": "c",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "CHECK ((octet_length(leaf_sha256) = 32))"
+    }
+  },
+  {
+    "kind": "constraint",
+    "relation": "admission_denied_leaf_v1",
+    "name": "admission_denied_leaf_v1_pkey",
+    "definition": {
+      "type": "p",
+      "deferred": false,
+      "validated": true,
+      "deferrable": false,
+      "definition": "PRIMARY KEY (leaf_sha256)"
+    }
+  },
+  {
+    "kind": "index",
+    "relation": "admission_denial_epoch_v1",
+    "name": "admission_denial_epoch_v1_pkey",
+    "definition": {
+      "ready": true,
+      "valid": true,
+      "definition": "CREATE UNIQUE INDEX admission_denial_epoch_v1_pkey ON admission_denial_epoch_v1 USING btree (singleton)"
+    }
+  },
+  {
+    "kind": "index",
+    "relation": "admission_denied_leaf_v1",
+    "name": "admission_denied_leaf_v1_pkey",
+    "definition": {
+      "ready": true,
+      "valid": true,
+      "definition": "CREATE UNIQUE INDEX admission_denied_leaf_v1_pkey ON admission_denied_leaf_v1 USING btree (leaf_sha256)"
+    }
+  },
+  {
+    "kind": "relation",
+    "relation": "admission_denial_epoch_v1",
+    "name": "",
+    "definition": {
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    }
+  },
+  {
+    "kind": "relation",
+    "relation": "admission_denied_leaf_v1",
+    "name": "",
+    "definition": {
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    }
+  }
+]

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/authorityschema"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -188,9 +189,25 @@ func (w lostAdmissionResponse) Write(b []byte) (int, error) {
 	return 0, errors.New("synthetic response lost after real commit")
 }
 func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
+	for _, durable := range []bool{false, true} {
+		name := "process-local94"
+		if durable {
+			name = "durable-denial95"
+		}
+		t.Run(name, func(t *testing.T) { livePGAndEdge(t, durable) })
+	}
+}
+func livePGAndEdge(t *testing.T, durable bool) {
 	x, envelope := fixture(t)
+	if durable {
+		x.Pool.Reset()
+		if err := authorityschema.Apply(t.Context(), x.Pool, filepath.Join("..", "..", "migrations")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	f := httpTLSFixture(t)
 	c := httpConfig(t, f, x)
+	c.DurableDenials = durable
 	dedicated, e := NewAdmissionServer(AdmissionServerConfig{Enabled: true, Admission: c, Certificate: f.server, ClientCAs: f.roots})
 
 	if e != nil {
@@ -294,6 +311,17 @@ func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
 	}
 	counts(t, x.Pool, fresh.EventID, 0)
 
+	if durable {
+		if err := x.DenyLeaf(t.Context(), sha256.Sum256(f.client.Certificate[0])); err != nil {
+			t.Fatal(err)
+		}
+		if code, body := durableRequest(t, f, endpoint, envelope); code != 503 || bytes.Contains(body, []byte("signature")) {
+			t.Fatal(code, string(body))
+		}
+		counts(t, x.Pool, envelope.EventID, 1)
+		historyCount(t, x, 0, "processing_started")
+		t.Log("LIVE_DURABLE_DENIAL95_REVIEWED_JOURNAL_PG_MTLS_EDGE_REPLAY_OK")
+	}
 	t.Log("LIVE_HANDLER_PG_MTLS_EDGE_REPLAY_OK")
 }
 
