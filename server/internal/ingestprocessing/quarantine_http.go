@@ -40,20 +40,27 @@ func NewGatewayQuarantineHTTP(enabled bool, engine Engine, sessionSecret []byte)
 		return nil, ErrQuarantineHTTP
 	}
 	secret := append([]byte(nil), sessionSecret...)
+	// Four active decisions maximum, including slow bodies and DB waiters. No
+	// goroutine/queue is created for excess callers. This is not pre-TLS capacity.
+	slots := make(chan struct{}, 4)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Connection", "close")
 		refuse := func(code int) {
 			http.Error(w, "staged gateway quarantine refused or uncertain; inspect current state", code)
 		}
-		if r.Method != http.MethodPost || r.URL.Path != "/staged/processing-v1/quarantine-gateway" {
+		if r.Method != http.MethodPost || r.ProtoMajor != 1 || r.ProtoMinor != 1 || r.URL.Path != "/staged/processing-v1/quarantine-gateway" || r.URL.RawPath != "" || r.URL.RawQuery != "" || r.URL.ForceQuery || r.URL.Fragment != "" {
 			refuse(404)
 			return
 		}
 		// No proxy headers or loopback plaintext exemption. Context markings can
 		// only restrict access; they can never establish an authenticated user.
-		if r.TLS == nil || auth.ViaKey(r) || auth.ViaAI(r) {
+		if r.TLS == nil || !r.TLS.HandshakeComplete || auth.ViaKey(r) || auth.ViaAI(r) {
 			refuse(403)
+			return
+		}
+		if len(r.Header.Values("Authorization")) != 1 {
+			refuse(401)
 			return
 		}
 		h := r.Header.Get("Authorization")
@@ -67,8 +74,34 @@ func NewGatewayQuarantineHTTP(enabled bool, engine Engine, sessionSecret []byte)
 			refuse(401)
 			return
 		}
+		if len(r.Header.Values("Content-Type")) != 1 || len(r.Header.Values("Content-Encoding")) != 0 || r.ContentLength > 2048 {
+			refuse(400)
+			return
+		}
 		if typ, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || typ != "application/json" {
 			refuse(400)
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+		default:
+			refuse(503)
+			return
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		if claims.ExpiresAt.Time.Before(deadline) {
+			deadline = claims.ExpiresAt.Time
+		}
+		bodyDeadline := time.Now().Add(3 * time.Second)
+		if deadline.Before(bodyDeadline) {
+			bodyDeadline = deadline
+		}
+		// Context cancellation alone cannot interrupt a blocked body read. The
+		// actual connection must accept deadlines; unsupported wrappers refuse.
+		controller := http.NewResponseController(w)
+		if controller.SetReadDeadline(bodyDeadline) != nil || controller.SetWriteDeadline(deadline) != nil {
+			refuse(503)
 			return
 		}
 		var in struct {
@@ -86,10 +119,6 @@ func NewGatewayQuarantineHTTP(enabled bool, engine Engine, sessionSecret []byte)
 		if err != nil || len(b) != 32 || in.Leaf != hex.EncodeToString(b) || in.Leaf == hex.EncodeToString(make([]byte, 32)) {
 			refuse(400)
 			return
-		}
-		deadline := time.Now().Add(10 * time.Second)
-		if claims.ExpiresAt.Time.Before(deadline) {
-			deadline = claims.ExpiresAt.Time
 		}
 		ctx, cancel := context.WithDeadline(r.Context(), deadline)
 		defer cancel()

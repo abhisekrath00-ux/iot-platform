@@ -1,6 +1,7 @@
 package ingestprocessing
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,11 +45,11 @@ func quarantineBody(t *testing.T, f httpMTLS) string {
 }
 func quarantineCall(h http.Handler, token, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("POST", "/staged/processing-v1/quarantine-gateway", strings.NewReader(body))
-	r.TLS = &tls.ConnectionState{}
+	r.TLS = &tls.ConnectionState{HandshakeComplete: true}
 	r.Header.Set("Authorization", "Bearer "+token)
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
+	h.ServeHTTP(quarantineDeadlineRecorder{w}, r)
 	return w
 }
 func seedQuarantineSession(t *testing.T, x Engine) {
@@ -84,7 +86,7 @@ func TestQuarantineControllerDisabledAndRefusesBeforeDB(t *testing.T) {
 			token := quarantineToken(t, "a", "u", "session", "admin")
 			body := `{"gateway_id":"g","expected_leaf_sha256":"0101010101010101010101010101010101010101010101010101010101010101","compared_current_identity":true}`
 			r := httptest.NewRequest("POST", "/staged/processing-v1/quarantine-gateway", nil)
-			r.TLS = &tls.ConnectionState{}
+			r.TLS = &tls.ConnectionState{HandshakeComplete: true}
 			switch mode {
 			case "missing":
 				token = ""
@@ -130,7 +132,7 @@ func TestQuarantineControllerDisabledAndRefusesBeforeDB(t *testing.T) {
 			r.Header.Set("Authorization", "Bearer "+token)
 			r.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
-			h.ServeHTTP(w, r)
+			h.ServeHTTP(quarantineDeadlineRecorder{w}, r)
 			if w.Code < 400 {
 				t.Fatal(w.Code)
 			}
@@ -453,4 +455,168 @@ func TestQuarantineSessionExpiryCancelsEnteredAuditTransaction(t *testing.T) {
 	}
 	quarantineState(t, x, "active", 0)
 	t.Log("QUARANTINE_SESSION_EXPIRY_CANCELS_ENTERED_TX_STATUS_AUDIT_ROLLBACK_OK")
+}
+
+// Explicit synthetic deadline-capable writer for unit/PG tests only. Actual
+// connection deadline and saturation evidence uses real HTTPS below.
+type quarantineDeadlineRecorder struct{ *httptest.ResponseRecorder }
+
+func (quarantineDeadlineRecorder) SetReadDeadline(time.Time) error  { return nil }
+func (quarantineDeadlineRecorder) SetWriteDeadline(time.Time) error { return nil }
+func TestQuarantineTransportUnsupportedWriterAndStrictRequest(t *testing.T) {
+	h, err := NewGatewayQuarantineHTTP(true, Engine{Enabled: true, Pool: &pgxpool.Pool{}}, quarantineSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := httpTLSFixture(t)
+	for _, mode := range []string{"unsupported-writer", "query", "force-query", "raw-path", "fragment", "http2", "duplicate-auth", "duplicate-type", "encoding", "oversize", "handshake"} {
+		t.Run(mode, func(t *testing.T) {
+			r := httptest.NewRequest("POST", "/staged/processing-v1/quarantine-gateway", strings.NewReader(quarantineBody(t, f)))
+			r.TLS = &tls.ConnectionState{HandshakeComplete: true}
+			r.Header.Set("Authorization", "Bearer "+quarantineToken(t, "a", "u", "session", "admin"))
+			r.Header.Set("Content-Type", "application/json")
+			switch mode {
+			case "query":
+				r.URL.RawQuery = "a=b"
+			case "force-query":
+				r.URL.ForceQuery = true
+			case "raw-path":
+				r.URL.RawPath = "/staged/processing-v1/%71uarantine-gateway"
+			case "fragment":
+				r.URL.Fragment = "x"
+			case "http2":
+				r.ProtoMajor = 2
+			case "duplicate-auth":
+				r.Header.Add("Authorization", r.Header.Get("Authorization"))
+			case "duplicate-type":
+				r.Header.Add("Content-Type", "application/json")
+			case "encoding":
+				r.Header.Set("Content-Encoding", "gzip")
+			case "oversize":
+				r.ContentLength = 2049
+			case "handshake":
+				r.TLS.HandshakeComplete = false
+			}
+			w := httptest.NewRecorder()
+			if mode == "unsupported-writer" {
+				h.ServeHTTP(w, r)
+			} else {
+				h.ServeHTTP(quarantineDeadlineRecorder{w}, r)
+			}
+			if w.Code < 400 {
+				t.Fatal(w.Code)
+			}
+		})
+	}
+}
+func TestQuarantineActualTLSSlowBodyBoundedBeforeDB(t *testing.T) {
+	h, err := NewGatewayQuarantineHTTP(true, Engine{Enabled: true, Pool: &pgxpool.Pool{}}, quarantineSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := httptest.NewTLSServer(h)
+	defer s.Close()
+	conn, err := tls.Dial("tcp", strings.TrimPrefix(s.URL, "https://"), s.Client().Transport.(*http.Transport).TLSClientConfig.Clone())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err = conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	_, err = fmt.Fprintf(conn, "POST /staged/processing-v1/quarantine-gateway HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{", quarantineToken(t, "a", "u", "session", "admin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 || time.Since(start) > 4500*time.Millisecond {
+		t.Fatal(resp.StatusCode, time.Since(start))
+	}
+	t.Log("QUARANTINE_ACTUAL_TLS_SLOW_BODY_DEADLINE_NO_DB_OK")
+}
+func TestQuarantineActualHTTPSCapacityRefusalBeforeDB(t *testing.T) {
+	x, _ := denialFixture(t)
+	f := httpTLSFixture(t)
+	bindGatewayLeaf(t, x, f)
+	seedQuarantineSession(t, x)
+	h, err := NewGatewayQuarantineHTTP(true, x, quarantineSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := x.Pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rollback(block)
+	if _, err = block.Exec(t.Context(), "UPDATE users SET role='viewer' WHERE id='u'"); err != nil {
+		t.Fatal(err)
+	}
+	s := httptest.NewTLSServer(h)
+	defer s.Close()
+	client := s.Client()
+	client.Timeout = 8 * time.Second
+	token, body := quarantineToken(t, "a", "u", "session", "admin"), quarantineBody(t, f)
+	call := func() (int, error) {
+		r, e := http.NewRequestWithContext(t.Context(), "POST", s.URL+"/staged/processing-v1/quarantine-gateway", strings.NewReader(body))
+		if e != nil {
+			return 0, e
+		}
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("Content-Type", "application/json")
+		resp, e := client.Do(r)
+		if e != nil {
+			return 0, e
+		}
+		defer resp.Body.Close()
+		_, e = io.Copy(io.Discard, resp.Body)
+		return resp.StatusCode, e
+	}
+	type outcome struct {
+		code int
+		err  error
+	}
+	done := make(chan outcome, 4)
+	for i := 0; i < 4; i++ {
+		go func() { c, e := call(); done <- outcome{c, e} }()
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		var n int
+		err = x.Pool.QueryRow(t.Context(), "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT role,disabled_at%'").Scan(&n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n == 4 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("not four real DB waiters", n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	start := time.Now()
+	if c, e := call(); c != 503 || e != nil || time.Since(start) > time.Second {
+		t.Fatal("excess request queued", c, e, time.Since(start))
+	}
+	if err = block.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		o := <-done
+		if o.err != nil || o.code != 403 {
+			t.Fatal(o)
+		}
+	}
+	quarantineState(t, x, "active", 0)
+	exec(t, x.Pool, "UPDATE users SET role='admin' WHERE id='u'")
+	if c, e := call(); c != 200 || e != nil {
+		t.Fatal("capacity not released", c, e)
+	}
+	quarantineState(t, x, "revoked", 1)
+	t.Log("QUARANTINE_ACTUAL_HTTPS_FOUR_SLOT_FIFTH_REFUSAL_NO_DB_QUEUE_RECOVERY_OK")
 }

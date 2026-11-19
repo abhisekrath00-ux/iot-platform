@@ -2491,3 +2491,38 @@ or customer scope, so it cannot certify preservation of this quarantine on resto
 Immutable image/full identity+authorization restore and recovery remain OPEN. Legacy
 constructors/direct DB writers and already-entered admissions remain bypasses. No
 runtime route, normal Update/exact93 behavior, owner deployment or UI was enabled.
+
+#### Quarantine controller body deadlines and bounded active decisions
+
+The isolated controller now accepts only exact HTTP1.1 path with no raw path,
+query/force-query/fragment and completed direct TLS handshake. Exactly one
+Authorization and Content-Type header is required; content encoding and declared
+body length over2048 refuse before reads or DB. Unknown/chunked lengths still pass
+through the existing MaxBytesReader. JWT verification remains before body/DB work.
+
+Each constructed controller has FOUR active slots including slow body reads and DB
+waiters; the fifth request refuses503 immediately with no internal queue/goroutine
+or DB acquisition. Actual-connection read deadline is three seconds, write deadline
+ten seconds, both capped by the verified JWT's expiry. The DB deadline uses that
+SAME original request deadline, not a new ten-second budget after reading. A writer
+without ResponseController deadline support refuses before reading/DB. Context
+cancellation alone is not treated as a way to unblock arbitrary Body.Read. Synthetic
+unit/PG recorders explicitly implement no-op deadline methods ONLY for those tests;
+actual deadline/capacity acceptance uses real TLS connections and PostgreSQL.
+
+THREE race repetitions cover actual slow incomplete TLS body input returning400
+within the body bound without any usable DB pool, unsupported writer/duplicate
+headers/encoded body/path aliases/protocol/handshake refusal, and four actual HTTPS
+requests blocked on a real current-admin row. A fifth returns503 BEFORE another DB
+waiter, with zero status/audit/global-denial writes. After demotion commits, all four
+old snapshots refuse403, slots release, and a newly current admin decision succeeds
+once. Markers QUARANTINE_ACTUAL_TLS_SLOW_BODY_DEADLINE_NO_DB_OK and
+QUARANTINE_ACTUAL_HTTPS_FOUR_SLOT_FIFTH_REFUSAL_NO_DB_QUEUE_RECOVERY_OK.
+
+These are per-handler request bounds, NOT pre-TLS socket/handshake/header limits,
+per-tenant fairness, distributed rate limiting, a dedicated management server,
+shutdown/drain or DDoS acceptance. The caller still needs bounded dedicated HTTPS
+transport before any future route activation. Excess refusals themselves are not
+proof a response reached the peer. Existing scope-table fence cost, uncertain
+commit/response/no-retry rules, quarantine restore-witness gap, legacy bypasses and
+all owner activation restrictions remain unchanged. NO runtime route was installed.
