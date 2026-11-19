@@ -104,8 +104,10 @@ func TestDenialActualOperatorLogicalBackupRestore(t *testing.T) {
 		t.Fatal("operator claimed activation", string(b))
 	}
 	f := httpTLSFixture(t)
+	bindGatewayLeaf(t, x, f)
 	config := serverConfig(t, f, x)
 	config.Admission.DurableDenials = true
+	config.Admission.GatewayAuthority = true
 	s, err := NewAdmissionServer(config)
 	if err != nil {
 		t.Fatal(err)
@@ -217,4 +219,5 @@ func TestDenialActualOperatorLogicalBackupRestore(t *testing.T) {
 		t.Fatal("actual operator accepted lost authority", err, string(out))
 	}
 	t.Log("ACTUAL_SETUPCTL95_PGDUMP_EMPTY_PGRESTORE_GUARDED_MTLS_DENIAL_CONTINUITY_OK")
+	t.Log("ACTUAL_PGRESTORE_CURRENT_GATEWAY_AUTHORITY_GUARD_OK")
 }

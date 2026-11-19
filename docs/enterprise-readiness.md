@@ -2317,3 +2317,59 @@ used. Local logical restore is NOT immutable old/new image compatibility, physic
 backup/PITR, online/concurrent backup, Windows power-loss, cross-version PostgreSQL,
 key/credential/secret restoration or an owner rollback/restore acceptance. Full
 operational backup/restore and authenticated tenant-to-leaf grants remain open.
+
+#### Existing current gateway enrollment guard in the admission transaction
+
+The explicit default-false `AdmissionHTTPConfig.GatewayAuthority` option requires
+`DurableDenials=true`; an invalid combination refuses at construction before any
+DB access. It adds no certificate, key, grant, schema, management endpoint or runtime
+startup. The existing enrollment path already writes a lowercase full-leaf SHA256
+fingerprint on the exact tenant/gateway row after its admin-approved issuance. This
+option checks that EXISTING association, rather than treating a constructor's frozen
+route as proof of current enrollment forever. It does NOT establish how a new
+operator should authenticate or authorize revocation/recovery.
+
+After durable denial validation, the SAME serializable admission transaction locks
+the exact gateway ID AND tenant ID row FOR SHARE, then requires active status,
+edge kind, cert authentication and exact lowercase full-leaf fingerprint equality.
+No wildcard, CN-only, serial-only, case-folded fingerprint or proxy header is an
+identity fallback. A missing/changed association, moved tenant, revoked status,
+direct/password gateway or unavailable/serialization-failed read refuses generic
+HTTP503 with no signature BEFORE retained replay lookup, capture or insert. No
+automatic admission/effect retry, provider call or database grant is made.
+
+The gateway row lock lasts through the original transaction, including replay.
+An update that commits before the lock is acquired is seen or makes the older
+serializable snapshot fail; an update behind an already-entered transaction waits
+until that transaction ends. As with durable denial, a previously committed signed
+response may arrive AFTER an identity update. This is not handler-drain, cancellation,
+retroactive rollback or provider-delivery evidence. DB deadlock/timeout/serialization
+failure remains uncertain/refused, never an instruction to retry external effects.
+
+Actual PG/mTLS tests cover each invalid current state, current server and newly
+constructed server with stale route config, valid exact replay, durable denial still
+winning, and zero effects. A request already waiting with an OLD serializable
+snapshot on the global admission lock refuses after gateway status changes:
+LIVE_CURRENT_GATEWAY_AUTHORITY_OLD_SNAPSHOT_REFUSED_OK. A real guarded TLS insert
+blocked after gateway locking commits one reading BEFORE a waiting status update
+can finish; subsequent exact replay refuses:
+LIVE_CURRENT_GATEWAY_AUTHORITY_SERIALIZES_AFTER_ENTERED_TLS_COMMIT_OK. Current/new
+server exact association proof:
+LIVE_CURRENT_GATEWAY_AUTHORITY_PG_MTLS_EXACT_REPLAY_AND_RECONSTRUCTION_REFUSAL_OK.
+
+The actual edge journal/reviewed-recovery/PG/mTLS/lost-response/SAME explicit replay
+bridge runs in THREE modes: original94, durable-denial95 and current-gateway95.
+Required third marker LIVE_CURRENT_GATEWAY95_REVIEWED_JOURNAL_PG_MTLS_EDGE_REPLAY_OK.
+The explicit actual compiled setupctl + pg_dump/empty pg_restore test also runs with
+this gateway guard, retaining source/fingerprint/processing/denial state and checking
+the new server's refusal: ACTUAL_PGRESTORE_CURRENT_GATEWAY_AUTHORITY_GUARD_OK.
+This backup proof is still LOCAL-only/opt-in, not ordinary CI or full restore acceptance.
+
+IMPORTANT: legacy `GatewayAuthority=false` STILL bypasses current gateway status
+when a static route permits admission; the regression explicitly demonstrates this
+boundary even with durable denials enabled. Direct unguarded Engine/DB callers also
+bypass it. Every future operational construction must require the guarded mode.
+Existing DB association is not global cross-gateway fingerprint uniqueness, tenant
+admin denial authority, hostile-DB protection, key rotation/enrollment/recovery UX,
+broker ACL/session/manual-ACK replacement, immutable-image/restore compatibility or
+owner deployment. No new GUI or existing enrollment/update behavior was enabled.

@@ -79,7 +79,8 @@ type Engine struct {
 	Enabled bool
 	// durableLeaf is private and only attached by the separately opted-in verified
 	// mTLS transport. Direct Engine admission is not certificate authorization.
-	durableLeaf *[32]byte
+	durableLeaf      *[32]byte
+	gatewayAuthority bool
 }
 type Admission struct {
 	New   bool
@@ -119,6 +120,14 @@ func (x Engine) Admit(ctx context.Context, e Envelope) (Admission, error) {
 	}
 	if x.durableLeaf != nil {
 		if err = guardDurableLeaf(ctx, tx, *x.durableLeaf); err != nil {
+			return Admission{}, err
+		}
+	}
+	if x.gatewayAuthority {
+		if x.durableLeaf == nil {
+			return Admission{}, ErrGatewayAuthority
+		}
+		if err = guardGatewayAuthority(ctx, tx, e, *x.durableLeaf); err != nil {
 			return Admission{}, err
 		}
 	}

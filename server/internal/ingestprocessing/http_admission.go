@@ -34,6 +34,10 @@ type AdmissionHTTPConfig struct {
 	// DurableDenials is separate explicit staging, requires exact authority95.
 	// False preserves historical process-local-only behavior, NOT operational safety.
 	DurableDenials bool
+	// GatewayAuthority additionally checks the existing current tenant/gateway
+	// cert enrollment in every admission transaction. Requires DurableDenials.
+	// False preserves legacy static-route behavior, NOT current enrollment safety.
+	GatewayAuthority bool
 }
 
 // AdmissionHTTP is an opt-in handler only: no production route/listener/startup
@@ -45,21 +49,22 @@ type AdmissionHTTPConfig struct {
 // A response error can follow commit; it is NOT rollback or permission to retry
 // external effects. There is no derived execution, MQTT ACK or internal retry.
 type AdmissionHTTP struct {
-	engine         Engine
-	signing        ReceiptSigning
-	path           string
-	routes         map[[32]byte]string
-	timeout        time.Duration
-	routeMu        sync.Mutex
-	fences         map[[32]byte]*routeFence
-	durableDenials bool
+	engine           Engine
+	signing          ReceiptSigning
+	path             string
+	routes           map[[32]byte]string
+	timeout          time.Duration
+	routeMu          sync.Mutex
+	fences           map[[32]byte]*routeFence
+	durableDenials   bool
+	gatewayAuthority bool
 }
 
 func NewAdmissionHTTP(c AdmissionHTTPConfig) (*AdmissionHTTP, error) {
 	if !c.Enabled {
 		return nil, ErrDisabled
 	}
-	if !c.Engine.Enabled || c.Engine.Pool == nil || c.Timeout < time.Second || c.Timeout > 30*time.Second || len(c.Routes) == 0 || len(c.Routes) > 256 || c.Path != "/staged/processing-v1/admit" {
+	if (c.GatewayAuthority && !c.DurableDenials) || !c.Engine.Enabled || c.Engine.Pool == nil || c.Timeout < time.Second || c.Timeout > 30*time.Second || len(c.Routes) == 0 || len(c.Routes) > 256 || c.Path != "/staged/processing-v1/admit" {
 		return nil, ErrAdmissionHTTP
 	}
 	key, err := receiptSigningKey(c.Signing)
@@ -82,7 +87,7 @@ func NewAdmissionHTTP(c AdmissionHTTPConfig) (*AdmissionHTTP, error) {
 	for leaf := range routes {
 		fences[leaf] = &routeFence{drained: make(chan struct{})}
 	}
-	return &AdmissionHTTP{durableDenials: c.DurableDenials, fences: fences, engine: c.Engine, signing: signing, path: c.Path, routes: routes, timeout: c.Timeout}, nil
+	return &AdmissionHTTP{gatewayAuthority: c.GatewayAuthority, durableDenials: c.DurableDenials, fences: fences, engine: c.Engine, signing: signing, path: c.Path, routes: routes, timeout: c.Timeout}, nil
 }
 func validHTTPTopic(s string) bool {
 	// Reuse the exact wire parser, with a synthetic stable canonical input. No DB.
@@ -166,6 +171,7 @@ func (h *AdmissionHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer h.endRoute(leafID)
 	engine := h.engine
+	engine.gatewayAuthority = h.gatewayAuthority
 	if h.durableDenials {
 		engine.durableLeaf = &leafID
 	}

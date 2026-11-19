@@ -189,15 +189,11 @@ func (w lostAdmissionResponse) Write(b []byte) (int, error) {
 	return 0, errors.New("synthetic response lost after real commit")
 }
 func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
-	for _, durable := range []bool{false, true} {
-		name := "process-local94"
-		if durable {
-			name = "durable-denial95"
-		}
-		t.Run(name, func(t *testing.T) { livePGAndEdge(t, durable) })
+	for _, mode := range []string{"process-local94", "durable-denial95", "current-gateway95"} {
+		t.Run(mode, func(t *testing.T) { livePGAndEdge(t, mode != "process-local94", mode == "current-gateway95") })
 	}
 }
-func livePGAndEdge(t *testing.T, durable bool) {
+func livePGAndEdge(t *testing.T, durable, gateway bool) {
 	x, envelope := fixture(t)
 	if durable {
 		x.Pool.Reset()
@@ -206,8 +202,13 @@ func livePGAndEdge(t *testing.T, durable bool) {
 		}
 	}
 	f := httpTLSFixture(t)
+	if gateway {
+		bindGatewayLeaf(t, x, f)
+	}
 	c := httpConfig(t, f, x)
 	c.DurableDenials = durable
+	c.GatewayAuthority = gateway
+
 	dedicated, e := NewAdmissionServer(AdmissionServerConfig{Enabled: true, Admission: c, Certificate: f.server, ClientCAs: f.roots})
 
 	if e != nil {
@@ -321,6 +322,10 @@ func livePGAndEdge(t *testing.T, durable bool) {
 		counts(t, x.Pool, envelope.EventID, 1)
 		historyCount(t, x, 0, "processing_started")
 		t.Log("LIVE_DURABLE_DENIAL95_REVIEWED_JOURNAL_PG_MTLS_EDGE_REPLAY_OK")
+		if gateway {
+			t.Log("LIVE_CURRENT_GATEWAY95_REVIEWED_JOURNAL_PG_MTLS_EDGE_REPLAY_OK")
+		}
+
 	}
 	t.Log("LIVE_HANDLER_PG_MTLS_EDGE_REPLAY_OK")
 }
