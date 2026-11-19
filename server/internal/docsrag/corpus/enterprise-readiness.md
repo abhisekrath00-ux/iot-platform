@@ -2261,3 +2261,59 @@ change, not a patch. GHSA-fc5q-39xc-vjpf was withdrawn Nov18; unchanged full aud
 reported zero in exact e6ca901 CI44385778520. This does not make arbitrary untrusted
 globs safe. Go reachability reported zero called/imported findings with two unused
 required-module findings. Historical green/red runs are not owner readiness.
+
+#### Local95 maintenance evidence and actual logical backup continuity
+
+The separate setupctl subcommands `inspect-staged-denials`,
+`apply-staged-denials` and `verify-staged-denials` are LOCAL maintenance adapters,
+not the user's normal setup/update GUI. No startup, Update action, HTTP endpoint,
+GUI button or owner deployment calls them. Apply requires an exact bounded stdin
+acknowledgement for `staged_denial_v1`, stopped writers and a verified backup,
+plus explicit database configuration. These acknowledgements describe prerequisites,
+NOT owner permission. Exact target, real stopped-writer fence, approved maintenance
+and compatibility are still the outer controller's responsibility. Existing93/94
+operators and packaged migration SQL/catalog/shape bytes remain unchanged.
+
+Inspect returns version/status, epoch revision, denied-leaf count and a deterministic
+SHA256 of sorted exact leaf hashes/timestamps plus epoch. No leaf IDs, keys, routes,
+DB URL, payload or error details appear in successful evidence output. Runtime and
+processing acceptance remain false. `authorityschema.InspectEvidence` holds the
+shared migration lock and epoch FOR SHARE through strict schema inspection and
+ordered reads in ONE transaction, blocking ordinary denial writes until its read
+finishes. SQL lock/statement limits apply. It does not take a backup or activate
+anything. Evidence is momentary and changes on further denial operations.
+
+Verify compares the current strict95 state with independently preserved ORIGINAL
+maintenance evidence. It rejects changed revision, content, count or exact row
+timestamp, invalid format and lost authority. This is a logical continuity check,
+NOT a signature, authentication, externally durable witness, freshness guarantee
+or hostile-DB protection. A witness taken FROM the same backup being verified proves
+nothing about whether denials were lost before that backup. Preserve its trusted
+provenance independently and stop all writers before capture/backup. Equality does
+not establish safety for future writes, images, telemetry, keys or the entire system.
+
+`scripts/test-denial-authority-restore.sh` builds the actual current setupctl and
+runs an opt-in isolated PostgreSQL integration test with actual pg_dump/pg_restore.
+It creates95 via the compiled operator, admits one reading through the real guarded
+mTLS server, denies that leaf, independently captures source evidence, and creates
+a custom-format logical backup. It restores into a NEW EMPTY disposable database,
+never overwriting the source. The compiled verifier confirms the original witness;
+retained complete processing record, telemetry value, gateway serial and synthetic
+source config match. A NEW server against the restored pool with stale route config
+refuses exact replay unsigned with no extra row. It then deliberately deletes the
+deny row in that scratch restore: schema inspection alone still passes, but BOTH
+library continuity verification and the actual compiled verifier refuse. This is
+why schema shape or a backup's own self-reported checksum is not sufficient.
+
+Three actual local pg_dump14.24/pg_restore14 repetitions on isolated PostgreSQL14
+pass with marker
+ACTUAL_SETUPCTL95_PGDUMP_EMPTY_PGRESTORE_GUARDED_MTLS_DENIAL_CONTINUITY_OK.
+Default full-suite CI runs the evidence/mismatch and operator argument tests, but
+SKIPS this explicit binary-backup test unless its TEST_DENIAL_* paths are supplied.
+Do not attribute the actual backup proof to ordinary CI. Earlier actual edge
+journal/reviewed-recovery/PG/mTLS/lost-response/SAME replay and stale-snapshot
+denial tests remain separately required. No provider effect or owner resource was
+used. Local logical restore is NOT immutable old/new image compatibility, physical
+backup/PITR, online/concurrent backup, Windows power-loss, cross-version PostgreSQL,
+key/credential/secret restoration or an owner rollback/restore acceptance. Full
+operational backup/restore and authenticated tenant-to-leaf grants remain open.
