@@ -2588,3 +2588,74 @@ Update behavior, migrations/catalog/shape, owner installation and activation sta
 unchanged. The denial-only restore witness still cannot certify gateway status,
 audit, sessions or customer scope. The conservative scope-table fence and legacy
 constructor/direct-writer bypasses remain. NO production route is installed.
+
+#### Selected authority maintenance continuity witness, not full restore acceptance
+
+The separate LOCAL setupctl commands `inspect-staged-identity` and
+`verify-staged-identity` now return/check a selected exact95 authority witness.
+There is NO apply command, automatic startup, GUI route, restore or activation.
+No existing denial witness semantics or normal exact93 Update guard changed.
+
+The new witness hashes ALL columns/rows of12 fixed tables: tenants, customers,
+sites, users, user_sessions, user_customer_scope, gateways, edge_identity_migrations,
+edge_pairing_proofs, audit_log, admission_denial_epoch_v1 and admission_denied_leaf_v1.
+It also hashes the existing catalog projection for those tables, including empty
+tables: relation kind/RLS flags, columns/defaults, constraints/indexes and selected
+trigger/rule/policy metadata. Core exact95 inspection is strict only for its own
+catalog; other selected-table metadata is BASELINE-RELATIVE drift detection, not
+validation against a new trusted full schema. Function bodies, full policy bodies,
+roles/grants, sequences, database settings, device/source configuration, private keys,
+issuer secrets, all other tables/files and immutable images are NOT certified.
+No claim of full identity/authorization restore or key custody is made.
+
+Canonical length-framed JSONB rows sorted with C collation, table names/counts,
+UTC/ISO/UTF8 settings and selected metadata feed SHA256. Output contains only
+version/status/table count/row count/digest and FALSE runtime/processing acceptance.
+No identity/session/password-verifier row values are returned. Keep the witness
+PRIVATE, since equality checks can reveal low-entropy changes. It is not a signature
+or anonymized public data. It proves nothing about a hostile DB or compromised
+operator, the witness's origin, backup freshness or state changes after inspection.
+PostgreSQL14 same-version logical dump/restore is exercised; cross-major JSON/catalog
+formatting and changed database locales are NOT acceptance evidence.
+
+Capture the ORIGINAL witness independently BEFORE backup, with all writers stopped,
+and preserve its trusted provenance outside the backup. Taking a baseline from
+the restored backup does not establish continuity. The maintenance reader takes
+SHARE NOWAIT locks on ALL selected public tables before data inspection, fencing
+absent scope rows too. Busy writers refuse, not queue/retry. This temporarily blocks
+ALL selected-table writes across tenants, so it is NOT a runtime check. A15s context
+and10s SQL statements bound execution.100000 rows/table,1MiB per canonical data row
+and64MiB cumulative catalog/row bytes bound accepted results. An oversized row is
+refused without returning its content. Database JSON/sort work still uses database
+resources; this is NOT a network/DB memory/DoS bound. Results at row-count/aggregate
+byte ceilings have not been load-tested. Nil/canceled context, core schema drift,
+invalid/malformed evidence and unknown/extra input refuse. Inspect accepts no input;
+verify returns exactly the witness compared, not a later snapshot. No repair exists.
+
+THREE race repetitions cover16 independent selected-state changes: gateway status,
+fingerprint/tenant, session revocation/removal, user role/cutoff, absent scope insert,
+audit change/removal, migration key digest, pairing proof digest, tenant/site/customer
+and durable denial. Each changed state still passes core shape checks but rejects
+the old selected witness. Non-denial changes deliberately STILL pass the old
+DENIAL-ONLY witness, preserving that tool's narrower meaning. Busy user/audit writers
+and even a zero-row scope insert refuse immediately; successful later inspection
+confirms no leaked lock/change. Empty selected-table metadata drift and an oversized
+canonical row refuse verification/inspection respectively. This is scoped synthetic
+PostgreSQL evidence, not arbitrary hostile-writer/security acceptance.
+
+The optional actual compiled-setupctl logical restore test now performs a real
+constructed HTTPS admin quarantine before backup, adds tracked/revoked sessions and
+a separate user's scope, captures independent ORIGINAL denial AND selected-identity
+witnesses, then pg_dump custom format and pg_restore into a NEW EMPTY scratch DB.
+Both actual operator verifiers return the exact original witnesses. Restored revoked
+gateway/audit/sessions/scope, admitted record/telemetry and synthetic source config
+remain. Guarded construction refuses the denied route; legacy enabled guards refuse
+replay over actual mTLS. Changing restored revoked status to active still passes
+core shape and old denial evidence, but selected verifier and actual setupctl refuse.
+Restoring exactly the original status re-matches the independent witness. Existing
+lost-denial negative remains. Marker:
+ACTUAL_SETUPCTL95_SELECTED_IDENTITY_QUARANTINE_SESSION_SCOPE_AUDIT_EMPTY_PGRESTORE_OK.
+This actual binary/dump test is OPTIONAL and skipped by normal CI without explicit
+binary paths; do not present a normal green CI as running it. It passed locally
+with PostgreSQL14.24 tools. Full immutable old/new images, rollback/restore/key and
+all owner activation gates remain OPEN. Owner installation is unchanged.

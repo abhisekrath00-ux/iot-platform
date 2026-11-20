@@ -17,6 +17,9 @@ import (
 )
 
 func run(ctx context.Context, args []string, input io.Reader, output io.Writer) error {
+	if len(args) == 1 && (args[0] == "inspect-staged-identity" || args[0] == "verify-staged-identity") {
+		return runIdentityEvidence(ctx, args[0], input, output)
+	}
 	if len(args) == 1 && (args[0] == "inspect-staged-denials" || args[0] == "apply-staged-denials" || args[0] == "verify-staged-denials") {
 		return runDenials(ctx, args[0], input, output)
 	}

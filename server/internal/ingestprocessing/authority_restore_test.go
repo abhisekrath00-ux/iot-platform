@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	osexec "os/exec"
@@ -117,6 +118,31 @@ func TestDenialActualOperatorLogicalBackupRestore(t *testing.T) {
 	if code, _ := durableRequest(t, f, endpoint, e); code != 200 {
 		t.Fatal(code)
 	}
+	// Exercise the separately constructed ACTUAL management transport before backup.
+	seedQuarantineSession(t, x)
+	management := mustQuarantineServer(t, f, x)
+	adminURL := startAdmissionServer(t, management.transport)
+	client := quarantineServerClient(t, f)
+	request, err := http.NewRequestWithContext(t.Context(), "POST", adminURL+"/staged/processing-v1/quarantine-gateway", strings.NewReader(quarantineBody(t, f)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+quarantineToken(t, "a", "u", "session", "admin"))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatal(response.StatusCode)
+	}
+	quarantineState(t, x, "revoked", 1)
+	// Preserve an explicitly revoked OTHER session and a scope row for another
+	// user. The admin that made the decision remains unscoped and tracked.
+	exec(t, x.Pool, `INSERT INTO user_sessions(id,tenant_id,user_id,revoked_at) VALUES('revoked-session','a','u',now());
+ INSERT INTO customers(id,tenant_id,name) VALUES('restore-customer','a','Synthetic');
+ INSERT INTO user_customer_scope(tenant_id,user_id,customer_id) VALUES('a','other-user','restore-customer')`)
 	leaf := sha256.Sum256(f.client.Certificate[0])
 	if err = x.DenyLeaf(t.Context(), leaf); err != nil {
 		t.Fatal(err)
@@ -137,6 +163,11 @@ func TestDenialActualOperatorLogicalBackupRestore(t *testing.T) {
 	var expected authorityschema.Evidence
 	if json.Unmarshal(witness, &expected) != nil || expected.DeniedLeaves != 1 || expected.Revision != 1 {
 		t.Fatal(string(witness))
+	}
+	identityWitness := op("inspect-staged-identity", dsn, nil)
+	var identityExpected authorityschema.IdentityEvidence
+	if json.Unmarshal(identityWitness, &identityExpected) != nil || identityExpected.Tables != 12 || identityExpected.RuntimeAccepted || identityExpected.ProcessingEnabled {
+		t.Fatal("identity operator claimed activation", string(identityWitness))
 	}
 	backup := filepath.Join(t.TempDir(), "isolated-denial95.dump")
 	command(dump, []string{"--format=custom", "--no-owner", "--no-privileges", "--file", backup, dsn}, nil, nil)
@@ -163,6 +194,9 @@ func TestDenialActualOperatorLogicalBackupRestore(t *testing.T) {
 	command(restore, []string{"--exit-on-error", "--no-owner", "--no-privileges", "--dbname", restoredDSN, backup}, nil, nil)
 	if b = op("verify-staged-denials", restoredDSN, witness); !bytes.Equal(bytes.TrimSpace(b), bytes.TrimSpace(witness)) {
 		t.Fatal("restored operator evidence mismatch", string(b))
+	}
+	if identityResult := op("verify-staged-identity", restoredDSN, identityWitness); !bytes.Equal(bytes.TrimSpace(identityResult), bytes.TrimSpace(identityWitness)) {
+		t.Fatal("restored identity operator mismatch")
 	}
 	restoredCfg := x.Pool.Config()
 	restoredCfg.ConnConfig.Database = name
@@ -210,6 +244,45 @@ func TestDenialActualOperatorLogicalBackupRestore(t *testing.T) {
 		t.Fatal(code, string(body))
 	}
 	counts(t, pool, e.EventID, 1)
+	// Selected authority survives the actual logical restore, including the
+	// current revoked gateway, tracked+revoked sessions, absent/admin scopes and audit.
+	var gatewayStatus string
+	var audits, revokedSessions, scopes int
+	if err = pool.QueryRow(t.Context(), "SELECT status FROM gateways WHERE id='g'").Scan(&gatewayStatus); err != nil || gatewayStatus != "revoked" {
+		t.Fatal(gatewayStatus, err)
+	}
+	if err = pool.QueryRow(t.Context(), "SELECT count(*) FROM audit_log WHERE action='staged.gateway_quarantined'").Scan(&audits); err != nil || audits != 1 {
+		t.Fatal(audits, err)
+	}
+	if err = pool.QueryRow(t.Context(), "SELECT count(*) FROM user_sessions WHERE revoked_at IS NOT NULL").Scan(&revokedSessions); err != nil || revokedSessions != 1 {
+		t.Fatal(revokedSessions, err)
+	}
+	if err = pool.QueryRow(t.Context(), "SELECT count(*) FROM user_customer_scope WHERE user_id='other-user'").Scan(&scopes); err != nil || scopes != 1 {
+		t.Fatal(scopes, err)
+	}
+	// Same denial authority but LOST quarantine status: strict95 and old denial
+	// witness still pass, the independently preserved identity witness MUST fail.
+	exec(t, pool, "UPDATE gateways SET status='active' WHERE id='g'")
+	if err = authorityschema.Inspect(t.Context(), pool, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err = authorityschema.VerifyEvidence(t.Context(), pool, dir, expected); err != nil {
+		t.Fatal("denial witness semantics changed", err)
+	}
+	if err = authorityschema.VerifyIdentityEvidence(t.Context(), pool, dir, identityExpected); err == nil {
+		t.Fatal("identity witness accepted lost quarantine")
+	}
+	reject := osexec.CommandContext(t.Context(), operator, "verify-staged-identity")
+	reject.Env = []string{"PATH=" + os.Getenv("PATH"), "DATABASE_URL=" + restoredDSN, "MIGRATIONS_DIR=" + dir}
+	reject.Stdin = bytes.NewReader(identityWitness)
+	if out, err := reject.CombinedOutput(); err == nil || !strings.Contains(string(out), "continuity differs") {
+		t.Fatal("actual operator accepted lost quarantine", err, string(out))
+	}
+	exec(t, pool, "UPDATE gateways SET status='revoked' WHERE id='g'")
+	if err = authorityschema.VerifyIdentityEvidence(t.Context(), pool, dir, identityExpected); err != nil {
+		t.Fatal("exact restoration mismatch", err)
+	}
+	t.Log("ACTUAL_SETUPCTL95_SELECTED_IDENTITY_QUARANTINE_SESSION_SCOPE_AUDIT_EMPTY_PGRESTORE_OK")
 	// Demonstrate why strict shape/count alone is not sufficient: losing the row
 	// while preserving epoch/catalog still passes schema, but witness MUST fail.
 	exec(t, pool, "DELETE FROM admission_denied_leaf_v1")
