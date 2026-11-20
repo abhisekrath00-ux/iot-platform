@@ -2663,7 +2663,8 @@ all owner activation gates remain OPEN. Owner installation is unchanged.
 #### Default-off composed guarded gateway runtime lifecycle
 
 `NewStagedGatewayRuntime` now composes the guarded admission server and separate
-deny-only management server. This is an in-process assembly API, NOT a new service,
+deny-only management server. This is an in-process assembly API with separately opted-in explicit batch execution
+(described below), NOT a new service,
 startup caller, GUI switch, production route or normal Update path. Construction
 opens no socket and performs no migration or authority write. Both explicit flags,
 both current authority guards and the SAME enabled DB pool are required. A caller
@@ -2676,7 +2677,7 @@ The constructor cannot establish witness provenance or freshness; a witness read
 from the same backup/DB still does not prove continuity. Neither a matching witness
 nor schema shape bypasses current route binding or later request transaction guards.
 
-The runtime has no source poller, derived worker/provider execution, retry, hot
+The runtime has no source poller, derived worker/automatic provider execution, retry, hot
 rotation, enrollment, restore, listener discovery or automatic restart. Existing
 TLS/key/session and scope-table fence restrictions are unchanged. Both transports
 retain separate authentication: telemetry requires its exact mTLS leaf/topic and
@@ -2693,10 +2694,11 @@ is opened. Generic transport error avoids returning DB/key details. Parent cance
 also stops both. Previously entered transactions may already have committed, with
 reply loss, so shutdown does not mean rollback or permission for an effect retry.
 
-`ErrStagedGatewayDrain` reports an actually active handler after child Serve exits.
+`ErrStagedGatewayDrain` reports an actually active handler or separately opted-in
+explicit execution after child Serve exits.
 Connection force-close is not actual handler completion. `WaitDrained` refuses
 before Serve starts, waits for BOTH child Serve calls to exit, then confirms every
-actually entered handler returned. A child canceled before it started has no handler
+actually entered handler and opted-in explicit execution returned. A child canceled before it started has no handler
 to drain. Keep shared DB/signers alive until this separate confirmation, even if
 the TCP clients already saw a failure. It does not prove response receipt, restore
 safety, no external effects elsewhere or reversal of committed admission/quarantine.
@@ -2719,7 +2721,7 @@ recovery -> retained SQLite input -> actual mTLS/PG admission whose first respon
 is deliberately dropped -> explicit SAME-input signed reconciliation, one original
 record/plan, then actual sibling HTTPS admin quarantine and refusal of replay.
 No automatic request is added, and failed/conflicting insertion returns no signature.
-Marker LIVE_COMPOSED_RUNTIME_JOURNAL_EDGE_PG_MTLS_LOST_RESPONSE_ADMIN_QUARANTINE_REPLAY_REFUSAL_OK.
+Marker LIVE_COMPOSED_RUNTIME_JOURNAL_EDGE_PG_MTLS_LOST_RESPONSE_EXPLICIT_SYNTHETIC_BATCH_ADMIN_QUARANTINE_NO_RETRY_OK.
 This connects the accepted pieces in an isolated opt-in assembly, NOT owner runtime
 activation, physical meter/clock evidence or all production MQTT ACK/session/derived
 work acceptance. Secure key custody/enrollment/recovery, immutable old/new image
@@ -2772,9 +2774,9 @@ DB access. An original30s call deadline includes claim, delay, policy/authority 
 sender time, with at most10s per sender occurrence and a separate best-effort3s
 unknown checkpoint. Caller cancellation can be shorter. An arbitrary noncooperative
 Sender cannot be forcibly stopped: its call and capacity slot stay active until
-actual return. Keep pool/Sender resources alive and wait for every caller. This
-executor is NOT included in the composed transport runtime's WaitDrained; that API
-only tracks its two HTTPS transports. No effect goroutine is started automatically.
+actual return. Keep pool/Sender resources alive and wait for every caller. A standalone executor is NOT included in another composed runtime's WaitDrained.
+The separately opted-in runtime assembly described below tracks only its OWN
+executor calls through runtime.ExecuteOnce, not calls through unrelated objects. No effect goroutine is started automatically.
 Multiple constructed executors have independent caps, not a global fairness bound.
 
 Isolated actual composed-runtime acceptance performs mTLS admission followed by
@@ -2803,3 +2805,90 @@ or retry policy changed. An initial full-suite process exceeded the execution
 window and is unaccepted. The complete ingest suite then finished independently;
 the final full server invocation reuses that completed ingest test result. Its
 shared disposable test DB schema was reset, never an owner database.
+
+
+#### Composed runtime opt-in execution and actual resource drain
+
+The existing default-off `StagedGatewayRuntimeConfig.Execution` may now explicitly
+supply guarded batch execution. Nil preserves transport-only behavior. Enabled
+execution must use the SAME DB pool, migration directory and exact complete frozen
+leaf/topic set as admission; missing/extra/different bindings, disabled execution
+or engine refuse construction. The independent ORIGINAL selected-authority witness
+and existing admission/management guards remain required. New constructs the
+separate guarded executor under the same30s constructor deadline, opens NO socket,
+claims NO record and makes NO provider call. Current schema/route checks still do
+NOT establish witness provenance, full restore acceptance or historical TLS origin.
+
+`runtime.ExecuteOnce` is an explicit in-process call selecting one retained batch,
+NOT a worker, scanner, HTTP route, authenticated admin action or permission grant
+for a sender/recipient. It refuses before Serve, when execution is omitted, after
+shutdown and after lifecycle cancellation. Admission itself never invokes it.
+The caller still supplies its sender and original event identity. Existing guarded
+four-slot/30s/one-attempt/policy/current-authority/uncertainty semantics apply.
+Routes are detached from caller slices; no hot mutation/reopen/retry is introduced.
+
+Runtime owns a child lifetime. A parent cancellation or either child transport exit
+permanently seals execution entry and cancels entered batch contexts. Individual
+caller cancellation affects only that batch, not otherwise-live HTTPS transports.
+Context cancellation does NOT prove claim rollback or external-effect cancellation.
+Each admitted runtime execution remains counted until its actual call returns,
+including a noncooperative Sender and the existing best-effort unknown checkpoint.
+If transports stop while a batch is still entered, Serve returns ErrStagedGatewayDrain.
+WaitDrained requires BOTH child Serve exits, ALL actual handlers and ALL runtime
+execution calls to finish. Keep DB/keys/sender resources alive until then. A failed
+or timed-out wait leaves entry permanently shut; later explicit waiting is allowed.
+This is not client receipt, backup safety, undo or an atomic external revocation
+barrier. Standalone executors/legacy calls elsewhere are NOT covered by this drain.
+
+Isolated acceptance uses actual dual TLS runtime admission, explicit batch execution,
+then tracked-admin HTTPS quarantine between synthetic occurrences: exactly one
+synthetic acceptance, durable outcome_unknown/history, no retry and admission replay
+refusal. Constructor mismatch/default opt-out/before-start/after-close and frozen
+route tests pass, with admission alone retaining pending/no history. Parent cancel,
+caller cancel and actual listener failure each cancel an entered TEST Sender that
+deliberately ignores cancellation until release. Both sockets close, Serve reports
+undrained, WaitDrained times out and refuses false completion; only actual sender
+return records unknown and permits final drain. No second occurrence is attempted.
+A real PostgreSQL gateway-row-lock claim waiter is canceled by runtime shutdown:
+actual drain, retained pending, zero history/claim/provider calls.
+THREE combined race repetitions also cover prior transport/guarded-executor/original
+executor/killed-process evidence. Markers:
+COMPOSED_EXECUTION_MTLS_ADMIT_EXPLICIT_BATCH_ADMIN_HTTPS_QUARANTINE_ONE_SYNTHETIC_EFFECT_UNKNOWN_NO_RETRY_OK,
+COMPOSED_EXECUTION_LISTENER_PARENT_CALLER_CANCEL_ACTUAL_SENDER_RETURN_REQUIRED_BOTH_TRANSPORTS_CLOSED_NO_RETRY_OK,
+COMPOSED_EXECUTION_ACTUAL_PG_CLAIM_WAIT_RUNTIME_CANCEL_ACTUAL_DRAIN_ZERO_PROVIDER_HISTORY_WRITES_OK.
+
+This connects explicit derived-batch lifetime to the isolated runtime. No production
+startup, scheduler, automatic effect selection, real provider recipient, owner
+activation, migration or normal exact93 Update behavior changes. Full immutable
+old/new image and authorization/key restore, secure enrollment/key custody/recovery,
+production MQTT ACK/session behavior, current native/physical hardware and joint
+server/dashboard-fresh-Windows-installer handoff remain OPEN. Owner PC is unchanged.
+
+The current-gateway95 actual edge journal/collector bridge now also opts this
+runtime into explicit execution. After synthetic Poll, committed journal,
+reviewed recovery, retained SQLite input and mTLS/PG first-response loss, explicit
+same-input signed reconciliation leaves exactly one original pending record with
+zero processing history. An explicit runtime call consumes that actual retained
+collector reading with two SYNTHETIC notifications, records completed once, and
+refuses a second call without another synthetic effect. Sibling tracked-admin
+HTTPS quarantine then refuses exact admission replay. Old94/durable95 bridge
+modes remain separate. This is isolated composition evidence, not a scheduler,
+real provider delivery, owner permission or physical sensor acceptance.
+
+Local validation scheduling: the actual edge bridge and independent test-only
+forced-close listener case now run in parallel with other independent fixtures.
+Each owns its DB/listeners/temp files and child environment. Assertions, product
+limits and retries are unchanged. One earlier final full-suite attempt exceeded
+the command window and is unaccepted. The complete ingest suite was then finished
+independently and its successful cached result is reused by final full server tests.
+Only disposable local test schema resets are used, never an owner DB.
+
+A final parallel race run exposed an existing aggregate drain classification race:
+a child may report its explicit undrained sentinel, then its last handler returns
+before the runtime reads active counts. The old aggregate path collapsed that
+child sentinel into generic runtime failure. Runtime now conservatively preserves
+either child's ErrAdmissionDrain/ErrQuarantineDrain as ErrStagedGatewayDrain,
+including wrapped errors, even when the later count is zero. WaitDrained still
+supplies actual positive lifetime evidence. The red stress run is unaccepted;
+corrected THREE combined race repetitions pass without changing assertions or
+limits. No uncertain child result is relabeled successful merely by count timing.

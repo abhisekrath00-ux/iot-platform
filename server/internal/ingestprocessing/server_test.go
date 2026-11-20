@@ -294,6 +294,7 @@ func TestAdmissionServerActualUnknownRouteAndSlowHeaders(t *testing.T) {
 }
 
 func TestAdmissionServerForcedCloseIsNotHandlerDrain(t *testing.T) {
+	t.Parallel() // Independent ephemeral listener and test-only handler.
 	f := httpTLSFixture(t)
 	s, err := NewAdmissionServer(serverConfig(t, f, Engine{Enabled: true, Pool: &pgxpool.Pool{}}))
 	if err != nil {

@@ -189,6 +189,7 @@ func (w lostAdmissionResponse) Write(b []byte) (int, error) {
 	return 0, errors.New("synthetic response lost after real commit")
 }
 func TestAdmissionHTTPLivePGAndEdge(t *testing.T) {
+	t.Parallel() // Isolated DB/listeners/child env and temp files per bridge.
 	for _, mode := range []string{"process-local94", "durable-denial95", "current-gateway95"} {
 		t.Run(mode, func(t *testing.T) { livePGAndEdge(t, mode != "process-local94", mode == "current-gateway95") })
 	}
@@ -218,6 +219,8 @@ func livePGAndEdge(t *testing.T, durable, gateway bool) {
 		seedQuarantineSession(t, x)
 		rc := runtimeConfig(t, x, f)
 		rc.Admission = sc
+		ec := guardedExecutionConfig(t, x, f)
+		rc.Execution = &ec
 		runtime, e = NewStagedGatewayRuntime(t.Context(), rc)
 		if e == nil {
 			dedicated = runtime.admission
@@ -346,6 +349,25 @@ func livePGAndEdge(t *testing.T, durable, gateway bool) {
 	counts(t, x.Pool, fresh.EventID, 0)
 
 	if runtime != nil {
+		// Admission/reconciliation itself never selects derived work. Explicitly
+		// execute the actual collector's retained input through the same lifetime.
+		assertState(t, x, envelope, "pending")
+		calls := 0
+		sender := syntheticSender(func(ctx context.Context, got Envelope, i Intent) error {
+			if got.EventID != envelope.EventID || got.ObservedAt != envelope.ObservedAt || got.Value != 42 || i.Sequence != calls {
+				t.Fatal(got, i)
+			}
+			calls++
+			return nil
+		})
+		if err := runtime.ExecuteOnce(t.Context(), envelope.TenantID, envelope.EventID, envelope.ObservedAt, sender); err != nil || calls != 2 {
+			t.Fatal(err, calls)
+		}
+		assertState(t, x, envelope, "completed")
+		historyCount(t, x, 1, "processing_completed")
+		if err := runtime.ExecuteOnce(t.Context(), envelope.TenantID, envelope.EventID, envelope.ObservedAt, sender); !errors.Is(err, ErrState) || calls != 2 {
+			t.Fatal("batch rearmed", err, calls)
+		}
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, managementEndpoint+"/staged/processing-v1/quarantine-gateway", strings.NewReader(quarantineBody(t, f)))
 		if err != nil {
 			t.Fatal(err)
@@ -365,7 +387,7 @@ func livePGAndEdge(t *testing.T, durable, gateway bool) {
 			t.Fatal(code, string(body))
 		}
 		counts(t, x.Pool, envelope.EventID, 1)
-		t.Log("LIVE_COMPOSED_RUNTIME_JOURNAL_EDGE_PG_MTLS_LOST_RESPONSE_ADMIN_QUARANTINE_REPLAY_REFUSAL_OK")
+		t.Log("LIVE_COMPOSED_RUNTIME_JOURNAL_EDGE_PG_MTLS_LOST_RESPONSE_EXPLICIT_SYNTHETIC_BATCH_ADMIN_QUARANTINE_NO_RETRY_OK")
 	}
 	if durable {
 		if err := x.DenyLeaf(t.Context(), sha256.Sum256(f.client.Certificate[0])); err != nil {
