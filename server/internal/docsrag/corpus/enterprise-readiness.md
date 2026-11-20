@@ -2892,3 +2892,63 @@ including wrapped errors, even when the later count is zero. WaitDrained still
 supplies actual positive lifetime evidence. The red stress run is unaccepted;
 corrected THREE combined race repetitions pass without changing assertions or
 limits. No uncertain child result is relabeled successful merely by count timing.
+
+#### Actual composed runtime crash and same-key reconstruction acceptance
+
+The current isolated composed runtime now has actual child-process crash evidence,
+not only the earlier direct Engine test. The child starts both real TLS transports,
+performs mTLS admission and explicitly enters one retained batch. At two separate
+checkpoints it SIGSTOPs: after durable claim but before a first synthetic effect,
+or after one synthetic provider acceptance recorded in a separate test table. The
+parent confirms the operating-system stopped state, sends SIGKILL and verifies
+actual signal termination. No graceful shutdown/unknown checkpoint is pretended.
+The retained plan/attempt and processing_started history remain executing, with
+zero or one synthetic receipt respectively and no processing_completed history.
+
+A fresh runtime is built with the SAME ephemeral TLS leaf/server/receipt-signing
+keys and the independently captured ORIGINAL selected-authority witness from
+BEFORE the first runtime admission, not a witness regenerated from the crashed DB.
+These are synthetic keys only, held in a mode0600 private temp fixture and never
+printed, published, sent to a provider or used by startup. This is NOT a secret
+storage/recovery implementation or proof of key custody on an owner machine.
+Actual mTLS same-input reconciliation returns a signature verified against that
+original receipt key and the exact original input binding/state executing. It
+never labels that state delivered. The original attempt ID remains, explicit
+runtime execution refuses ErrState without a new synthetic call, and the original
+zero/one synthetic receipt count is unchanged. A later separate durable leaf
+denial also refuses admission replay. The reconstructed runtime then cancels and
+actually drains. No takeover/rearm/retry, new identity or authority change repairs
+the killed batch. Planning/attempt uncertainty remains available for inspection.
+
+Marker:
+ACTUAL_COMPOSED_RUNTIME_SIGSTOP_SIGKILL_ORIGINAL_WITNESS_SAME_KEYS_MTLS_RECONCILE_EXECUTING_NO_TAKEOVER_NO_RESEND_OK.
+THREE combined race repetitions include this test, original killed-process and
+execution tests, actual collector/journal/mTLS lost-reply bridge, composed shutdown
+and guarded authority/quarantine cases. This is isolated Linux process/PG evidence,
+not Windows SCM/reboot/physical meter, load/soak or production startup acceptance.
+
+The actual compiled setupctl/PG14 logical restore script is also rerun locally:
+selected authority/quarantine/sessions/scope/audit, independent denial witness and
+new-empty-DB pg_dump/pg_restore acceptance still pass. The actual old/current/old
+API compatibility script passes with previous-main89/current binaries on staged94,
+authenticated retained identity/source reads and HTTP write/retry. These OPTIONAL
+scripts are skipped by normal CI unless their binary-path inputs are supplied.
+They are NOT immutable old/new container images, full95 downgrade or owner restore
+acceptance. No exact93 Update guard, migration catalog/schema, runtime behavior or
+activation default changes in this crash-acceptance slice. All remaining secure
+key/enrollment/recovery, full immutable image+authorization restore, production
+MQTT ACK/session, current native/hardware and joint server/fresh Windows EXE gates
+remain OPEN. Owner installation and completion-only delivery preference remain.
+
+
+Local validation for this crash slice uses exhaustive deterministic disjoint
+ingest shards: all130 top-level tests, fixed source hashes and complete results
+are recorded in docs/validation/composed-runtime-crash-local.json. Shards pass
+46.593s /40.204s /59.880s; all other server packages pass (cached results retained
+where Go permits). Separate THREE combined crash/runtime/guarded/drain race
+repetitions pass68.961s. Earlier attempts at a single local full ingest or
+full server invocation exceeded the execution window without a complete result
+and are unaccepted. Incidental test-scheduling changes were reverted. This is
+sharded local validation, NOT a literal full-suite pass; shared-state/order
+interactions across shards remain a limitation until a complete run finishes.
+The review checkpoint does not establish product readiness.
