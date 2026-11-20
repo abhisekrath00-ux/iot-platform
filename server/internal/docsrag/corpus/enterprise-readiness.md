@@ -2526,3 +2526,65 @@ transport before any future route activation. Excess refusals themselves are not
 proof a response reached the peer. Existing scope-table fence cost, uncertain
 commit/response/no-retry rules, quarantine restore-witness gap, legacy bypasses and
 all owner activation restrictions remain unchanged. NO runtime route was installed.
+
+#### Default-off dedicated quarantine management HTTPS transport
+
+`NewGatewayQuarantineServer` now assembles the tracked-session deny-only controller
+with a dedicated bounded transport. No startup/router invokes it, and constructing
+it opens no listener. The caller must explicitly supply a server certificate,
+existing trusted session issuer secret, enabled engine, exact95 migration directory
+and context. Invalid TLS/signer/secret/engine refuse before DB inspection; exact94
+or damaged95 refuses before a listener-capable object is returned. Inspection is
+point-in-time, not ongoing schema safety or an identity/authorization restore witness.
+No migrations, grant/enrollment, global leaf denial or authority writes are performed
+by construction. There is no hot reconfiguration, retry or automatic reopening.
+
+Management uses direct TLS1.3, HTTP1.1 only, disabled session tickets, detached
+certificate metadata and session-secret bytes. It does NOT request client certs:
+admin authorization is the controller's self-verified tracked JWT and SAME-transaction
+live user/session/scope/binding checks, never a telemetry client certificate. The
+shared TLS validation helper retains admission's separate RequireAndVerifyClientCert
+policy and frozen client roots. The caller still owns an immutable/live crypto.Signer.
+TLS proxies/plaintext and exposing this as a production admin route are unsupported.
+
+The new transport uses the existing one-shot admission lifecycle privately, without
+its telemetry handler or routes: at most64 accepted sockets including pre-TLS peers,
+16 active handler calls, and the controller's four active body/DB decisions. Excess
+sockets remain in the operating-system backlog, NOT a prompt authenticated refusal.
+Header timeout5s, total read/write timeouts10s, idle5s and header bound8192 apply;
+Go's header parser may use its documented additional read buffer. The controller's
+actual body3s/original request10s/JWT-expiry limits remain tighter where applicable.
+No per-tenant fairness, network/distributed DDoS or upstream resource guarantee exists.
+
+`Serve` consumes an explicitly opened listener once. Cancellation permanently closes
+entry, allows up to2s graceful shutdown, then force-closes remaining connections.
+`ErrQuarantineDrain` means actual handlers may still be active, not that DB work
+rolled back or resources can be freed. Keep DB/signer alive until `WaitDrained`
+confirms ALL tracked handler returns. It refuses before Serve starts. A committed
+decision can still lose its response; inspect current status, never retry blindly.
+Drain confirms neither response receipt nor undo of already-committed decisions.
+
+Actual isolated acceptance covers exact95 construction/refusal and frozen TLS;
+no-client-certificate HTTPS still requires JWT; TLS1.2/h2-only/wrong-root refuse;
+oversized and incomplete headers are bounded; exactly64 counted pre-TLS accepts
+leave a65th socket in the backlog and cancellation drains without reopening. A
+noncooperative test handler proves forced connection close is NOT handler drain.
+An ACTUAL HTTPS quarantine request blocked on a PostgreSQL user-row lock is canceled,
+returns no success acknowledgment, drains and leaves gateway/audit/global denials
+unchanged. Existing end-to-end guarded mTLS admission then admin quarantine then
+replay/reconstruction refusal now uses this transport rather than a test HTTP server.
+The actual four DB waiters/fifth503/demotion/refreshed-admin test also uses it.
+THREE race repetitions include the new transport and existing admission lifecycle.
+Markers include QUARANTINE_SERVER_DEFAULT_OFF_EXACT95_FROZEN_TLS_NO_RUNTIME_OK,
+QUARANTINE_SERVER_ACTUAL_TLS13_HTTP1_HEADERS_NO_CLIENT_CERT_AUTH_OK,
+QUARANTINE_SERVER_ACTUAL_64_PRETLS_65TH_BACKLOG_CANCEL_DRAIN_OK and
+QUARANTINE_SERVER_ACTUAL_HTTPS_DB_WAIT_CANCEL_HANDLER_DRAIN_ZERO_WRITES_OK.
+
+This advances separately constructed transport acceptance only. Runtime wiring,
+secure enrollment/key custody/recovery, immutable old/new image and full
+identity+authorization restore evidence, current native/physical hardware acceptance
+and joint server/fresh Windows installer delivery remain OPEN. Existing exact93
+Update behavior, migrations/catalog/shape, owner installation and activation stay
+unchanged. The denial-only restore witness still cannot certify gateway status,
+audit, sessions or customer scope. The conservative scope-table fence and legacy
+constructor/direct-writer bypasses remain. NO production route is installed.

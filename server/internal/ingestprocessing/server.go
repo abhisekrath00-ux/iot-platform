@@ -1,9 +1,7 @@
 package ingestprocessing
 
 import (
-	"bytes"
 	"context"
-	"crypto"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -46,59 +44,14 @@ func NewAdmissionServer(c AdmissionServerConfig) (*AdmissionServer, error) {
 	if !c.Enabled {
 		return nil, ErrDisabled
 	}
-	if c.ClientCAs == nil || len(c.ClientCAs.Subjects()) == 0 || len(c.Certificate.Certificate) == 0 || c.Certificate.PrivateKey == nil {
-		return nil, ErrAdmissionServer
-	}
-	leaf, err := x509.ParseCertificate(c.Certificate.Certificate[0])
+	cfg, err := validatedServerTLS(c, true)
 	if err != nil {
-		return nil, ErrAdmissionServer
-	}
-	signer, ok := c.Certificate.PrivateKey.(crypto.Signer)
-	if !ok {
-		return nil, ErrAdmissionServer
-	}
-	a, err := x509.MarshalPKIXPublicKey(leaf.PublicKey)
-	if err != nil {
-		return nil, ErrAdmissionServer
-	}
-	b, err := x509.MarshalPKIXPublicKey(signer.Public())
-	if err != nil || !bytes.Equal(a, b) {
-		return nil, ErrAdmissionServer
-	}
-	now := time.Now()
-	if now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) || leaf.IsCA {
-		return nil, ErrAdmissionServer
-	}
-	serverUsage := false
-	for _, u := range leaf.ExtKeyUsage {
-		if u == x509.ExtKeyUsageServerAuth {
-			serverUsage = true
-		}
-	}
-	if !serverUsage || len(leaf.DNSNames)+len(leaf.IPAddresses) == 0 {
-		return nil, ErrAdmissionServer
+		return nil, err
 	}
 	handler, err := NewAdmissionHTTP(c.Admission)
 	if err != nil {
 		return nil, err
 	}
-	cert := c.Certificate
-	cert.Certificate = make([][]byte, len(c.Certificate.Certificate))
-	for i, der := range c.Certificate.Certificate {
-		cert.Certificate[i] = append([]byte(nil), der...)
-	}
-	// Parse the detached bytes too: x509 leaf slices may alias their DER.
-	cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
-	if err != nil {
-		return nil, ErrAdmissionServer
-	}
-	cert.OCSPStaple = append([]byte(nil), c.Certificate.OCSPStaple...)
-	cert.SignedCertificateTimestamps = make([][]byte, len(c.Certificate.SignedCertificateTimestamps))
-	for i, b := range c.Certificate.SignedCertificateTimestamps {
-		cert.SignedCertificateTimestamps[i] = append([]byte(nil), b...)
-	}
-	cert.SupportedSignatureAlgorithms = append([]tls.SignatureScheme(nil), c.Certificate.SupportedSignatureAlgorithms...)
-	cfg := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: c.ClientCAs.Clone(), NextProtos: []string{"http/1.1"}, SessionTicketsDisabled: true}
 	s := &AdmissionServer{handler: handler, admission: handler, drained: make(chan struct{})}
 	s.server = &http.Server{Handler: http.HandlerFunc(s.handle), TLSConfig: cfg, TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 8192}
 	return s, nil

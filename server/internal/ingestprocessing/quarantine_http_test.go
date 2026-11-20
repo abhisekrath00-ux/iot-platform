@@ -214,23 +214,25 @@ func TestQuarantineControllerActualHTTPSAdmissionAndNoGlobalDenial(t *testing.T)
 		t.Fatal(code)
 	}
 	secret := append([]byte(nil), quarantineSecret...)
-	h, err := NewGatewayQuarantineHTTP(true, x, secret)
+	c := quarantineServerConfig(f, x)
+	c.SessionSecret = secret
+	admin, err := NewGatewayQuarantineServer(t.Context(), c, filepath.Join("..", "..", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := range secret {
 		secret[i] = 0
 	}
-	admin := httptest.NewTLSServer(h)
-	defer admin.Close()
+	adminURL := startAdmissionServer(t, admin.transport)
+	adminClient := quarantineServerClient(t, f)
 	call := func() (int, []byte) {
-		r, err := http.NewRequestWithContext(t.Context(), "POST", admin.URL+"/staged/processing-v1/quarantine-gateway", bytes.NewBufferString(quarantineBody(t, f)))
+		r, err := http.NewRequestWithContext(t.Context(), "POST", adminURL+"/staged/processing-v1/quarantine-gateway", bytes.NewBufferString(quarantineBody(t, f)))
 		if err != nil {
 			t.Fatal(err)
 		}
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Authorization", "Bearer "+quarantineToken(t, "a", "u", "session", "admin"))
-		resp, err := admin.Client().Do(r)
+		resp, err := adminClient.Do(r)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -544,10 +546,7 @@ func TestQuarantineActualHTTPSCapacityRefusalBeforeDB(t *testing.T) {
 	f := httpTLSFixture(t)
 	bindGatewayLeaf(t, x, f)
 	seedQuarantineSession(t, x)
-	h, err := NewGatewayQuarantineHTTP(true, x, quarantineSecret)
-	if err != nil {
-		t.Fatal(err)
-	}
+	management := mustQuarantineServer(t, f, x)
 	block, err := x.Pool.Begin(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -556,13 +555,12 @@ func TestQuarantineActualHTTPSCapacityRefusalBeforeDB(t *testing.T) {
 	if _, err = block.Exec(t.Context(), "UPDATE users SET role='viewer' WHERE id='u'"); err != nil {
 		t.Fatal(err)
 	}
-	s := httptest.NewTLSServer(h)
-	defer s.Close()
-	client := s.Client()
+	endpoint := startAdmissionServer(t, management.transport)
+	client := quarantineServerClient(t, f)
 	client.Timeout = 8 * time.Second
 	token, body := quarantineToken(t, "a", "u", "session", "admin"), quarantineBody(t, f)
 	call := func() (int, error) {
-		r, e := http.NewRequestWithContext(t.Context(), "POST", s.URL+"/staged/processing-v1/quarantine-gateway", strings.NewReader(body))
+		r, e := http.NewRequestWithContext(t.Context(), "POST", endpoint+"/staged/processing-v1/quarantine-gateway", strings.NewReader(body))
 		if e != nil {
 			return 0, e
 		}
