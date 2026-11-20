@@ -211,9 +211,17 @@ func livePGAndEdge(t *testing.T, durable, gateway bool) {
 
 	sc := AdmissionServerConfig{Enabled: true, Admission: c, Certificate: f.server, ClientCAs: f.roots}
 	var dedicated *AdmissionServer
+	var runtime *StagedGatewayRuntime
+	var managementEndpoint string
 	var e error
 	if gateway {
-		dedicated, e = NewGuardedAdmissionServer(t.Context(), sc, filepath.Join("..", "..", "migrations"))
+		seedQuarantineSession(t, x)
+		rc := runtimeConfig(t, x, f)
+		rc.Admission = sc
+		runtime, e = NewStagedGatewayRuntime(t.Context(), rc)
+		if e == nil {
+			dedicated = runtime.admission
+		}
 	} else {
 		dedicated, e = NewAdmissionServer(sc)
 	}
@@ -227,7 +235,25 @@ func livePGAndEdge(t *testing.T, durable, gateway bool) {
 		n := requests.Add(1)
 		h.ServeHTTP(lostAdmissionResponse{w, n == 1}, r)
 	})
-	endpoint := startAdmissionServer(t, dedicated)
+	var endpoint string
+	if runtime != nil {
+		var cancel context.CancelFunc
+		var done <-chan error
+		endpoint, managementEndpoint, cancel, done = startGatewayRuntime(t, runtime)
+		t.Cleanup(func() {
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Error(err)
+				}
+			case <-time.After(4 * time.Second):
+				t.Error("composed runtime did not stop")
+			}
+		})
+	} else {
+		endpoint = startAdmissionServer(t, dedicated)
+	}
 	kb, e := x509.MarshalPKCS8PrivateKey(f.client.PrivateKey)
 	if e != nil {
 		t.Fatal(e)
@@ -319,6 +345,28 @@ func livePGAndEdge(t *testing.T, durable, gateway bool) {
 	}
 	counts(t, x.Pool, fresh.EventID, 0)
 
+	if runtime != nil {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, managementEndpoint+"/staged/processing-v1/quarantine-gateway", strings.NewReader(quarantineBody(t, f)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+quarantineToken(t, "a", "u", "session", "admin"))
+		request.Header.Set("Content-Type", "application/json")
+		resp, err := quarantineServerClient(t, f).Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatal(resp.StatusCode)
+		}
+		quarantineState(t, x, "revoked", 1)
+		if code, body := durableRequest(t, f, endpoint, envelope); code != 503 || bytes.Contains(body, []byte("signature")) {
+			t.Fatal(code, string(body))
+		}
+		counts(t, x.Pool, envelope.EventID, 1)
+		t.Log("LIVE_COMPOSED_RUNTIME_JOURNAL_EDGE_PG_MTLS_LOST_RESPONSE_ADMIN_QUARANTINE_REPLAY_REFUSAL_OK")
+	}
 	if durable {
 		if err := x.DenyLeaf(t.Context(), sha256.Sum256(f.client.Certificate[0])); err != nil {
 			t.Fatal(err)
@@ -347,6 +395,7 @@ func mustCert(t *testing.T, b []byte) *x509.Certificate {
 }
 
 func TestAdmissionHTTPBodyDeadlineAndUnsupportedWriter(t *testing.T) {
+	t.Parallel() // Independent ephemeral listeners and, when used, a disposable DB.
 	f := httpTLSFixture(t)
 	c := httpConfig(t, f, Engine{Enabled: true, Pool: &pgxpool.Pool{}})
 	c.Timeout = time.Second

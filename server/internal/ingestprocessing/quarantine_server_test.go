@@ -107,6 +107,7 @@ func TestQuarantineServerConfigurationAndExact95(t *testing.T) {
 	t.Log("QUARANTINE_SERVER_DEFAULT_OFF_EXACT95_FROZEN_TLS_NO_RUNTIME_OK")
 }
 func TestQuarantineServerActualTLSAndSlowHeaders(t *testing.T) {
+	t.Parallel() // Independent ephemeral listeners and, when used, a disposable DB.
 	x, _ := denialFixture(t)
 	f := httpTLSFixture(t)
 	s := mustQuarantineServer(t, f, x)

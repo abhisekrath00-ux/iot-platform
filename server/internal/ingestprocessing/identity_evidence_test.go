@@ -23,6 +23,7 @@ func seedIdentityEvidence(t *testing.T, x Engine, f httpMTLS) {
  UPDATE gateways SET status='revoked' WHERE id='g'`)
 }
 func TestSelectedIdentityEvidenceExactStateAndMismatch(t *testing.T) {
+	t.Parallel() // Each test owns a separate disposable DB and listeners.
 	dir := filepath.Join("..", "..", "migrations")
 	for _, mode := range []string{"status", "fingerprint", "gateway-tenant", "session-revocation", "session-removal", "user-role", "user-cutoff", "scope-insert", "audit-detail", "audit-removal", "migration-key", "pairing-proof", "tenant-name", "site-name", "customer-name", "denial"} {
 		t.Run(mode, func(t *testing.T) {
@@ -100,6 +101,7 @@ func TestSelectedIdentityEvidenceExactStateAndMismatch(t *testing.T) {
 	t.Log("SELECTED_IDENTITY95_QUARANTINE_SESSION_SCOPE_AUDIT_BINDING_WITNESS_DETECTS_DRIFT_OK")
 }
 func TestSelectedIdentityEvidenceRefusesDriftBusyWritersAndInvalidWitness(t *testing.T) {
+	t.Parallel() // Each test owns a separate disposable DB and listeners.
 	dir := filepath.Join("..", "..", "migrations")
 	x, _ := fixture(t)
 	if _, err := authorityschema.InspectIdentityEvidence(t.Context(), x.Pool, dir); err == nil {

@@ -257,6 +257,7 @@ func TestAdmissionServerFrozenClientRoots(t *testing.T) {
 }
 
 func TestAdmissionServerActualUnknownRouteAndSlowHeaders(t *testing.T) {
+	t.Parallel() // Independent ephemeral listeners and, when used, a disposable DB.
 	f := httpTLSFixture(t)
 	s, err := NewAdmissionServer(serverConfig(t, f, Engine{Enabled: true, Pool: &pgxpool.Pool{}}))
 	if err != nil {

@@ -2659,3 +2659,78 @@ This actual binary/dump test is OPTIONAL and skipped by normal CI without explic
 binary paths; do not present a normal green CI as running it. It passed locally
 with PostgreSQL14.24 tools. Full immutable old/new images, rollback/restore/key and
 all owner activation gates remain OPEN. Owner installation is unchanged.
+
+#### Default-off composed guarded gateway runtime lifecycle
+
+`NewStagedGatewayRuntime` now composes the guarded admission server and separate
+deny-only management server. This is an in-process assembly API, NOT a new service,
+startup caller, GUI switch, production route or normal Update path. Construction
+opens no socket and performs no migration or authority write. Both explicit flags,
+both current authority guards and the SAME enabled DB pool are required. A caller
+must supply the independently preserved selected-authority witness and migration
+directory. A30s constructor context bounds selected-witness verification, guarded
+route preflight and management exact95 inspection. All are point-in-time reads,
+not a single permanent snapshot or an authorization grant. The selected witness's
+ALL-table maintenance lock cost remains, so construction is not a runtime probe.
+The constructor cannot establish witness provenance or freshness; a witness read
+from the same backup/DB still does not prove continuity. Neither a matching witness
+nor schema shape bypasses current route binding or later request transaction guards.
+
+The runtime has no source poller, derived worker/provider execution, retry, hot
+rotation, enrollment, restore, listener discovery or automatic restart. Existing
+TLS/key/session and scope-table fence restrictions are unchanged. Both transports
+retain separate authentication: telemetry requires its exact mTLS leaf/topic and
+signs admission only, management requires its self-verified tracked live admin JWT
+and may only quarantine a current gateway. A telemetry certificate is not an admin
+session. The caller must keep DB and immutable keys alive until actual drain.
+
+`Serve` accepts TWO caller-opened distinct listeners, validates them before taking
+ownership, and consumes the pair ONCE. Nil/typed-nil/same-address/canceled/reused
+calls refuse without taking new caller socket ownership. After transfer, any first
+child exit cancels the sibling and permanently closes BOTH sockets, including the
+case where that sibling sees cancellation before it starts. No replacement listener
+is opened. Generic transport error avoids returning DB/key details. Parent cancel
+also stops both. Previously entered transactions may already have committed, with
+reply loss, so shutdown does not mean rollback or permission for an effect retry.
+
+`ErrStagedGatewayDrain` reports an actually active handler after child Serve exits.
+Connection force-close is not actual handler completion. `WaitDrained` refuses
+before Serve starts, waits for BOTH child Serve calls to exit, then confirms every
+actually entered handler returned. A child canceled before it started has no handler
+to drain. Keep shared DB/signers alive until this separate confirmation, even if
+the TCP clients already saw a failure. It does not prove response receipt, restore
+safety, no external effects elsewhere or reversal of committed admission/quarantine.
+
+THREE combined race repetitions cover default-off/missing flags/different DBs/missing
+witness, stale selected evidence and matching witness still refusing revoked route;
+actual dual TLS admission then unauthenticated admin refusal then one tracked admin
+quarantine then exact replay refusal; clean cancellation/drain; invalid/single-use
+listener ownership and a closed listener canceling its sibling without reopening;
+a deliberately noncooperative TEST handler proving sibling failure +force-close
+is NOT drain or a retry; and an ACTUAL management HTTPS request blocked on a PG
+user-row lock canceled with both sockets closed, actual handler drain and zero
+status/audit/global-denial writes. Marker:
+STAGED_RUNTIME_ACTUAL_BLOCKED_ADMIN_DB_CANCEL_BOTH_LISTENERS_ACTUAL_DRAIN_ZERO_WRITES_OK.
+
+The actual current-gateway95 edge journal/collector/session bridge now uses this
+composed runtime, with separate process-local94/durable95 legacy tests retained.
+It covers synthetic loopback source Poll -> committed journal -> explicit reviewed
+recovery -> retained SQLite input -> actual mTLS/PG admission whose first response
+is deliberately dropped -> explicit SAME-input signed reconciliation, one original
+record/plan, then actual sibling HTTPS admin quarantine and refusal of replay.
+No automatic request is added, and failed/conflicting insertion returns no signature.
+Marker LIVE_COMPOSED_RUNTIME_JOURNAL_EDGE_PG_MTLS_LOST_RESPONSE_ADMIN_QUARANTINE_REPLAY_REFUSAL_OK.
+This connects the accepted pieces in an isolated opt-in assembly, NOT owner runtime
+activation, physical meter/clock evidence or all production MQTT ACK/session/derived
+work acceptance. Secure key custody/enrollment/recovery, immutable old/new image
+and full identity+authorization restore, current native/hardware and joint server/
+fresh Windows installer handoff remain OPEN. Owner installation is unchanged.
+
+Local validation scheduling note: only independent disposable-database and ephemeral
+listener tests use t.Parallel, including new runtime/selected-witness tests and the
+slow-header/body checks. Assertions and production limits are unchanged. This lets
+the complete local ingest suite finish inside the command execution window. Earlier
+time-ceiling attempts are unaccepted. Final combined runtime/edge-bridge/selected-
+witness/header/body THREE race repetitions pass. The full server suite is run from
+server/ with TEST_DATABASE_URL against the disposable local test schema; full ingest
+has its independently completed result, reused by the final full server invocation.
