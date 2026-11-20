@@ -121,6 +121,9 @@ func (x Engine) startAttempt(ctx context.Context, tenant, event string, at time.
 			return Record{}, err
 		}
 	}
+	if err = executionAuthority(ctx, tx, rec.Plan.Envelope, x.executionRoutes); err != nil {
+		return Record{}, err
+	}
 	if err = authorize(ctx, tx, rec.Plan); err != nil {
 		return Record{}, err
 	}
@@ -165,7 +168,11 @@ func runID(e Envelope, flowID string) string {
 	return "processing-" + hex.EncodeToString(sum[:])
 }
 func (x Engine) authorize(ctx context.Context, p Plan) error {
-	tx, err := x.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	options := pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}
+	if x.executionRoutes != nil {
+		options = pgx.TxOptions{IsoLevel: pgx.Serializable}
+	}
+	tx, err := x.Pool.BeginTx(ctx, options)
 	if err != nil {
 		return err
 	}
@@ -173,7 +180,16 @@ func (x Engine) authorize(ctx context.Context, p Plan) error {
 	if _, err = tx.Exec(ctx, "SET LOCAL statement_timeout='15s'"); err != nil {
 		return err
 	}
-	return authorize(ctx, tx, p)
+	if err = executionAuthority(ctx, tx, p.Envelope, x.executionRoutes); err != nil {
+		return err
+	}
+	if err = authorize(ctx, tx, p); err != nil {
+		return err
+	}
+	if x.executionRoutes != nil {
+		return tx.Commit(ctx)
+	}
+	return nil
 }
 func authorize(ctx context.Context, tx pgx.Tx, p Plan) error {
 	current, err := capture(ctx, tx, p.Envelope)

@@ -81,6 +81,8 @@ type Engine struct {
 	// mTLS transport. Direct Engine admission is not certificate authorization.
 	durableLeaf      *[32]byte
 	gatewayAuthority bool
+	// Non-nil only in the separate explicit GuardedExecutor. Frozen and private.
+	executionRoutes map[string][32]byte
 }
 type Admission struct {
 	New   bool

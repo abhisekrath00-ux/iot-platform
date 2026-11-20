@@ -36,6 +36,7 @@ func historyCount(t *testing.T, x Engine, want int, outcome string) {
 	}
 }
 func TestExecuteOnceDurableBeforeIOAndNoRearm(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	x, e := fixture(t)
 	ctx := t.Context()
 	mustAdmit(t, x, e)
@@ -75,6 +76,7 @@ func TestExecuteOnceDurableBeforeIOAndNoRearm(t *testing.T) {
 	}
 }
 func TestExecuteFailureUnknownDoesNotTryRemainingOrRetry(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	x, e := fixture(t)
 	mustAdmit(t, x, e)
 	calls := 0
@@ -95,6 +97,7 @@ func TestExecuteFailureUnknownDoesNotTryRemainingOrRetry(t *testing.T) {
 	}
 }
 func TestExecuteRefusesChangedPolicyBeforeAndBetweenAttempts(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	for _, mode := range []string{"before-target", "before-flow", "between-channel", "between-feature", "between-delete-flow"} {
 		t.Run(mode, func(t *testing.T) {
 			x, e := fixture(t)
@@ -135,6 +138,7 @@ func TestExecuteRefusesChangedPolicyBeforeAndBetweenAttempts(t *testing.T) {
 	}
 }
 func TestExecuteInternalFaultRollsBackBeforeAnyIO(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	x, e := fixture(t)
 	mustAdmit(t, x, e)
 	calls := 0
@@ -157,6 +161,7 @@ func TestExecuteInternalFaultRollsBackBeforeAnyIO(t *testing.T) {
 	}
 }
 func TestExecuteConcurrentClaimOnlyOneBatch(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	x, e := fixture(t)
 	mustAdmit(t, x, e)
 	var calls atomic.Int32
@@ -190,6 +195,7 @@ func TestExecuteConcurrentClaimOnlyOneBatch(t *testing.T) {
 	historyCount(t, x, 1, "processing_completed")
 }
 func TestExecuteQuarantineDisabledAndMissingSender(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	x, e := fixture(t)
 	ctx := t.Context()
 	mustAdmit(t, x, e)
@@ -212,6 +218,7 @@ func TestExecuteQuarantineDisabledAndMissingSender(t *testing.T) {
 	historyCount(t, x, 0, "processing_started")
 }
 func TestInterruptedStartedBatchUnclaimableAndCancellation(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	x, e := fixture(t)
 	ctx := t.Context()
 	mustAdmit(t, x, e)
@@ -247,6 +254,7 @@ func TestInterruptedStartedBatchUnclaimableAndCancellation(t *testing.T) {
 	assertState(t, x, e, "outcome_unknown")
 }
 func TestEmptyAndElapsedDelayNoExternalSuccessClaim(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	x, e := fixture(t)
 	ctx := t.Context()
 	e.Value = 0
@@ -271,6 +279,7 @@ func TestEmptyAndElapsedDelayNoExternalSuccessClaim(t *testing.T) {
 	assertState(t, x, e, "outcome_unknown")
 }
 func TestFinishFaultAfterAcceptanceQuarantinesWithoutResend(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	x, e := fixture(t)
 	mustAdmit(t, x, e)
 	exec(t, x.Pool, `CREATE FUNCTION reject_completed_history() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.outcome='processing_completed' THEN RAISE EXCEPTION 'synthetic completion fault';END IF;RETURN NEW;END$$;CREATE TRIGGER reject_completed_history BEFORE UPDATE ON flow_runs FOR EACH ROW EXECUTE FUNCTION reject_completed_history()`)
@@ -294,6 +303,7 @@ func TestFinishFaultAfterAcceptanceQuarantinesWithoutResend(t *testing.T) {
 	}
 }
 func TestAttemptStateUpdateFaultRollsBackHistory(t *testing.T) {
+	t.Parallel() // Each test owns an independent disposable database.
 	x, e := fixture(t)
 	mustAdmit(t, x, e)
 	exec(t, x.Pool, `CREATE FUNCTION reject_attempt_start() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'synthetic attempt state fault';END$$;CREATE TRIGGER reject_attempt_start BEFORE UPDATE ON ingest_processing_v1 FOR EACH ROW EXECUTE FUNCTION reject_attempt_start()`)

@@ -2734,3 +2734,72 @@ time-ceiling attempts are unaccepted. Final combined runtime/edge-bridge/selecte
 witness/header/body THREE race repetitions pass. The full server suite is run from
 server/ with TEST_DATABASE_URL against the disposable local test schema; full ingest
 has its independently completed result, reused by the final full server invocation.
+
+#### Default-off guarded explicit derived-batch execution
+
+`NewGuardedExecutor` is a separate explicit single-batch API, NOT a worker,
+startup caller, scheduler, route or activation switch. Construction requires an
+explicit enabled Engine, exact95 preflight and1-256 exact full-leaf/topic bindings.
+Duplicate topics OR leaves refuse, including ambiguous rotations. It copies the
+routes and verifies every current gateway/denial binding before returning. A15s
+constructor bound and10s SQL timeout apply. This opens no socket, installs no
+migration, writes no authority/history and sends nothing. It does NOT replace the
+independent ORIGINAL selected-authority witness or establish restore continuity.
+Frozen routes are prospective current execution authority, NOT proof of a retained
+record's original TLS provenance. Legacy Engine/direct DB writers remain bypasses.
+
+Each explicitly selected `ExecuteOnce` checks current tenant/gateway active-edge
+certificate enrollment and durable leaf denial in the SAME serializable claim
+transaction, BEFORE position/history/attempt writes. Missing/unmapped routes,
+missing authority, changed fingerprint/kind/mode/tenant/status and durable denial
+refuse with retained pending state and no provider call. Complete retained policy
+comparison and sender preflight still apply. Guarded execution also checks both
+authorities in a fresh serializable transaction before EACH external occurrence,
+including after a retained delay; it commits that read decision before provider
+I/O. A later denial cannot retarget the occurrence or cause an automatic retry.
+
+Authority locks are deliberately NOT held across provider I/O. A quarantine can
+commit while an already-entered external request is in progress and cannot undo
+it. There is also an unavoidable check-to-SendOnce interval: this API is NOT a
+linearizable external revocation barrier or proof that no request can enter after
+an admin response. If a later occurrence is refused after claim, the whole batch
+remains conservatively outcome_unknown, including occurrences not attempted.
+Unknown/executing/completed batches never rearm. Before-claim refusal leaves pending
+for inspection, not permission for unattended retries or changed identities.
+
+Four concurrent calls per constructed executor, no queue, cap admission before
+DB access. An original30s call deadline includes claim, delay, policy/authority and
+sender time, with at most10s per sender occurrence and a separate best-effort3s
+unknown checkpoint. Caller cancellation can be shorter. An arbitrary noncooperative
+Sender cannot be forcibly stopped: its call and capacity slot stay active until
+actual return. Keep pool/Sender resources alive and wait for every caller. This
+executor is NOT included in the composed transport runtime's WaitDrained; that API
+only tracks its two HTTPS transports. No effect goroutine is started automatically.
+Multiple constructed executors have independent caps, not a global fairness bound.
+
+Isolated actual composed-runtime acceptance performs mTLS admission followed by
+tracked-admin HTTPS quarantine: before claim, the guarded batch leaves pending,
+zero history and zero synthetic effects; between occurrences, only the first
+synthetic acceptance exists and batch/history become outcome_unknown. Replay
+admission refuses too. A real PostgreSQL gateway-row-lock waiter cancels without
+claim/history/provider calls. Four actually entered noncooperative synthetic
+senders keep all slots after cancellation, the fifth refuses and remains pending,
+and all four later return unknown after explicit test release. Concurrent DB claims
+may legitimately serialization-fail without retry; the capacity fixture enters
+claims in fixed sequence before holding four sender calls concurrently. THREE
+combined races cover guarded execution, original executor and actual killed-process
+no-resend tests plus the composed runtime admission/quarantine path.
+Markers: GUARDED_EXECUTION_ACTUAL_COMPOSED_MTLS_ADMIT_HTTPS_QUARANTINE_PENDING_NO_IO_AND_BETWEEN_UNKNOWN_NO_RETRY_OK,
+GUARDED_EXECUTION_ACTUAL_GATEWAY_LOCK_WAITER_CANCEL_ZERO_CLAIM_HISTORY_PROVIDER_CALLS_OK,
+GUARDED_EXECUTION_FOUR_ACTUAL_SENDERS_FIFTH_BUSY_CANCEL_HOLDS_SLOTS_UNTIL_ACTUAL_RETURN_NO_RETRY_OK.
+The explicit legacy Engine pending-after-revocation bypass is reproduced and
+preserved, NOT hidden as a full production fix. Only synthetic providers are used.
+No owner activation, worker/startup, MQTT ACK/session change, secure enrollment,
+image/restore acceptance, physical device write or joint installer handoff follows.
+
+Local scheduling for this slice also parallelizes independent disposable-database
+executor tests only. No assertion, sender deadline, production concurrency limit
+or retry policy changed. An initial full-suite process exceeded the execution
+window and is unaccepted. The complete ingest suite then finished independently;
+the final full server invocation reuses that completed ingest test result. Its
+shared disposable test DB schema was reset, never an owner database.
