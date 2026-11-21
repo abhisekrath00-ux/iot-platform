@@ -3105,3 +3105,40 @@ complete local validation results. Backend suites are not rerun locally for this
 UI-only slice. The previous dccd84e normal full-server remote gate separately
 passed CI44864727438 (API66.211s/ingestprocessing177.295s), not the optional local
 logical-restore branch. This new review tip still needs its own exact CI result.
+
+#### Secure pairing: stale-read and uncertain-decision controls
+
+The existing pairing panel kept old request rows and a checked fingerprint after
+an attempted reload failed. It also relied only on asynchronous React busy state,
+so same-render clicks could submit multiple approve/revoke decisions, and a lost
+decision response immediately re-enabled the old pending row. This UI-only slice
+clears rows/comparisons before every read and uses a synchronous in-flight guard
+plus a per-request attempted set for the current component lifetime. Approval
+still requires an explicit comparison of the exact displayed fingerprint.
+
+An unconfirmed approve OR revoke response keeps both decisions and comparison
+blocked for that request, including after pending, failed, missing or issued
+reads. Reload is GET-only and cannot reset the attempted set. Observed request
+state is labelled separately from confirmation of a lost decision response. No
+new decision is inferred from a missing request among the latest100 unexpired
+rows. A successful prior decision also cannot be silently rearmed by a later
+pending snapshot. The page says to keep the edge service stopped and ask for
+help before another decision. This is conservative component-lifetime protection,
+NOT durable cross-tab/remount/reload deduplication, server authority, secret
+custody, broker connectivity or a complete recovery workflow. Existing server
+identity/CA/ACL, fingerprint matching and all update/default paths are unchanged.
+
+The new5focused cases first reproduce4failures against the accepted c7a15e3
+component, then all5pass after the correction. A transient local JSX parse typo
+prevented a run from reaching tests; that attempt is unaccepted. After fixing it,
+full local web70files411tests51.35s, TypeScript/Vite build and production npm
+audit0 pass. Real Chromium pixels at1200px desktop and390px mobile were inspected
+for failed-read, pending-unknown and observed-issued states, including complete
+fingerprint/confirmation/action area. No horizontal overflow. Synthetic browser
+requests:GET,GET(failed),GET,one explicit POST with lost response,GET. No second
+POST or real certificate request was sent. This is actual component/browser with
+mock responses, not server/hardware integration. Fixed hashes/results/limits are
+in docs/validation/pairing-decision-review-local.json. Backend suites were not
+rerun locally for this UI-only slice; exact new remote CI is a separate gate.
+Owner installation, all readiness gates and joint fresh installer handoff stay
+open. Prior accepted c7a15e3 full normal CI44883147038 is not this tip's acceptance.

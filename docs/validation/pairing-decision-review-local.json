@@ -1,0 +1,70 @@
+{
+  "base_revision": "c7a15e3d7f23145692725a2f024bbc9e42bb60ac",
+  "scope": "existing secure pairing UI read invalidation, synchronous in-flight guard, current component one-attempt decision guard",
+  "source_sha256": {
+    "web/src/components/SecurePairing.tsx": "5fee94051466cd22468e30919932395bcfbe16ea76b4f6694c6d98a04e1f9cd9",
+    "web/src/components/SecurePairing.test.tsx": "45a3a7ef7fe318c51fd4296295fb02b0da7ada0ce317868d31d51d3cabca0fcf"
+  },
+  "baseline_regression": {
+    "cases": 5,
+    "prior_component_failed": 4,
+    "prior_component_passed": 1,
+    "accepted": false
+  },
+  "unaccepted_attempts": [
+    "temporary local JSX parse typo, zero tests reached, corrected before full successful run"
+  ],
+  "fixed_results": {
+    "focused": {
+      "passed": 5,
+      "duration_ms": 154
+    },
+    "full_web": {
+      "files": 70,
+      "tests": 411,
+      "passed": 411,
+      "duration_s": 51.35
+    },
+    "build": "TypeScript/Vite PASS, existing chunk-size warning retained",
+    "production_npm_audit_vulnerabilities": 0,
+    "actual_chromium": {
+      "widths": [
+        1200,
+        390
+      ],
+      "states": [
+        "failed reload with prior rows removed",
+        "uncertain decision with both actions disabled",
+        "issued observed via GET with lost-decision caveat retained"
+      ],
+      "observed_request_methods": [
+        "GET",
+        "GET failed",
+        "GET",
+        "POST lost response",
+        "GET"
+      ],
+      "automatic_retry": false,
+      "horizontal_overflow": false
+    }
+  },
+  "covered": [
+    "explicit comparison and exact fingerprint payload",
+    "rows and comparison cleared before GET resolves",
+    "failed read cannot keep stale approval controls",
+    "uncertain approve and revoke both block repeat/opposite decision",
+    "pending/failed/missing/issued reads do not reset attempted set",
+    "observed state is not a confirmed lost decision response",
+    "synchronous same-render duplicate GET and decision guard",
+    "successful attempt cannot be rearmed by later pending snapshot"
+  ],
+  "limits": [
+    "current component lifetime only, not durable cross-tab/remount/page-reload protection",
+    "synthetic browser mock responses, no actual CA, ACL or server integration",
+    "missing latest100 unexpired result is not failure proof",
+    "server authority, identity, startup and update behavior unchanged",
+    "backend tests not rerun locally for UI-only slice",
+    "new exact remote CI acceptance remains separate",
+    "owner readiness and joint server/fresh Windows installer remain open"
+  ]
+}
