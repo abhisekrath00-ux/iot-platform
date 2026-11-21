@@ -3142,3 +3142,49 @@ in docs/validation/pairing-decision-review-local.json. Backend suites were not
 rerun locally for this UI-only slice; exact new remote CI is a separate gate.
 Owner installation, all readiness gates and joint fresh installer handoff stay
 open. Prior accepted c7a15e3 full normal CI44883147038 is not this tip's acceptance.
+
+
+#### Actual browser/API/SQL committed lost-response recovery
+
+The optional TestIntegrationBrowserLostSetupAndPairingResponses now crosses the
+actual Chromium/React/api-client boundary via loopback Vite proxy to actual HTTP
+handlers, signed JWT, tracked session, active-user and customer-scope middleware,
+and a fresh PostgreSQL database with all93 migrations. It uses no response mocks.
+The server wrapper lets each real handler finish its commit, then closes the
+connection before the status/headers/body can reach the browser. Source201 and
+pending-revoke200 commits are checked independently of the browser report.
+
+One explicit Add another source POST loses its response. The unknown-state
+control stays disabled and a GET-only reload exposes the exact new DB session ID
+in the actual Continue link. One explicit pending-pairing Revoke POST also loses
+its response. Both decisions stay disabled, GET observes revoked, and the page
+still distinguishes observed status from confirmation of the lost decision.
+There are exactly two POST paths,2sessions/1gateway/0enrollmenttokens/2auditrows/
+1completedsourceidempotencyrow; the original gateway fingerprint is unchanged.
+Missing JWT401, live demotion403, tracked-session revocation401 and both reads
+under restricted customer-scope403 are checked through the real HTTP middleware.
+
+Local opt-in race test4.846s and THREE repeated race runs9.922s PASS; normal API
+suite32.588s and go vet ./cmd/api PASS. Initial harness-only token-bootstrap401
+and navigation-readiness failures are unaccepted; Page.enable and read-only
+readiness fixes precede the accepted runs. No write/click retry was added.
+Actual full desktop/mobile source/unknown-pairing/observed-revoked pixels were
+inspected at1200/390px with no horizontal overflow. The runner uses a fresh
+browser profile, a private0600 config with a short-lived test token, synthetic
+fixtures and a new verified numeric-loopback database, cleans processes and
+removes that database at close. Optional command (installed dependencies and
+local PG with CREATE DATABASE required):
+
+```
+TEST_DATABASE_URL=postgres://LOCAL_USER@127.0.0.1:55432/postgres?sslmode=disable   python3 scripts/test-recovery-browser.py --artifacts /tmp/recovery-pixels
+```
+
+Normal CI explicitly SKIPS this browser test unless TEST_RECOVERY_BROWSER=1.
+This proves selected real component/API/SQL behavior, not full application
+startup, production HTTPS/proxy, certificate approval, CA, broker, Windows,
+physical device or owner-PC acceptance. Existing component-lifetime guards are
+not durable across tabs/remount/page reload. No production code, schema/catalog,
+workflow, exact93 guard or updater behavior changes. Joint server/fresh Windows
+installer handoff and owner readiness remain open. Fixed hashes, results and
+limits: docs/validation/browser-committed-response-recovery-local.json. Previous
+accepted c903f6a normal CI44902061181 is separate from this tip's remote gate.

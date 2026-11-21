@@ -1,0 +1,59 @@
+{
+  "base_revision": "c903f6a0b97230117e4845d747b83de0e3232a61",
+  "scope": "opt-in actual Chromium React api-client authenticated HTTP fresh PostgreSQL committed lost-response recovery",
+  "source_sha256": {
+    "server/cmd/api/recovery_browser_test.go": "890e88364d7f79cbf8b98e1b04295f0ebe0c02667aa7040347047acaef9d2d1c",
+    "scripts/test-recovery-browser.py": "54e2047c5f9b40727e7a288aa35f745acd22663895d03ff67189c8acde7143d7",
+    "web/src/components/SetupRecovery.tsx": "096c6a0315b124e0bf2b09d8bc9dd9d5d889f5156788a5b36c2400c5db93b460",
+    "web/src/components/SecurePairing.tsx": "5fee94051466cd22468e30919932395bcfbe16ea76b4f6694c6d98a04e1f9cd9",
+    "web/src/lib/api.ts": "caf554d211844d1f8086036643c73322a7af1470bf9220fe7dc24163515c54ca"
+  },
+  "results": {
+    "optional_actual_browser_race_s": 4.846,
+    "optional_actual_browser_three_repeated_race_s": 9.922,
+    "normal_api_suite_s": 32.588,
+    "go_vet_cmd_api": "PASS",
+    "browser_requests_post": [
+      "/v1/gateways/browser-recovery-local-gw/source-setup",
+      "/v1/edge/identity-migrations/pending-pairing/revoke"
+    ],
+    "actual_post_status_before_loss": [
+      201,
+      200
+    ],
+    "durable_sessions": 2,
+    "durable_gateways": 1,
+    "enrollment_tokens": 0,
+    "decision_audit_rows": 2,
+    "completed_source_idempotency_rows": 1,
+    "pairing_state": "revoked",
+    "original_fingerprint": "retained",
+    "widths": [
+      1200,
+      390
+    ],
+    "horizontal_overflow": false
+  },
+  "covered": [
+    "exact DB-created source session ID recovered in browser href after committed response is discarded",
+    "pending pairing revoke commits then connection closes before response; GET observes revoked with uncertainty retained",
+    "one explicit source POST and one explicit revoke POST only",
+    "missing JWT401, live demotion403, tracked-session revocation401, both reads customer-scope403",
+    "all93 migrations in new identified numeric-loopback scratch database, removed at test exit",
+    "fresh temporary browser profile, private0600 short-lived signed tracked-session config, cleanup child processes",
+    "actual component full action-area desktop/mobile pixels inspected"
+  ],
+  "unaccepted_attempts": [
+    "initial missing Page.enable prevented early token bootstrap:401 reads, no writes; fixed",
+    "navigation-readiness race in condition: fixed read-only wait, never repeat a click or POST"
+  ],
+  "limits": [
+    "normalCI skips unless TEST_RECOVERY_BROWSER=1; browser dependencies not added to standard CI",
+    "limited loopback Vite proxy routes, not full production app startup or HTTPS/proxy deployment",
+    "pending revoke and source create only, no certificate approval/CA/broker/device",
+    "existing component-lifetime guards are not durable across tabs/remount/page reload",
+    "no production code/workflow/schema/catalog/update behavior changed",
+    "owner installation/readiness/joint fresh Windows installer handoff remain open",
+    "exact remote tip normal CI is a separate acceptance gate"
+  ]
+}
