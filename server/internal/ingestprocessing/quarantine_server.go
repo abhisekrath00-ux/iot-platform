@@ -19,10 +19,14 @@ type GatewayQuarantineServerConfig struct {
 	Engine        Engine
 	Certificate   tls.Certificate
 	SessionSecret []byte
+	// ReadOnlyInspection adds exact-input redacted admin inspection. False keeps
+	// the original deny-only surface. It never adds execution or recovery.
+	ReadOnlyInspection bool
 }
 
 // GatewayQuarantineServer is a separate default-off, direct HTTPS transport for
-// the deny-only session controller. No startup/router creates it. It is NOT the
+// the deny-only session controller, with separately opted-in redacted read-only
+// inspection. No startup/router creates it. It is NOT the
 // telemetry mTLS endpoint and trusts NO client certificate as a session. Tracked
 // JWT verification and current database authorization remain inside each decision.
 // New opens no listener, performs no migration and changes no authority. Exact95
@@ -47,6 +51,20 @@ func NewGatewayQuarantineServer(ctx context.Context, c GatewayQuarantineServerCo
 	if err != nil {
 		return nil, err
 	}
+	if c.ReadOnlyInspection {
+		inspection, err := NewGatewayInspectionHTTP(true, c.Engine, c.SessionSecret)
+		if err != nil {
+			return nil, err
+		}
+		denyOnly := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == inspectionPath {
+				inspection.ServeHTTP(w, r)
+				return
+			}
+			denyOnly.ServeHTTP(w, r)
+		})
+	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err := authorityschema.Inspect(ctx, c.Engine.Pool, dir); err != nil {
@@ -55,7 +73,8 @@ func NewGatewayQuarantineServer(ctx context.Context, c GatewayQuarantineServerCo
 	// Share only the already-tested bounded listener and actual-handler lifetime
 	// machinery, NOT the admission handler, routes, client CA or enrollment policy.
 	// 64 accepted sockets include pre-TLS peers; excess stay in the OS backlog.
-	// At most 16 handler calls, with a separate controller limit of four decisions.
+	// At most 16 handler calls. Each controller has four separate slots, so opted-in
+	// inspection can coexist with at most four decisions and four inspection calls.
 	transport := &AdmissionServer{handler: handler, drained: make(chan struct{})}
 	transport.server = &http.Server{Handler: http.HandlerFunc(transport.handle), TLSConfig: cfg, TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 8192}
 	return &GatewayQuarantineServer{transport: transport}, nil

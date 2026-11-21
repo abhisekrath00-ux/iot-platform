@@ -2952,3 +2952,70 @@ and are unaccepted. Incidental test-scheduling changes were reverted. This is
 sharded local validation, NOT a literal full-suite pass; shared-state/order
 interactions across shards remain a limitation until a complete run finishes.
 The review checkpoint does not establish product readiness.
+
+
+#### Opt-in redacted retained-input inspection on staged management transport
+
+The deny-only management transport can now separately opt in ReadOnlyInspection.
+False preserves its original deny-only HTTP surface. No startup, normal router,
+installer, GUI or owner configuration enables it. NewGatewayInspectionHTTP also
+requires an explicitly enabled engine, trusted tracked-session verification key,
+direct HTTPS and deadline-capable bounded transport. The existing constructor
+still requires exact95. No update/migration catalog or exact93 guard changes.
+
+POST /staged/processing-v1/inspect-input takes only gateway_id, event_id and
+observed_at. It refuses unknown/duplicate/case-alias/null fields, trailing data,
+sub-microsecond identity, oversized bodies, queries and alternate protocol/path
+forms. It independently verifies an expiring HS256 admin JWT and live matching
+user/tracked session, credential cutoff and unscoped administrator status. It
+never trusts proxy headers, client certificates, injected role or AI/API-key
+markings. The tenant comes ONLY from the verified session. Missing, foreign,
+gateway-mismatched and corrupt retained evidence has one generic not-found
+response, without echoing stored data or parsing/DB errors.
+
+The response is a redacted processing summary: state, quarantine reason, whether
+an attempt started, planned occurrence count and blocked-stage count. It always
+reports delivery_confirmed=false and retry_permitted=false, including completed.
+It omits the full plan, input reading, definitions, message/recipient, secrets,
+leaf/receipt keys and attempt ID. It never selects/claims work, calls a provider,
+repairs a record or writes persistent state/audit. Historical inspection remains
+possible after gateway revocation, separately from admission authority. It is
+not a new action grant, a delivery receipt, general event listing or recovery UX.
+
+Like the existing deny-only controller it share-locks current user/session rows
+and conservatively share-locks the entire customer-scope table for a bounded
+serializable transaction. This briefly blocks ALL customer-scope edits. Current
+authority and retained state are a transaction snapshot, not perpetual authority
+or a promise that no processing changed after the snapshot. Each inspection
+controller has four slots including body/DB waiters, no queue, 2048-byte bodies,
+3s body/lock bounds and 10s request deadline capped by token expiry. With inspection
+opted in, management has separate four-decision/four-inspection slot budgets;
+the shared transport still caps16 actual handlers and64 accepted sockets. No
+secret/key custody, enrollment or new production activation claim is made.
+
+Isolated actual composed-runtime HTTPS checks inspect pending, executing during
+both synthetic occurrences, completed and post-revocation states, with redaction,
+unchanged occurrence/history/audit counts and real cancellation/drain. Actual
+HTTPS four-row-lock-waiter saturation refuses the fifth request without queueing;
+concurrent committed demotion prevents disclosure and capacity recovers. Real
+session-expiry DB wait cancellation, scoped-admin refusal, same-token current
+revocation/demotion/cutoff and tenant binding, corruption refusal and retained
+outcome_unknown/no-retry evidence are separately checked. An initial test wrongly
+expected processing_started history to remain after completed replaces that
+history outcome; that test expectation was corrected. The red run is unaccepted.
+Existing product history semantics were not changed. No owner service or external
+provider was contacted. Full readiness and joint server/fresh Windows installer
+handoff remain held.
+
+
+Validation checkpoint: THREE combined inspection/runtime/guarded/quarantine race
+repetitions100.609s pass. Exhaustive disjoint137-case local ingest shards pass
+42.017/41.588/38.533s, all other server packages pass on a fresh empty disposable
+PG14 database (API44.173s), edge/vets/build/docs and npm audit0 pass. Exact names,
+fixed source hashes, selection and complete result summaries are retained in
+docs/validation/retained-inspection-local.json. This is SHARDED local validation,
+not a literal local full-suite pass; shared-state/order interactions remain a
+limitation. A prior other-server run reused a dirty test database and failed on
+duplicate fixed fixtures and stale gateway state; that run is unaccepted. The
+successful rerun used a new empty DB, without weakening any assertion. Remote
+literal full-suite evidence is still required for acceptance of this review tip.
