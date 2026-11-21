@@ -1,0 +1,56 @@
+{
+  "base_revision": "dccd84e80f13352ec330b13f2f13b1f5fa4216db",
+  "scope": "existing dashboard read-only refresh and current component lifetime uncertainty visibility, no backend changes",
+  "source_sha256": {
+    "web/src/components/SetupRecovery.tsx": "096c6a0315b124e0bf2b09d8bc9dd9d5d889f5156788a5b36c2400c5db93b460",
+    "web/src/components/SetupRecovery.test.tsx": "c856ecc2e18a75326d078c578e7266ae065228be4e983ce0292ce6e740c91367"
+  },
+  "baseline_regression": {
+    "focused_cases": 5,
+    "prior_component_failed": 3,
+    "prior_component_passed": 2,
+    "accepted": false,
+    "result": "new tests reproduce missing refresh and per-gateway state on base component"
+  },
+  "fixed_results": {
+    "focused": {
+      "cases": 5,
+      "passed": 5,
+      "duration_ms": 104
+    },
+    "full_web": {
+      "files": 70,
+      "tests": 407,
+      "passed": 407,
+      "duration_s": 50.97
+    },
+    "build": "TypeScript and Vite PASS, existing large-chunk warning retained",
+    "production_npm_audit_vulnerabilities": 0,
+    "actual_chromium": {
+      "widths": [
+        1200,
+        390
+      ],
+      "states": [
+        "uncertain POST response",
+        "saved row observed after explicit refresh"
+      ],
+      "observed_request_methods": [
+        "GET",
+        "POST",
+        "GET"
+      ],
+      "automatic_POST_retry": false,
+      "mobile_horizontal_overflow": false
+    }
+  },
+  "limits": [
+    "synthetic browser fetch responses, not actual server integration",
+    "current component lifetime guard only, not durable cross-tab/remount/reload deduplication",
+    "missing row among latest50 is not failure proof or permission to resubmit",
+    "no identity/enrollment/activation/provider/device/update behavior change",
+    "no owner readiness or joint server/fresh Windows installer acceptance",
+    "backend suites inherited only from accepted base; not rerun locally for this UI-only slice",
+    "new exact remote CI acceptance remains separate"
+  ]
+}

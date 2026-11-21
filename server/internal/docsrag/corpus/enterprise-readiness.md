@@ -3073,3 +3073,35 @@ separate race selections/results and explicit limits. This is sharded local
 normal-suite validation, NOT a literal local full-suite run. Cross-shard/race-group
 shared-state/order interactions remain a limitation. Literal remote normal full
 suite is still awaited, and will not imply optional restore execution in CI.
+
+#### Saved source setup: read-only recovery refresh
+
+The existing dashboard saved-setup panel had an actionable recovery gap: an
+uncertain Add another source response told the user to reload saved setups but
+provided no reload control while a saved list was present. The panel now has an
+explicit GET-only Reload saved setups control. It hides stale links/actions while
+loading and retains the current component's per-gateway no-resubmit guard across
+successful, failed and missing-result reads. Unknown outcomes stay visible on
+all rows for that gateway. Independent concurrent gateways have independent busy
+labels. A read does not create/redeem a claim, replace identity, create another
+source session, auto-open a recovered row or prove which request created it.
+
+A missing result among the latest50 sessions is not proof that a request failed.
+The UI says to keep the page open and ask for help rather than start another
+setup. This is NOT durable cross-tab/remount/page-reload deduplication or complete
+owner recovery. Existing server idempotency and authorization paths are unchanged.
+No source polling, managed command, runtime activation or update default changed.
+
+New focused tests first fail3cases against the prior dccd84e component and pass
+all5 after the fix. Full local web suite70files407tests, TypeScript/Vite build and
+production npm audit0 pass. Actual Chromium rendering of the real component with
+synthetic fetch responses was inspected at1200px desktop and390px mobile widths:
+uncertainty, refresh, recovered Continue link and disabled action fit without
+horizontal overflow. That browser flow observed GET,one explicit POST with lost
+response,GET only. UI mocks do not establish actual server integration, owner
+Windows/hardware, secure secret recovery or joint installer handoff acceptance.
+See docs/validation/saved-setup-refresh-local.json for fixed source hashes and
+complete local validation results. Backend suites are not rerun locally for this
+UI-only slice. The previous dccd84e normal full-server remote gate separately
+passed CI44864727438 (API66.211s/ingestprocessing177.295s), not the optional local
+logical-restore branch. This new review tip still needs its own exact CI result.
