@@ -3019,3 +3019,57 @@ limitation. A prior other-server run reused a dirty test database and failed on
 duplicate fixed fixtures and stale gateway state; that run is unaccepted. The
 successful rerun used a new empty DB, without weakening any assertion. Remote
 literal full-suite evidence is still required for acceptance of this review tip.
+
+
+#### Actual killed composed batch through independent logical restore
+
+The optional local compiled setupctl/pg_dump/pg_restore acceptance now joins the
+composed runtime crash and logical restore paths. Both real child checkpoints
+are exercised: after retained claim before any synthetic effect, and after one
+synthetic acceptance. Parent verifies actual OS stopped state, SIGKILL and signal
+termination. After the kill, the compiled operator verifies the ORIGINAL selected
+identity witness captured before first admission, not a witness read from backup.
+The source is dumped with writers stopped and restored into a NEW EMPTY scratch
+DB. The compiled operator verifies that same independently held witness there.
+
+The restored runtime uses the SAME separately held synthetic TLS and receipt
+keys. Retained plan, original attempt and executing quarantine compare exactly
+with source evidence. Actual mTLS same-input reconciliation has a signature
+verified using the original receipt key and exact original binding/state. Explicit
+ExecuteOnce refuses ErrState without another synthetic acceptance. Zero/one
+receipt count stays unchanged. The restored tracked admin session can inspect a
+redacted executing/no-delivery/no-retry summary over actual management HTTPS.
+Later destination durable denial refuses replay; cancel/WaitDrained confirm
+actual runtime drain. Source witness, retained record and original synthetic
+receipt count are independently rechecked unchanged after destination operations.
+
+scripts/test-denial-authority-restore.sh compiles setupctl and explicitly runs
+both the existing denial/session/scope/audit restore case and the new killed
+composed runtime logical restore case under race checking. The new test skips
+normal CI unless the three actual binary paths are supplied. Normal CI must NOT
+be described as running this optional restore branch. The same-DB crash proof
+now additionally exercises real session-admin redacted inspection after restart.
+
+This is isolated Linux/PG14 logical restore only. It does not back up/restore keys,
+prove encrypted secret custody, authenticate witness provenance beyond this
+synthetic harness, restore database owners/grants (dump uses no-owner/no-privileges),
+run immutable old/new images, prove full authorization or cross-major restoration,
+accept an owner recovery workflow, or enable any startup/worker/installer path.
+Production code, exact93 Update guards, catalogs, migrations and defaults remain
+unchanged in this test/docs/script slice. All owner-readiness and joint delivery
+gates previously recorded remain open.
+
+
+Local acceptance: actual compiled operator/PG14 logical restore set8.365s PASS,
+including killed runtime4.94s and prior authority restore2.40s. Two fixed disjoint
+race groups each repeat THREE times32.775/77.845s PASS. An earlier broad combined
+race command exceeded the execution window without result and is unaccepted.
+Exhaustive normal ingest138-case disjoint shards39.956/44.585/46.801s PASS, optional
+binary-gated tests skipped there and run separately as stated above. All other
+server packages pass on fresh h139 scratch DB (API39.916s), edge/vets/build/docs/
+script syntax and npm audit0 pass. Manifest docs/validation/killed-runtime-restore-local.json
+records fixed source hashes, exhaustive normal names, skipped optional names,
+separate race selections/results and explicit limits. This is sharded local
+normal-suite validation, NOT a literal local full-suite run. Cross-shard/race-group
+shared-state/order interactions remain a limitation. Literal remote normal full
+suite is still awaited, and will not imply optional restore execution in CI.

@@ -9,4 +9,4 @@ dump=${TEST_DENIAL_PG_DUMP:-$(command -v pg_dump)}
 restore=${TEST_DENIAL_PG_RESTORE:-$(command -v pg_restore)}
 (cd "$root/server" && CGO_ENABLED=0 go build -o "$work/setupctl" ./cmd/setupctl)
 cd "$root/server"
-TEST_DENIAL_SETUPCTL="$work/setupctl" TEST_DENIAL_PG_DUMP="$dump" TEST_DENIAL_PG_RESTORE="$restore" go test -race ./internal/ingestprocessing -run '^TestDenialActualOperatorLogicalBackupRestore$' -count=1 -v
+TEST_DENIAL_SETUPCTL="$work/setupctl" TEST_DENIAL_PG_DUMP="$dump" TEST_DENIAL_PG_RESTORE="$restore" go test -race ./internal/ingestprocessing -run '^(TestDenialActualOperatorLogicalBackupRestore|TestRuntimeActualKilledBatchLogicalRestoreWithoutResend)$' -count=1 -v

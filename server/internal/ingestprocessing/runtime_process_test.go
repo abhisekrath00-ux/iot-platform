@@ -2,6 +2,7 @@ package ingestprocessing
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -9,6 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	osexec "os/exec"
@@ -66,7 +71,9 @@ func runtimeProcessConfig(t *testing.T, x Engine, p runtimeProcessFixture) Stage
 	admission := guardedConfig(t, f, x)
 	admission.Admission.Signing = p.Signing
 	ec := guardedExecutionConfig(t, x, f)
-	return StagedGatewayRuntimeConfig{Enabled: true, Admission: admission, Management: quarantineServerConfig(f, x), MigrationDirectory: "../../migrations", SelectedAuthority: p.Original, Execution: &ec}
+	management := quarantineServerConfig(f, x)
+	management.ReadOnlyInspection = true
+	return StagedGatewayRuntimeConfig{Enabled: true, Admission: admission, Management: management, MigrationDirectory: "../../migrations", SelectedAuthority: p.Original, Execution: &ec}
 }
 func TestRuntimeProcessingChild(t *testing.T) {
 	path := os.Getenv("SYNTHETIC_RUNTIME_FIXTURE")
@@ -121,9 +128,22 @@ func TestRuntimeProcessingChild(t *testing.T) {
 }
 func TestRuntimeActualKilledBatchReconstructsWithoutResend(t *testing.T) {
 	t.Parallel()
+	runtimeKilledBatchReconstruction(t, false)
+}
+
+// Optional local binary proof, not a production recovery/restore command.
+func TestRuntimeActualKilledBatchLogicalRestoreWithoutResend(t *testing.T) {
+	if os.Getenv("TEST_DENIAL_SETUPCTL") == "" || os.Getenv("TEST_DENIAL_PG_DUMP") == "" || os.Getenv("TEST_DENIAL_PG_RESTORE") == "" {
+		t.Skip("run scripts/test-denial-authority-restore.sh for actual composed runtime logical restore")
+	}
+	runtimeKilledBatchReconstruction(t, true)
+}
+func runtimeKilledBatchReconstruction(t *testing.T, logicalRestore bool) {
+	t.Helper()
 	for _, mode := range []string{"after-claim-before-effect", "after-first-acceptance"} {
 		t.Run(mode, func(t *testing.T) {
 			x, e := denialFixture(t)
+			seedQuarantineSession(t, x)
 			f := httpTLSFixture(t)
 			bindGatewayLeaf(t, x, f)
 			exec(t, x.Pool, "CREATE TABLE synthetic_runtime_receipts(event_id text,sequence integer)")
@@ -218,13 +238,23 @@ func TestRuntimeActualKilledBatchReconstructsWithoutResend(t *testing.T) {
 			if receipts != want {
 				t.Fatal(receipts, want)
 			}
+			sourceEngine := x
+			if logicalRestore {
+				x = restoreKilledRuntime(t, x, spec.Original)
+				restored, err := x.Read(t.Context(), e.TenantID, e.EventID, e.ObservedAt)
+				a, _ := json.Marshal(rec)
+				b, _ := json.Marshal(restored)
+				if err != nil || !bytes.Equal(a, b) {
+					t.Fatal("restored attempt/plan/evidence differs", err)
+				}
+			}
 			// Independent original selected authority witness and SAME ephemeral TLS /
 			// receipt-signing keys, not a baseline regenerated from the crashed DB.
 			s, err := NewStagedGatewayRuntime(t.Context(), runtimeProcessConfig(t, x, spec))
 			if err != nil {
 				t.Fatal("reconstruct", err)
 			}
-			endpoint, _, cancel, done := startGatewayRuntime(t, s)
+			endpoint, management, cancel, done := startGatewayRuntime(t, s)
 			defer cancel()
 			code, body := durableRequest(t, f, endpoint, e)
 			if code != 200 {
@@ -249,6 +279,30 @@ func TestRuntimeActualKilledBatchReconstructsWithoutResend(t *testing.T) {
 			if err = x.Pool.QueryRow(t.Context(), "SELECT count(*) FROM synthetic_runtime_receipts").Scan(&after); err != nil || after != want {
 				t.Fatal("receipt count changed after restart", err, after, want)
 			}
+			// The restored tracked session can inspect uncertainty through the
+			// actual management HTTPS path, without disclosing the plan or retrying.
+			client := quarantineServerClient(t, f)
+			request, err := http.NewRequestWithContext(t.Context(), "POST", management+inspectionPath, strings.NewReader(inspectionBody(t, e)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Authorization", "Bearer "+quarantineToken(t, "a", "u", "session", "admin"))
+			request.Header.Set("Content-Type", "application/json")
+			response, err := client.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err = io.ReadAll(response.Body)
+			response.Body.Close()
+			var summary InspectionSummary
+			if err != nil || response.StatusCode != 200 || json.Unmarshal(body, &summary) != nil || summary.State != "executing" || summary.Quarantine != "attempt_started_no_takeover_or_retry" || !summary.AttemptStarted || summary.DeliveryConfirmed || summary.RetryPermitted {
+				t.Fatal("restored admin inspection failed", response.StatusCode, err)
+			}
+			for _, private := range []string{rec.AttemptID, "synthetic@example.invalid", "envelope", "plan_sha256"} {
+				if strings.Contains(string(body), private) {
+					t.Fatal("private state disclosed")
+				}
+			}
 			// A separate durable denial after restart blocks admission too, rather than
 			// allowing a new input identity to bypass uncertainty.
 			if err = x.DenyLeaf(t.Context(), sha256.Sum256(f.client.Certificate[0])); err != nil {
@@ -264,7 +318,98 @@ func TestRuntimeActualKilledBatchReconstructsWithoutResend(t *testing.T) {
 			if err = s.WaitDrained(t.Context()); err != nil {
 				t.Fatal(err)
 			}
+			if logicalRestore {
+				// Destination denial/inspection must not mutate the source DB.
+				if err = authorityschema.VerifyIdentityEvidence(t.Context(), sourceEngine.Pool, "../../migrations", spec.Original); err != nil {
+					t.Fatal("source authority changed during restore acceptance", err)
+				}
+				sourceRecord, err := sourceEngine.Read(t.Context(), e.TenantID, e.EventID, e.ObservedAt)
+				a, _ := json.Marshal(rec)
+				b, _ := json.Marshal(sourceRecord)
+				if err != nil || !bytes.Equal(a, b) {
+					t.Fatal("source attempt changed during restore acceptance", err)
+				}
+				var n int
+				if err = sourceEngine.Pool.QueryRow(t.Context(), "SELECT count(*) FROM synthetic_runtime_receipts").Scan(&n); err != nil || n != want {
+					t.Fatal("source synthetic receipt changed", err, n)
+				}
+			}
 		})
 	}
-	t.Log("ACTUAL_COMPOSED_RUNTIME_SIGSTOP_SIGKILL_ORIGINAL_WITNESS_SAME_KEYS_MTLS_RECONCILE_EXECUTING_NO_TAKEOVER_NO_RESEND_OK")
+	if logicalRestore {
+		t.Log("ACTUAL_COMPOSED_SIGKILL_SETUPCTL_ORIGINAL_WITNESS_EMPTY_PGRESTORE_SAME_KEYS_MTLS_ADMIN_INSPECTION_NO_RESEND_OK")
+	} else {
+		t.Log("ACTUAL_COMPOSED_RUNTIME_SIGSTOP_SIGKILL_ORIGINAL_WITNESS_SAME_KEYS_MTLS_RECONCILE_EXECUTING_NO_TAKEOVER_NO_RESEND_OK")
+	}
+}
+
+// Source is never overwritten. Both destinations are synthetic disposable DBs;
+// dump/restore are local subprocesses and no bytes are emitted into test logs.
+func restoreKilledRuntime(t *testing.T, x Engine, original authorityschema.IdentityEvidence) Engine {
+	t.Helper()
+	operator, dump, restore := os.Getenv("TEST_DENIAL_SETUPCTL"), os.Getenv("TEST_DENIAL_PG_DUMP"), os.Getenv("TEST_DENIAL_PG_RESTORE")
+	dir, err := filepath.Abs("../../migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Path = "/" + x.Pool.Config().ConnConfig.Database
+	run := func(program string, args []string, input []byte, env []string) []byte {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+		cmd := osexec.CommandContext(ctx, program, args...)
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, env...)
+		cmd.Stdin = bytes.NewReader(input)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("isolated %s failed: %v", filepath.Base(program), err)
+		}
+		return out
+	}
+	witness, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify the independent pre-admission witness through the compiled operator,
+	// not an inspect-generated witness from the crashed source or restored DB.
+	env := func(dsn string) []string { return []string{"DATABASE_URL=" + dsn, "MIGRATIONS_DIR=" + dir} }
+	if b := run(operator, []string{"verify-staged-identity"}, witness, env(u.String())); !bytes.Equal(bytes.TrimSpace(b), bytes.TrimSpace(witness)) {
+		t.Fatal("source operator witness differs")
+	}
+	backup := filepath.Join(t.TempDir(), "synthetic-killed-runtime.dump")
+	run(dump, []string{"--format=custom", "--no-owner", "--no-privileges", "--file", backup, u.String()}, nil, nil)
+	name := fmt.Sprintf("runtime_restore_%d", time.Now().UnixNano())
+	admin, err := pgxpool.New(t.Context(), os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = admin.Exec(t.Context(), "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		defer admin.Close()
+		if _, err := admin.Exec(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+			t.Error(err)
+		}
+	})
+	u.Path = "/" + name
+	run(restore, []string{"--exit-on-error", "--no-owner", "--no-privileges", "--dbname", u.String(), backup}, nil, nil)
+	if b := run(operator, []string{"verify-staged-identity"}, witness, env(u.String())); !bytes.Equal(bytes.TrimSpace(b), bytes.TrimSpace(witness)) {
+		t.Fatal("restored operator witness differs")
+	}
+	cfg := x.Pool.Config()
+	cfg.ConnConfig.Database = name
+	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return Engine{Enabled: true, Pool: pool}
 }
