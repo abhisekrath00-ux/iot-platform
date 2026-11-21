@@ -1,3 +1,4 @@
+import {webcrypto,createHash} from 'node:crypto';
 // @vitest-environment jsdom
 import {act} from 'react';
 import {createRoot,Root} from 'react-dom/client';
@@ -11,7 +12,7 @@ const button=(text:string)=>[...box.querySelectorAll('button')].find(b=>b.textCo
 const posts=()=>vi.mocked(api).mock.calls.filter(([,init])=>init?.method==='POST');
 async function load(){await act(async()=>button('Load pairing requests').click());}
 async function compare(){await act(async()=>box.querySelector('input')!.click());}
-beforeEach(()=>{(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;box=document.createElement('div');root=createRoot(box);vi.resetAllMocks();vi.mocked(api).mockImplementation((_path,init)=>init?.method==='POST'?Promise.reject(Error('unexpected repeated decision')):Promise.resolve([request]));});
+beforeEach(()=>{vi.stubGlobal('crypto',{randomUUID:()=>webcrypto.randomUUID(),subtle:{digest:async(_algorithm:string,bytes:Uint8Array)=>new Uint8Array(createHash('sha256').update(bytes).digest()).buffer}});sessionStorage.clear();localStorage.setItem('iot.token','synthetic-session');(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;box=document.createElement('div');root=createRoot(box);vi.resetAllMocks();vi.mocked(api).mockImplementation((_path,init)=>init?.method==='POST'?Promise.reject(Error('unexpected repeated decision')):Promise.resolve([request]));});
 afterEach(async()=>{await act(async()=>root.unmount());});
 test('no automatic mutation, exact fingerprint review required for explicit certificate approval',async()=>{
  vi.mocked(api).mockResolvedValueOnce([request]).mockResolvedValue({state:'issued',broker_acl_state:'files_written_waiting_for_broker_proof'});
@@ -64,4 +65,22 @@ test('synchronous in-flight guard suppresses duplicate loads and opposite decisi
  // A stale successful response in a later list does not silently re-arm this request.
  vi.mocked(api).mockResolvedValueOnce([request]);await act(async()=>button('Reload pairing requests').click());
  expect(button('Approve this key').disabled).toBe(true);expect(button('Revoke pending request').disabled).toBe(true);expect(posts()).toHaveLength(1);
+});
+for(const outcome of ['lost','success'] as const){
+ test('tab-session decision lock survives remount after '+outcome+', cannot repeat or switch',async()=>{
+  await act(async()=>root.render(<SecurePairing/>));await load();await compare();
+  if(outcome==='lost')vi.mocked(api).mockRejectedValueOnce(Error('lost'));else vi.mocked(api).mockResolvedValueOnce({});
+  await act(async()=>button('Revoke pending request').click());await act(async()=>root.unmount());root=createRoot(box);await act(async()=>root.render(<SecurePairing/>));await load();
+  expect(box.textContent).toContain('through reloads in this tab');expect(box.textContent).toContain('Decision response unknown');expect(button('Approve this key').disabled).toBe(true);expect(button('Revoke pending request').disabled).toBe(true);expect(box.querySelector('input')!.disabled).toBe(true);expect(posts()).toHaveLength(1);
+ });
+}
+test('pairing storage failure prevents the POST, preserves read-only inspection',async()=>{
+ await act(async()=>root.render(<SecurePairing/>));await load();await compare();const write=vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw Error('quota');});await act(async()=>button('Approve this key').click());write.mockRestore();expect(posts()).toHaveLength(0);expect(box.textContent).toContain('could not safely retain');expect(button('Revoke pending request').disabled).toBe(true);
+ await act(async()=>button('Reload pairing requests').click());expect(box.querySelector('article')).not.toBeNull();expect(posts()).toHaveLength(0);expect(button('Revoke pending request').disabled).toBe(true);
+});
+test('changed sign-in never records or sends a pairing decision under another session',async()=>{
+ await act(async()=>root.render(<SecurePairing/>));await load();await compare();localStorage.setItem('iot.token','other-session');await act(async()=>button('Approve this key').click());expect(posts()).toHaveLength(0);expect(box.textContent).toContain('could not safely retain');
+});
+test('pairing POST sees the retained request lock before the decision can start',async()=>{
+ await act(async()=>root.render(<SecurePairing/>));await load();let recorded=false;vi.mocked(api).mockImplementationOnce(()=>{const key=sessionStorage.key(0);recorded=!!key&&JSON.parse(sessionStorage.getItem(key)!).ids.includes(request.id);return Promise.reject(Error('lost'));});await act(async()=>button('Revoke pending request').click());expect(recorded).toBe(true);expect(posts()).toHaveLength(1);
 });

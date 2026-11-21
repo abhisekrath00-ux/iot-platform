@@ -121,6 +121,13 @@ createRoot(document.getElementById('root')!).render(<main><h1>Isolated recovery 
                 raise RuntimeError('committed source session not observed')
             screenshot('source-committed-lost-response-desktop',1200,1100)
             screenshot('source-committed-lost-response-mobile',390,1400)
+            # Same-tab real navigation destroys the component, not sessionStorage.
+            command('Page.navigate',{'url':origin})
+            wait('document.querySelectorAll("a").length===2&&document.body.innerText.includes("Source setup outcome unknown")')
+            if not js('Array.from(document.querySelectorAll("button")).find(b=>b.textContent==="Source setup outcome unknown").disabled'):
+                raise RuntimeError('source remount rearmed previous attempt')
+            screenshot('source-remounted-attempt-lock-mobile',390,1700)
+
             command('Page.navigate',{'url':origin+'?pairing=1'})
             wait('document.body.innerText.includes("Load pairing requests")')
             click('Load pairing requests')
@@ -136,6 +143,20 @@ createRoot(document.getElementById('root')!).render(<main><h1>Isolated recovery 
                 raise RuntimeError('observed revocation lost uncertainty distinction')
             screenshot('pairing-revoke-observed-desktop',1200,1200)
             screenshot('pairing-revoke-observed-mobile',390,1600)
+            command('Page.navigate',{'url':origin+'?pairing=1'})
+            wait('document.body.innerText.includes("Load pairing requests")')
+            click('Load pairing requests')
+            wait('document.body.innerText.includes("Status: revoked")&&document.body.innerText.includes("Decision response unknown")')
+            screenshot('pairing-remounted-attempt-lock-mobile',390,1900)
+            # Corruption is a failed safety check, never an empty history.
+            js('Object.keys(sessionStorage).filter(k=>k.startsWith("hexthings.setup-attempts.v1.source.")).forEach(k=>sessionStorage.setItem(k,"{"))')
+            command('Page.navigate',{'url':origin})
+            wait('document.body.innerText.includes("could not safely retain")&&document.querySelectorAll("a").length===2')
+            if not js('Array.from(document.querySelectorAll("button")).find(b=>b.textContent==="Add another source").disabled'):
+                raise RuntimeError('corrupt source history allowed another source action')
+            screenshot('source-corrupt-history-blocked-mobile',390,1800)
+
+
             ws.close()
             print(json.dumps({'recovered_href':recovered,'pairing_observed':'revoked','unknown_response_retained':True}))
         finally:

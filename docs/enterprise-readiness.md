@@ -3188,3 +3188,60 @@ workflow, exact93 guard or updater behavior changes. Joint server/fresh Windows
 installer handoff and owner readiness remain open. Fixed hashes, results and
 limits: docs/validation/browser-committed-response-recovery-local.json. Previous
 accepted c903f6a normal CI44902061181 is separate from this tip's remote gate.
+
+
+#### Same-tab attempt locks through reload and remount
+
+The source/pairing one-attempt UI lock now survives ordinary same-tab page
+navigation/remount using a versioned sessionStorage journal. It stores IDs only,
+under a SHA256 current-token scoped key, never the bearer, fingerprint/key data
+or request body. Before an explicit POST the journal is reread, written and read
+back synchronously. Missing credential/crypto, corrupt data/version/IDs, quota,
+silent retention failure or changed sign-in token blocks that write. Read-only
+GET inspection remains available with a visible failure warning. No automatic
+write retry, reset/retry button or storage-clearing instruction was introduced.
+
+An uncertain source attempt cannot be unlocked by a saved-row GET or a missing
+latest50 result. Only an explicit successful source POST receipt with matching
+gateway and valid session UUID releases the source's persistent lock. The current
+component still blocks repeats and keeps a confirmed Continue link if navigation
+fails. This preserves later legitimate source starts after known success, rather
+than locking a gateway for the rest of the sign-in. A mismatched receipt remains
+uncertain and locked. Pairing attempts, including successful ones, stay locked
+per request ID. An observed pending/issued/revoked state is not confirmation of a
+lost decision response and cannot allow an opposite or repeated decision.
+
+This is a conservative same-tab/current-token safety lock, NOT server authority,
+server deduplication or protection across tabs/devices/new login/browser storage
+loss. The UI says not to close the tab, clear storage or sign in again to retry,
+and to keep the edge stopped and ask for help. Browser storage is not a secure
+secret store and no secret was added to it. A failure before POST may conservatively
+leave a lock with no request sent; the UI does not turn that into retry permission.
+
+The21 component cases first produce11 failures and10 passes on the accepted
+19ad065 components; the28 focused helper/component cases pass in the final full
+71files429tests61.65s suite. TypeScript/Vite build and production npm audit0 pass.
+An initial native-digest unit fixture did not await its event-loop completion,
+6failed4passed; that attempt is unaccepted and deterministic digest fixtures
+precede all accepted runs. jsdom explicitly cannot navigate to another document;
+the successful receipt/confirmed link and subsequent source eligibility are
+component-tested, not claimed as real navigation proof for that success branch.
+
+Actual Chromium/React/api-client/authenticatedHTTP/freshPG lost-response proof
+now performs real same-tab navigation after committed source201 and pending
+revoke200 responses were discarded. The source action stays disabled and exact
+saved session href is recovered; revoked pairing observation retains the unknown
+decision caveat after remount. Corrupt source history permits GET inspection but
+disables the source write. Exactly TWO POSTs remain,2sessions/1gateway/0claims/
+2audits/1sourceidempotency and original fingerprint unchanged. Optional local
+race6.124s and THREE final repeated race runs12.534s pass. Actual desktop/mobile
+pixels, complete action area and corruption warning were inspected1200/390px,
+without horizontal overflow. Pending pairing after remount is a component test;
+the actual committed DB row is revoked, not a fabricated pending server response.
+
+Normal CI still SKIPS this optional browser branch absent TEST_RECOVERY_BROWSER=1.
+No production server, schema/catalog, exact93 guard, updater/default or workflow
+change. No CA/certificate approval, broker/device, full production startup/proxy,
+Windows or owner-PC proof. Joint fresh installer handoff and owner readiness
+remain open. Fixed hashes/results/limits: docs/validation/tab-attempt-locks-local.json.
+Prior accepted19ad065 normalCI44922845930 is separate from this tip's remote gate.

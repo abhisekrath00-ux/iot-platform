@@ -1,0 +1,70 @@
+{
+  "base_revision": "19ad06533f4e1980d624d8e6c60c477c062d2de9",
+  "scope": "tab-session/source-and-pairing attempt locks persisted before POST, same-tab navigation/remount recovery",
+  "source_sha256": {
+    "web/src/lib/attemptJournal.ts": "5f5a1d861f61737439bcbcd60c20acf2d55c911792542b078bbff772ffccb0db",
+    "web/src/lib/attemptJournal.test.ts": "b32bbb4904448685a446d9631235005a4e58436618a248ada5ccab4419887a8b",
+    "web/src/components/SetupRecovery.tsx": "f54ac88299dd1ecbc9fc404cf5ff4e3ebcbdf5e16be69ccab84af2c4f7e4798a",
+    "web/src/components/SetupRecovery.test.tsx": "308c910cbebaf584064c04cae8703390e0d2cb6cb5c9c434f741017628ffb32e",
+    "web/src/components/SecurePairing.tsx": "55cc705780d88afe681668811851cacf31cfb7090558c113a7af2cf3a9f2c009",
+    "web/src/components/SecurePairing.test.tsx": "7513cbc039c59a538138702f6291feead101109be89556ed4d8992aec133ad99",
+    "scripts/test-recovery-browser.py": "6f82051ddde911be1482f56ace25a78f3d54a5868f1ff6c123b063585c97a2cc"
+  },
+  "baseline_old_components": {
+    "cases": 21,
+    "failed": 11,
+    "passed": 10,
+    "accepted": false
+  },
+  "final_results": {
+    "focused_cases_in_full_suite": 28,
+    "full_web_files": 71,
+    "full_web_passed": 429,
+    "full_web_duration_s": 61.65,
+    "typescript_vite_build": "PASS, existing large-chunk warning",
+    "production_npm_audit": 0,
+    "optional_actual_browser_race_s": 6.124,
+    "optional_actual_browser_three_repeats_s": 12.534,
+    "actual_post_count": 2,
+    "actual_post_status_before_loss": [
+      201,
+      200
+    ],
+    "same_tab_source_navigation": "exact saved session link and disabled source action retained",
+    "same_tab_pairing_navigation": "revoked observed state and lost-response caveat retained",
+    "corrupt_history": "GET remains usable and source action disabled",
+    "pixels_widths": [
+      1200,
+      390
+    ],
+    "horizontal_overflow": false
+  },
+  "covered": [
+    "journal stores only IDs under versioned SHA256 current-token scoped key in sessionStorage, never bearer/request payload/fingerprints/keys",
+    "read/write+readback verified before POST, no fire-and-forget persistence",
+    "corrupt JSON/version/IDs, missing token/crypto, quota/silent retention failure block mutation",
+    "token changes during digest or before/after persistence block mutation",
+    "live journal reread prevents same-tab stale component resend or overwrite",
+    "unknown source attempt remains locked after remount or GET observation",
+    "pairing opposite/repeated decisions blocked after remount following lost OR successful response; pending snapshot tested at component layer",
+    "known successful source response must match gateway and valid sessionUUID, releases only source lock, keeps explicit confirmed Continue link if navigation unavailable",
+    "HTTP success with mismatched receipt and every GET observation cannot release source lock",
+    "actual Chromium lost source and pending revoke cross auth/HTTP/fresh PG boundary; real same-tab navigation and corrupt-history inspection",
+    "all93 migrations, exact2POST paths,2sessions1gateway0enrollmenttokens2audits1sourceidempotency/fingerprint retained"
+  ],
+  "unaccepted_attempts": [
+    "initial tests used native asynchronous digest and did not await its event-loop completion,6failed4passed; deterministic digest fixture fixed before accepted full runs",
+    "older component baseline fails intentionally,11failed10passed",
+    "earlier full429 pass before improving pre-POST assertion transport is superseded by final full429/61.65s"
+  ],
+  "limits": [
+    "same tab and exact current signed-in token only, NOT cross-tab/device/new login/browser storage loss protection",
+    "client-side lock is not server idempotency, durable authority or proof external operation failed",
+    "paired pending-state after remount and matched source-success release covered in unit/component tests, actual browser uses committed revoked state and lost source response",
+    "normalCI SKIPS optional browser test unless TEST_RECOVERY_BROWSER=1; actual browser proof local-only",
+    "no fullapp startup/production HTTPSproxy/CA/certapproval/broker/device/Windows/owner-PC acceptance",
+    "no server production code/schema/catalog/update/default/workflow changed",
+    "joint server and freshWindows installer handoff/owner readiness gates remain open",
+    "new exact remote normalCI acceptance separate"
+  ]
+}
