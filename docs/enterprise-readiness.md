@@ -3412,3 +3412,57 @@ exact93 updater guards and owner environment are unchanged. No new activation,
 merge/release, physical writes or joint installer acceptance. Full fixed hashes
 and limits: docs/validation/mqtt-puback-loss-open-gap-local.json. Exact new remote
 CI remains separate from prior ddef8cd/44983704551 review acceptance.
+
+#### Isolated Apply connection candidate, not activated
+
+The default shared MQTT publisher still has the genuine PUBACK-loss resend gap
+above. A separate compiled candidate now owns one ephemeral direct TCP/TLS
+connection and one non-retained QoS1 Publish. It is NOT called by production
+pushGatewayConfig, opsPublish or a feature flag. Only isolated tests select it
+through the existing publisher hook. Shared scan/test/manifest/gateway MQTT
+clients, reconnect defaults and updater exact93 guards are untouched.
+
+The candidate copies validated MQTT options, uses a unique client ID, disables
+reconnect and connect retries, requests a clean session and explicitly pins MQTT
+3.1.1 to avoid Paho's implicit protocol-fallback connection. Its direct dial and
+TLS handshake honor context/timeout, the MQTT handshake and write have finite
+deadlines, and publication acknowledgement has its own finite wait. Connect
+cancellation can wait for the finite CONNACK phase. Socket ownership is closed
+synchronously at return because Paho Disconnect(0) alone returns before cleanup.
+Already-sent bytes may still arrive after return. Any error/timeout is UNKNOWN,
+not proof of non-delivery or permission to retry. ACK means publication only.
+The wrapper currently uses a five-second connect phase plus five-second publish
+phase, not a single five-second total budget or an operating-system SLA. Test
+connection callbacks are trusted fault seams, not a production extension API.
+
+Real verified-mTLS fault tests send the actual handler's signed envelope to a
+read-only synthetic observer, without an edge executor or physical device. Both
+real PUBACK consumed/connection dropped and real PUBACK consumed/socket left
+open produce ONE observer delivery/ONE connection, handler 502 and durable
+publication_unconfirmed state. After ageing the row one day, a new API instance
+GET preserves the sent/unknown state and POST returns 409 without a second
+publisher invocation. This is real transport delivery with actual HTTP/SQL
+quarantine, not fake publisher acceptance, gateway application, edge receipts,
+physical-effect deduplication, cross-version compatibility or recovery authority.
+The normal candidate path also uses the real environment option builder and
+direct verified TLS with no injected connector: broker ACK/one observer delivery
+passes, and a wrong broker hostname is rejected before publication.
+
+Ten race repeats of deterministic local protocol peers cover ACK, withheld-ACK
+timeout, cancellation before CONNACK and after delivery, rejected CONNACK without
+protocol fallback, invalid/pre-cancelled zero-connect admission, shared-option
+nonmutation and socket closure. A stalled real TLS handshake is bounded and
+closed. These peers supplement, not replace, actual mTLS. Candidate and baseline
+fault cases THREE race repeats23.781s passed. Final full mTLS race21.145s includes
+the existing compiled source/portable-template/ingest paths. FreshPG normal
+API33.056s/vet/build and protocol TEN race3.240s pass; exact new CI is separate.
+
+Prospective direct TCP/TLS-only and MQTT3.1.1 policy is NOT yet an accepted
+production compatibility decision: environment proxy and fallback behavior would
+change if activated. Do not wire it into the default path without that review
+and explicit activation authority. The original shared-publisher resend, old/
+mixed API marker expiry/rearm, normal known-publication expiry, legacy failed
+rows and old/new-image update/restore/rollback remain RELEASE BLOCKERS. No GUI,
+identity, ACL generator, schema/catalog, workflow or owner environment change.
+No merge/release, owner deployment, joint Windows/hardware/UAC/reboot acceptance
+or completion notice. Manifest: docs/validation/apply-one-connection-candidate-local.json.

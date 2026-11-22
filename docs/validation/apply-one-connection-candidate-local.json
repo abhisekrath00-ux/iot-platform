@@ -1,0 +1,80 @@
+{
+  "base_revision": "fc5920a272bf89f55743c97500108533c7afdb6e",
+  "scope": "compiled isolated Apply connection candidate, deliberately not wired into production callers or a feature flag",
+  "source_sha256": {
+    "server/cmd/api/apply_publish_once_candidate.go": "8987e0a530c483f9353acee440abc7c0a0ab167feff06d748a548699c188a240",
+    "server/cmd/api/apply_publish_once_candidate_test.go": "194b7af11b902a9e3e837ea306412f26eac4fccc4819733d7ec0a5b4ccc8e50f",
+    "server/cmd/api/mqtt_puback_loss_test.go": "8b497c8cb22a19587f993313282155bf1bf6c5a3390fccbc84a75405c636cb9e",
+    "server/cmd/api/mqtt_tls_pipeline_test.go": "98b52fbd4dd15c5fc6a7d8b1d27faf5e105364e71add24e47b61e5ed31e414ff",
+    "server/cmd/api/commission.go": "6356bfbb27f78ce5078eee1e714c64316591fc371e0b5ce045aafe0ad62fd5e8",
+    "server/internal/mqttconfig/config.go": "68ed0ae5cf045a1ed4a247d53e8d2f2a2100ae7b2e21fe5bbb3bf1ca5d156941"
+  },
+  "candidate": {
+    "connections": 1,
+    "publish_invocations": 1,
+    "qos": 1,
+    "retained": false,
+    "auto_reconnect": false,
+    "connect_retry": false,
+    "protocol": "MQTT 3.1.1 explicit, no protocol fallback",
+    "direct_transport": [
+      "tcp",
+      "ssl"
+    ],
+    "proxy": "not supported by isolated candidate; future compatibility decision, default unchanged",
+    "timeout": "wrapper: finite 5s connect phase and 5s publication phase, not single 5s total or OS SLA",
+    "cleanup": "synchronous owned socket Close then asynchronous Paho Disconnect; already-sent bytes can still arrive",
+    "default_wiring": false
+  },
+  "actual_handler_cases": {
+    "real_puback_loss_with_disconnect": {
+      "connections": 1,
+      "signed_observer_deliveries": 1,
+      "handler_status": 502,
+      "dayold_recreated_api_status": "sent, publication_unconfirmed=true",
+      "next_post_status": 409,
+      "publisher_calls": 1
+    },
+    "real_puback_withheld_socket_open": {
+      "connections": 1,
+      "signed_observer_deliveries": 1,
+      "handler_status": 502,
+      "dayold_recreated_api_status": "sent, publication_unconfirmed=true",
+      "next_post_status": 409,
+      "publisher_calls": 1
+    }
+  },
+  "direct_mtls": "real environment option builder without test connection override: normal broker ACK and one observer delivery; wrong broker hostname rejected",
+  "protocol_peers": [
+    "normal ACK",
+    "withheld ACK timeout",
+    "cancel before CONNACK zero publication",
+    "cancel after delivery unknown",
+    "rejected CONNACK no fallback connection",
+    "pre-cancelled and invalid admission zero connect",
+    "shared options unchanged",
+    "socket closure",
+    "stalled real TLS handshake bounded/closed"
+  ],
+  "local_results": {
+    "initial_handler_and_baseline_three_race_s": 20.696,
+    "expanded_handler_and_baseline_three_race_s": 23.781,
+    "final_protocol_ten_race_s": 3.24,
+    "fresh_pg_normal_api_s": 33.056,
+    "api_vet_and_build": "PASS",
+    "first_full_mtls_race_s": 20.954,
+    "final_full_mtls_race_with_wrong_hostname_rejection_s": 21.145
+  },
+  "limits": [
+    "Production default shared publisher resend defect remains reproduced and OPEN",
+    "Candidate selected only through existing isolated test hook; no activation flag or production caller",
+    "Read-only observer on own generated CN ACL; no executor/device, gateway receipt or physical application",
+    "Socket closure does not retract already-sent bytes; uncertainty must remain quarantined",
+    "No proxy/MQTT fallback deployment compatibility acceptance; no total five-second SLA",
+    "Test custom connection callback must honor supplied connect timeout; not product API",
+    "Old/mixed API marker expiry/rearm, knownpublication 15min expiry, legacyfailed rows and oldnewimage restore/update/rollback remain open",
+    "No frontend/schema/catalog/workflow/exact93/default/identity/ACL generator/owner environment change",
+    "New exact CI acceptance separate from prior fc5920a/45001261753 and local evidence",
+    "No owner deployment/merge/release/joint Windows installer/hardware/UAC/reboot/completion notice"
+  ]
+}
