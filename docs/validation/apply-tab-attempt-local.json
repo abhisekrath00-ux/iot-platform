@@ -1,0 +1,60 @@
+{
+  "base_revision": "aaa2893cdf6dbf77690256a5068a460fe6e1e0e8",
+  "scope": "same-tab Apply HTTP-response uncertainty, not server idempotency or old-writer compatibility",
+  "source_sha256": {
+    "web/src/components/SourceApply.tsx": "510a2bf5ebb9f55778675ad0e9fa44fff43f89bf6d5a63b095d008ec28a8e280",
+    "web/src/components/SourceApply.test.tsx": "318db2916a627edd6d9ebab7ebd0edf51ca24c165465b9df1a31c6770ca261d2",
+    "web/src/lib/attemptJournal.ts": "d4d26f3f768748af01d3a06f5e3839178b34206bdba6ad919873eb3154b2a385",
+    "web/src/lib/attemptJournal.test.ts": "e3f6f13f0135248df6ad130a7885a6b67f9b755e8afeea2e5c2ca9e843326249",
+    "server/cmd/api/recovery_browser_test.go": "2b6b2e8e03ea6251f36585224eb5898a80231f38fcff9f3a1a87d8c8fe63d042",
+    "scripts/test-recovery-browser.py": "449dd5481695d38097133ef9b6f8e28396a00033d1003981b2f6e898e616d448"
+  },
+  "baseline_old_component": {
+    "new_tests_failed": 10,
+    "prior_tests_passed": 16,
+    "accepted": false
+  },
+  "final_local": {
+    "focused_helper_component_tests": 34,
+    "web_files": 71,
+    "web_tests": 442,
+    "web_duration_s": 53.6,
+    "build": "PASS, existing chunk warning",
+    "production_npm_audit": 0,
+    "fresh_pg_full_api_s": 32.805,
+    "api_vet_build": "PASS",
+    "two_mode_browser_race_s": 15.101,
+    "three_two_mode_browser_race_s": 41.438,
+    "pixels": "desktop1200/mobile390, no overflow, complete disabled actions/caveat"
+  },
+  "checks": [
+    "Apply journal ID-only gateway entries under SHA256 exact-token scoped key, persisted and read back BEFORE POST",
+    "fail closed on corrupt history, unavailable crypto, quota/retention failure, session change",
+    "GET history missing/expired/confirmed never releases unknown Apply attempt",
+    "only direct validated Apply POST receipt can release its gateway lock",
+    "source and pairing journal kinds cannot be released by Apply release helper",
+    "late prior-gateway response cannot replace current gateway state or clear another lock",
+    "generic server detail not falsely labelled gateway response",
+    "actual browser uses real React/api-client/Vite/authHTTP/tracked sessions and separate freshPG/all93 per mode, NO fetch mocks",
+    "mode1 fake publisher accepts then error, real handler502 response dropped, one-day sent quarantine survives GET/navigation, tab+server controls block",
+    "mode2 fake publisher returns success, real handler202 response dropped, one-day row really expires in current GET handler, real navigation preserves tab lock, exactly one Apply POST/one synthetic acceptance",
+    "each browser mode retains source201/pending revoke200 dropped-response tests and exact sessions/gateway/identity counts"
+  ],
+  "unaccepted": [
+    "initial seven new checks fail old UI before expanded10-check baseline",
+    "initial async native crypto test mock raced act completion in2checks, tests now use deterministic async createHash digest like existing setup tests; browser still real native WebCrypto",
+    "first API34.237s reused populated h144 scratchDB and failed duplicate fixtures/stale escalation, superseded by unique fresh h145_api_fresh32.805s"
+  ],
+  "limits": [
+    "same tab and exact current token only; not cross-tab/device/newlogin/storage loss protection",
+    "unknown locks deliberately never cleared by GET, even terminal/matching row, safe operator workflow remains open",
+    "successfully acknowledged Apply can later be explicitly attempted after server terminal status; no new physical permission",
+    "no source Apply backend/schema/catalog/workflow/exact93/updater/identity/default changes",
+    "normal server expiry unchanged; other client/oldbinary can still rearm after expiry",
+    "old/mixed API binary expires new publication-unknown marker, known release blocker persists",
+    "legacy failed rows unresolved and no accepted old/new image/restore/rollback route",
+    "browser uses fake publisher and is NOT actual broker delivery proof, normalCI still skips unless optin",
+    "actual mTLS compiled evidence from prior aaa2893 remains distinct and not reclassified as true dropped MQTTACK",
+    "no owner deploy/merge/release/Windows jointinstaller/hardware acceptance; exact new normalCI pending"
+  ]
+}

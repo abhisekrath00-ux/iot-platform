@@ -165,11 +165,17 @@ createRoot(document.getElementById('root')!).render(<main><h1>Isolated recovery 
             click('Apply saved source settings')
             wait('document.body.innerText.includes("Could not confirm whether this request was sent")')
             command('Page.navigate',{'url':origin+'?apply=1'})
-            wait('document.body.innerText.includes("A source reload may already have been accepted")')
-            if not js('Array.from(document.querySelectorAll("button")).find(b=>b.textContent==="Apply saved source settings").disabled&&!document.body.innerText.includes("Sent to gateway. Waiting")'):
-                raise RuntimeError('server publication quarantine was not honored after real navigation')
-            screenshot('apply-publication-quarantine-desktop',1200,1400)
-            screenshot('apply-publication-quarantine-mobile',390,2100)
+            wait('document.body.innerText.includes("Previous Apply response unknown in this tab")')
+            if config['knownPublication']=='true':
+                wait('document.body.innerText.includes("No gateway answer arrived before this request expired")')
+                label='apply-known-publication-lost-http-expired-tab-lock'
+            else:
+                wait('document.body.innerText.includes("A source reload may already have been accepted")')
+                label='apply-publication-quarantine-tab-lock'
+            if not js('Array.from(document.querySelectorAll("button")).find(b=>b.textContent==="Apply saved source settings").disabled&&document.querySelector("input[type=checkbox]").disabled&&!document.body.innerText.includes("Sent to gateway. Waiting")'):
+                raise RuntimeError('Apply attempt rearmed after real navigation and server history observation')
+            screenshot(label+'-desktop',1200,1500)
+            screenshot(label+'-mobile',390,2200)
             ws.close()
             print(json.dumps({'recovered_href':recovered,'pairing_observed':'revoked','unknown_response_retained':True}))
         finally:

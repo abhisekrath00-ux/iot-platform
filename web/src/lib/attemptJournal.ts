@@ -9,7 +9,7 @@ function read(key: string): Set<string> {
  if (!data || typeof data !== 'object' || !('v' in data) || data.v !== 1 || !('ids' in data) || !Array.isArray(data.ids) || data.ids.length > 10000 || !data.ids.every(id=>typeof id==='string' && id.length>0 && id.length<=512)) throw new Error('Invalid attempt journal');
  return new Set(data.ids);
 }
-export async function loadAttemptJournal(kind: 'source'|'pairing'): Promise<AttemptJournal> {
+export async function loadAttemptJournal(kind: 'source'|'pairing'|'apply'): Promise<AttemptJournal> {
  const token = localStorage.getItem('iot.token');
  if (!token || !globalThis.crypto?.subtle) throw new Error('Session lock unavailable');
  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
@@ -38,5 +38,15 @@ export function releaseConfirmedSource(journal: AttemptJournal, id: string): voi
  const ids=read(journal.key);for(const prior of journal.ids)ids.add(prior);ids.delete(id);
  const value=JSON.stringify({v:1,ids:[...ids]});sessionStorage.setItem(journal.key,value);
  if(sessionStorage.getItem(journal.key)!==value || localStorage.getItem('iot.token')!==journal.token)throw new Error('Source confirmation lock update failed');
+ journal.ids=ids;
+}
+
+// Only a validated direct Apply POST receipt can release this gateway's lock.
+// GET observations and a missing/expired row never prove the attempted POST failed.
+export function releaseAcknowledgedApply(journal: AttemptJournal, id: string): void {
+ if (!journal.key.startsWith(prefix+'apply.') || localStorage.getItem('iot.token')!==journal.token) throw new Error('Apply session changed');
+ const ids=read(journal.key);for(const prior of journal.ids)ids.add(prior);ids.delete(id);
+ const value=JSON.stringify({v:1,ids:[...ids]});sessionStorage.setItem(journal.key,value);
+ if(sessionStorage.getItem(journal.key)!==value || localStorage.getItem('iot.token')!==journal.token)throw new Error('Apply receipt lock update failed');
  journal.ids=ids;
 }

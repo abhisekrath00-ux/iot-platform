@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import {webcrypto} from 'node:crypto';
 import {beforeEach,afterEach,expect,test,vi} from 'vitest';
-import {loadAttemptJournal,recordAttempt,releaseConfirmedSource} from './attemptJournal';
+import {loadAttemptJournal,recordAttempt,releaseConfirmedSource,releaseAcknowledgedApply} from './attemptJournal';
 beforeEach(()=>{vi.stubGlobal('crypto',webcrypto);localStorage.clear();sessionStorage.clear();localStorage.setItem('iot.token','synthetic-session-a');});
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 test('persist before effect, restore same session, no bearer or payload persisted, opposite decision shares lock',async()=>{
@@ -35,4 +35,9 @@ test('session changing while digest is pending or storage commits is refused',as
 test('only a confirmed source path can release its lock; pairing and other IDs remain kept',async()=>{
  const source=await loadAttemptJournal('source');recordAttempt(source,'a');recordAttempt(source,'b');releaseConfirmedSource(source,'a');expect([...(await loadAttemptJournal('source')).ids]).toEqual(['b']);
  const pairing=await loadAttemptJournal('pairing');recordAttempt(pairing,'a');expect(()=>releaseConfirmedSource(pairing,'a')).toThrow();expect([...(await loadAttemptJournal('pairing')).ids]).toEqual(['a']);
+});
+
+test('Apply release is isolated by kind and gateway, source and pairing cannot be released through Apply',async()=>{
+ const j=await loadAttemptJournal('apply');recordAttempt(j,'a');recordAttempt(j,'b');releaseAcknowledgedApply(j,'a');expect([...(await loadAttemptJournal('apply')).ids]).toEqual(['b']);expect(()=>releaseConfirmedSource(j,'b')).toThrow();
+ const source=await loadAttemptJournal('source');recordAttempt(source,'a');expect(()=>releaseAcknowledgedApply(source,'a')).toThrow();expect([...(await loadAttemptJournal('source')).ids]).toEqual(['a']);
 });

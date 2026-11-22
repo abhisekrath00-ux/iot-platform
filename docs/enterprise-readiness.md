@@ -3313,3 +3313,57 @@ activation default, Windows, hardware, owner environment or joint installer
 handoff acceptance. Fixed hashes/results/limits are in
  docs/validation/apply-publication-quarantine-local.json. Prior0574e75 accepted
 normalCI44945064107 does not establish this new tip's acceptance or owner Apply safety.
+
+
+#### Apply HTTP-response uncertainty: same-tab journal
+
+A separate client gap remains after the publication-unknown repair: a known
+successful publication can have its HTTP202 response lost. The old component's
+in-memory lock disappears on navigation, and normal server expiry then permits
+another Apply. Ten new checks fail against the aaa2893 component while sixteen
+prior checks pass. This review adds an Apply-kind journal using the existing
+ID-only token-SHA256 sessionStorage mechanism. It synchronously persists and
+readback-verifies the gateway ID BEFORE POST, refuses corrupt/unavailable/quota/
+session-changed storage, and restores the uncertain attempt on remount. No bearer,
+payload, keys, fingerprints or device settings are stored. Only a directly
+validated Apply POST response can release that gateway's persistent lock; no GET
+observation, even missing/expired/confirmed, does so. Late responses from a
+previous gateway cannot replace current gateway state or release another lock.
+The current component remains one-attempt after a matched response. Source and
+pairing journal behavior is preserved and cross-kind releases are refused.
+
+Local34focused helper/component tests and full71files442tests53.60s/build/npm0
+PASS. Fresh disposable PostgreSQL full API32.805s/vet/build PASS. Initial API
+34.237s mistakenly reused populated h144 scratchDB, failed duplicate profile/
+report fixtures and stale escalation state, UNACCEPTED; fresh run supersedes it.
+Initial two component checks used native digest completion not awaited by act;
+like existing setup tests their async digest mock is now deterministic createHash,
+while actual-browser validation still uses real native WebCrypto.
+
+Optional real Chromium/React/api-client/Vite/authenticated HTTP/tracked session/
+new PostgreSQL/all93 proof now has TWO modes. First, the existing synthetic
+publisher accepts then errors and the real handler502 response is dropped;
+one-day server quarantine and same-tab lock survive real navigation. Second,
+the synthetic publisher returns success, real handler202 response is dropped,
+and a one-day row actually expires via the existing GET handler; navigation
+still leaves complete review/Apply controls blocked by the retained tab lock.
+Exactly one Apply POST and one SYNTHETIC publisher acceptance per mode. Existing
+source201 and pending-pairing-revoke200 lost-response proof and identity/session
+counts remain in both. One two-mode race15.101s, THREE final two-mode race41.438s
+PASS. Final desktop1200/mobile390 screenshots inspected, complete readable
+controls/caveats and no horizontal overflow. Metadata is Saved request detail,
+not falsely attributed to a gateway response. NormalCI still skips optional
+browser proof absent explicit opt-in. No browser mock acceptance is real broker
+delivery proof; separate prior compiled mTLS evidence remains distinct.
+
+This guard covers only the same tab and EXACT current token, not other tabs,
+devices, newlogin or browser storage loss. UI explicitly says not to close the
+tab, clear storage, sign in again or create another gateway to retry. Unknown
+attempts stay blocked even with matching terminal history, with no invented
+operator-clear/retry workflow. No backend/schema/catalog/workflow/exact93/updater/
+identity/activation changes. Existing fifteen-minute known-publication expiry
+and old-binary/mixed-writer marker expiry/rearm remain open RELEASE BLOCKERS,
+as do legacy failed requests and old/new-image rollback/restore compatibility.
+No owner deployment, joint Windows installer or hardware acceptance. Manifest:
+docs/validation/apply-tab-attempt-local.json. New normalCI acceptance is separate
+from prior aaa2893/44965664403 acceptance and from local evidence.

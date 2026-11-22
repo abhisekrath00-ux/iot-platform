@@ -30,6 +30,12 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 	if os.Getenv("TEST_RECOVERY_BROWSER") != "1" {
 		t.Skip("explicit local scripts/test-recovery-browser.py browser acceptance required")
 	}
+	for _, knownPublication := range []bool{false, true} {
+		t.Run(fmt.Sprintf("knownPublication_%v", knownPublication), func(t *testing.T) { browserLostResponses(t, knownPublication) })
+	}
+}
+
+func browserLostResponses(t *testing.T, knownPublication bool) {
 	cfg, err := pgx.ParseConfig(os.Getenv("TEST_DATABASE_URL"))
 	if err != nil {
 		t.Fatal("invalid local PG config")
@@ -89,6 +95,9 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 		// Age this durable marker to prove browser GET cannot silently expire it.
 		if _, err := st.Pool.Exec(ctx, `UPDATE gateway_config_pushes SET created_at=now()-interval '1 day' WHERE id=$1`, envelope.PushID); err != nil {
 			return err
+		}
+		if knownPublication {
+			return nil
 		}
 		return fmt.Errorf("synthetic acceptance followed by acknowledgement loss")
 	}
@@ -195,7 +204,7 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := filepath.Join(t.TempDir(), "private-browser-config.json")
-	b, err := json.Marshal(map[string]string{"endpoint": server.URL, "token": token, "root": root, "artifacts": os.Getenv("TEST_UI_ARTIFACT_DIR")})
+	b, err := json.Marshal(map[string]string{"endpoint": server.URL, "token": token, "root": root, "artifacts": os.Getenv("TEST_UI_ARTIFACT_DIR"), "knownPublication": fmt.Sprint(knownPublication)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +235,11 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 	t.Log("Actual browser observed exact committed session and revoked pending pairing; no mocked API responses.")
 	mu.Lock()
 	defer mu.Unlock()
-	if len(postCodes) != 3 || postCodes[0] != 201 || postCodes[1] != 200 || postCodes[2] != 502 {
+	expectedApplyCode := 502
+	if knownPublication {
+		expectedApplyCode = 202
+	}
+	if len(postCodes) != 3 || postCodes[0] != 201 || postCodes[1] != 200 || postCodes[2] != expectedApplyCode {
 		t.Fatal("actual lost response commits", postCodes)
 	}
 	postPaths := []string{}
@@ -271,8 +284,15 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 	if err := st.Pool.QueryRow(ctx, `SELECT status,detail FROM gateway_config_pushes WHERE tenant_id=$1`, tenant).Scan(&pushState, &pushDetail); err != nil {
 		t.Fatal(err)
 	}
-	if acceptedPublications.Load() != 1 || configPushes != 1 || pushState != "sent" || pushDetail != configPushPublicationUnknown {
+	expectedState, expectedDetail := "sent", configPushPublicationUnknown
+	if knownPublication {
+		expectedState, expectedDetail = "expired", "no answer from the gateway"
+	}
+	if acceptedPublications.Load() != 1 || configPushes != 1 || pushState != expectedState || pushDetail != expectedDetail {
 		t.Fatal("durable Apply quarantine", acceptedPublications.Load(), configPushes, pushState, pushDetail)
 	}
-	t.Log("ACTUAL_CHROMIUM_REACT_AUTH_TRACKED_SESSION_PG_SETUP_PAIRING_LOST_RESPONSE_RECOVERY_AND_APPLY_PUBLISH_UNKNOWN_QUARANTINE_REMOUNT_NO_RESEND_OK")
+	if knownPublication {
+		t.Log("ACTUAL_CHROMIUM_SUCCESSFUL_PUBLISH_LOST_HTTP_202_REAL_SERVER_EXPIRY_REMOUNT_TAB_LOCK_NO_RESEND_OK")
+	}
+	t.Logf("ACTUAL_CHROMIUM_REACT_AUTH_TRACKED_SESSION_PG_SETUP_PAIRING_LOST_RESPONSE_AND_APPLY_TAB_LOCK_REMOUNT_NO_RESEND_OK knownPublication=%v", knownPublication)
 }
