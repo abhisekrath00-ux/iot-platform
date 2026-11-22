@@ -3367,3 +3367,48 @@ as do legacy failed requests and old/new-image rollback/restore compatibility.
 No owner deployment, joint Windows installer or hardware acceptance. Manifest:
 docs/validation/apply-tab-attempt-local.json. New normalCI acceptance is separate
 from prior aaa2893/44965664403 acceptance and from local evidence.
+
+
+#### Genuine broker PUBACK loss: OPEN automatic resend gap
+
+The prior compiled Apply proof received a real broker acknowledgement and THEN
+injected a synthetic API error. A separate actual transport fault now exposes
+an OPEN production-library resend gap. The test opens a real verified mTLS
+connection to certificate-required loopback Mosquitto with generated CN ACLs.
+A test-only net.Conn at the decrypted boundary consumes exactly ONE genuine
+broker PUBACK before Paho sees it, closes that connection, and permits the
+production mqttconfig AutoReconnect=true behavior. Exactly ONE production
+opsPublish invocation, nil test hook, calls the actual publishMQTTRetained/
+Paho QoS1 Publish/token.Wait path. A synthetic read-only gateway subscriber
+receives the identical payload TWICE over TWO verified API mTLS connections.
+The original production call eventually returns nil after library reconnect.
+There is no second application Publish call or injected return error. A green
+characterization reproduces an OPEN safety gap, not one-attempt acceptance.
+
+A second isolated comparison sets AutoReconnect=false ONLY on this test client,
+leaving the production option builder unchanged. With the same real PUBACK loss,
+ONE verified connection/ONE observer delivery and a non-nil production publisher
+return are observed, with no library reconnect/resend. That candidate has not
+been integrated into any handler, durable receipt or operator recovery workflow.
+No production connection/retry/default/timeout policy is selected by this test.
+The shared MQTT client has other callers and token.Wait has no application
+context/deadline; those cases need grounding before a production one-attempt
+connection policy change. This test does not establish total hang duration.
+
+First actual gap race7.398s, both-case THREE race repeats20.299s including the
+existing mixed pipeline PASS. FreshPG full normalAPI34.191s/vet/build PASS. Full
+mTLS pipeline race19.894s PASS, with new gap0.15s/candidate0.10s, compiled signed
+source/portable template and prior synthetic API acknowledgement-loss2.31s
+also passing. No executor/device subscribes to the fault-test topic. This proves
+duplicate TRANSPORT delivery, not physical double execution, Apply handler or
+edge duplicate suppression, durable receipt handling, or permission to retry.
+
+One-attempt HTTP admission and same-tab journals therefore do NOT establish
+one-attempt external effects under actual MQTT reconnect. The old/mixed API
+marker expiry/rearm, normal known-publication expiry, legacy failed rows and
+old/new image/update/restore/rollback release blockers remain. Production
+code/defaults, handler, GUI, identity, ACL generator, schema/catalog, workflows,
+exact93 updater guards and owner environment are unchanged. No new activation,
+merge/release, physical writes or joint installer acceptance. Full fixed hashes
+and limits: docs/validation/mqtt-puback-loss-open-gap-local.json. Exact new remote
+CI remains separate from prior ddef8cd/44983704551 review acceptance.

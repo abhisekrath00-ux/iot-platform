@@ -1,0 +1,53 @@
+{
+  "base_revision": "ddef8cdc941536ac2d956ee609e929b30e60b325",
+  "scope": "OPEN production MQTT QoS1 resend gap after actual broker PUBACK loss plus isolated no-reconnect comparison, tests only",
+  "source_sha256": {
+    "server/cmd/api/mqtt_puback_loss_test.go": "249a7c82e1c6988bd81d8e9ac4572acd93c9508f47e929c418b951fa45f6e189",
+    "server/cmd/api/mqtt_tls_pipeline_test.go": "c28959c138adccf6f15ad6ffc6549c66c8b31a9bc1a118ccf8638f9786080451",
+    "server/cmd/api/commission.go": "6356bfbb27f78ce5078eee1e714c64316591fc371e0b5ce045aafe0ad62fd5e8",
+    "server/internal/mqttconfig/config.go": "68ed0ae5cf045a1ed4a247d53e8d2f2a2100ae7b2e21fe5bbb3bf1ca5d156941"
+  },
+  "fault": "Test-only custom net.Conn after real TLS certificate verification/decryption consumes exactly one genuine broker PUBACK before Paho can see it, then closes that connection. No injected publisher return error. Real certificate-required Mosquitto and generated CN-scoped ACL.",
+  "cases": {
+    "production_default": {
+      "application_opsPublish_invocations": 1,
+      "opsPublish_hook": false,
+      "actual_broker_pubacks_dropped": 1,
+      "verified_mtls_connections": 2,
+      "matching_read_only_observer_deliveries": 2,
+      "production_publish_return": "nil after reconnect",
+      "accepted_safety": false
+    },
+    "isolated_candidate": {
+      "changed_setting": "ONLY this test publisher AutoReconnect=false, production opts unchanged",
+      "application_opsPublish_invocations": 1,
+      "actual_broker_pubacks_dropped": 1,
+      "verified_mtls_connections": 1,
+      "matching_read_only_observer_deliveries": 1,
+      "production_publish_return": "non-nil error after accepted transport delivery",
+      "accepted_product_default": false
+    }
+  },
+  "results": {
+    "first_gap_race_with_existing_pipeline_s": 7.398,
+    "both_cases_three_race_repeats_with_existing_pipeline_s": 20.299,
+    "fresh_pg_normal_api_s": 34.191,
+    "api_vet_build": "PASS",
+    "full_mtls_pipeline_race_s": 19.894,
+    "full_mtls_new_gap_case_s": 0.15,
+    "full_mtls_candidate_case_s": 0.1,
+    "full_mtls_compiled_synthetic_api_ackloss_s": 2.31
+  },
+  "limits": [
+    "Characterization green means OPEN defect reproduced, NOT successful one-attempt policy",
+    "No executor/device subscribes to fault-test topic; deliveries measured by synthetic read-only Paho subscriber",
+    "Not physical double execution, current signed Apply duplicate handling, receipt durability or gateway retry authorization evidence",
+    "Real PUBACK loss case distinct from prior compiled edge/ingest test that gets real ACK then injects synthetic API error",
+    "Candidate flips reconnect only in test client; no production timeout/connection/retry defaults or hooks changed",
+    "Production MQTT token.Wait remains without application context/deadline; no bounded total-hang claim from this test",
+    "No handler/source frontend/identity/ACL/schema/catalog/workflow/exact93/updater/default/owner environment changes",
+    "Other shared MQTT call sites and startup/reconnect/timeout behavior need review before production connection policy choice",
+    "Old/mixed API marker expiry/rearm, general knownpublication expiry, legacyfailed rows, old/new update/rollback/restore blockers remain",
+    "No owner deploy/merge/release/spending/hardware/jointinstaller readiness, exact new CI separate"
+  ]
+}

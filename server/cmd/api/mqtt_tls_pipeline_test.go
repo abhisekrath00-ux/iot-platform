@@ -98,6 +98,12 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 	defer func() { cmd.Process.Kill(); cmd.Wait() }()
 	verifyGeneratedACLReads(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
 	verifyOneShotCommandTransport(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
+	t.Run("ActualLostBrokerPUBACKReconnectGap", func(t *testing.T) {
+		verifyActualPUBACKLossReconnect(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak, true)
+	})
+	t.Run("IsolatedNoReconnectPUBACKLossCandidate", func(t *testing.T) {
+		verifyActualPUBACKLossReconnect(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak, false)
+	})
 	runMQTTPipeline(t, map[string]string{"MQTT_TLS": "true", "MQTT_PORT": port, "MQTT_HOST": "127.0.0.1", "MQTT_CA_FILE": filepath.Join(dir, "ca.crt"), "MQTT_CERT_FILE": ic, "MQTT_KEY_FILE": ik, "PUBLISHER_CERT": gc, "PUBLISHER_KEY": gk})
 	// Exercise the source-template -> assignment -> signed Apply -> measured
 	// reading path on its own disposable certificate-required broker too.
