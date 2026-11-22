@@ -114,6 +114,7 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 		}
 		t.Setenv("TEST_SOURCE_MTLS", "1")
 		t.Run("SavedSource", TestIntegrationCompiledSourceApplyAndReading)
+		t.Run("LostPublicationAcknowledgement", TestIntegrationCompiledSourceApplyLostPublishAcknowledgement)
 		t.Run("PortableExplorerTemplate", TestIntegrationCompiledExplorerTemplateSourceAndReading)
 	})
 	// Separate plaintext loopback fault fixture, not additional TLS proof.

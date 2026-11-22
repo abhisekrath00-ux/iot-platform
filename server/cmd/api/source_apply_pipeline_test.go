@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,12 +27,15 @@ import (
 // Disposable loopback broker, compiled ingest and edge, real Postgres, synthetic
 // read-only Modbus TCP device. Restart is supervised here, not a Windows SCM proof.
 func TestIntegrationCompiledSourceApplyAndReading(t *testing.T) {
-	compiledSourceApplyAndReading(t, false)
+	compiledSourceApplyAndReading(t, false, false)
 }
 func TestIntegrationCompiledExplorerTemplateSourceAndReading(t *testing.T) {
-	compiledSourceApplyAndReading(t, true)
+	compiledSourceApplyAndReading(t, true, false)
 }
-func compiledSourceApplyAndReading(t *testing.T, portable bool) {
+func TestIntegrationCompiledSourceApplyLostPublishAcknowledgement(t *testing.T) {
+	compiledSourceApplyAndReading(t, false, true)
+}
+func compiledSourceApplyAndReading(t *testing.T, portable, uncertainPublication bool) {
 	brokerBin, edgeBin, ingestBin := os.Getenv("TEST_MOSQUITTO_BINARY"), os.Getenv("TEST_EDGE_BINARY"), os.Getenv("TEST_INGEST_BINARY")
 	if brokerBin == "" || edgeBin == "" || ingestBin == "" {
 		t.Skip("compiled edge/ingest and disposable broker binaries required")
@@ -40,6 +44,9 @@ func compiledSourceApplyAndReading(t *testing.T, portable bool) {
 	tenant := "itest-source-pipeline"
 	if portable {
 		tenant += "-explorer"
+	}
+	if uncertainPublication {
+		tenant += fmt.Sprintf("-publish-unknown-%d", time.Now().UnixNano())
 	}
 	seed(t, s, tenant)
 	dir := t.TempDir()
@@ -132,12 +139,20 @@ func compiledSourceApplyAndReading(t *testing.T, portable bool) {
 		t.Fatal("publisher", tok.Error())
 	}
 	defer publisher.Disconnect(100)
+	var publicationCalls atomic.Int32
 	s.opsPublishHook = func(topic string, b []byte) error {
+		publicationCalls.Add(1)
 		tok := publisher.Publish(topic, 1, false, b)
 		if !tok.WaitTimeout(5 * time.Second) {
 			return fmt.Errorf("publish timeout")
 		}
-		return tok.Error()
+		if tok.Error() != nil {
+			return tok.Error()
+		}
+		if uncertainPublication {
+			return fmt.Errorf("synthetic API acknowledgement loss AFTER actual broker acknowledgement")
+		}
+		return nil
 	}
 	seedKey := bytes.Repeat([]byte{19}, 32)
 	t.Setenv("FLEET_SIGNING_KEY", base64.StdEncoding.EncodeToString(seedKey))
@@ -363,13 +378,23 @@ func compiledSourceApplyAndReading(t *testing.T, portable bool) {
 		t.Fatal("stale review accepted", bad.Code)
 	}
 	w = call(m, tenant, "admin", "POST", base+"/config-push", `{"expected_sha256":"`+ready.SHA+`"}`)
-	if w.Code != 202 {
+	expected := 202
+	if uncertainPublication {
+		expected = 502
+	}
+	if w.Code != expected {
 		t.Fatalf("push %d %s", w.Code, w.Body)
 	}
 	var pushed struct {
 		ID string `json:"push_id"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &pushed)
+	if uncertainPublication {
+		if err := s.st.Pool.QueryRow(t.Context(), `SELECT id FROM gateway_config_pushes WHERE tenant_id=$1 ORDER BY version DESC LIMIT 1`, tenant).Scan(&pushed.ID); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		json.Unmarshal(w.Body.Bytes(), &pushed)
+	}
 	state := func() string {
 		var status string
 		s.st.Pool.QueryRow(t.Context(), `SELECT status FROM gateway_config_pushes WHERE id=$1`, pushed.ID).Scan(&status)
@@ -398,6 +423,19 @@ func compiledSourceApplyAndReading(t *testing.T, portable bool) {
 	foreign := call(m, "foreign-source-pipeline", "admin", "GET", base+"/config-push", "")
 	if strings.TrimSpace(foreign.Body.String()) != "[]" {
 		t.Fatal("status scope leak")
+	}
+	if uncertainPublication {
+		if publicationCalls.Load() != 1 {
+			t.Fatal("actual source was republished", publicationCalls.Load())
+		}
+		var n int
+		if err := s.st.Pool.QueryRow(t.Context(), `SELECT count(*) FROM gateway_config_pushes WHERE tenant_id=$1`, tenant).Scan(&n); err != nil || n != 1 {
+			t.Fatal("durable Apply attempts", n, err)
+		}
+		if strings.Contains(w.Body.String(), `"publication_unconfirmed":true`) {
+			t.Fatal("actual confirmed gateway receipt did not resolve marker")
+		}
+		t.Log("ACTUAL_MTLS_BROKER_ONE_PUBLICATION_API_SYNTHETIC_ACK_LOSS_COMPILED_EDGE_APPLIED_CONFIRMED_MEASURED_RECEIPT_NO_RESEND_OK")
 	}
 	b, _ := os.ReadFile(filepath.Join(edgeData, "identity.json"))
 	if !strings.Contains(string(b), "synthetic-not-a-secret") {

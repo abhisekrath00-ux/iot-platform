@@ -1,0 +1,80 @@
+{
+  "base_revision": "0574e75b8a25de5e7589d5933aca0266e10fc32b",
+  "scope": "source Apply publication-outcome uncertainty, durable admission quarantine and gateway receipt resolution",
+  "source_sha256": {
+    "server/cmd/api/configpush.go": "08499eb6cf371a03bd08a39a3f26b2c6d341b6481a5257165cc2291fd766de7a",
+    "server/cmd/api/configpush_uncertainty_test.go": "9b560bc199364957b05772c8c3b89cac1a33538efa5efefe4632996a4a38588b",
+    "server/cmd/api/source_apply_pipeline_test.go": "1884fc2e4eaa7ea12a898eeeeffc5167be3b5e977b57849141cf1ad4c2578f35",
+    "server/cmd/api/mqtt_tls_pipeline_test.go": "439297c0d97f3d295ffc7d800538d30ea1f34d6efba9014e2cb3248d33b6a482",
+    "server/cmd/api/recovery_browser_test.go": "e4f284d49ba2268aa97f80b8f1d947519d3ca39cf60317fcef534062c2779c7c",
+    "scripts/test-recovery-browser.py": "cf31c648b1cb5c507177f919df1b68c6275758fbec03873b815a2db73cdea467",
+    "web/src/components/SourceApply.tsx": "bfa10ffb49259a385fd9343ee869bea5febb138db168e7c13589af44ab6e6811",
+    "web/src/components/SourceApply.test.tsx": "3df2c81683aa389f234722bcb5292f4ab891811efcb4a54b1927add3fb05a79d"
+  },
+  "baseline": {
+    "fake_publisher_accept_then_error": {
+      "first_http": 502,
+      "get_status": "failed",
+      "next_http": 502,
+      "accepted_calls": 2,
+      "accepted": false
+    },
+    "old_handler_on_new_quarantine_row": {
+      "get_status": "expired",
+      "next_http": 202,
+      "publisher_calls": 1,
+      "accepted": false
+    }
+  },
+  "final_results": {
+    "focused_new_backend_leaf_checks": 8,
+    "existing_backend_case": 1,
+    "three_repeated_backend_race_s": 2.273,
+    "normal_api_full_s": 37.158,
+    "go_vet_build_cmd_api": "PASS",
+    "web_full_files": 71,
+    "web_full_tests": 431,
+    "web_full_duration_s": 61.81,
+    "typescript_vite": "PASS, existing chunk-size warning",
+    "production_npm_audit": 0,
+    "actual_mtls_compiled_edge_ingest_race_s": 3.382,
+    "actual_mtls_three_repeats_s": 8.302,
+    "optional_actual_browser_race_s": 7.913,
+    "optional_actual_browser_three_repeats_s": 16.623
+  },
+  "covered": [
+    "gateway-row FOR UPDATE serializes API admission across processes; transaction committed before broker I/O",
+    "durable sent+publication-unconfirmed detail before one opsPublish call",
+    "publish error does not mark failed or return private broker error details",
+    "GET and POST15min expiry exclude unknown marker, including age1day/new API instance",
+    "SQL expiry/query/version/insert/commit failures do not authorize publish",
+    "postpublish metadata-clear failure leaves marker, returns uncertainty, no resend",
+    "8concurrent competing requests refuse while first publishing",
+    "existing gateway-scoped sent->applied/rejected and applied->confirmed/rolled_back receipt transitions remain usable",
+    "racing gateway receipt is never downgraded by API publish error or metadata clear",
+    "new list publication_unconfirmed field makes UI disable review and Apply; observed status not confirmed send",
+    "browser actual React api-client HTTP auth middleware freshPG one synthetic publisher acceptance/one Apply POST plus existing source/revoke POSTs, real navigation keeps1daymarker and blocked controls",
+    "actual compiled edge+ingest over certificate-required loopback Mosquitto confirms and supplies measured synthetic TCP reading after one actual broker publish followed by synthetic API acknowledgement-loss error",
+    "normal mTLS CI existing suite now calls new compiled uncertain-publication variant; workflow unchanged"
+  ],
+  "unaccepted_attempts": [
+    "baseline fake accepted-then-error produces two publishes",
+    "old handler expires new marker and allows fresh publish, deliberately unaccepted rollback evidence",
+    "initial backend rerun saw stale fixture row409/0publishercalls; cleanup fixed to noncancelled context/upfront synthetic cleanup",
+    "initial3transport repeats0.807s failed on duplicate fixed synthetic profile before Apply; uncertainty variant now unique synthetic tenant each invocation",
+    "combined120s command timed out while full web continued; awaited complete431pass68.61s, superseded by final431pass61.81s after UI detail/control correction"
+  ],
+  "limits": [
+    "RELEASE BLOCKER: old API binaries/mixed writers/rollback do not understand detail marker and can expire/rearm it, explicitly reproduced",
+    "RELEASE BLOCKER: no accepted old-image/new-image rollback/update compatibility route; updater/exact93 guards left unchanged",
+    "legacy already-failed rows are not retroactively quarantined",
+    "quarantine can remain indefinitely if no gateway receipt arrives; no operator clear/retry/reset workflow implemented",
+    "actual transport fault synthetic AFTER real broker acknowledgement, NOT actual dropped MQTT ack",
+    "browser fake publisher acceptance is NOT broker/device delivery proof; separate compiled mTLS fixture supplies transport evidence",
+    "no actual HTTP browser test of real broker in same process, no physical device/owner account touched",
+    "normalCI SKIPS optional Chromium proof absent TEST_RECOVERY_BROWSER=1; compiled mTLS variant runs only in existing binary-equipped integration suite",
+    "normally acknowledged sent rows retain existing15min expiry behavior; lost HTTP response after known publisher success is not this server-publication-unknown branch",
+    "no production deployment, newschema/catalog, identity/CA/ACL/update/activationdefault changes, no Windows/hardware/jointinstaller/ownerreadiness acceptance",
+    "new exact remote normal CI remains separate"
+  ]
+}

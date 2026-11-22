@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -46,6 +47,11 @@ func devicesSection(full string) string {
 	return full[i+1:]
 }
 
+// This marker is committed BEFORE the one publish attempt. A crash or ambiguous
+// publish return cannot turn it into a retryable failure or time-expired row.
+// Existing gateway-scoped sent->applied|rejected receipts can still resolve it.
+const configPushPublicationUnknown = "Publication response unconfirmed. Keep the edge stopped and ask an administrator to inspect this exact request. Do not send another Apply."
+
 // POST /v1/gateways/{id}/config-push
 func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 	if !requireRole(w, r, "admin") {
@@ -68,8 +74,16 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenant, gw := auth.Tenant(r), r.PathValue("id")
+	tx, err := s.st.Pool.Begin(r.Context())
+	if err != nil {
+		dbErr(w, err)
+		return
+	}
+	defer tx.Rollback(context.Background())
+	// Serialize admission on the durable gateway row across API processes.
+	// The transaction ends BEFORE broker I/O, never holding a lease during publish.
 	var serial, status string
-	if err := s.st.Pool.QueryRow(r.Context(), `SELECT serial, status FROM gateways WHERE id=$1 AND tenant_id=$2`, gw, tenant).Scan(&serial, &status); err != nil {
+	if err := tx.QueryRow(r.Context(), `SELECT serial, status FROM gateways WHERE id=$1 AND tenant_id=$2 FOR UPDATE`, gw, tenant).Scan(&serial, &status); err != nil {
 		http.Error(w, "gateway not found", 404)
 		return
 	}
@@ -77,9 +91,15 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "gateway has not claimed yet", 409)
 		return
 	}
-	s.st.Pool.Exec(r.Context(), `UPDATE gateway_config_pushes SET status='expired', detail='no answer from the gateway', updated_at=now() WHERE tenant_id=$1 AND gateway_id=$2 AND status='sent' AND created_at < now() - interval '15 minutes'`, tenant, gw)
+	if _, err := tx.Exec(r.Context(), `UPDATE gateway_config_pushes SET status='expired', detail='no answer from the gateway', updated_at=now() WHERE tenant_id=$1 AND gateway_id=$2 AND status='sent' AND detail<>$3 AND created_at < now() - interval '15 minutes'`, tenant, gw, configPushPublicationUnknown); err != nil {
+		dbErr(w, err)
+		return
+	}
 	var open int
-	s.st.Pool.QueryRow(r.Context(), `SELECT count(*) FROM gateway_config_pushes WHERE tenant_id=$1 AND gateway_id=$2 AND status IN ('sent','applied')`, tenant, gw).Scan(&open)
+	if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM gateway_config_pushes WHERE tenant_id=$1 AND gateway_id=$2 AND status IN ('sent','applied')`, tenant, gw).Scan(&open); err != nil {
+		dbErr(w, err)
+		return
+	}
 	if open > 0 {
 		http.Error(w, "a push is still in progress on this gateway; wait for it to be confirmed or rolled back", 409)
 		return
@@ -98,22 +118,35 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	id := uuid.NewString()
 	var ver int
-	s.st.Pool.QueryRow(r.Context(), `SELECT COALESCE(max(version),0)+1 FROM gateway_config_pushes WHERE gateway_id=$1`, gw).Scan(&ver)
+	if err := tx.QueryRow(r.Context(), `SELECT COALESCE(max(version),0)+1 FROM gateway_config_pushes WHERE gateway_id=$1`, gw).Scan(&ver); err != nil {
+		dbErr(w, err)
+		return
+	}
 	now := time.Now()
 	exp := now.Add(15 * time.Minute)
 	env := configPushEnvelope{PushID: id, TenantID: tenant, Serial: serial, Version: ver, DevicesYAML: yml, SHA256: sha, ApprovedBy: auth.User(r), IssuedAt: now, ExpiresAt: exp,
 		Signature: fleet.SignConfigPush(key, tenant, serial, ver, id, sha, exp)}
-	if _, err := s.st.Pool.Exec(r.Context(),
-		`INSERT INTO gateway_config_pushes(id,tenant_id,gateway_id,version,devices_yaml,sha256,status,requested_by) VALUES($1,$2,$3,$4,$5,$6,'sent',$7)`,
-		id, tenant, gw, ver, yml, sha, auth.User(r)); err != nil {
+	if _, err := tx.Exec(r.Context(),
+		`INSERT INTO gateway_config_pushes(id,tenant_id,gateway_id,version,devices_yaml,sha256,status,requested_by,detail) VALUES($1,$2,$3,$4,$5,$6,'sent',$7,$8)`,
+		id, tenant, gw, ver, yml, sha, auth.User(r), configPushPublicationUnknown); err != nil {
+		dbErr(w, err)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
 		dbErr(w, err)
 		return
 	}
 	s.audit(r, "gateway.config.push", gw, map[string]any{"push_id": id, "version": ver, "devices": len(devs)})
 	b, _ := json.Marshal(env)
 	if err := s.opsPublish(fmt.Sprintf("t/%s/g/%s/config", tenant, gw), b); err != nil {
-		s.st.Pool.Exec(r.Context(), `UPDATE gateway_config_pushes SET status='failed', detail='broker unreachable', updated_at=now() WHERE id=$1`, id)
-		http.Error(w, "broker unreachable: "+err.Error(), 502)
+		// Acceptance may have happened before the acknowledgement was lost.
+		// Leave the precommitted marker, never retry or label it a failed send.
+		http.Error(w, configPushPublicationUnknown, 502)
+		return
+	}
+	// Do not overwrite a gateway receipt that raced with the broker return.
+	if _, err := s.st.Pool.Exec(r.Context(), `UPDATE gateway_config_pushes SET detail='', updated_at=now() WHERE id=$1 AND tenant_id=$2 AND gateway_id=$3 AND status='sent' AND detail=$4`, id, tenant, gw, configPushPublicationUnknown); err != nil {
+		http.Error(w, configPushPublicationUnknown, 502)
 		return
 	}
 	writeJSON(w, 202, map[string]any{"push_id": id, "version": ver, "devices": len(devs), "status": "sent", "sha256": sha})
@@ -125,7 +158,10 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenant, gw := auth.Tenant(r), r.PathValue("id")
-	s.st.Pool.Exec(r.Context(), `UPDATE gateway_config_pushes SET status='expired', detail='no answer from the gateway', updated_at=now() WHERE tenant_id=$1 AND gateway_id=$2 AND status='sent' AND created_at < now() - interval '15 minutes'`, tenant, gw)
+	if _, err := s.st.Pool.Exec(r.Context(), `UPDATE gateway_config_pushes SET status='expired', detail='no answer from the gateway', updated_at=now() WHERE tenant_id=$1 AND gateway_id=$2 AND status='sent' AND detail<>$3 AND created_at < now() - interval '15 minutes'`, tenant, gw, configPushPublicationUnknown); err != nil {
+		dbErr(w, err)
+		return
+	}
 	rows, err := s.st.Pool.Query(r.Context(),
 		`SELECT id, version, status, detail, requested_by, sha256, created_at, updated_at FROM gateway_config_pushes WHERE tenant_id=$1 AND gateway_id=$2 ORDER BY version DESC LIMIT 20`, tenant, gw)
 	if err != nil {
@@ -139,7 +175,7 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 		var ver int
 		var c, u time.Time
 		if rows.Scan(&id, &ver, &st, &detail, &by, &sha, &c, &u) == nil {
-			out = append(out, map[string]any{"id": id, "version": ver, "status": st, "detail": detail, "requested_by": by, "sha256": sha, "created_at": c, "updated_at": u})
+			out = append(out, map[string]any{"id": id, "version": ver, "status": st, "detail": detail, "requested_by": by, "sha256": sha, "created_at": c, "updated_at": u, "publication_unconfirmed": st == "sent" && detail == configPushPublicationUnknown})
 		}
 	}
 	writeJSON(w, 200, out)

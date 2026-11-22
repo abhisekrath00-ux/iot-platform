@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,6 +77,21 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &server{st: st, secret: secret}
+	t.Setenv("FLEET_SIGNING_KEY", base64.StdEncoding.EncodeToString(secret))
+	var acceptedPublications atomic.Int32
+	s.opsPublishHook = func(_ string, b []byte) error {
+		acceptedPublications.Add(1)
+		var envelope configPushEnvelope
+		if err := json.Unmarshal(b, &envelope); err != nil {
+			return err
+		}
+		// No broker here. The independent compiled/mTLS test covers real transport.
+		// Age this durable marker to prove browser GET cannot silently expire it.
+		if _, err := st.Pool.Exec(ctx, `UPDATE gateway_config_pushes SET created_at=now()-interval '1 day' WHERE id=$1`, envelope.PushID); err != nil {
+			return err
+		}
+		return fmt.Errorf("synthetic acceptance followed by acknowledgement loss")
+	}
 	const tenant = "browser-recovery-local"
 	seed(t, s, tenant)
 	queries := []string{
@@ -96,6 +113,10 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/me", s.me)
+	mux.HandleFunc("GET /v1/gateways/{id}/config-push", s.listConfigPushes)
+	mux.HandleFunc("POST /v1/gateways/{id}/config-push", s.pushGatewayConfig)
+	mux.HandleFunc("GET /v1/gateways/{id}/source-readiness", s.sourceReadiness)
 	mux.HandleFunc("GET /v1/commissioning/sessions", s.listCommissionSessions)
 	mux.HandleFunc("POST /v1/gateways/{id}/source-setup", s.createExistingSourceSession)
 	mux.HandleFunc("GET /v1/edge/identity-migrations", s.listIdentityMigrations)
@@ -205,7 +226,7 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 	t.Log("Actual browser observed exact committed session and revoked pending pairing; no mocked API responses.")
 	mu.Lock()
 	defer mu.Unlock()
-	if len(postCodes) != 2 || postCodes[0] != 201 || postCodes[1] != 200 {
+	if len(postCodes) != 3 || postCodes[0] != 201 || postCodes[1] != 200 || postCodes[2] != 502 {
 		t.Fatal("actual lost response commits", postCodes)
 	}
 	postPaths := []string{}
@@ -214,7 +235,7 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 			postPaths = append(postPaths, path)
 		}
 	}
-	if len(postPaths) != 2 || postPaths[0] != "POST /v1/gateways/browser-recovery-local-gw/source-setup" || postPaths[1] != "POST /v1/edge/identity-migrations/pending-pairing/revoke" {
+	if len(postPaths) != 3 || postPaths[2] != "POST /v1/gateways/browser-recovery-local-gw/config-push" || postPaths[0] != "POST /v1/gateways/browser-recovery-local-gw/source-setup" || postPaths[1] != "POST /v1/edge/identity-migrations/pending-pairing/revoke" {
 		t.Fatal("unexpected mutation request count or destination", postPaths)
 	}
 	var sessions, gateways, claims, audits, idempotency int
@@ -242,5 +263,16 @@ func TestIntegrationBrowserLostSetupAndPairingResponses(t *testing.T) {
 	if sessions != 2 || gateways != 1 || claims != 0 || audits != 2 || idempotency != 1 || state != "revoked" || fingerprint != "synthetic-retained-fingerprint" {
 		t.Fatal("unexpected durable state", sessions, gateways, claims, audits, idempotency, state, fingerprint)
 	}
-	t.Log("ACTUAL_CHROMIUM_REACT_AUTH_TRACKED_SESSION_PG_COMMITTED_SOURCE_AND_PENDING_REVOKE_LOST_RESPONSES_GET_RECOVERY_NO_RESEND_OK")
+	var configPushes int
+	var pushState, pushDetail string
+	if err := st.Pool.QueryRow(ctx, `SELECT count(*) FROM gateway_config_pushes WHERE tenant_id=$1`, tenant).Scan(&configPushes); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Pool.QueryRow(ctx, `SELECT status,detail FROM gateway_config_pushes WHERE tenant_id=$1`, tenant).Scan(&pushState, &pushDetail); err != nil {
+		t.Fatal(err)
+	}
+	if acceptedPublications.Load() != 1 || configPushes != 1 || pushState != "sent" || pushDetail != configPushPublicationUnknown {
+		t.Fatal("durable Apply quarantine", acceptedPublications.Load(), configPushes, pushState, pushDetail)
+	}
+	t.Log("ACTUAL_CHROMIUM_REACT_AUTH_TRACKED_SESSION_PG_SETUP_PAIRING_LOST_RESPONSE_RECOVERY_AND_APPLY_PUBLISH_UNKNOWN_QUARANTINE_REMOUNT_NO_RESEND_OK")
 }

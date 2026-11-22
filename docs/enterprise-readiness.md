@@ -3245,3 +3245,71 @@ change. No CA/certificate approval, broker/device, full production startup/proxy
 Windows or owner-PC proof. Joint fresh installer handoff and owner readiness
 remain open. Fixed hashes/results/limits: docs/validation/tab-attempt-locks-local.json.
 Prior accepted19ad065 normalCI44922845930 is separate from this tip's remote gate.
+
+
+#### Apply publication uncertainty: fail-closed server quarantine
+
+A reproduced existing Apply defect blocks owner readiness: when a synthetic
+publisher records acceptance then reports acknowledgement loss, the old API
+marks the row failed/broker-unreachable. A second explicit POST publishes another
+signed source reload. Baseline first502/GETfailed/second502/publisher2 is preserved
+in the local validation manifest. A test hook's acceptance alone is not real
+broker delivery proof. The isolated reviewed repair is not owner activation.
+
+Admission now locks the gateway row transactionally, checks database errors,
+checks existing open requests and version allocation, and commits one sent row
+with a publication-unconfirmed marker BEFORE calling the publisher once. Broker
+I/O happens after the transaction ends. An error leaves the durable marker rather
+than labelling the send failed. GET and POST time expiry exclude this marker.
+A new API instance and a one-day-old marker still refuse another Apply. SQL/commit
+failure cannot authorize publish; failure clearing metadata after publication
+retains quarantine. No automatic retry or reset was added. A gateway receipt that
+races the broker return is not overwritten. Existing gateway-scoped sent->applied|
+rejected and applied->confirmed|rolled_back transitions can resolve the marker.
+The list returns publication_unconfirmed metadata; the UI disables comparison
+and Apply and distinguishes unknown publication from confirmed send/failure.
+Server metadata is labelled Saved request detail, not a gateway response.
+
+Eight new backend leaf checks plus the existing config-push case pass THREE race
+repeats2.273s. Full local API37.158s, vet/build PASS. Full web71files431tests61.81s,
+TypeScript/Vite build and production npm audit0 PASS. Actual Chromium real React,
+api-client, HTTP auth/tracked-session middleware and freshPG/all93 proof records
+one synthetic acceptance, discarded Apply HTTP502 response, actual navigation
+and GET of a one-day-old marker with complete disabled controls/caveat at desktop
+1200px/mobile390px;7.913s race and THREE16.623s pass. The browser fixture has no
+broker/device; its earlier source201 and pending-revoke200 lost-response proof
+remains, so exactly THREE POST paths are observed, one per explicit action.
+
+Separate actual certificate-required loopback Mosquitto/compiled edge/compiled
+ingest proof publishes one signed Apply and receives a REAL broker QoS1
+acknowledgement, then injects a synthetic API-layer acknowledgement-loss error.
+Actual edge applied/confirmed receipts reach PG through ingest, remove the
+uncertainty marker, and a measured synthetic TCP meter reading arrives with
+identity retained. One publication/one row/no resend, race3.382s; THREE final
+repeats8.302s. This is NOT a genuine dropped MQTT acknowledgement or physical
+meter proof. The existing mTLS CI suite now calls this variant without workflow
+changes. Normal local API skips binary-gated transport and normal CI skips the
+optional Chromium branch unless explicitly opted in.
+
+Initial local reused-database fixture rows caused409/zero calls; cleanup now
+uses noncancelled context and clears its own synthetic rows. Initial three
+compiled repeats failed0.807s on an existing synthetic profile BEFORE Apply;
+the new uncertainty variant now uses a unique synthetic tenant per invocation.
+Those failures are unaccepted. One combined120s command expired while web tests
+continued; complete431pass68.61s was read later, then superseded by final431pass
+61.81s after the UI control/detail correction. No test timeout is a product pass.
+
+RELEASE BLOCKER: schema compatibility does not make old binaries safe. Running
+the OLD handler on a preseeded one-day-old new quarantine row explicitly yields
+GETexpired/nextPOST202/publisher1. Old/mixed API writers or rollback can erase the
+marker and rearm a send. No old-image/new-image rollback/update route is accepted,
+and existing exact93 updater guards remain unchanged. Legacy rows already marked
+failed are NOT repaired retroactively. A request with no gateway receipt may stay
+quarantined indefinitely; a safe operator recovery UI and authority remain open.
+Normally acknowledged sent rows keep the old15minute expiry behavior. This slice
+does not solve lost HTTP response after known publication success, all receipt
+loss/crash windows, or general Apply recovery. No CA, ACL, identity, schema/catalog,
+activation default, Windows, hardware, owner environment or joint installer
+handoff acceptance. Fixed hashes/results/limits are in
+ docs/validation/apply-publication-quarantine-local.json. Prior0574e75 accepted
+normalCI44945064107 does not establish this new tip's acceptance or owner Apply safety.

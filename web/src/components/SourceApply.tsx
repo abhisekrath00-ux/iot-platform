@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {api} from '../lib/api';
-interface Push {id:string;status:string;detail?:string;version:number;sha256?:string;}
+interface Push {id:string;status:string;detail?:string;version:number;sha256?:string;publication_unconfirmed?:boolean;}
 interface Ready {server_ready:boolean;reason:string;desired_sha256:string;source_names:string[];}
 interface Me {role:string;via_key?:boolean;customer_id?:string;}
 const messages:Record<string,string>={sent:'Sent to gateway. Waiting for its answer.',applied:'Gateway saved the settings. Waiting for its connection check after reload.',confirmed:'Gateway confirmed the settings after reload. Check a live source reading next.',rejected:'Gateway did not confirm applying these settings. Review its response before retrying.',rolled_back:'Gateway restored its previous settings after the connection check failed.',failed:'Settings could not be sent.',expired:'No gateway answer arrived before this request expired.'};
@@ -28,11 +28,12 @@ export default function SourceApply({gateway}:{gateway:string}){
  return <section className="card" aria-label="Apply source settings" style={{margin:'16px 0'}}><h3>Apply saved sources to this gateway</h3>
  <p>The gateway must have signed source updates enabled in its setup. This sends the full saved source list, reloads source polling, and keeps previous settings for rollback. It does not change the broker, identity, discovery or command permissions.</p>
  {ready&&<><p>{ready.source_names.length} saved source(s) will be sent:</p><ul>{ready.source_names.map((n,i)=><li key={i}>{n}</li>)}</ul>{!ready.server_ready&&<p role="alert">{ready.reason}</p>}</>}
- <label style={{display:'flex',gap:8,alignItems:'start'}}><input style={{width:'auto',boxShadow:'none'}} type="checkbox" checked={review} disabled={!ready||busy||uncertain||attempt.current} onChange={e=>setReviewedKey(e.target.checked?reviewKey:'')}/>I reviewed this gateway's saved sources and allowed signed source updates in edge setup.</label>
+ <label style={{display:'flex',gap:8,alignItems:'start'}}><input style={{width:'auto',boxShadow:'none'}} type="checkbox" checked={review} disabled={!ready||busy||uncertain||attempt.current||pushes.some(p=>p.publication_unconfirmed)} onChange={e=>setReviewedKey(e.target.checked?reviewKey:'')}/>I reviewed this gateway's saved sources and allowed signed source updates in edge setup.</label>
  <button type="button" disabled={!ready?.server_ready||!review||busy||!!open||uncertain||attempt.current||!!error} onClick={()=>void send()}>{busy?'Sending...':'Apply saved source settings'}</button>
  {error&&<p role="alert">{error}</p>}
- {current&&<p role="status">{!matches&&['confirmed','applied'].includes(current.status)?'A previous request used a different source list. It does not confirm these saved settings.':messages[current.status]??'Unknown application state. Do not assume the settings are active.'}</p>}
- {current?.detail&&<details><summary>Gateway response</summary><p>{current.detail}</p></details>}
- {uncertain&&<p>Reload this saved setup to recover the latest request status. Do not create another gateway.</p>}
+ {current?.publication_unconfirmed&&<p role="alert">The server could not confirm the broker publication response for this saved request. A source reload may already have been accepted. No new Apply is allowed while this request is unresolved, including after reloading this page. Keep the edge stopped and ask an administrator to inspect this exact request. Do not clear or replace it to retry.</p>}
+ {current&&<p role="status">{current.publication_unconfirmed?'Publication response unconfirmed. The saved request is quarantined; this is not a confirmed send or a confirmed failure.':!matches&&['confirmed','applied'].includes(current.status)?'A previous request used a different source list. It does not confirm these saved settings.':messages[current.status]??'Unknown application state. Do not assume the settings are active.'}</p>}
+ {current?.detail&&<details><summary>{current.publication_unconfirmed?'Saved request detail':'Gateway response'}</summary><p>{current.detail}</p></details>}
+ {uncertain&&<p>Reload this saved setup only to inspect the latest saved request status, not to retry Apply. Missing from the latest 20 requests is not proof that a send failed. Do not create another gateway.</p>}
  </section>
 }
