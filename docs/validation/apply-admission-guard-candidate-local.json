@@ -1,0 +1,89 @@
+{
+  "base_revision": "6c482ab65d749353da7c7fde6c76157e928a8337",
+  "scope": "isolated SQL Apply guard, not a migration or product startup/route/flag/updater change",
+  "source_sha256": {
+    "server/internal/applyadmission/candidate.sql": "5a13b944ccb511521bfe21c8191f541d66d316af684dbecdf853871da4329ab0",
+    "server/cmd/api/apply_admission_guard_candidate_test.go": "c94f1474e216375f22c4f3df9e82ddd8a1a29f78017fe0b1d7628ab2de031d52",
+    "server/cmd/api/apply_guard_mtls_candidate_test.go": "8458016f1bcd51a6034e876341c6c8f7a5a890a4d92554e22302c99b08d772d6",
+    "server/cmd/api/mqtt_tls_pipeline_test.go": "25b2b3bcabf6cc33c5db3aa3ac95d2e4b71344b9f090aadef24fc909f8b24724",
+    "server/cmd/api/configpush.go": "08499eb6cf371a03bd08a39a3f26b2c6d341b6481a5257165cc2291fd766de7a",
+    "server/cmd/api/apply_publish_once_candidate.go": "8987e0a530c483f9353acee440abc7c0a0ab167feff06d748a548699c188a240"
+  },
+  "installation": "tests only, disposable private search_path schema with LIKE public.gateway_config_pushes INCLUDING ALL; original startup definitions and migration ledger93 unchanged",
+  "candidate": {
+    "atomicity": "single DO statement, including autocommit DDL collision rollback",
+    "writer_fence": "SHARE ROW EXCLUSIVE table lock before legacy-history preflight, retained until transaction commit",
+    "legacy_adoption": "refuses any failed/expired history or duplicate sent/applied rows; no automatic reconciliation",
+    "admission": "one partial-unique sent/applied row per tenant/gateway",
+    "unknown_preservation": "sent->failed/expired returns unchanged OLD row, preserving detail/updated_at; applied expiry refused",
+    "mutation": "unresolved row DELETE and attempt identity/approved content UPDATE refused",
+    "receipt_predecessors": [
+      "sent->applied",
+      "sent->rejected",
+      "applied->confirmed",
+      "applied->rolled_back"
+    ],
+    "terminal": "no reset; resolved terminal releases next explicit admission"
+  },
+  "historical_source": {
+    "historical_commit": "0574e75b8a25de5e7589d5933aca0266e10fc32b",
+    "historical_source_url": "https://github.com/abhisekrath00-ux/iot-platform/blob/0574e75b8a25de5e7589d5933aca0266e10fc32b/server/cmd/api/configpush.go",
+    "historical_blob": "515b47acddd0947a794f01e0c0d7fca449762a14",
+    "historical_source_sha256": "51fab62ecb8925074db470f02c72c17cedcd273e3f7459369e9b4a5f5b43a96c",
+    "method": "fixed6c482ab checkout with only historical configpush.go substituted plus test-only constant for compilation; not full historical image/binary/container",
+    "test_constant_bridge_sha256": "28ab61ff38fb49d264ac7af8d966c9998970719aed9a56a1e1fd1cbe4ffdb7b0"
+  },
+  "cases": {
+    "fake_publisher_handler": [
+      "success/dayold/newpool/GETsent/POST409/one fake acceptance",
+      "accepted then error/dayold/GETsent/POST409/one fake acceptance, historical error wording may remain misleading"
+    ],
+    "real_mtls": [
+      "actual handler202/broker ACK/one signed read-only observer delivery",
+      "dayold/newpool/API GETsent and POST409/one publisher invocation",
+      "current and historical handler SOURCE three repeats separately, not historical image"
+    ],
+    "sql": [
+      "12 concurrent distinct-version INSERTs one open winner",
+      "distinct tenant/gateway independent",
+      "receipt predecessor SQL transitions, NOT authenticated gateway receipts",
+      "unresolved delete/content/identity mutation/phase skip/terminal reset refusal",
+      "legacy failed/expired/duplicate-open adoption refusal without row changes",
+      "later DDL-function collision rolls back preceding index, explicit transaction AND autocommit",
+      "actual pg_stat_activity writer lock wait then commit and late legacy INSERT refusal"
+    ],
+    "open_baselines": [
+      "current and historical SOURCE known publication expires/rearms when guard absent",
+      "current and historical SOURCE guard removed after fake acceptance allows expiry/rearm",
+      "same migration ledger93 in guarded AND unsafe guard-less state"
+    ]
+  },
+  "results": {
+    "current_guard_final_three_race_s": 3.82,
+    "historical_guard_final_three_race_s": 4.454,
+    "historical_real_mtls_final_three_race_s": 19.879,
+    "current_full_mtls_race_s": 23.07,
+    "current_full_mtls_new_case_s": 0.2,
+    "first_fresh_pg_normal_api_s": 40.571,
+    "final_fresh_pg_normal_api_s": 47.634,
+    "api_vet_build": "PASS",
+    "docsrag_s": 0.617,
+    "initial_current_real_mtls_three_before_fence_refinement_s": 19.988,
+    "current_real_mtls_final_three_race_s": 19.949
+  },
+  "limits": [
+    "Candidate SQL never installed by migrations/startup/API/flag/updater; private schema tests only",
+    "Fake publisher acceptance tests are not actual transport delivery",
+    "Real broker ACK/observer delivery is not actual gateway receipt or physical application; no executor/device",
+    "SQL predecessor fixtures do not authenticate gateway receipts",
+    "Database writer fence does not stop in-flight MQTT/automatic library retries/external effects",
+    "No full old/new image/update/backup/restore/rollback acceptance; guard removal demonstrates OPEN unsafe rearm",
+    "Guard presence is not established by ledger93; dropped/disabled guard or TRUNCATE privileges are not defended against",
+    "Legacy ambiguous history refused, no operator clear/retry or migration authority",
+    "Historical handler error wording can remain misleading despite blocked database rearm",
+    "Production shared MQTT resend and normal knownpublication expiry remain OPEN by default",
+    "No owner/default activation, schema/catalog migration, GUI/identity/ACL generator/workflow/exact93/updater change",
+    "No owner deployment/merge/release/new credentials/spending/jointWindows hardware UAC reboot/completion notice",
+    "Exact new CI acceptance is separate from prior6c482ab/45020908689 and local evidence"
+  ]
+}

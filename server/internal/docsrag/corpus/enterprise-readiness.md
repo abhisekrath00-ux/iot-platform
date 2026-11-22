@@ -3466,3 +3466,60 @@ rows and old/new-image update/restore/rollback remain RELEASE BLOCKERS. No GUI,
 identity, ACL generator, schema/catalog, workflow or owner environment change.
 No merge/release, owner deployment, joint Windows/hardware/UAC/reboot acceptance
 or completion notice. Manifest: docs/validation/apply-one-connection-candidate-local.json.
+
+#### Isolated database Apply guard, not adopted
+
+An experimental SQL artifact in server/internal/applyadmission/candidate.sql is
+NOT a migration and is not loaded by startup, an API route, flag or updater.
+Only tests install it, into a disposable private schema containing a copy of
+the existing config-push table. Public product table definitions and migration
+ledger93 are unchanged. It is one atomic DO statement, with a table writer fence before
+preflight. Legacy failed/expired history or multiple open attempts cause refusal,
+not guessed reconciliation or automatic reclassification. A deliberately
+colliding DDL function tests rollback of a preceding index creation, including
+an autocommit caller. An actual PostgreSQL writer lock wait followed by commit
+and refusal of a late legacy write checks the SQL adoption fence. That fence
+does NOT stop in-flight MQTT publications, retries or gateway execution.
+
+The candidate partial unique index permits one sent/applied attempt per tenant/
+gateway independent of an API count/check race. Its trigger preserves the
+original sent row/detail/timestamp when older SQL tries to mark it failed or
+expired, refuses deletion of unresolved rows and mutation of identity/approved
+content, and allows existing sent->applied|rejected and applied->confirmed|
+rolled_back predecessor transitions. Terminal rows cannot be reset. These are
+state-transition checks, NOT authentication of a gateway receipt. SQL fixtures
+must never be described as verified receipts. Twelve concurrent distinct-version
+inserts yield one open winner; another gateway is independent. Ordinary SQL
+roles that can drop/disable guards or truncate a table are not constrained by
+this experiment. It is not a database-administrator security boundary.
+
+Current handler and historical pre-quarantine handler SOURCE each pass THREE
+race repeats in separate source trees. The historical file is byte-matched to
+GitHub0574e75; only that handler file is substituted on the fixed6c482ab tree,
+plus a test-only constant so the current tests compile. This is NOT execution
+of a historical container, complete old binary/image, updater, restore or owner
+migration. Fake-publisher tests preserve day-old attempts after success or error,
+fresh pool/API GET sent and POST409; those tests prove no real delivery.
+
+A separate real-mTLS test combines this private-schema SQL guard with the
+unwired one-connection publisher candidate through the existing test hook.
+Actual handler202 follows broker ACK and ONE signed envelope reaches a read-only
+observer. After one-day ageing and a new pool/API, GET remains sent and POST409
+leaves ONE publisher invocation/delivery. THREE repeats pass with current and
+historical handler source. There is no edge executor, actual gateway receipt or
+physical application in this test. Existing true PUBACK-loss and socket-left-open
+unknown-quarantine cases remain separate and passing in the full mTLS pipeline.
+
+Both handler sources also deliberately reproduce the OPEN known-publication
+expiry/rearm baseline when this guard is absent OR removed after acceptance:
+GET expires the old row and another POST gets a second fake acceptance. Both
+still report ledger93. A guard-less restore or rollback can therefore rearm an
+attempt immediately. Schema count alone is not guard presence or compatibility
+acceptance. Legacy adoption, deployed privileges, in-flight effect quiescence,
+old/new full image/update/restore/rollback and operator UX remain RELEASE
+BLOCKERS. Older handler error wording can still mislead even when SQL blocks
+rearm. The production shared publisher's automatic MQTT resend is NOT fixed.
+No guard installation/default activation, migration, GUI/identity/ACL generator,
+workflow/catalog/exact93/updater or owner environment change is authorized here.
+No merge/release, joint Windows/hardware/UAC/reboot or completion acceptance.
+Fixed source hashes, results and limits: docs/validation/apply-admission-guard-candidate-local.json.
