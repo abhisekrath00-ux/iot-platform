@@ -1,0 +1,29 @@
+{
+  "state": "LOCAL UNPUBLISHED disabled-policy readiness integration",
+  "base": "524bd8ed3acbe83f4d474e04f6b17040cffabf23",
+  "source_sha256": {
+    "server/cmd/api/source_readiness.go": "ecaaa75403b3f86b732395f4eb1eede01ff3725d9e38ef6ae17a2e0190a7f657",
+    "server/cmd/api/source_readiness_test.go": "52d3c5a84c2561aeee78e124de7b5068f4d5df8ac5d1fc320cf75d37f7b70ac5",
+    "server/cmd/api/configpush.go": "03b3ce042a2846952dc9d7a724adaa7887714c94a435c3a2e9bfaa42b1f58cec"
+  },
+  "tests": {
+    "readiness_policy_three_race_s": 6.143,
+    "full_fresh_api_archive": "ok  \tgithub.com/abhisekrath00-ux/iot-platform/server/cmd/api\t43.405s"
+  },
+  "behavior": "Exact catalog, bound store and newest matching history required before server_ready; read-only observation not permission or publication lease; POST still checks",
+  "boundaries": [
+    "No writes to safety storage, provisioning, clear/retry or extra broker publication",
+    "Default-off readiness wire shape unchanged",
+    "Edge opt-in and connected stay unknown",
+    "Admin role and foreign-tenant isolation tested",
+    "History response Cache-Control no-store"
+  ],
+  "limits": [
+    "Existing storage identity/both-history-loss/legacy adoption and image/update/physical acceptance gates unchanged",
+    "No constructor/env/menu/route activation or owner deployment"
+  ],
+  "logs": [
+    "/tmp/h157-readiness-three.log",
+    "/tmp/h157-api-final.log"
+  ]
+}

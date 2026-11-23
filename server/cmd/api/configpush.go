@@ -263,6 +263,7 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, out)
 }
 

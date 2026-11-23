@@ -3802,3 +3802,34 @@ The UI explains each state and never offers clear/reset/retry. Unknown reason
 codes remain blocked. Unit reason matrix and SourceApply37tests pass; actual
 stale fullDB restores and policy THREErace14.661s pass. Local synthetic desktop
 and mobile expanded inspection detail pixels checked; no POST/physical effect.
+
+The disabled policy's source-readiness endpoint now checks the exact catalog,
+bound retained store and newest DB/retained history before claiming server_ready.
+It reports unavailable guards/storage and unresolved/missing/mismatched history
+without provisioning, clearing, publishing or inventing edge opt-in/connectivity.
+A matching terminal response or genuinely empty BOTH histories passes this
+read-only observation. POST still independently rechecks at admission, so this
+is not a publication lease. Default-off readiness shape/behavior is preserved;
+config-push history is no-store too. THREErace readiness/policy6.143s covers
+missing guard/store, empty, unresolved, terminal and either missing history,
+role/foreign-tenant isolation and zero extra publication on reads. Deployment
+activation/adoption and all earlier retained-storage limits remain unchanged.
+
+Manual review-only image compatibility preparation now exists as an optional
+workflow_dispatch input (defaultfalse), one standard ubuntu-latest job capped
+at60minutes, contentsread, no credentials persisted or deployment/owner secrets.
+It builds the complete fixed historical0574e75 and selected current source
+images, then passes exact local image IDs to an explicitly opted-in disposable
+internal Docker network/loopback observer fixture. Separate PG volumes cover
+sequential old->new/new->old baseline and guarded retained-DB replacements,
+expected status/receipt/delivery counts and exact ledger93. The guarded row and
+guard catalog must survive image replacement. No app image is implicitly pulled.
+
+Local checks cover Python compilation, exact image-ID refusal, MQTT framing,
+actual unchanged secure-selector legacy-updater refusal before file changes,
+workflow syntax/defaultfalse/standard-runner/60min/read-only-permission contracts.
+These are preparation, NOT an actual Docker/image result. Existing normal jobs
+are unchanged. One explicitly selected run is required before image acceptance.
+The fixture does not enable the candidate policy, execute a successful native
+updater, perform concurrent mixed-image writes, prove mTLS/physical execution or
+operate an owner environment. No change to migration93 or product update guards.

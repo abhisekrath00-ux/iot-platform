@@ -1,0 +1,37 @@
+{
+  "state": "PREPARED locally, no image execution yet",
+  "base": "4fd4d15",
+  "source_sha256": {
+    ".github/workflows/ci.yml": "c65cbe0d6292e2cb87a848e9a72bd675ed63a191810f3e3065d9e5613b842ffb",
+    "scripts/test-apply-image-compat.py": "02436e50c62848b6f5af4f716ca34828ae0f2b330dd7acacb39d571aaa54726a"
+  },
+  "local": "Python compile/self-test pass, actual unchanged secure-selector updater refusal pass, YAML contract pass",
+  "workflow_bounds": {
+    "trigger": "workflow_dispatch optional boolean defaultfalse",
+    "runner": "ubuntu-latest standard",
+    "timeout_minutes": 60,
+    "permissions": {
+      "contents": "read"
+    },
+    "new_secrets": "NONE",
+    "persist_credentials": false,
+    "app_sources": [
+      "fixed0574e75b8a25de5e7589d5933aca0266e10fc32b",
+      "current exact GITHUB_SHA"
+    ]
+  },
+  "intended_coverage": [
+    "Actual complete image sequential old->new/new->old retained DB",
+    "Separate baseline OPEN rearm and SQL-guarded retention controls",
+    "Exact unchanged row/catalog/ledger93 and broker observer delivery counts",
+    "Private disposable internal Docker network/volumes with loopback-only host ports",
+    "Actual secure-selection legacy-updater refusal only, not successful updater"
+  ],
+  "limits": [
+    "No actual Docker run local, runtime unavailable here",
+    "Not enabled candidate or independently retained store deployment acceptance",
+    "No successful native upgrade/rollback or simultaneous writers",
+    "No mTLS/physical/owner environment"
+  ],
+  "authorization_context": "Oct2 larger tested batches/no paid Actions; parent routingNov23 17:38 allows minimal review-only manual free standard-runner coverage, not new money/account/activation authority"
+}
