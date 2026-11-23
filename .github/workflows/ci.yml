@@ -6,6 +6,12 @@ on:
   pull_request:
     paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
+    inputs:
+      apply_image_compat:
+        description: 'Run isolated fixed-image Apply compatibility (not deployment or activation)'
+        required: false
+        default: false
+        type: boolean
 
 # a newer push to the same ref cancels the older run to save Actions minutes
 concurrency:
@@ -270,3 +276,50 @@ jobs:
         run: |
           npm install
           npm audit --audit-level=high
+
+  apply-image-compat:
+    if: github.event_name == 'workflow_dispatch' && inputs.apply_image_compat
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          path: current
+      - uses: actions/checkout@v6
+        with:
+          ref: 0574e75b8a25de5e7589d5933aca0266e10fc32b
+          persist-credentials: false
+          path: historical
+      - name: Local contracts before image execution
+        working-directory: current
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/test-apply-image-compat.py
+          python3 scripts/test-apply-image-compat.py --self-test
+          test "$(git -C ../historical rev-parse HEAD)" = 0574e75b8a25de5e7589d5933aca0266e10fc32b
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Build fixed complete historical and current images
+        run: |
+          set -euo pipefail
+          docker build --iidfile /tmp/apply-old-image.id -f historical/server/Dockerfile historical
+          docker build --iidfile /tmp/apply-new-image.id -f current/server/Dockerfile current
+          docker pull postgres:16-alpine
+          docker pull eclipse-mosquitto:2
+      - name: Actual sequential image replacement with independently disposable databases
+        working-directory: current
+        run: |
+          set -euo pipefail
+          TEST_APPLY_DISPOSABLE_IMAGES=1 python3 scripts/test-apply-image-compat.py \
+            --old-image "$(cat /tmp/apply-old-image.id)" \
+            --new-image "$(cat /tmp/apply-new-image.id)"
+      - name: Cleanup only this job's labelled disposable resources
+        if: always()
+        run: |
+          set -euo pipefail
+          # Resource names are unique to this isolated hosted runner/job.
+          docker ps -aq --filter name=hexthings-image-test- | xargs -r docker rm -f
+          docker volume ls -q --filter name=hexthings-image-test- | xargs -r docker volume rm
+          docker network ls -q --filter name=hexthings-image-test- | xargs -r docker network rm
