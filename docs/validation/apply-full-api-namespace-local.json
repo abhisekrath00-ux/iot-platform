@@ -1,0 +1,274 @@
+{
+  "state": "LOCAL ONLY, unpublished characterization, not product readiness",
+  "historical_revision": "0574e75b8a25de5e7589d5933aca0266e10fc32b",
+  "current_revision": "70d5f9fab68b3dd8f116bdef659a947e65835cdb",
+  "build": "git archive each complete fixed commit into separate trees; CGO_ENABLED=0 go build ./cmd/api; no handler substitution/test hook",
+  "migration_catalog": "historical/current93 migration directories byte-for-byte identical",
+  "source_sha256": {
+    "scripts/test-apply-full-api-namespace.py": "1a959ab1ce15fa7367df5dbf3121a8b240ad3ac5aab71959c5a9d5928a0a744f",
+    "server/internal/applyadmission/candidate.sql": "5a13b944ccb511521bfe21c8191f541d66d316af684dbecdf853871da4329ab0"
+  },
+  "environment": "PostgreSQL14.24 with local Unix socket; Linux unshare user+network namespace loopback only; synthetic plaintext broker inside namespace; sanitized synthetic API environment",
+  "repeats": [
+    {
+      "binary_sha256": {
+        "/tmp/h149-api-full-historical": "74b3f54afb73c427657906dc49838041ac8807058b690d27669107f306abc086",
+        "/tmp/h150-api-full-current": "ae7420d6eabfd7582f01b8a7c5e459a591659f819eeb0a73e7c9c5beb181202d"
+      },
+      "results": [
+        {
+          "case": "old-to-new-baseline",
+          "first_http": 202,
+          "get_status": "expired",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "none",
+          "candidate_guard_catalog": "absent",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "old-to-new-guarded-post-snapshot",
+          "first_http": 202,
+          "get_status": "sent",
+          "next_http": 409,
+          "actual_broker_deliveries": 1,
+          "distinct_push_ids": 1,
+          "restore": "full database after attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "old-to-new-guarded-pre-snapshot",
+          "first_http": 202,
+          "get_status": "absent-post-snapshot-attempt",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "full database before attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "new-to-old-baseline",
+          "first_http": 202,
+          "get_status": "expired",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "none",
+          "candidate_guard_catalog": "absent",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "new-to-old-guarded-post-snapshot",
+          "first_http": 202,
+          "get_status": "sent",
+          "next_http": 409,
+          "actual_broker_deliveries": 1,
+          "distinct_push_ids": 1,
+          "restore": "full database after attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "new-to-old-guarded-pre-snapshot",
+          "first_http": 202,
+          "get_status": "absent-post-snapshot-attempt",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "full database before attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        }
+      ],
+      "limits": [
+        "Not container/image/update acceptance; sequential process replacement, not simultaneous mixed writers",
+        "Both binaries built from complete fixed commit source trees",
+        "Plaintext synthetic broker inside loopback-only namespace, not mTLS acceptance",
+        "Shared production MQTT publisher unchanged, ACK-loss resend remains open",
+        "No gateway executor or physical application"
+      ]
+    },
+    {
+      "binary_sha256": {
+        "/tmp/h149-api-full-historical": "74b3f54afb73c427657906dc49838041ac8807058b690d27669107f306abc086",
+        "/tmp/h150-api-full-current": "ae7420d6eabfd7582f01b8a7c5e459a591659f819eeb0a73e7c9c5beb181202d"
+      },
+      "results": [
+        {
+          "case": "old-to-new-baseline",
+          "first_http": 202,
+          "get_status": "expired",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "none",
+          "candidate_guard_catalog": "absent",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "old-to-new-guarded-post-snapshot",
+          "first_http": 202,
+          "get_status": "sent",
+          "next_http": 409,
+          "actual_broker_deliveries": 1,
+          "distinct_push_ids": 1,
+          "restore": "full database after attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "old-to-new-guarded-pre-snapshot",
+          "first_http": 202,
+          "get_status": "absent-post-snapshot-attempt",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "full database before attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "new-to-old-baseline",
+          "first_http": 202,
+          "get_status": "expired",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "none",
+          "candidate_guard_catalog": "absent",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "new-to-old-guarded-post-snapshot",
+          "first_http": 202,
+          "get_status": "sent",
+          "next_http": 409,
+          "actual_broker_deliveries": 1,
+          "distinct_push_ids": 1,
+          "restore": "full database after attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "new-to-old-guarded-pre-snapshot",
+          "first_http": 202,
+          "get_status": "absent-post-snapshot-attempt",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "full database before attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        }
+      ],
+      "limits": [
+        "Not container/image/update acceptance; sequential process replacement, not simultaneous mixed writers",
+        "Both binaries built from complete fixed commit source trees",
+        "Plaintext synthetic broker inside loopback-only namespace, not mTLS acceptance",
+        "Shared production MQTT publisher unchanged, ACK-loss resend remains open",
+        "No gateway executor or physical application"
+      ]
+    },
+    {
+      "binary_sha256": {
+        "/tmp/h149-api-full-historical": "74b3f54afb73c427657906dc49838041ac8807058b690d27669107f306abc086",
+        "/tmp/h150-api-full-current": "ae7420d6eabfd7582f01b8a7c5e459a591659f819eeb0a73e7c9c5beb181202d"
+      },
+      "results": [
+        {
+          "case": "old-to-new-baseline",
+          "first_http": 202,
+          "get_status": "expired",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "none",
+          "candidate_guard_catalog": "absent",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "old-to-new-guarded-post-snapshot",
+          "first_http": 202,
+          "get_status": "sent",
+          "next_http": 409,
+          "actual_broker_deliveries": 1,
+          "distinct_push_ids": 1,
+          "restore": "full database after attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "old-to-new-guarded-pre-snapshot",
+          "first_http": 202,
+          "get_status": "absent-post-snapshot-attempt",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "full database before attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "new-to-old-baseline",
+          "first_http": 202,
+          "get_status": "expired",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "none",
+          "candidate_guard_catalog": "absent",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "new-to-old-guarded-post-snapshot",
+          "first_http": 202,
+          "get_status": "sent",
+          "next_http": 409,
+          "actual_broker_deliveries": 1,
+          "distinct_push_ids": 1,
+          "restore": "full database after attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        },
+        {
+          "case": "new-to-old-guarded-pre-snapshot",
+          "first_http": 202,
+          "get_status": "absent-post-snapshot-attempt",
+          "next_http": 202,
+          "actual_broker_deliveries": 2,
+          "distinct_push_ids": 2,
+          "restore": "full database before attempt",
+          "candidate_guard_catalog": "function/enabled trigger/valid unique index checked",
+          "scope": "actual unmodified full API binaries, isolated plaintext loopback broker, no executor/device"
+        }
+      ],
+      "limits": [
+        "Not container/image/update acceptance; sequential process replacement, not simultaneous mixed writers",
+        "Both binaries built from complete fixed commit source trees",
+        "Plaintext synthetic broker inside loopback-only namespace, not mTLS acceptance",
+        "Shared production MQTT publisher unchanged, ACK-loss resend remains open",
+        "No gateway executor or physical application"
+      ]
+    }
+  ],
+  "cleanup": "checked zero native_compat_* databases after three repeats; API/broker processes waited and stopped",
+  "logs": {
+    "1": {
+      "result": "/tmp/h150-native-final-1.json",
+      "logs": "/tmp/h150-native-final-1-logs"
+    },
+    "2": {
+      "result": "/tmp/h150-native-final-2.json",
+      "logs": "/tmp/h150-native-final-2-logs"
+    },
+    "3": {
+      "result": "/tmp/h150-native-final-3.json",
+      "logs": "/tmp/h150-native-final-3-logs"
+    }
+  },
+  "production_change": "NONE; default guard and bounded publisher remain unwired; updater/catalog/workflows unchanged",
+  "open": "Stale pre-attempt full database snapshot restores intact guard but loses later attempt and allows second real broker delivery in BOTH version directions. Guardless expiry/rearm also reproduces. No physical execution or full image/update/rollback acceptance."
+}

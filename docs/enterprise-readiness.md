@@ -3523,3 +3523,154 @@ No guard installation/default activation, migration, GUI/identity/ACL generator,
 workflow/catalog/exact93/updater or owner environment change is authorized here.
 No merge/release, joint Windows/hardware/UAC/reboot or completion acceptance.
 Fixed source hashes, results and limits: docs/validation/apply-admission-guard-candidate-local.json.
+
+#### Isolated Apply archive/restore evidence, still not rollout acceptance
+
+The opt-in TestIntegrationApplyGuardArchiveCandidate uses actual matching
+PostgreSQL archive clients, disposable private schemas and newly created
+restore databases. Set TEST_PG_ARCHIVE_TOOLS=1 with TEST_DATABASE_URL only on a
+disposable acceptance database. It does not run product backup/restore scripts,
+install a default guard, change updater behavior, or touch an owner database.
+Normal CI does not opt in, so ordinary green CI is NOT archive acceptance.
+
+Both schema-scoped and full-database custom-format archives taken AFTER a
+synthetic known or unknown publication restore the exact attempt row, function,
+enabled trigger and valid unique-index definitions. Fresh pool/API GET remains
+sent and POST409 leaves one FAKE publisher acceptance. Restored unresolved
+row deletion, approved-content mutation and a second open insert are refused.
+Migration ledger remains93. THREE race repeats pass locally for current and
+historical handler SOURCE; that historical tree still substitutes only the
+old handler file, not a full old binary/image. No actual broker delivery,
+gateway receipt, executor or physical effect is established by these tests.
+
+Restoring an earlier valid snapshot is a separate OPEN hazard even WITH an
+intact guard. Actual pre-publication schema and full-database snapshots restore
+without the later attempt. A subsequent POST then invokes the fake publisher a
+second time. Pre-unknown schema snapshot recovery also loses the uncertainty
+marker and invokes it again. Archive integrity, catalog equality and ledger93
+cannot prove that no external effect happened after the snapshot. In-flight
+quiescence and retention/reconciliation of post-snapshot effects remain open.
+
+A deliberately incomplete table-only archive passes archive listing, but does
+not include its trigger function dependency. Atomic single-transaction restore
+refuses and leaves no table. A deliberately non-atomic restore returns an
+error yet leaves the row and unique index without the function/trigger; the
+known-publication row then expires and another fake acceptance occurs. This
+is a negative control, NOT the existing full-database backup command. Never
+count readable archive listing or partial restoration as restored acceptance.
+The tests assert the actual catalog difference, not just a failure string.
+
+Existing backup.sh uses full-database pg_dump -Fc. Existing restore.sh exits on
+restore errors but is not single-transaction; legacy upgrade.sh rollback uses
+neither exit-on-error nor single-transaction and can restart after partial
+restore. These are source findings, not new native script/image acceptance.
+Secure upgrade remains blocked by its existing selection guard. No rollback
+policy was changed. Full old/new images, matching deployed PostgreSQL version,
+real script execution, deployment privileges, in-flight MQTT quiescence,
+post-snapshot effect recovery and operator UX remain RELEASE BLOCKERS.
+Evidence: docs/validation/apply-archive-restore-candidate-local.json.
+
+#### Complete API executable restore characterization, not full-image acceptance
+
+The separate opt-in scripts/test-apply-full-api-namespace.py executes complete
+API binaries built from fixed historical0574e75 and accepted70d5f9f source trees.
+Neither binary substitutes a handler or adds a hook. The historical/current
+migration directories match byte-for-byte. THREE local repeats cover old->new
+and new->old sequential process replacement against disposable PostgreSQL14.24
+databases. The script requires a network namespace containing only loopback,
+uses a synthetic local broker and synthetic session/signing inputs, and strips
+inherited owner service endpoints, proxy and authentication settings. PostgreSQL
+is reached over a local Unix socket. No external network is attached.
+
+Each direction includes three actual-delivery controls. Without the guard, an
+initial POST202 reaches the broker observer, the first process is stopped after
+ageing the attempt, and the other binary GET expires it; a new POST202 produces
+a second distinct push delivery. With an experimental guard and post-attempt
+full-database snapshot restored into a new database, the enabled trigger,
+function, valid unique index and exact attempt row survive. The other binary
+GET stays sent, POST409 and the observer sees one delivery. This is real broker
+publication and normal ACK handling, not a fake publisher. No gateway executor,
+authenticated gateway receipt or physical application is part of the test.
+
+Both directions also restore a full-database snapshot taken BEFORE the first
+publication. The guard catalog survives and ledger93 is unchanged, but the later
+attempt is absent. The other binary accepts another POST202 and the observer
+receives a second distinct push. This OPEN stale-snapshot hazard therefore has
+actual broker-delivery evidence, not only an injected publisher counter.
+
+The broker is plaintext only inside the loopback-only namespace. This is not
+new mTLS acceptance, simultaneous mixed-version writers, a real container image,
+Docker runtime, native product backup/restore scripts, updater or owner rollout
+acceptance. Production shared MQTT auto-resend after lost PUBACK is unchanged.
+The test deliberately restores only its generated databases; it does not alter
+existing update/rollback policy. All generated databases/processes are cleaned
+up, and structured per-repeat results and API/broker logs are retained locally.
+Evidence: docs/validation/apply-full-api-namespace-local.json. All prior release
+blockers and activation restrictions remain in force.
+
+#### Actual archive scripts with real PostgreSQL, container launcher adapted
+
+TEST_PRODUCT_ARCHIVE_SCRIPTS=1 on the isolated namespace characterization now
+copies the actual unchanged backup.sh and restore.sh into a disposable fixture
+and executes them. A strict test-only docker launcher accepts only the expected
+Compose exec postgres pg_dump/pg_restore/psql shape and invokes real matching
+PostgreSQL14.24 clients through the local Unix socket. No archive output, SQL,
+checksum, gzip stream or restore result is faked. This is NOT Docker, the secure
+deployment selector, an actual container/image, upgrade.sh or owner acceptance.
+It exercises the legacy Compose dispatch branch only. Both product script
+source hashes are recorded with each result. Product scripts are not edited.
+
+THREE repeats again cover all six old->new/new->old executable cases. Actual
+product backup, file-bound checksum sidecar, archive listing and restore pass
+for each generated archive. Post-attempt backups preserve the exact row and
+checked guard catalog: the other binary GET stays sent, POST409 and one actual
+broker delivery. Pre-attempt backups restore an intact guard but lose the later
+attempt: the other binary POST202 produces a second distinct broker delivery.
+This OPEN stale-snapshot hazard therefore reproduces through the actual archive
+scripts as well as direct PostgreSQL archive commands. Ledger remains93.
+
+For all four archives per repeat, appended corrupt bytes with the original
+trusted checksum and correct damaged filename are refused BEFORE any adapter
+invocation, including archive listing. The check uses the actual script exit,
+checksum failure and unchanged launcher-call log. This is integrity refusal,
+not proof that a valid older snapshot covers later external effects. A trusted
+checksum cannot provide that recovery guarantee. All generated databases and
+API/broker processes are cleaned up; per-case script/API/broker logs retained.
+Manifest: docs/validation/apply-product-archive-scripts-local.json. No default
+activation, migration, updater policy, release or owner environment changed.
+
+#### Integrated internal Apply safety policy, disabled in product constructors
+
+An acceptance-only server policy now joins the existing handler admission path,
+exact SQL guard verification and one-connection publisher. No production server
+constructor, environment option, API route or menu enables it. Its zero value
+preserves existing behavior. No SQL installation or migration is added.
+
+Before an attempt is inserted, the candidate rejects replica trigger-bypass
+sessions, locks the table in its transaction
+and checks the exact embedded PL/pgSQL function body, enabled INSERT/UPDATE/DELETE
+trigger binding/type and valid unique tenant/gateway index with the reviewed
+sent/applied predicate. Missing or changed protection returns503 before an
+attempt or publication. This is not a defense against a database administrator,
+function replacement after inspection, or post-snapshot history loss.
+
+With the internal policy selected, the handler uses the bounded direct publisher
+instead of the shared reconnecting MQTT client. Existing precommit unknown state
+and SQL guard preserve ambiguous outcomes. THREE race repeats cover ACK and
+connection loss after publication with no publisher hook: one connection and
+publication, retained sent state after ageing and next POST409. Altered function,
+disabled trigger, missing index and changed predicate fail closed with no
+publication. THREE actual verified-mTLS repeats exercise the integrated handler
+WITHOUT a publisher hook, broker ACK, one signed-field observer delivery and
+fresh-pool GETsent/POST409. No executor/physical application is established.
+
+The safe software-rollback direction retains the current database. THREE
+complete fixed-binary repeats old->new and new->old with the guard and retained
+database keep GETsent/POST409 and one actual broker delivery. This closes that
+specific no-rewind executable behavior, not full-image/updater acceptance.
+Actual pre-attempt restore controls still reproduce the OPEN history-loss gap.
+Arbitrary backup recovery must remain quarantined until external effects can
+be reconciled; no automatic retry/operator-clear or database rewind is added.
+Production defaults, bounded transport compatibility, adoption, full images,
+operator recovery, Windows/hardware and owner activation remain unaccepted.
+Manifest: docs/validation/apply-integrated-policy-local.json.

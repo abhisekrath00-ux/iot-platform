@@ -1,0 +1,54 @@
+{
+  "base_revision": "70d5f9fab68b3dd8f116bdef659a947e65835cdb",
+  "state": "LOCAL ONLY, unpublished archive evidence; no product activation",
+  "source_sha256": {
+    "server/cmd/api/apply_guard_archive_candidate_test.go": "2bfcd10907c8a45ff49847ec72607697821bea93b502c760d04e87b060a8d00b",
+    "server/internal/applyadmission/candidate.sql": "5a13b944ccb511521bfe21c8191f541d66d316af684dbecdf853871da4329ab0",
+    "server/cmd/api/configpush.go": "08499eb6cf371a03bd08a39a3f26b2c6d341b6481a5257165cc2291fd766de7a",
+    "scripts/backup.sh": "b714bd01d4ac70122b32e028036ac71d03cdbbb59c5b6b36c6a210dbf810c1fd",
+    "scripts/restore.sh": "bdcf2770f5238b8f9a527f8fa4f6433eebccb88945ac7d201035e6c125fdb119",
+    "scripts/upgrade.sh": "95297de78daa2536291f5e026b006fcdb6512abc59c2699f1cc9ea55fd30df67"
+  },
+  "environment": "PostgreSQL client/server14.24, disposable schemas and newly created restore databases; TEST_PG_ARCHIVE_TOOLS=1 explicit opt-in. Normal CI does not opt in.",
+  "cases": {
+    "post_attempt_schema_and_full_database": "known and unknown publication row exact bytes and exact function/trigger/index definitions restored; fresh pool/API GET sent POST409 one FAKE acceptance; delete/content/second open refused",
+    "pre_attempt_schema": "known and unknown snapshot loses later attempt/uncertainty; second fake acceptance, OPEN gap",
+    "pre_attempt_full_database": "known snapshot loses later attempt despite intact guard and ledger93; second fake acceptance, OPEN gap",
+    "table_only_atomic": "readable archive list but missing function dependency; restore refused, no table left",
+    "table_only_nonatomic": "restore returns error and leaves row+unique index without trigger/function; expiry and second fake acceptance, OPEN gap"
+  },
+  "results_s": {
+    "current_guard_plus_archive_three_race": 16.969,
+    "historical_handler_source_archive_three_race": 14.892,
+    "fresh_full_api_normal_archive_opt_in": 36.523,
+    "docsrag": 0.259
+  },
+  "vet_build": "PASS api vet/build; full unmodified historical0574e75 API builds. Current API built from70d5f9f plus working-tree embedded documentation only; test files are not part of binary. Neither binary executed; NOT container/image acceptance.",
+  "historical_source_test": "fixed6c482ab source tree with historical configpush.go substitution plus test constant. Not full historical binary.",
+  "full_unmodified_binaries_built_only": {
+    "historical_commit": "0574e75b8a25de5e7589d5933aca0266e10fc32b",
+    "historical_sha256": "74b3f54afb73c427657906dc49838041ac8807058b690d27669107f306abc086",
+    "current_sha256": "44c6b612c367de45de9debfdcb13cf3708241f7898180cfa1f7c45982b53af2e",
+    "current_source": "70d5f9f plus working-tree embedded documentation; production Go code unchanged"
+  },
+  "limits": [
+    "FAKE publisher acceptance only, not real MQTT delivery or physical effects",
+    "No product backup/restore script execution, no full old/new image/update/rollback acceptance",
+    "No Docker executable or socket in current execution environment; not evidence images are unavailable elsewhere",
+    "Pre-snapshot guard presence is not retention of later external effects",
+    "Exact93/catalog/workflows/updater policy unchanged; no migration or owner database touched",
+    "Deployed privileges, in-flight quiescence, post-snapshot effect recovery and operator reconciliation remain open"
+  ],
+  "script_source_findings": {
+    "backup": "full database custom format, not table-only",
+    "restore": "exit-on-error but not single-transaction",
+    "legacy_upgrade_rollback": "neither exit-on-error nor single-transaction; restart after partial restore remains possible",
+    "secure_upgrade": "existing refusal preserved"
+  },
+  "logs": [
+    "/tmp/h149-guard-archive-final-three.log",
+    "/tmp/h149-old-archive-final-three.log",
+    "/tmp/h149-api-full.log",
+    "/tmp/h149-vet.log"
+  ]
+}

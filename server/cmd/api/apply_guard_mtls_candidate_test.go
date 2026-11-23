@@ -16,6 +16,9 @@ import (
 // Combines two unwired candidates ONLY in a disposable private schema with
 // generated mTLS identities and a read-only observer, never an edge executor.
 func verifyApplyGuardKnownPublicationMTLS(t *testing.T, port, ca, gc, gk, ac, ak string) {
+	verifyApplyGuardPolicyMTLS(t, port, ca, gc, gk, ac, ak, false)
+}
+func verifyApplyGuardPolicyMTLS(t *testing.T, port, ca, gc, gk, ac, ak string, integrated bool) {
 	t.Helper()
 	s, m, tenant, path := applyGuardFixtureTenant(t, "itest-mqpipe")
 	if err := installApplyGuard(t, s); err != nil {
@@ -59,6 +62,10 @@ func verifyApplyGuardKnownPublicationMTLS(t *testing.T, port, ca, gc, gk, ac, ak
 		}
 		return publishApplyMQTTOnceCandidate(t.Context(), got, b)
 	}
+	if integrated {
+		s.applySafetyCandidate = true
+		s.opsPublishHook = nil
+	}
 	first := call(m, tenant, "admin", "POST", path, `{}`)
 	if first.Code != 202 {
 		t.Fatal("actual broker ACK/handler", first.Code, first.Body.String())
@@ -80,7 +87,7 @@ func verifyApplyGuardKnownPublicationMTLS(t *testing.T, port, ca, gc, gk, ac, ak
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	fresh := &server{st: &store.Store{Pool: pool}, opsPublishHook: s.opsPublishHook}
+	fresh := &server{st: &store.Store{Pool: pool}, opsPublishHook: s.opsPublishHook, applySafetyCandidate: integrated}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/gateways/{id}/config-push", fresh.listConfigPushes)
 	mux.HandleFunc("POST /v1/gateways/{id}/config-push", fresh.pushGatewayConfig)
@@ -90,7 +97,11 @@ func verifyApplyGuardKnownPublicationMTLS(t *testing.T, port, ca, gc, gk, ac, ak
 		ID     string `json:"id"`
 		Status string `json:"status"`
 	}
-	if listed.Code != 200 || json.Unmarshal(listed.Body.Bytes(), &rows) != nil || len(rows) != 1 || rows[0].ID != e.PushID || rows[0].Status != "sent" || next.Code != 409 || calls.Load() != 1 || deliveries.Load() != 1 {
+	expectedCalls := int32(1)
+	if integrated {
+		expectedCalls = 0
+	}
+	if listed.Code != 200 || json.Unmarshal(listed.Body.Bytes(), &rows) != nil || len(rows) != 1 || rows[0].ID != e.PushID || rows[0].Status != "sent" || next.Code != 409 || calls.Load() != expectedCalls || deliveries.Load() != 1 {
 		t.Fatal("known ACK rearmed", listed.Code, listed.Body.String(), next.Code, calls.Load(), deliveries.Load())
 	}
 	assertGuardLedger(t, s)

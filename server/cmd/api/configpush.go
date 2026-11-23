@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/applyadmission"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/fleet"
 )
@@ -80,6 +81,12 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(context.Background())
+	if s.applySafetyCandidate {
+		if err := applyadmission.Verify(r.Context(), tx); err != nil {
+			http.Error(w, "Apply safety checks unavailable. Keep the edge stopped; no new Apply was sent.", http.StatusServiceUnavailable)
+			return
+		}
+	}
 	// Serialize admission on the durable gateway row across API processes.
 	// The transaction ends BEFORE broker I/O, never holding a lease during publish.
 	var serial, status string
@@ -138,7 +145,18 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "gateway.config.push", gw, map[string]any{"push_id": id, "version": ver, "devices": len(devs)})
 	b, _ := json.Marshal(env)
-	if err := s.opsPublish(fmt.Sprintf("t/%s/g/%s/config", tenant, gw), b); err != nil {
+	publish := func() error { return s.opsPublish(fmt.Sprintf("t/%s/g/%s/config", tenant, gw), b) }
+	if s.applySafetyCandidate {
+		publish = func() error {
+			// Existing hook remains test-only. Production candidate uses its
+			// own one-connection publisher, never the reconnecting shared client.
+			if s.opsPublishHook != nil {
+				return s.opsPublishHook(fmt.Sprintf("t/%s/g/%s/config", tenant, gw), b)
+			}
+			return publishApplyMQTTOnceCandidate(r.Context(), fmt.Sprintf("t/%s/g/%s/config", tenant, gw), b)
+		}
+	}
+	if err := publish(); err != nil {
 		// Acceptance may have happened before the acknowledgement was lost.
 		// Leave the precommitted marker, never retry or label it a failed send.
 		http.Error(w, configPushPublicationUnknown, 502)

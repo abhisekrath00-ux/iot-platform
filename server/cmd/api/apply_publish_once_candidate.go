@@ -15,7 +15,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// Candidate only: deliberately NOT wired into pushGatewayConfig or opsPublish.
+// Candidate only: selected by the internal acceptance-only handler policy.
+// No production constructor, environment or route enables that policy.
 // Activation, shared-client policy and update/rollback acceptance remain separate.
 func publishApplyMQTTOnceCandidate(ctx context.Context, topic string, payload []byte) error {
 	opts, err := mqttconfig.Options(os.Getenv, "api-apply-once-"+uuid.NewString())

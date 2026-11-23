@@ -52,6 +52,9 @@ import (
 )
 
 type server struct {
+	// Internal acceptance-only policy. No environment/route/startup enables it.
+	applySafetyCandidate bool
+
 	opsPublishHook func(topic string, payload []byte) error // tests only; nil means the real broker
 	st             *store.Store
 	secret         []byte
