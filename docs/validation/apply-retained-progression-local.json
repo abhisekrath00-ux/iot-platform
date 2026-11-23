@@ -1,0 +1,52 @@
+{
+  "state": "LOCAL UNPUBLISHED disabled retained-intent progression; no activation, migration, owner deployment or complete readiness acceptance",
+  "checkpoint": "44724ec",
+  "accepted_remote": "f0ba13cf69751df6f398771fc5114a2e3c93f602",
+  "source_sha256": {
+    "server/internal/applyadmission/fence.go": "c1ee0d56c6f6ee98192471375d90d28505f0595fc56dedb13efa71ec8e52d111",
+    "server/internal/applyadmission/fence_test.go": "c9b11985a82dcfaf4e919e9e4d04b70dda8bfdee579619a1138239be7d67999c",
+    "server/cmd/api/main.go": "7c719809a327f8cf41e5bf00764ee564289487ae4021ea119c4cd7e39f107065",
+    "server/cmd/api/configpush.go": "cbe515704b3d6eae33de75d8c07c4254e089520d41e7fa3be26fb6fc24a1dac0",
+    "server/cmd/api/apply_guard_archive_candidate_test.go": "65b87cf13291b7db067ddda59037a7e82c67c776b0a41282ae3a3f3f956ce762",
+    "server/cmd/api/apply_guard_mtls_candidate_test.go": "7c0c01fa024ed42ea0fb0a9a59df0c19d6910cd1327b2d193bf6791fb2c5011d",
+    "server/cmd/api/apply_safety_policy_candidate_test.go": "3ab2ba626465890df5dd3716eaa013d7f5078a7b54ed1a9caaa79753336959fc",
+    "server/cmd/api/mqtt_tls_pipeline_test.go": "ad2484d9b7b021fb403ddb4d6f4302b5ecd919bb3c38503c8d5f1851c5e57d27",
+    "web/src/components/SourceApply.tsx": "1b4d730e346e567677204638c0eecbcd7d266c2d0a2323977ee23c7535bfdd32",
+    "web/src/components/SourceApply.test.tsx": "41fa9463c6e5327e85297170850a547a83189eae933e5590e28cc4d6217fbcfc"
+  },
+  "tests": {
+    "/tmp/h154-api-final2.log": "ok  \tgithub.com/abhisekrath00-ux/iot-platform/server/cmd/api\t45.154s",
+    "/tmp/h154-fence-final.log": "ok  \tgithub.com/abhisekrath00-ux/iot-platform/server/internal/applyadmission\t4.140s",
+    "/tmp/h154-policy-final2.log": "ok  \tgithub.com/abhisekrath00-ux/iot-platform/server/cmd/api\t17.287s"
+  },
+  "real_verified_mtls_compiled_ingest_three_race": {
+    "seconds": 20.266,
+    "log": "/tmp/h154-receipt-three.log",
+    "compiled_ingest_sha256": "57877314a882574e2e93358685bd05e50baaee2c327027f833ec453fc25700eb",
+    "evidence": "actual generated gateway cert/topic ACL synthetic applied->confirmed replies through compiled ingest; exact matched terminal permits new distinct signed intent delivery; unresolved second blocks third POST409",
+    "limit": "No hardware executor, physical effect, owner deployment or signed terminal receipt proof"
+  },
+  "full_web_prior_checkpoint": "71 files447tests57.96s; final text-only update SourceApply31tests/build pass",
+  "docsrag_final_s": 0.395,
+  "boundaries": [
+    "immutable format2 consecutive intent chain, exclusive creation then file/directory sync before DBcommit/brokerIO",
+    "gateway transaction validates retained latest exact identity/digest/version and newest terminal confirmed/rejected/rolled_back receipt before a NEW reviewed request",
+    "no deletion/reset/clear/retry operation",
+    "actual fullDB restore to older terminal row after second unresolved attempt remains visible quarantine/409/no third fake publish",
+    "actual preattempt fullDB restore known/unknown empty history retained chain remains409",
+    "16concurrent append contenders one winner; stale head/partial/gap/missing storage/DBidentity or digest or version mismatch refuse",
+    "failed DBcommit after intent write zero publish and later quarantine",
+    "default false/no constructor/env/menu/route enablement"
+  ],
+  "not_accepted": [
+    "Both DB+chain loss/rollback",
+    "administrator path replacement/mount ownership identity",
+    "NFS/multi-replica and independent dirs",
+    "native old/new image/update adoption; no scripts/migration93 changed",
+    "physical Windows COM/UAC/reboot/meter commissioning",
+    "legacy history adoption and format1 migration",
+    "production default still old publisher until separate approval"
+  ],
+  "visual": "final local synthetic desktop/mobile actual pixels inspected, no overflow, onlyGET, full disabled action and quarantine text visible; screenshots delivered separately",
+  "unchanged": []
+}

@@ -114,7 +114,7 @@ func TestIntegrationMQTTTLSPipeline(t *testing.T) {
 		verifyApplyCandidateDirectTLS(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)
 	})
 	t.Run("IntegratedApplySafetyPolicyNoPublishHook", func(t *testing.T) {
-		verifyApplyGuardPolicyMTLS(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak, true)
+		verifyApplyGuardPolicyMTLS(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak, true, ic, ik)
 	})
 	t.Run("IsolatedApplyGuardKnownBrokerPublication", func(t *testing.T) {
 		verifyApplyGuardKnownPublicationMTLS(t, port, filepath.Join(dir, "ca.crt"), gc, gk, ac, ak)

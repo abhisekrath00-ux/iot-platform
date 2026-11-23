@@ -3724,3 +3724,46 @@ restore. SourceApply31tests pass, including terminal/missing recovery status
 and remount. Local synthetic desktop/mobile pixels inspected, full action and
 quarantine instructions visible, no horizontal overflow, no POST issued. No
 physical gateway, owner recovery or complete recovery workflow is implied.
+
+#### Append-only terminal progression, subsequent local revision
+
+Supersedes the permanent per-gateway block above ONLY for an exact matched
+terminal receipt. Retained intent is now an immutable versioned chain (format2),
+not a deleted/reset lock: prior attempt ID, digest, tenant, gateway and version
+must match the newest DB row and its confirmed/rejected/rolled_back state under
+the admission transaction. A NEW reviewed request appends and syncs a new intent
+before commit/publication. Sent/applied/expired/missing/mismatched rows cannot
+advance. Each append has exclusive creation; uncertain write/commit quarantines
+that new generation. No clear, resend or automatic retry exists. Format1
+checkpoint records fail closed; there was no product deployment to migrate.
+
+Local THREErace append contenders produce one winner; stale heads, partial files,
+missing predecessors and terminal row identity/digest/version mismatch refuse.
+Matching synthetic terminal states each permit a new request. Losing that newer
+row while retaining the older terminal row still returns quarantine and409.
+Actual full-DB archive/restore additionally snapshots the first rejected row,
+creates a second unresolved attempt, restores that terminal snapshot and reopens
+the retained chain: GET shows the old receipt WITH quarantine; POST409, exactly
+two prior FAKE acceptances and no third. Combined policy+three actual restore
+cases THREErace14.606s pass; final added mismatch-policy THREErace5.219s pass.
+Real verified-mTLS no-hook regression THREE18.705s passes (one observed signed
+publication per fixture), NOT a physical terminal execution or owner deployment.
+An initial mTLS invocation lacked required binary env and skipped; it is not
+counted as proof. Complete fresh API and final verification recorded in manifest.
+
+Storage loss/rollback of BOTH histories, administrator replacement, mount binding,
+replica orchestration and native image/updater adoption remain unaccepted. The
+chain must be retained outside DB restore and old writers fenced before any
+activation. No migration93/update/backup/restore script changed. No product
+constructor provisions or enables this candidate. Terminal DB receipts use the
+existing gateway-topic-ingest boundary, not a new cryptographic proof. These
+local tests do not accept that boundary for an owner or physical device.
+
+The integrated policy's actual verified-mTLS fixture now starts compiled ingest
+against its disposable schema. A generated gateway identity publishes synthetic
+applied then confirmed receipts through the broker's production topic ACL and
+real ingest handler. Only after the matching terminal DB receipt does a new
+HTTP request append version2 and produce one distinct signed observer delivery;
+a third POST is409 while version2 is unresolved. THREErace result and exact
+binary hash are in the progression manifest. This advances prior SQL-only
+receipt evidence but still simulates gateway responses, not physical execution.

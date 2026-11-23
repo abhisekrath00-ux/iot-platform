@@ -149,3 +149,50 @@ func TestFenceReadOnlyStatus(t *testing.T) {
 		t.Fatal("nil storage treated as empty")
 	}
 }
+
+func TestFenceImmutableProgressionAndStaleHead(t *testing.T) {
+	dir := t.TempDir()
+	os.Chmod(dir, 0700)
+	f, err := OpenFence(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Claim("t", "g", "first", "digest1"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := f.Latest("t", "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var winners atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if f.ClaimNext("t", "g", "second", "digest2", 2, first) == nil {
+				winners.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if winners.Load() != 1 {
+		t.Fatal(winners.Load())
+	}
+	if err := f.ClaimNext("t", "g", "stale", "digest1", 2, first); err == nil {
+		t.Fatal("stale head rearmed")
+	}
+	latest, err := f.Latest("t", "g")
+	if err != nil || latest.ID != "second" || latest.Previous != "first" {
+		t.Fatal(latest, err)
+	}
+	if err := os.Remove(f.attemptPath("t", "g", 1)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Latest("t", "g"); err == nil {
+		t.Fatal("deleted predecessor hidden")
+	}
+	if err := f.Claim("t", "g", "rearmed", "digest"); err == nil {
+		t.Fatal("gapped chain rearmed")
+	}
+}

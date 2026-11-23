@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/applyadmission"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
@@ -98,6 +99,21 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "gateway has not claimed yet", 409)
 		return
 	}
+	var prior *applyadmission.Attempt
+	if s.applySafetyCandidate {
+		prior, err = s.applyAttemptFence.Latest(tenant, gw)
+		if err != nil {
+			http.Error(w, "Apply retained history unavailable; no new request sent.", 409)
+			return
+		}
+		var previousID, previousDigest, previousStatus string
+		var previousVersion int
+		err = tx.QueryRow(r.Context(), `SELECT id,sha256,status,version FROM gateway_config_pushes WHERE tenant_id=$1 AND gateway_id=$2 ORDER BY version DESC LIMIT 1`, tenant, gw).Scan(&previousID, &previousDigest, &previousStatus, &previousVersion)
+		if (prior == nil && err != pgx.ErrNoRows) || (prior != nil && (err != nil || !retainedApplyTerminal(prior, previousID, previousDigest, previousStatus, previousVersion))) {
+			http.Error(w, "Apply retained history does not match a terminal gateway response; no new request sent.", 409)
+			return
+		}
+	}
 	if _, err := tx.Exec(r.Context(), `UPDATE gateway_config_pushes SET status='expired', detail='no answer from the gateway', updated_at=now() WHERE tenant_id=$1 AND gateway_id=$2 AND status='sent' AND detail<>$3 AND created_at < now() - interval '15 minutes'`, tenant, gw, configPushPublicationUnknown); err != nil {
 		dbErr(w, err)
 		return
@@ -142,7 +158,7 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 	if s.applySafetyCandidate {
 		// Independent retained intent precedes DB commit and broker I/O. If the
 		// commit acknowledgement is lost, the fence remains quarantined too.
-		if err := s.applyAttemptFence.Claim(tenant, gw, id, sha); err != nil {
+		if err := s.applyAttemptFence.ClaimNext(tenant, gw, id, sha, ver, prior); err != nil {
 			http.Error(w, "Apply is quarantined. A retained attempt exists or safety storage is unavailable; no new Apply was sent.", http.StatusConflict)
 			return
 		}
@@ -184,10 +200,12 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenant, gw := auth.Tenant(r), r.PathValue("id")
+	var retained *applyadmission.Attempt
 	occupied := false
 	if s.applySafetyCandidate {
 		var err error
-		occupied, err = s.applyAttemptFence.Occupied(tenant, gw)
+		retained, err = s.applyAttemptFence.Latest(tenant, gw)
+		occupied = retained != nil
 		if err != nil {
 			http.Error(w, "Retained Apply safety status unavailable. No new Apply is allowed; ask an administrator to inspect recovery storage.", http.StatusServiceUnavailable)
 			return
@@ -218,13 +236,23 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 		dbErr(w, err)
 		return
 	}
-	if occupied {
+	if occupied || (s.applySafetyCandidate && len(out) > 0) {
 		if len(out) == 0 {
 			// Explicit safety observation, not a fabricated application receipt.
 			out = append(out, map[string]any{"status": "quarantined", "recovery_quarantined": true})
 		} else {
-			out[0]["recovery_quarantined"] = true
+			head := out[0]
+			if !retainedApplyTerminal(retained, head["id"].(string), head["sha256"].(string), head["status"].(string), head["version"].(int)) {
+				head["recovery_quarantined"] = true
+			}
 		}
 	}
 	writeJSON(w, 200, out)
+}
+
+// A terminal receipt permits a NEW separately reviewed request only when the
+// retained latest intent and newest database history agree exactly. Never
+// infer terminal execution from expiry, missing data or a publication return.
+func retainedApplyTerminal(prior *applyadmission.Attempt, id, digest, status string, version int) bool {
+	return prior != nil && prior.ID == id && prior.Digest == digest && prior.Version == version && (status == "confirmed" || status == "rejected" || status == "rolled_back")
 }

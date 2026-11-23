@@ -7,17 +7,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
-// Fence is an isolated immutable external-attempt journal, NOT a general retry
-// log. Its directory must be retained independently of database restoration.
-// No startup/menu/route creates one. There is deliberately no clear operation.
-// A stale or lost copy of BOTH database and fence is not safe recovery.
+// Fence retains immutable intent independently of database restoration. No
+// product startup opens or creates it. Never clear it to retry an Apply.
 type Fence struct{ directory string }
 
-// OpenFence requires an existing private directory. A missing directory is not
-// interpreted as a new empty journal and is never created automatically.
+// Attempt is retained intent, NOT evidence of delivery or terminal execution.
+type Attempt struct {
+	Format   int       `json:"format"`
+	Tenant   string    `json:"tenant"`
+	Gateway  string    `json:"gateway"`
+	ID       string    `json:"attempt"`
+	Digest   string    `json:"sha256"`
+	Version  int       `json:"version"`
+	Previous string    `json:"previous,omitempty"`
+	Created  time.Time `json:"created"`
+}
+
 func OpenFence(directory string) (*Fence, error) {
 	if !filepath.IsAbs(directory) {
 		return nil, fmt.Errorf("absolute retained Apply fence required")
@@ -32,39 +41,115 @@ func OpenFence(directory string) (*Fence, error) {
 	}
 	return &Fence{directory: directory}, nil
 }
-
-// Claim precedes the attempt transaction commit and external publication. A
-// failed write/sync/close is UNKNOWN and never removes the file or retries.
-// O_EXCL provides one local shared-filesystem winner across API processes.
-// These guarantees do not cover independent directories, NFS semantics or an
-// administrator replacing the directory; those are deployment acceptance gates.
-func (f *Fence) Claim(tenant, gateway, attempt, digest string) error {
-	if f == nil || tenant == "" || gateway == "" || attempt == "" || digest == "" {
+func (f *Fence) check(tenant, gateway string) error {
+	if f == nil || tenant == "" || gateway == "" {
 		return fmt.Errorf("retained Apply fence required")
 	}
-	if _, err := OpenFence(f.directory); err != nil {
+	_, err := OpenFence(f.directory)
+	return err
+}
+func (f *Fence) gatewayPath(tenant, gateway string) string {
+	key := sha256.Sum256([]byte(tenant + "\x00" + gateway))
+	return filepath.Join(f.directory, hex.EncodeToString(key[:])+".json")
+}
+func (f *Fence) attemptPath(tenant, gateway string, version int) string {
+	base := f.gatewayPath(tenant, gateway)
+	if version == 1 {
+		return base
+	}
+	return fmt.Sprintf("%s.%010d", base, version)
+}
+
+// Latest validates the complete bounded local chain. Partial/malformed entries
+// never mean empty history. No write, rename, removal or delivery inference.
+func (f *Fence) Latest(tenant, gateway string) (*Attempt, error) {
+	if err := f.check(tenant, gateway); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(f.directory)
+	if err != nil {
+		return nil, fmt.Errorf("retained Apply directory unreadable")
+	}
+	base := filepath.Base(f.gatewayPath(tenant, gateway))
+	count := 0
+	for _, entry := range entries {
+		if entry.Name() == base || strings.HasPrefix(entry.Name(), base+".") {
+			count++
+		}
+	}
+	if count > 100000 {
+		return nil, fmt.Errorf("retained Apply history needs operator inspection")
+	}
+	var previous *Attempt
+	for version := 1; version <= count; version++ {
+		path := f.attemptPath(tenant, gateway, version)
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("retained Apply history has a gap")
+		}
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 4096 {
+			return nil, fmt.Errorf("retained Apply chain unavailable")
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("retained Apply chain unreadable")
+		}
+		var current Attempt
+		if json.Unmarshal(b, &current) != nil || current.Format != 2 || current.Tenant != tenant || current.Gateway != gateway || current.Version != version || current.ID == "" || current.Digest == "" || current.Created.IsZero() {
+			return nil, fmt.Errorf("retained Apply chain invalid")
+		}
+		expected := ""
+		if previous != nil {
+			expected = previous.ID
+		}
+		if current.Previous != expected {
+			return nil, fmt.Errorf("retained Apply chain mismatch")
+		}
+		previous = &current
+	}
+	return previous, nil
+}
+
+// Claim is first-attempt only. Never use it to reset a history or retry.
+func (f *Fence) Claim(tenant, gateway, attempt, digest string) error {
+	return f.ClaimNext(tenant, gateway, attempt, digest, 1, nil)
+}
+
+// ClaimNext requires the exact prior immutable head, not permission to retry
+// it. Caller must independently verify matching terminal database receipt and
+// new reviewed request under its gateway transaction. No automatic retries.
+func (f *Fence) ClaimNext(tenant, gateway, attempt, digest string, version int, prior *Attempt) error {
+	if err := f.check(tenant, gateway); err != nil {
 		return err
 	}
-	path := f.gatewayPath(tenant, gateway)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return fmt.Errorf("Apply is quarantined by retained attempt fence: %w", err)
+	if attempt == "" || digest == "" || version < 1 {
+		return fmt.Errorf("valid retained intent required")
 	}
-	// Never expose the approved configuration or credentials in this journal.
-	value := struct {
-		Version int       `json:"version"`
-		Tenant  string    `json:"tenant"`
-		Gateway string    `json:"gateway"`
-		Attempt string    `json:"attempt"`
-		Digest  string    `json:"sha256"`
-		Created time.Time `json:"created"`
-	}{1, tenant, gateway, attempt, digest, time.Now().UTC()}
+	latest, err := f.Latest(tenant, gateway)
+	if err != nil {
+		return err
+	}
+	if latest == nil {
+		if prior != nil || version != 1 {
+			return fmt.Errorf("retained history absent; recovery required")
+		}
+	} else if prior == nil || *prior != *latest || version != latest.Version+1 || attempt == latest.ID {
+		return fmt.Errorf("retained history mismatch; keep quarantined")
+	}
+	value := Attempt{Format: 2, Tenant: tenant, Gateway: gateway, ID: attempt, Digest: digest, Version: version, Created: time.Now().UTC()}
+	if latest != nil {
+		value.Previous = latest.ID
+	}
+	file, err := os.OpenFile(f.attemptPath(tenant, gateway, version), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return fmt.Errorf("Apply quarantined by retained intent: %w", err)
+	}
 	b, err := json.Marshal(value)
 	if err == nil {
 		var n int
 		n, err = file.Write(append(b, '\n'))
 		if err == nil && n != len(b)+1 {
-			err = fmt.Errorf("short fence write")
+			err = fmt.Errorf("short intent write")
 		}
 	}
 	if err == nil {
@@ -75,11 +160,11 @@ func (f *Fence) Claim(tenant, gateway, attempt, digest string) error {
 		err = closeErr
 	}
 	if err != nil {
-		return fmt.Errorf("Apply fence persistence unconfirmed; keep quarantined: %w", err)
+		return fmt.Errorf("Apply intent persistence unconfirmed: %w", err)
 	}
 	directory, err := os.Open(f.directory)
 	if err != nil {
-		return fmt.Errorf("Apply fence directory persistence unconfirmed: %w", err)
+		return fmt.Errorf("Apply directory persistence unconfirmed: %w", err)
 	}
 	err = directory.Sync()
 	closeErr = directory.Close()
@@ -87,18 +172,15 @@ func (f *Fence) Claim(tenant, gateway, attempt, digest string) error {
 		err = closeErr
 	}
 	if err != nil {
-		return fmt.Errorf("Apply fence directory persistence unconfirmed: %w", err)
+		return fmt.Errorf("Apply directory persistence unconfirmed: %w", err)
 	}
 	return nil
 }
 
-// Occupied is read-only and never interprets a corrupt/partial claim as absent.
-// It does not infer broker delivery, gateway state or permission to clear it.
+// Occupied does not parse content: a partial file is still occupied. It never
+// grants progression or interprets an invalid intent as no prior attempt.
 func (f *Fence) Occupied(tenant, gateway string) (bool, error) {
-	if f == nil || tenant == "" || gateway == "" {
-		return false, fmt.Errorf("retained Apply fence required")
-	}
-	if _, err := OpenFence(f.directory); err != nil {
+	if err := f.check(tenant, gateway); err != nil {
 		return false, err
 	}
 	_, err := os.Lstat(f.gatewayPath(tenant, gateway))
@@ -106,12 +188,7 @@ func (f *Fence) Occupied(tenant, gateway string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("retained Apply fence status unavailable: %w", err)
+		return false, err
 	}
 	return true, nil
-}
-
-func (f *Fence) gatewayPath(tenant, gateway string) string {
-	key := sha256.Sum256([]byte(tenant + "\x00" + gateway))
-	return filepath.Join(f.directory, hex.EncodeToString(key[:])+".json")
 }

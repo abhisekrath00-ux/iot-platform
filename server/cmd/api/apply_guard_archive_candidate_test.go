@@ -31,7 +31,7 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 	if de != nil || re != nil {
 		t.Fatal("explicit archive test requires matching PostgreSQL archive tools")
 	}
-	for _, mode := range []string{"guarded-known", "guarded-unknown", "pre-publication-snapshot", "pre-unknown-snapshot", "table-only-atomic-refusal", "table-only-partial-open-gap", "full-database-known", "full-database-unknown", "pre-full-database-snapshot", "pre-retained-full-database-snapshot", "pre-retained-unknown-full-database-snapshot"} {
+	for _, mode := range []string{"guarded-known", "guarded-unknown", "pre-publication-snapshot", "pre-unknown-snapshot", "table-only-atomic-refusal", "table-only-partial-open-gap", "full-database-known", "full-database-unknown", "pre-full-database-snapshot", "pre-retained-full-database-snapshot", "pre-retained-unknown-full-database-snapshot", "pre-retained-terminal-full-database-snapshot"} {
 		t.Run(mode, func(t *testing.T) {
 			s, m, tenant, path := applyGuardFixture(t)
 			if err := installApplyGuard(t, s); err != nil {
@@ -131,7 +131,7 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 					t.Fatalf("dump: %v: %s", err, out)
 				}
 			}
-			if strings.HasPrefix(mode, "pre-") {
+			if strings.HasPrefix(mode, "pre-") && !strings.Contains(mode, "terminal") {
 				snapshot()
 			}
 			first := call(m, tenant, "admin", "POST", path, `{}`)
@@ -141,6 +141,16 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 			}
 			if first.Code != wantFirst {
 				t.Fatal(first.Code, first.Body.String())
+			}
+			if strings.Contains(mode, "terminal") {
+				if _, err := s.st.Pool.Exec(t.Context(), `UPDATE gateway_config_pushes SET status='rejected'`); err != nil {
+					t.Fatal(err)
+				}
+				snapshot()
+				second := call(m, tenant, "admin", "POST", path, `{}`)
+				if second.Code != 202 || calls.Load() != 2 {
+					t.Fatal(second.Code, second.Body.String(), calls.Load())
+				}
 			}
 			if _, err := s.st.Pool.Exec(t.Context(), `UPDATE gateway_config_pushes SET created_at=now()-interval '1 day' WHERE tenant_id=$1`, tenant); err != nil {
 				t.Fatal(err)
@@ -205,7 +215,11 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 				t.Fatal(err)
 			}
 			if strings.HasPrefix(mode, "pre-") {
-				if rows != 0 {
+				expectedRows := 0
+				if strings.Contains(mode, "terminal") {
+					expectedRows = 1
+				}
+				if rows != expectedRows {
 					t.Fatal("snapshot unexpectedly retained later attempt", rows)
 				}
 			} else {
@@ -237,10 +251,16 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 			seen := call(mux, tenant, "admin", "GET", path, "")
 			next := call(mux, tenant, "admin", "POST", path, `{}`)
 			if retained {
-				if seen.Code != 200 || !strings.Contains(seen.Body.String(), `"recovery_quarantined":true`) || !strings.Contains(seen.Body.String(), `"status":"quarantined"`) || next.Code != 409 || calls.Load() != 1 {
+				wantCalls := int32(1)
+				wantStatus := `"status":"quarantined"`
+				if strings.Contains(mode, "terminal") {
+					wantCalls = 2
+					wantStatus = `"status":"rejected"`
+				}
+				if seen.Code != 200 || !strings.Contains(seen.Body.String(), `"recovery_quarantined":true`) || !strings.Contains(seen.Body.String(), wantStatus) || next.Code != 409 || calls.Load() != wantCalls {
 					t.Fatal("retained external fence rearmed after actual stale full database restore", seen.Code, seen.Body.String(), next.Code, calls.Load())
 				}
-				t.Log("RETAINED_EXTERNAL_FENCE_ACTUAL_PRE_ATTEMPT_FULL_DATABASE_RESTORE_EMPTY_HISTORY_POST409_ONE_FAKE_ACCEPTANCE; no automatic clear/retry")
+				t.Logf("RETAINED_EXTERNAL_FENCE_ACTUAL_STALE_FULL_DATABASE_RESTORE_%s_POST409_%d_FAKE_ACCEPTANCES; no automatic clear/retry", mode, wantCalls)
 				assertGuardLedger(t, fresh)
 				return
 			}
