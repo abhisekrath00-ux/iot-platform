@@ -196,3 +196,99 @@ func TestFenceImmutableProgressionAndStaleHead(t *testing.T) {
 		t.Fatal("gapped chain rearmed")
 	}
 }
+
+func TestBoundFenceIdentityAndReplacement(t *testing.T) {
+	dir := t.TempDir()
+	os.Chmod(dir, 0700)
+	if _, err := OpenBoundFence(dir, ""); err == nil {
+		t.Fatal("missing independent ID accepted")
+	}
+	id, err := ProvisionFence(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ProvisionFence(dir); err == nil {
+		t.Fatal("existing store reinitialized")
+	}
+	f, err := OpenBoundFence(dir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.RequireBound(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Claim("t", "g", "first", "digest"); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenBoundFence(dir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.Claim("t", "g", "retry", "digest"); err == nil {
+		t.Fatal("reopen rearmed")
+	}
+	old := dir + "-retained"
+	if err := os.Rename(dir, old); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(old)
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Claim("t", "other", "new", "digest"); err == nil {
+		t.Fatal("empty replacement rearmed")
+	}
+	if _, err := OpenBoundFence(dir, id); err == nil {
+		t.Fatal("missing marker reopened")
+	}
+	otherID, err := ProvisionFence(dir)
+	if err != nil || otherID == id {
+		t.Fatal(err)
+	}
+	if _, err := OpenBoundFence(dir, id); err == nil {
+		t.Fatal("different newly provisioned store accepted")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatal("replacement acquired intent", entries, err)
+	}
+	if _, err := OpenBoundFence(old, id); err != nil {
+		t.Fatal("retained original cannot reopen at moved path", err)
+	}
+}
+
+func TestFencePinnedRootDoesNotFollowReplacement(t *testing.T) {
+	dir := t.TempDir()
+	os.Chmod(dir, 0700)
+	f, err := OpenFence(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := f.root("t", "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	old := dir + "-old"
+	if err := os.Rename(dir, old); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(old)
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := root.OpenFile("pinned-fixture", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	if _, err := os.Stat(filepath.Join(dir, "pinned-fixture")); !os.IsNotExist(err) {
+		t.Fatal("root redirected", err)
+	}
+	if _, err := os.Stat(filepath.Join(old, "pinned-fixture")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.check("t", "g"); err == nil {
+		t.Fatal("replaced directory not refused")
+	}
+}

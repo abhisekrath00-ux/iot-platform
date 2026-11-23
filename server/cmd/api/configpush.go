@@ -101,6 +101,10 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	var prior *applyadmission.Attempt
 	if s.applySafetyCandidate {
+		if err := s.applyAttemptFence.RequireBound(); err != nil {
+			http.Error(w, "Bound Apply safety storage unavailable; no new request sent.", 409)
+			return
+		}
 		prior, err = s.applyAttemptFence.Latest(tenant, gw)
 		if err != nil {
 			http.Error(w, "Apply retained history unavailable; no new request sent.", 409)
@@ -204,6 +208,10 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 	occupied := false
 	if s.applySafetyCandidate {
 		var err error
+		if err := s.applyAttemptFence.RequireBound(); err != nil {
+			http.Error(w, "Bound Apply safety storage unavailable.", 503)
+			return
+		}
 		retained, err = s.applyAttemptFence.Latest(tenant, gw)
 		occupied = retained != nil
 		if err != nil {

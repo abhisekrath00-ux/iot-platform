@@ -3767,3 +3767,28 @@ HTTP request append version2 and produce one distinct signed observer delivery;
 a third POST is409 while version2 is unresolved. THREErace result and exact
 binary hash are in the progression manifest. This advances prior SQL-only
 receipt evidence but still simulates gateway responses, not physical execution.
+
+#### Independently bound retained store, local revision
+
+The integrated disabled policy now requires OpenBoundFence with a separately
+supplied expected random store identity; an unbound directory handle cannot
+admit Apply or claim safe status. Explicit offline ProvisionFence refuses a
+nonempty store, exclusively writes/syncs its identity and syncs the directory.
+No startup/menu/route provisions it and no owner store was created. Reopen must
+match the independent expected ID, never learn a replacement ID from the store.
+
+Directory operations use Go1.26 os.Root handles pinned to the original directory,
+and compare os.SameFile before access/after a claim. Renaming/replacing a live
+path cannot redirect an intent into the empty replacement. Private records are
+bounded and reject symlinks, wrong permissions and opened-file identity changes.
+Tests replace the directory, reopen with a missing/different marker, reinitialize
+an occupied store, and demonstrate a pinned root writes only to the moved
+original. Actual fullDB restore tests reopen against their original expected ID.
+
+This is NOT administrator tamper-proof storage or redundant history. Copying or
+rolling back the store AND its identity, deleting all later intents while
+restoring corresponding DB history, machine/root compromise, network filesystem
+semantics, multiple independently provisioned replicas and storage mount loss
+remain deployment/recovery gates. Expected-ID deployment binding and operator
+provisioning UI are not installed. No implicit adoption of legacy history or
+format1 records exists. No production constructor or env flag enables this path.

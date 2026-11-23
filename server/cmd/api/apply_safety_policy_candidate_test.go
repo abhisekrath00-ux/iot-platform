@@ -181,7 +181,11 @@ func testApplyFence(t *testing.T) *applyadmission.Fence {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	f, err := applyadmission.OpenFence(dir)
+	id, err := applyadmission.ProvisionFence(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := applyadmission.OpenBoundFence(dir, id)
 	if err != nil {
 		t.Fatal(err)
 	}

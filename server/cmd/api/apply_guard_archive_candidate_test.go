@@ -42,10 +42,15 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 			if err := os.Chmod(retainedDir, 0700); err != nil {
 				t.Fatal(err)
 			}
+			retainedID := ""
 			if retained {
 				s.applySafetyCandidate = true
 				var err error
-				s.applyAttemptFence, err = applyadmission.OpenFence(retainedDir)
+				retainedID, err = applyadmission.ProvisionFence(retainedDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				s.applyAttemptFence, err = applyadmission.OpenBoundFence(retainedDir, retainedID)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -239,7 +244,7 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 			}
 			defer pool.Close()
 			if retained {
-				s.applyAttemptFence, err = applyadmission.OpenFence(retainedDir)
+				s.applyAttemptFence, err = applyadmission.OpenBoundFence(retainedDir, retainedID)
 				if err != nil {
 					t.Fatal(err)
 				}

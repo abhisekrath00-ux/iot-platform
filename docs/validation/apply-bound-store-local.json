@@ -1,0 +1,31 @@
+{
+  "state": "LOCAL UNPUBLISHED bound-store disabled integration, not owner activation/provisioning acceptance",
+  "base": "132c62a",
+  "source_sha256": {
+    "server/internal/applyadmission/fence.go": "d2883dc4660f1dc9f3370b0d28363d4128e874a02d7a1ba1c166c83a896a410d",
+    "server/internal/applyadmission/fence_test.go": "2b6566e4d335e0e690c914414b56faecd0cee29ad86ce3de3a1f395d0f5ede34",
+    "server/cmd/api/configpush.go": "c761898f6de20e1097f1fbc483a034f531bb159b05370fb495e48b771b923f05",
+    "server/cmd/api/apply_guard_archive_candidate_test.go": "130bcbcab9b7cb6cdbdbb3c7d06210b869baaef43e93e9cfcdfb182987c65bbd",
+    "server/cmd/api/apply_safety_policy_candidate_test.go": "bc71d74b9aff946883237918c65fa1ebd122d8eabb9985a55de85e73cb723ebe"
+  },
+  "results": {
+    "/tmp/h155-api-final.log": "ok  \tgithub.com/abhisekrath00-ux/iot-platform/server/cmd/api\t47.029s",
+    "/tmp/h155-policy-first.log": "ok  \tgithub.com/abhisekrath00-ux/iot-platform/server/cmd/api\t15.603s",
+    "/tmp/h155-mtls-three.log": [
+      "    mqtt_tls_pipeline_test.go:117: REAL_COMPILED_INGEST_VERIFIED_MTLS_SYNTHETIC_APPLIED_CONFIRMED_RECEIPT_MATCHES_RETAINED_HEAD_NEW_DISTINCT_INTENT_ONE_NEW_PUBLICATION_THIRD_POST409; no physical execution",
+      "    mqtt_tls_pipeline_test.go:117: REAL_COMPILED_INGEST_VERIFIED_MTLS_SYNTHETIC_APPLIED_CONFIRMED_RECEIPT_MATCHES_RETAINED_HEAD_NEW_DISTINCT_INTENT_ONE_NEW_PUBLICATION_THIRD_POST409; no physical execution",
+      "    mqtt_tls_pipeline_test.go:117: REAL_COMPILED_INGEST_VERIFIED_MTLS_SYNTHETIC_APPLIED_CONFIRMED_RECEIPT_MATCHES_RETAINED_HEAD_NEW_DISTINCT_INTENT_ONE_NEW_PUBLICATION_THIRD_POST409; no physical execution",
+      "ok  \tgithub.com/abhisekrath00-ux/iot-platform/server/cmd/api\t20.309s"
+    ]
+  },
+  "fence_three_race_s": 4.16,
+  "boundary": "Explicit offline new-store provisioning; separate expected-ID reopen; handler requires bound store; os.Root and SameFile reject replacement and prevent redirected intent write; private bounded files checked on open",
+  "scope_limits": [
+    "No owner provisioning, prod constructor/env/menu enablement or migration",
+    "No legacy/format1 adoption",
+    "No multi-replica/NFS/mount/deployment ID binding acceptance",
+    "Both history/identity rollback or compromise remains unsafe",
+    "No image/native updater or physical Windows acceptance"
+  ],
+  "unchanged": "Workflows, exact93 and product update/backup/restore scripts unchanged"
+}
