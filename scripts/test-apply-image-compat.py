@@ -10,6 +10,7 @@ import base64
 import hashlib
 import hmac
 import http.client
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -25,8 +26,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run(*args, stdin=None):
-    return subprocess.run(args, input=stdin, check=True, capture_output=True,
-                          timeout=120).stdout.decode().strip()
+    result = subprocess.run(args, input=stdin, capture_output=True, timeout=120)
+    if result.returncode:
+        raise RuntimeError('fixture command failed: '+args[0]+' '+args[1]+': '+result.stderr.decode()[-4000:])
+    return result.stdout.decode().strip()
 
 
 def mqtt_string(text):
@@ -88,6 +91,19 @@ def image_id(value):
     return value
 
 
+def internal_endpoint(info, network, number):
+    # Linux hosted runner can reach its internal bridge directly. Do not add a
+    # second egress-enabled network just to make published ports work.
+    networks = info['NetworkSettings']['Networks']
+    if set(networks) != {network} or info['HostConfig']['PortBindings']:
+        raise RuntimeError('fixture must use only its internal network and no published ports')
+    entry = networks[network]
+    address = ipaddress.ip_address(entry['IPAddress'])
+    if address.version != 4 or not address.is_private or address.is_loopback or address.is_unspecified or entry.get('Gateway'):
+        raise RuntimeError('fixture requires private internal IPv4 and no default gateway')
+    return str(address), number
+
+
 def self_test():
     for bad in ('latest', 'image:tag', '', 'sha256:bad'):
         try:
@@ -96,6 +112,21 @@ def self_test():
             continue
         raise AssertionError('mutable image admitted')
     image_id('sha256:'+'a'*64)
+    info = {'NetworkSettings': {'Networks': {'private': {'IPAddress': '172.22.0.2', 'Gateway': ''}}},
+            'HostConfig': {'PortBindings': {}}}
+    assert internal_endpoint(info, 'private', 8000) == ('172.22.0.2', 8000)
+    for change in ('other-network', 'binding', 'public', 'loopback', 'gateway'):
+        bad = json.loads(json.dumps(info))
+        if change == 'other-network': bad['NetworkSettings']['Networks']['egress'] = {}
+        if change == 'binding': bad['HostConfig']['PortBindings'] = {'8000/tcp': []}
+        if change == 'public': bad['NetworkSettings']['Networks']['private']['IPAddress'] = '8.8.8.8'
+        if change == 'loopback': bad['NetworkSettings']['Networks']['private']['IPAddress'] = '127.0.0.1'
+        if change == 'gateway': bad['NetworkSettings']['Networks']['private']['Gateway'] = '172.22.0.1'
+        try:
+            internal_endpoint(bad, 'private', 8000)
+        except RuntimeError:
+            continue
+        raise AssertionError('unsafe fixture network accepted: '+change)
     assert mqtt_string('test') == b'\x00\x04test'
     a, b = socket.socketpair()
     try:
@@ -118,7 +149,7 @@ def self_test():
                                     capture_output=True, timeout=5)
             assert result.returncode != 0 and b'Secure server upgrade is unavailable' in result.stderr
             assert sorted(str(p.relative_to(root)) for p in root.rglob('*')) == before
-    print('SELF_TEST_ONLY: image argument/MQTT framing and actual secure-selector legacy-updater refusal; no Docker image or successful updater acceptance')
+    print('SELF_TEST_ONLY: image argument/internal-only endpoint/MQTT framing and actual secure-selector legacy-updater refusal; no Docker image or successful updater acceptance')
 
 
 def main():
@@ -150,20 +181,19 @@ def main():
     def pg(name, sql):
         return run('docker', 'exec', '-i', name, 'psql', '-X', '-U',
                    'fixture', '-d', 'fixture', '-At', '-v', 'ON_ERROR_STOP=1', stdin=sql.encode())
-    def port(name, number):
-        value = run('docker', 'port', name, str(number)+'/tcp')
-        if not re.fullmatch(r'127\.0\.0\.1:[0-9]+', value):
-            raise RuntimeError('fixture port must bind loopback only: '+value)
-        return int(value.split(':')[1])
+    def endpoint(name, number):
+        info = json.loads(run('docker', 'inspect', name))[0]
+        return internal_endpoint(info, network, number)
     try:
         run('docker', 'network', 'create', '--internal', '--label', prefix, network)
+        assert json.loads(run('docker', 'network', 'inspect', network))[0]['Internal'] is True
         with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
             config = Path(tmp)/'mosquitto.conf'
             config.write_text('listener 1883\nallow_anonymous true\npersistence false\n')
-            broker = container('broker', '-p', '127.0.0.1::1883', '-v',
+            broker = container('broker', '-v',
                                str(config)+':/mosquitto/config/mosquitto.conf:ro',
                                'eclipse-mosquitto:2')
-            broker_port = port(broker, 1883)
+            broker_endpoint = endpoint(broker, 1883)
             for direction, first, second in [('old-to-new', old, new), ('new-to-old', new, old)]:
                 for guarded in (False, True):
                     tag = direction+('-guarded' if guarded else '-baseline')
@@ -185,36 +215,36 @@ def main():
                     def start(image, suffix):
                         app = container(tag+suffix, '--pull=never', '--read-only', '--tmpfs', '/tmp',
                                         '--cap-drop=ALL', '--security-opt=no-new-privileges:true',
-                                        '-p', '127.0.0.1::8000', '-e', 'API_PORT=8000',
+                                        '-e', 'API_PORT=8000',
                                         '-e', 'DATABASE_URL=postgres://fixture:synthetic-only@'+db+':5432/fixture?sslmode=disable',
                                         '-e', 'MIGRATIONS_DIR=/migrations', '-e', 'JWT_SIGNING_SECRET='+secret,
                                         '-e', 'FLEET_SIGNING_KEY='+base64.b64encode(bytes(32)).decode(),
                                         '-e', 'MQTT_HOST='+broker, '-e', 'MQTT_PORT=1883', '-e', 'MQTT_TLS=false',
                                         '-e', 'CACHE_BACKEND=off', '-e', 'OAUTH_STATE_BACKEND=memory',
                                         image, '/bin/api')
-                        number = port(app, 8000)
+                        address = endpoint(app, 8000)
                         for _ in range(150):
                             try:
-                                c = http.client.HTTPConnection('127.0.0.1', number, timeout=1)
+                                c = http.client.HTTPConnection(*address, timeout=1)
                                 c.request('GET', '/healthz')
                                 res = c.getresponse(); res.read(); c.close()
                                 if res.status == 200:
-                                    return app, number
+                                    return app, address
                             except OSError:
                                 pass
                             time.sleep(.2)
                         raise RuntimeError('image health failed: '+run('docker', 'logs', app))
-                    def request(number, method):
-                        c = http.client.HTTPConnection('127.0.0.1', number, timeout=15)
+                    def request(address, method):
+                        c = http.client.HTTPConnection(*address, timeout=15)
                         c.request(method, '/v1/gateways/image-gw/config-push', body='{}' if method == 'POST' else None,
                                   headers={'Authorization': 'Bearer '+token, 'Content-Type': 'application/json'})
                         res = c.getresponse(); body = res.read().decode(); c.close()
                         return res.status, body
-                    app, number = start(first, '-first')
+                    app, address = start(first, '-first')
                     pg(db, "INSERT INTO tenants(id,name) VALUES('image-fixture','Synthetic'); INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('image-user','image-fixture','synthetic@example.invalid','Synthetic','admin'); INSERT INTO sites(id,tenant_id,name) VALUES('image-site','image-fixture','Synthetic'); INSERT INTO gateways(id,tenant_id,site_id,serial,status) VALUES('image-gw','image-fixture','image-site','SYNTHETIC-IMAGE','active')")
                     if guarded:
                         pg(db, (ROOT/'server/internal/applyadmission/candidate.sql').read_text())
-                    observer = socket.create_connection(('127.0.0.1', broker_port), timeout=5)
+                    observer = socket.create_connection(broker_endpoint, timeout=5)
                     observer.settimeout(3)
                     try:
                         send(observer, 0x10, mqtt_string('MQTT')+b'\x04\x02\x00\x3c'+mqtt_string(tag))
@@ -233,14 +263,14 @@ def main():
                             value = json.loads(body[pos:])
                             assert value['tenant_id'] == 'image-fixture' and value['signature']
                             return value['push_id']
-                        response = request(number, 'POST')
+                        response = request(address, 'POST')
                         assert response[0] == 202, response
                         first_id = delivery()
                         pg(db, "UPDATE gateway_config_pushes SET created_at=now()-interval '1 day'")
                         row_before = pg(db, "SELECT row_to_json(p)::text FROM gateway_config_pushes p")
                         remove(app)
-                        app, number = start(second, '-second')
-                        seen, again = request(number, 'GET'), request(number, 'POST')
+                        app, address = start(second, '-second')
+                        seen, again = request(address, 'GET'), request(address, 'POST')
                         assert seen[0] == 200 and again[0] == (409 if guarded else 202), (seen, again)
                         assert json.loads(seen[1])[0]['status'] == ('sent' if guarded else 'expired')
                         ids = [first_id]
@@ -265,8 +295,16 @@ def main():
                     remove(app); remove(db)
         print(json.dumps({'results': results, 'limits': ['Actual fixed image sequential replacement, NOT native updater acceptance',
               'No enabled candidate, retained-store deployment, mTLS, mixed concurrent writers or physical executor',
-              'Plaintext broker confined to disposable internal network and loopback observer port',
+              'Plaintext broker confined to disposable internal network, direct host observer, no published ports',
               'No owner environment, production Compose, existing volumes or account secrets']}, indent=2))
+    except Exception:
+        # All containers contain synthetic fixture values only. Preserve useful
+        # runtime diagnostics before guaranteed cleanup, never print tokens.
+        for name in created:
+            state = subprocess.run(['docker', 'inspect', '--format', '{{json .State}}', name], capture_output=True)
+            logs = subprocess.run(['docker', 'logs', '--tail', '40', name], capture_output=True)
+            print('fixture failure container', name, state.stdout.decode(), logs.stdout.decode(), logs.stderr.decode())
+        raise
     finally:
         for name in reversed(created):
             result = subprocess.run(['docker', 'rm', '-f', name], capture_output=True)

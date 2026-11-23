@@ -3820,7 +3820,8 @@ workflow_dispatch input (defaultfalse), one standard ubuntu-latest job capped
 at60minutes, contentsread, no credentials persisted or deployment/owner secrets.
 It builds the complete fixed historical0574e75 and selected current source
 images, then passes exact local image IDs to an explicitly opted-in disposable
-internal Docker network/loopback observer fixture. Separate PG volumes cover
+internal Docker network with direct Linux host observation and no published
+ports. Separate PG volumes cover
 sequential old->new/new->old baseline and guarded retained-DB replacements,
 expected status/receipt/delivery counts and exact ledger93. The guarded row and
 guard catalog must survive image replacement. No app image is implicitly pulled.
@@ -3829,7 +3830,14 @@ Local checks cover Python compilation, exact image-ID refusal, MQTT framing,
 actual unchanged secure-selector legacy-updater refusal before file changes,
 workflow syntax/defaultfalse/standard-runner/60min/read-only-permission contracts.
 These are preparation, NOT an actual Docker/image result. Existing normal jobs
-are unchanged. One explicitly selected run is required before image acceptance.
+are unchanged. First manual run45172220571 on exact19c9f2c built both complete
+images and passed all four normal jobs, but the image fixture failed before
+any application/database case: internal-only Docker networks do not provide a
+default gateway for publishing host ports. Cleanup passed. The fixture now uses
+Linux host access to the private internal bridge directly, validates the sole
+network/no gateway/no published ports, and rejects unsafe endpoint metadata in
+local tests. No second egress-enabled network or product change was added.
+Actual corrected execution remains required before image acceptance.
 The fixture does not enable the candidate policy, execute a successful native
 updater, perform concurrent mixed-image writes, prove mTLS/physical execution or
 operate an owner environment. No change to migration93 or product update guards.
