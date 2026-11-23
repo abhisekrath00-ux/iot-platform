@@ -3841,3 +3841,22 @@ Actual corrected execution remains required before image acceptance.
 The fixture does not enable the candidate policy, execute a successful native
 updater, perform concurrent mixed-image writes, prove mTLS/physical execution or
 operate an owner environment. No change to migration93 or product update guards.
+
+
+Corrected-network run45175443913 on9c18ea1 also built both complete images and
+passed the four normal jobs, but reached no Apply case. Endpoint metadata
+checks passed; the historical API exited before the final PostgreSQL TCP
+listener started. The fixture had mistaken the image's temporary socket-only
+initialization server for readiness. Cleanup passed. It now waits for an actual
+authenticated TCP SELECT against the named fixture database before one API
+start, fails immediately if the API exits, and never restarts/retries Apply.
+Corrected execution and actual host-to-API reachability remain unverified.
+
+The additional startup review checks both fixed revisions use API_PORT8000,
+the same exact93 migration corpus, and the fixture's supported JWT/disabled
+cache/memory OAuth/lab MQTT/fleet-signing settings. Before any Apply it now
+requires an actual internal broker MQTT handshake; those readiness retries
+cannot publish a configuration. TCP readiness contracts simulate refusal,
+wrong SQL output, eventual success and exhaustion; dead-process checks refuse
+an exited API with no automatic restart. These local contracts cannot prove
+Docker endpoint behavior or replace the still-required actual image cases.

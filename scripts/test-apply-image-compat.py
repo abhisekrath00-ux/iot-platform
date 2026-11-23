@@ -104,6 +104,27 @@ def internal_endpoint(info, network, number):
     return str(address), number
 
 
+def database_tcp_command(name):
+    # Do not use the temporary socket-only PostgreSQL init server as readiness.
+    return ['docker', 'exec', '-e', 'PGPASSWORD=synthetic-only', name, 'psql',
+            '-X', '-h', '127.0.0.1', '-U', 'fixture', '-d', 'fixture', '-At',
+            '-v', 'ON_ERROR_STOP=1', '-c', 'SELECT 1']
+
+
+def wait_database_tcp(name, execute=subprocess.run, pause=time.sleep, attempts=100):
+    for _ in range(attempts):
+        ready = execute(database_tcp_command(name), capture_output=True, timeout=5)
+        if ready.returncode == 0 and ready.stdout.strip() == b'1':
+            return
+        pause(.2)
+    raise RuntimeError('disposable database authenticated TCP SQL not ready')
+
+
+def require_running(name, execute=run):
+    if execute('docker', 'inspect', '--format', '{{.State.Running}}', name) != 'true':
+        raise RuntimeError('fixture application exited before healthy; no automatic restart')
+
+
 def self_test():
     for bad in ('latest', 'image:tag', '', 'sha256:bad'):
         try:
@@ -127,6 +148,32 @@ def self_test():
         except RuntimeError:
             continue
         raise AssertionError('unsafe fixture network accepted: '+change)
+    command = database_tcp_command('synthetic-db')
+    assert command[command.index('-h')+1] == '127.0.0.1'
+    assert command[command.index('-d')+1] == 'fixture'
+    assert command[-1] == 'SELECT 1' and 'PGPASSWORD=synthetic-only' in command
+    responses = iter([subprocess.CompletedProcess([], 2, b'', b'connection refused'),
+                      subprocess.CompletedProcess([], 0, b'not-one', b''),
+                      subprocess.CompletedProcess([], 0, b'1\n', b'')])
+    calls = []
+    def fake_execute(args, **kwargs):
+        calls.append(args)
+        return next(responses)
+    wait_database_tcp('synthetic-db', execute=fake_execute, pause=lambda _: None, attempts=3)
+    assert len(calls) == 3 and all(c == command for c in calls)
+    try:
+        wait_database_tcp('synthetic-db', execute=lambda *a, **k: subprocess.CompletedProcess([], 2, b'', b''), pause=lambda _: None, attempts=2)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError('unready TCP database accepted')
+    require_running('synthetic-app', execute=lambda *args: 'true')
+    try:
+        require_running('synthetic-app', execute=lambda *args: 'false')
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError('exited application accepted')
     assert mqtt_string('test') == b'\x00\x04test'
     a, b = socket.socketpair()
     try:
@@ -149,7 +196,7 @@ def self_test():
                                     capture_output=True, timeout=5)
             assert result.returncode != 0 and b'Secure server upgrade is unavailable' in result.stderr
             assert sorted(str(p.relative_to(root)) for p in root.rglob('*')) == before
-    print('SELF_TEST_ONLY: image argument/internal-only endpoint/MQTT framing and actual secure-selector legacy-updater refusal; no Docker image or successful updater acceptance')
+    print('SELF_TEST_ONLY: image argument/internal-only endpoint/TCP readiness/dead-process/MQTT framing and actual secure-selector legacy-updater refusal; no Docker image or successful updater acceptance')
 
 
 def main():
@@ -194,6 +241,21 @@ def main():
                                str(config)+':/mosquitto/config/mosquitto.conf:ro',
                                'eclipse-mosquitto:2')
             broker_endpoint = endpoint(broker, 1883)
+            # Read-only broker handshake before any synthetic Apply. Readiness
+            # retries cannot publish a configuration or execute a device action.
+            for _ in range(100):
+                try:
+                    with socket.create_connection(broker_endpoint, timeout=1) as probe:
+                        probe.settimeout(1)
+                        send(probe, 0x10, mqtt_string('MQTT')+b'\x04\x02\x00\x3c'+mqtt_string(prefix+'-ready'))
+                        if packet(probe) != (0x20, b'\x00\x00'):
+                            raise RuntimeError('broker refused fixture observer')
+                        send(probe, 0xe0, b'')
+                    break
+                except OSError:
+                    time.sleep(.2)
+            else:
+                raise RuntimeError('internal broker handshake not ready')
             for direction, first, second in [('old-to-new', old, new), ('new-to-old', new, old)]:
                 for guarded in (False, True):
                     tag = direction+('-guarded' if guarded else '-baseline')
@@ -203,13 +265,7 @@ def main():
                     db = container(tag+'-db', '-e', 'POSTGRES_USER=fixture', '-e',
                                    'POSTGRES_PASSWORD=synthetic-only', '-e', 'POSTGRES_DB=fixture',
                                    '-v', volume+':/var/lib/postgresql/data', 'postgres:16-alpine')
-                    for _ in range(100):
-                        ready = subprocess.run(['docker', 'exec', db, 'pg_isready', '-U', 'fixture'], capture_output=True)
-                        if ready.returncode == 0:
-                            break
-                        time.sleep(.2)
-                    else:
-                        raise RuntimeError('disposable database not ready')
+                    wait_database_tcp(db)
                     secret = 'synthetic-'+uuid.uuid4().hex
                     token = jwt(secret)
                     def start(image, suffix):
@@ -224,6 +280,7 @@ def main():
                                         image, '/bin/api')
                         address = endpoint(app, 8000)
                         for _ in range(150):
+                            require_running(app)
                             try:
                                 c = http.client.HTTPConnection(*address, timeout=1)
                                 c.request('GET', '/healthz')

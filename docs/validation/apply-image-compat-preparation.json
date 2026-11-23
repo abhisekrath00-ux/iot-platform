@@ -1,11 +1,11 @@
 {
-  "state": "PREPARED corrected harness, first actual run failed before cases",
-  "base": "19c9f2c8c847898b1a3b6ebd5ed6fd0d7938acbb",
+  "state": "PREPARED TCP readiness correction, two actual runs failed before Apply cases",
+  "base": "9c18ea1c3eed20ea9663f49f7bb14b0c3c1a0303",
   "source_sha256": {
     ".github/workflows/ci.yml": "c65cbe0d6292e2cb87a848e9a72bd675ed63a191810f3e3065d9e5613b842ffb",
-    "scripts/test-apply-image-compat.py": "533e30ff6e11a94dbb261d6296bb11b7d0c88bf513c43b2d59dc300b209923eb"
+    "scripts/test-apply-image-compat.py": "f4c30a589d4b1ef11b36b9e0c469061ea003d9b3e2cceec8dd04a6b1e598cf68"
   },
-  "local": "Python compile/self-test pass incl sole-network/no-gateway/no-published-port private endpoint checks and actual unchanged secure-selector updater refusal",
+  "local": "compile/self-test incl TCP refusal/wrong output/eventual success/exhaustion; exited process refusal; internal-only metadata negatives; framing; actual secure-selector legacy refusal",
   "workflow_bounds": {
     "trigger": "workflow_dispatch optional boolean defaultfalse",
     "runner": "ubuntu-latest standard",
@@ -40,5 +40,15 @@
     "images": "both fixed complete builds pass",
     "failure": "internal-only network has no published broker port; no application/database compatibility case executed",
     "cleanup": "pass"
-  }
+  },
+  "second_actual_run": {
+    "url": "https://github.com/abhisekrath00-ux/iot-platform/actions/runs/45175443913",
+    "images": "both builds pass",
+    "normal_jobs": "4 pass",
+    "failure": "socket pg_isready admitted temporary initialization server; historical API exited on TCP refusal before final TCP listener",
+    "Apply_cases_executed": 0,
+    "internal_endpoint_metadata": "pass; actual host-to-API reachability not proved",
+    "cleanup": "pass"
+  },
+  "startup_review": "same API_PORT/migration corpus in both fixed revisions; JWT/cache/OAuth/MQTT/fleet env supported; broker handshake precedes Apply; no automatic application or Apply retry"
 }
