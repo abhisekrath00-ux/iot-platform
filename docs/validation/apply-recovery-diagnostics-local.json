@@ -1,0 +1,36 @@
+{
+  "state": "LOCAL UNPUBLISHED read-only recovery diagnostics, disabled integration only",
+  "base": "7881e1e",
+  "source_sha256": {
+    "server/cmd/api/configpush.go": "b5393244036e0b2179ef0d7366d2e1479a573fca7af0d36a903cf5890e837955",
+    "server/cmd/api/apply_safety_policy_candidate_test.go": "be6249c7b1409b4c6b0e86892bb2eb331691b622fa9328ca5d1a1d7ebd3f0c59",
+    "web/src/components/SourceApply.tsx": "009484df5dbf889af03c13db0eaf808f119dc291bab7602adaed1e902b609e55",
+    "web/src/components/SourceApply.test.tsx": "d4dec88758b44b099b27adad52bd517c9dccbb6917416f2f077fdb2405708584"
+  },
+  "results_s": {
+    "fresh_full_api_archive_optin": 42.678,
+    "policy_actual_archive_three_race": 14.661,
+    "docsrag": 0.335
+  },
+  "web": "37 SourceApply tests pass/build pass existing chunkwarning",
+  "visual": "actual local synthetic expanded details desktop/mobile inspected, no overflow, full disabled action, exact intent ID/version/fingerprint wraps;3GETs zeroPOSTs",
+  "diagnostics": [
+    "retained_history_missing",
+    "database_history_missing",
+    "database_history_older",
+    "history_mismatch",
+    "gateway_response_unresolved"
+  ],
+  "limits": [
+    "No automatic recovery/retry/reset/clear or new permission to Apply",
+    "Identifiers only, no source config/credentials",
+    "No owner activation/deployment/storage provisioning",
+    "Full earlier bound-store/progression limits continue"
+  ],
+  "logs": [
+    "/tmp/h156-api-final.log",
+    "/tmp/h156-policy-three.log",
+    "/tmp/h156-web.log",
+    "/tmp/h156-build.log"
+  ]
+}

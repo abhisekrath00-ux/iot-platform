@@ -55,3 +55,14 @@ test('unsupported digest cannot fall back to an unscoped Apply lock',async()=>{v
 test.each(['quarantined','confirmed','rejected','rolled_back','expired'])('retained recovery quarantine blocks %s status after reload without fabricating success',async status=>{
  mock('admin',[{status,recovery_quarantined:true}]);await render();expect(box.textContent).toContain('database history was restored or is missing');expect(box.textContent).toContain('does not prove delivery or failure');expect(box.textContent).not.toContain('Gateway confirmed the settings');expect(box.querySelector('input')!.disabled).toBe(true);await review();expect(box.querySelector('button')!.disabled).toBe(true);await remount();expect(box.querySelector('button')!.disabled).toBe(true);expect(vi.mocked(api).mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0);
 });
+
+test.each([
+ ['retained_history_missing','Do not create a replacement store'],
+ ['database_history_missing','Restoring older database history does not cancel'],
+ ['database_history_older','older gateway response cannot resolve'],
+ ['history_mismatch','records disagree'],
+ ['gateway_response_unresolved','Broker acceptance or a timeout is not proof'],
+ ['future-unknown','cannot be reconciled safely'],
+])('read-only recovery reason %s explains quarantine and keeps Apply blocked',async(reason,text)=>{
+ mock('admin',[{status:'quarantined',recovery_quarantined:true,recovery_reason:reason,retained_attempt:{id:'retained-exact-request',version:2,sha256:'synthetic-fingerprint'}}]);await render();expect(box.textContent).toContain(text);expect(box.textContent).toContain('retained-exact-request');expect(box.textContent).toContain('intent record, not a gateway confirmation');expect(box.querySelector('button')!.disabled).toBe(true);expect(box.querySelector('input')!.disabled).toBe(true);expect(vi.mocked(api).mock.calls.every(([,i])=>i?.method!=='POST')).toBe(true);
+});

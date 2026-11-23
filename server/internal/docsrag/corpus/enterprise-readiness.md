@@ -3792,3 +3792,13 @@ semantics, multiple independently provisioned replicas and storage mount loss
 remain deployment/recovery gates. Expected-ID deployment binding and operator
 provisioning UI are not installed. No implicit adoption of legacy history or
 format1 records exists. No production constructor or env flag enables this path.
+
+Read-only recovery diagnostics now distinguish absent retained history, absent
+DB history, older DB snapshot, mismatched request identity/content/version and
+a matching but unresolved gateway response. Quarantine includes only the exact
+retained request ID/version/fingerprint for administrator inspection, never
+approved configuration/credentials, and is explicitly not delivery proof.
+The UI explains each state and never offers clear/reset/retry. Unknown reason
+codes remain blocked. Unit reason matrix and SourceApply37tests pass; actual
+stale fullDB restores and policy THREErace14.661s pass. Local synthetic desktop
+and mobile expanded inspection detail pixels checked; no POST/physical effect.

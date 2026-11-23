@@ -246,15 +246,23 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 	}
 	if occupied || (s.applySafetyCandidate && len(out) > 0) {
 		if len(out) == 0 {
-			// Explicit safety observation, not a fabricated application receipt.
-			out = append(out, map[string]any{"status": "quarantined", "recovery_quarantined": true})
-		} else {
-			head := out[0]
-			if !retainedApplyTerminal(retained, head["id"].(string), head["sha256"].(string), head["status"].(string), head["version"].(int)) {
-				head["recovery_quarantined"] = true
+			out = append(out, map[string]any{"status": "quarantined"})
+		}
+		head := out[0]
+		id, _ := head["id"].(string)
+		digest, _ := head["sha256"].(string)
+		status, _ := head["status"].(string)
+		version, _ := head["version"].(int)
+		reason := retainedApplyRecoveryReason(retained, id, digest, status, version)
+		if reason != "" {
+			head["recovery_quarantined"] = true
+			head["recovery_reason"] = reason
+			if retained != nil {
+				head["retained_attempt"] = map[string]any{"id": retained.ID, "version": retained.Version, "sha256": retained.Digest}
 			}
 		}
 	}
+
 	writeJSON(w, 200, out)
 }
 
@@ -263,4 +271,24 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 // infer terminal execution from expiry, missing data or a publication return.
 func retainedApplyTerminal(prior *applyadmission.Attempt, id, digest, status string, version int) bool {
 	return prior != nil && prior.ID == id && prior.Digest == digest && prior.Version == version && (status == "confirmed" || status == "rejected" || status == "rolled_back")
+}
+
+// Stable read-only diagnostics. No reason permits clearing or resending intent.
+func retainedApplyRecoveryReason(prior *applyadmission.Attempt, id, digest, status string, version int) string {
+	if prior == nil {
+		return "retained_history_missing"
+	}
+	if id == "" {
+		return "database_history_missing"
+	}
+	if version < prior.Version {
+		return "database_history_older"
+	}
+	if prior.ID != id || prior.Digest != digest || prior.Version != version {
+		return "history_mismatch"
+	}
+	if !retainedApplyTerminal(prior, id, digest, status, version) {
+		return "gateway_response_unresolved"
+	}
+	return ""
 }

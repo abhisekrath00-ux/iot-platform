@@ -410,3 +410,32 @@ func TestIntegrationApplySafetyMissingRetainedHistoryIsVisible(t *testing.T) {
 		t.Fatal("missing retained chain hidden by terminal history", seen.Code, seen.Body.String())
 	}
 }
+
+func TestRetainedApplyRecoveryReasons(t *testing.T) {
+	prior := &applyadmission.Attempt{ID: "retained", Digest: "digest", Version: 2}
+	for _, tc := range []struct {
+		name, id, digest, status string
+		version                  int
+		prior                    *applyadmission.Attempt
+		want                     string
+	}{
+		{"missing-store", "db", "digest", "confirmed", 2, nil, "retained_history_missing"},
+		{"missing-db", "", "", "", 0, prior, "database_history_missing"},
+		{"older-db", "old", "digest", "confirmed", 1, prior, "database_history_older"},
+		{"wrong-id", "other", "digest", "confirmed", 2, prior, "history_mismatch"},
+		{"wrong-digest", "retained", "other", "confirmed", 2, prior, "history_mismatch"},
+		{"newer-db", "retained", "digest", "confirmed", 3, prior, "history_mismatch"},
+		{"sent", "retained", "digest", "sent", 2, prior, "gateway_response_unresolved"},
+		{"applied", "retained", "digest", "applied", 2, prior, "gateway_response_unresolved"},
+		{"expired", "retained", "digest", "expired", 2, prior, "gateway_response_unresolved"},
+		{"confirmed", "retained", "digest", "confirmed", 2, prior, ""},
+		{"rejected", "retained", "digest", "rejected", 2, prior, ""},
+		{"rolled-back", "retained", "digest", "rolled_back", 2, prior, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := retainedApplyRecoveryReason(tc.prior, tc.id, tc.digest, tc.status, tc.version); got != tc.want {
+				t.Fatal(got, tc.want)
+			}
+		})
+	}
+}
