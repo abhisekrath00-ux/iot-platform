@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/applyadmission"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,11 +31,24 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 	if de != nil || re != nil {
 		t.Fatal("explicit archive test requires matching PostgreSQL archive tools")
 	}
-	for _, mode := range []string{"guarded-known", "guarded-unknown", "pre-publication-snapshot", "pre-unknown-snapshot", "table-only-atomic-refusal", "table-only-partial-open-gap", "full-database-known", "full-database-unknown", "pre-full-database-snapshot"} {
+	for _, mode := range []string{"guarded-known", "guarded-unknown", "pre-publication-snapshot", "pre-unknown-snapshot", "table-only-atomic-refusal", "table-only-partial-open-gap", "full-database-known", "full-database-unknown", "pre-full-database-snapshot", "pre-retained-full-database-snapshot", "pre-retained-unknown-full-database-snapshot"} {
 		t.Run(mode, func(t *testing.T) {
 			s, m, tenant, path := applyGuardFixture(t)
 			if err := installApplyGuard(t, s); err != nil {
 				t.Fatal(err)
+			}
+			retained := strings.Contains(mode, "retained")
+			retainedDir := t.TempDir()
+			if err := os.Chmod(retainedDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if retained {
+				s.applySafetyCandidate = true
+				var err error
+				s.applyAttemptFence, err = applyadmission.OpenFence(retainedDir)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			var schema string
 			if err := s.st.Pool.QueryRow(t.Context(), "SELECT current_schema()").Scan(&schema); err != nil {
@@ -100,7 +114,7 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 			var calls atomic.Int32
 			publish := func(string, []byte) error {
 				calls.Add(1)
-				if mode == "guarded-unknown" || mode == "pre-unknown-snapshot" || mode == "full-database-unknown" {
+				if mode == "guarded-unknown" || mode == "pre-unknown-snapshot" || mode == "full-database-unknown" || mode == "pre-retained-unknown-full-database-snapshot" {
 					return errors.New("synthetic acknowledgement unavailable")
 				}
 				return nil
@@ -122,7 +136,7 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 			}
 			first := call(m, tenant, "admin", "POST", path, `{}`)
 			wantFirst := 202
-			if mode == "guarded-unknown" || mode == "pre-unknown-snapshot" || mode == "full-database-unknown" {
+			if mode == "guarded-unknown" || mode == "pre-unknown-snapshot" || mode == "full-database-unknown" || mode == "pre-retained-unknown-full-database-snapshot" {
 				wantFirst = 502
 			}
 			if first.Code != wantFirst {
@@ -210,12 +224,27 @@ func TestIntegrationApplyGuardArchiveCandidate(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer pool.Close()
-			fresh := &server{st: &store.Store{Pool: pool}, opsPublishHook: publish}
+			if retained {
+				s.applyAttemptFence, err = applyadmission.OpenFence(retainedDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			fresh := &server{st: &store.Store{Pool: pool}, opsPublishHook: publish, applySafetyCandidate: retained, applyAttemptFence: s.applyAttemptFence}
 			mux := http.NewServeMux()
 			mux.HandleFunc("POST /v1/gateways/{id}/config-push", fresh.pushGatewayConfig)
 			mux.HandleFunc("GET /v1/gateways/{id}/config-push", fresh.listConfigPushes)
 			seen := call(mux, tenant, "admin", "GET", path, "")
 			next := call(mux, tenant, "admin", "POST", path, `{}`)
+			if retained {
+				if seen.Code != 200 || !strings.Contains(seen.Body.String(), `"recovery_quarantined":true`) || !strings.Contains(seen.Body.String(), `"status":"quarantined"`) || next.Code != 409 || calls.Load() != 1 {
+					t.Fatal("retained external fence rearmed after actual stale full database restore", seen.Code, seen.Body.String(), next.Code, calls.Load())
+				}
+				t.Log("RETAINED_EXTERNAL_FENCE_ACTUAL_PRE_ATTEMPT_FULL_DATABASE_RESTORE_EMPTY_HISTORY_POST409_ONE_FAKE_ACCEPTANCE; no automatic clear/retry")
+				assertGuardLedger(t, fresh)
+				return
+			}
+
 			if mode == "guarded-known" || mode == "guarded-unknown" || mode == "full-database-known" || mode == "full-database-unknown" {
 				if seen.Code != 200 || !strings.Contains(seen.Body.String(), `"status":"sent"`) || next.Code != 409 || calls.Load() != 1 {
 					t.Fatal("restored guard rearmed", seen.Code, seen.Body.String(), next.Code, calls.Load())

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/eclipse/paho.mqtt.golang/packets"
 	"net"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +19,7 @@ func TestIntegrationApplySafetyPolicyCandidate(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			s, m, tenant, path := applyGuardFixture(t)
 			s.applySafetyCandidate = true
+			s.applyAttemptFence = testApplyFence(t)
 			if mode != "missing" {
 				if err := installApplyGuard(t, s); err != nil {
 					t.Fatal(err)
@@ -91,6 +93,7 @@ func TestIntegrationApplySafetyPolicyDirectPublisher(t *testing.T) {
 				t.Fatal(err)
 			}
 			s.applySafetyCandidate = true
+			s.applyAttemptFence = testApplyFence(t)
 			l, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
@@ -169,5 +172,139 @@ func TestIntegrationApplySafetyCandidateRefusesReplicaSession(t *testing.T) {
 	}
 	if err := applyadmission.Verify(t.Context(), tx); err == nil {
 		t.Fatal("disabled normal triggers accepted")
+	}
+}
+
+func testApplyFence(t *testing.T) *applyadmission.Fence {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := applyadmission.OpenFence(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func TestIntegrationApplySafetyRetainedFenceAcrossHistoryLoss(t *testing.T) {
+	for _, mode := range []string{"known", "unknown", "missing-storage"} {
+		t.Run(mode, func(t *testing.T) {
+			s, m, tenant, path := applyGuardFixture(t)
+			if err := installApplyGuard(t, s); err != nil {
+				t.Fatal(err)
+			}
+			s.applySafetyCandidate = true
+			if mode != "missing-storage" {
+				s.applyAttemptFence = testApplyFence(t)
+			}
+			var calls atomic.Int32
+			s.opsPublishHook = func(string, []byte) error {
+				calls.Add(1)
+				if mode == "unknown" {
+					return errors.New("synthetic unknown")
+				}
+				return nil
+			}
+			first := call(m, tenant, "admin", "POST", path, `{}`)
+			if mode == "missing-storage" {
+				if first.Code != 409 || calls.Load() != 0 {
+					t.Fatal(first.Code, calls.Load())
+				}
+				return
+			}
+			want := 202
+			if mode == "unknown" {
+				want = 502
+			}
+			if first.Code != want {
+				t.Fatal(first.Code, first.Body.String())
+			}
+			// Model only the later-attempt history absent after stale database restore.
+			// Actual archive coverage separately verifies the external fence retained.
+			if _, err := s.st.Pool.Exec(t.Context(), `ALTER TABLE gateway_config_pushes DISABLE TRIGGER apply_attempt_guard_candidate; DELETE FROM gateway_config_pushes; ALTER TABLE gateway_config_pushes ENABLE TRIGGER apply_attempt_guard_candidate`); err != nil {
+				t.Fatal(err)
+			}
+			seen := call(m, tenant, "admin", "GET", path, "")
+			if seen.Code != 200 || !strings.Contains(seen.Body.String(), `"recovery_quarantined":true`) {
+				t.Fatal(seen.Code, seen.Body.String())
+			}
+			next := call(m, tenant, "admin", "POST", path, `{}`)
+			if next.Code != 409 || calls.Load() != 1 {
+				t.Fatal("lost DB history rearmed", next.Code, next.Body.String(), calls.Load())
+			}
+			var rows int
+			if err := s.st.Pool.QueryRow(t.Context(), "SELECT count(*) FROM gateway_config_pushes").Scan(&rows); err != nil || rows != 0 {
+				t.Fatal(rows, err)
+			}
+		})
+	}
+}
+
+func TestIntegrationApplySafetyFenceBeforeCommitFailure(t *testing.T) {
+	s, m, tenant, path := applyGuardFixture(t)
+	if err := installApplyGuard(t, s); err != nil {
+		t.Fatal(err)
+	}
+	s.applySafetyCandidate = true
+	s.applyAttemptFence = testApplyFence(t)
+	// Fail only at transaction commit, after the retained fence has been synced.
+	if _, err := s.st.Pool.Exec(t.Context(), `CREATE FUNCTION fail_apply_commit_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic deferred commit failure'; END $$; CREATE CONSTRAINT TRIGGER fail_apply_commit_fixture AFTER INSERT ON gateway_config_pushes DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_apply_commit_fixture()`); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	s.opsPublishHook = func(string, []byte) error { calls.Add(1); return nil }
+	first := call(m, tenant, "admin", "POST", path, `{}`)
+	if first.Code != 500 || calls.Load() != 0 {
+		t.Fatal(first.Code, first.Body.String(), calls.Load())
+	}
+	if _, err := s.st.Pool.Exec(t.Context(), `DROP TRIGGER fail_apply_commit_fixture ON gateway_config_pushes; DROP FUNCTION fail_apply_commit_fixture()`); err != nil {
+		t.Fatal(err)
+	}
+	next := call(m, tenant, "admin", "POST", path, `{}`)
+	if next.Code != 409 || calls.Load() != 0 {
+		t.Fatal("commit failure rearmed", next.Code, next.Body.String(), calls.Load())
+	}
+	var n int
+	if err := s.st.Pool.QueryRow(t.Context(), "SELECT count(*) FROM gateway_config_pushes").Scan(&n); err != nil || n != 0 {
+		t.Fatal(n, err)
+	}
+}
+
+func TestIntegrationApplySafetyFenceReadStatus(t *testing.T) {
+	s, m, tenant, path := applyGuardFixture(t)
+	if err := installApplyGuard(t, s); err != nil {
+		t.Fatal(err)
+	}
+	s.applySafetyCandidate = true
+	missing := call(m, tenant, "admin", "GET", path, "")
+	if missing.Code != 503 {
+		t.Fatal(missing.Code, missing.Body.String())
+	}
+	s.applyAttemptFence = testApplyFence(t)
+	empty := call(m, tenant, "admin", "GET", path, "")
+	if empty.Code != 200 || strings.TrimSpace(empty.Body.String()) != "[]" {
+		t.Fatal(empty.Code, empty.Body.String())
+	}
+	var calls atomic.Int32
+	s.opsPublishHook = func(string, []byte) error { calls.Add(1); return nil }
+	first := call(m, tenant, "admin", "POST", path, `{}`)
+	if first.Code != 202 {
+		t.Fatal(first.Code, first.Body.String())
+	}
+	if _, err := s.st.Pool.Exec(t.Context(), `UPDATE gateway_config_pushes SET status='rejected'`); err != nil {
+		t.Fatal(err)
+	}
+	terminal := call(m, tenant, "admin", "GET", path, "")
+	next := call(m, tenant, "admin", "POST", path, `{}`)
+	if terminal.Code != 200 || !strings.Contains(terminal.Body.String(), `"recovery_quarantined":true`) || !strings.Contains(terminal.Body.String(), `"status":"rejected"`) || next.Code != 409 || calls.Load() != 1 {
+		t.Fatal(terminal.Code, terminal.Body.String(), next.Code, calls.Load())
+	}
+	// Default-off path and its wire response remain unchanged.
+	s.applySafetyCandidate = false
+	legacy := call(m, tenant, "admin", "GET", path, "")
+	if legacy.Code != 200 || strings.Contains(legacy.Body.String(), "recovery_quarantined") {
+		t.Fatal(legacy.Code, legacy.Body.String())
 	}
 }

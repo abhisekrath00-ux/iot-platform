@@ -1,0 +1,59 @@
+{
+  "state": "LOCAL UNPUBLISHED disabled-path retained fence integration; not owner or default recovery acceptance",
+  "base": "f0ba13cf69751df6f398771fc5114a2e3c93f602",
+  "source_sha256": {
+    "server/internal/applyadmission/fence.go": "21109e20753fcd7b9df7f1428a6cef34e056d367585d93af7e8be9ad1998d8e4",
+    "server/internal/applyadmission/fence_test.go": "51bfcf0d6fa582d902eefe2c7bfdb6102b92b48e53452cc8c548017a3519eb84",
+    "server/cmd/api/main.go": "7c719809a327f8cf41e5bf00764ee564289487ae4021ea119c4cd7e39f107065",
+    "server/cmd/api/configpush.go": "ccea3f49e1bbb285269ba85b8cdc5f77c608624a7e830b3cb34e82f693d13e61",
+    "server/cmd/api/apply_guard_archive_candidate_test.go": "46c4dd99bd485dfebc5c3586557579dbb11c3b66b598a4cc94cfce5fc4f410a8",
+    "server/cmd/api/apply_guard_mtls_candidate_test.go": "8646f09416abb0ff3c4dfb7e2f53b0c40941f424644edcd99d243108ed648f99",
+    "server/cmd/api/apply_safety_policy_candidate_test.go": "32a35334ed99f7ca49855d2159b56ca18eba6b36e6febd656d32dd60b9a5caf1",
+    "web/src/components/SourceApply.tsx": "5eb5f46b786f96757d6560e27886e696a041fbff3ed1b9c1b1cd65deba662b30",
+    "web/src/components/SourceApply.test.tsx": "41fa9463c6e5327e85297170850a547a83189eae933e5590e28cc4d6217fbcfc"
+  },
+  "results_s": {
+    "fence_three_race": 4.082,
+    "policy_three_race": 3.721,
+    "actual_pre_attempt_full_db_restore_reopen_three_race": 8.339,
+    "integrated_no_hook_verified_mtls_three_race": 19.662,
+    "fence_with_read_status_three_race": 4.107,
+    "policy_and_actual_restore_visibility_three_race": 12.023,
+    "final_policy_with_terminal_status_three_race": 3.594
+  },
+  "boundaries": [
+    "claim exclusive/sync file/sync directory before DB commit and broker publication",
+    "deferred actual PG commit failure leaves no DB row and no publisher invocation; retained fence blocks next attempt",
+    "actual pre-attempt fullDB restore loses known/unknown attempt but reopened independent fence returns409 with one FAKE acceptance",
+    "16concurrent claims one winner; process exit/reopen/partial/missing/redirected path fail closed"
+  ],
+  "scope_limits": [
+    "No terminal receipt release implemented, later Apply remains blocked",
+    "No clear/retry operation",
+    "Independent fence storage required; restoring BOTH histories unsafe",
+    "Local shared-filesystem only, no NFS/multi-replica deployment acceptance",
+    "No administrator/path replacement/ownership/power loss durability acceptance",
+    "No product constructors or activation/provisioning path",
+    "No owner migration/default activation/image/update or physical execution"
+  ],
+  "logs": [
+    "/tmp/h153-fence-final-three.log",
+    "/tmp/h153-policy-final-three.log",
+    "/tmp/h153-archive-final-three.log",
+    "/tmp/h153-mtls-three.log",
+    "/tmp/h153-api-final.log",
+    "/tmp/h153-visible-policy.log",
+    "/tmp/h153-visible-web.log",
+    "/tmp/h153-visible-build.log",
+    "/tmp/h153-api-final2.log",
+    "/tmp/h153-web-full.log"
+  ],
+  "verification": {
+    "fresh_full_api_archive_optin": "ok  \tgithub.com/abhisekrath00-ux/iot-platform/server/cmd/api\t43.198s",
+    "full_web": "st.ts \u001b[2m(\u001b[22m\u001b[2m2 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 6\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m\u2713\u001b[39m src/lib/flowsummary.test.ts \u001b[2m(\u001b[22m\u001b[2m2 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 4\u001b[2mms\u001b[22m\u001b[39m\n\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m71 passed\u001b[39m\u001b[22m\u001b[90m (71)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m447 passed\u001b[39m\u001b[22m\u001b[90m (447)\u001b[39m\n\u001b[2m   Start at \u001b[22m 13:43:21\n\u001b[2m   Duration \u001b[22m 57.96s\u001b[2m (environment 70%, tests 20%, import 8%, transform 2%, worker 1%)\u001b[22m\n\n\u001b[2m    Isolate \u001b[22m \u001b[33m71 workers spawned\u001b[39m\u001b[2m \u00b7 ~602ms startup each (spawn + environment, per file)\u001b[22m\n\u001b[2m            \u001b[22m \u001b[2mat least ~42.13s faster with \u001b[22m\u001b[33misolate: false\u001b[39m\u001b[2m \u2014 reuses workers across files instead of one per file\u001b[22m\n\n",
+    "docsrag": "ok  \tgithub.com/abhisekrath00-ux/iot-platform/server/internal/docsrag\t0.362s",
+    "web_build": "PASS, existing chunk warning",
+    "visual": "Inspected actual pixels, local synthetic real component desktop/mobile, no overflow, action disabled, only3GETs zeroPOSTs",
+    "visibility": "Read-only retained-fence status; missing storage503, occupied flag on DB history or explicit safety-only quarantine observation if history absent; default-off wire shape unchanged"
+  }
+}

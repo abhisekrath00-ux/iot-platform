@@ -139,6 +139,14 @@ func (s *server) pushGatewayConfig(w http.ResponseWriter, r *http.Request) {
 		dbErr(w, err)
 		return
 	}
+	if s.applySafetyCandidate {
+		// Independent retained intent precedes DB commit and broker I/O. If the
+		// commit acknowledgement is lost, the fence remains quarantined too.
+		if err := s.applyAttemptFence.Claim(tenant, gw, id, sha); err != nil {
+			http.Error(w, "Apply is quarantined. A retained attempt exists or safety storage is unavailable; no new Apply was sent.", http.StatusConflict)
+			return
+		}
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		dbErr(w, err)
 		return
@@ -176,6 +184,16 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenant, gw := auth.Tenant(r), r.PathValue("id")
+	occupied := false
+	if s.applySafetyCandidate {
+		var err error
+		occupied, err = s.applyAttemptFence.Occupied(tenant, gw)
+		if err != nil {
+			http.Error(w, "Retained Apply safety status unavailable. No new Apply is allowed; ask an administrator to inspect recovery storage.", http.StatusServiceUnavailable)
+			return
+		}
+	}
+
 	if _, err := s.st.Pool.Exec(r.Context(), `UPDATE gateway_config_pushes SET status='expired', detail='no answer from the gateway', updated_at=now() WHERE tenant_id=$1 AND gateway_id=$2 AND status='sent' AND detail<>$3 AND created_at < now() - interval '15 minutes'`, tenant, gw, configPushPublicationUnknown); err != nil {
 		dbErr(w, err)
 		return
@@ -194,6 +212,18 @@ func (s *server) listConfigPushes(w http.ResponseWriter, r *http.Request) {
 		var c, u time.Time
 		if rows.Scan(&id, &ver, &st, &detail, &by, &sha, &c, &u) == nil {
 			out = append(out, map[string]any{"id": id, "version": ver, "status": st, "detail": detail, "requested_by": by, "sha256": sha, "created_at": c, "updated_at": u, "publication_unconfirmed": st == "sent" && detail == configPushPublicationUnknown})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		dbErr(w, err)
+		return
+	}
+	if occupied {
+		if len(out) == 0 {
+			// Explicit safety observation, not a fabricated application receipt.
+			out = append(out, map[string]any{"status": "quarantined", "recovery_quarantined": true})
+		} else {
+			out[0]["recovery_quarantined"] = true
 		}
 	}
 	writeJSON(w, 200, out)

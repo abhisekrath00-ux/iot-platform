@@ -51,3 +51,7 @@ test('late response from a previous gateway cannot replace current gateway state
 });
 
 test('unsupported digest cannot fall back to an unscoped Apply lock',async()=>{vi.stubGlobal('crypto',{});mock();await render();expect(box.textContent).toContain('could not safely retain');expect(box.querySelector('button')!.disabled).toBe(true);expect(vi.mocked(api).mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0)});
+
+test.each(['quarantined','confirmed','rejected','rolled_back','expired'])('retained recovery quarantine blocks %s status after reload without fabricating success',async status=>{
+ mock('admin',[{status,recovery_quarantined:true}]);await render();expect(box.textContent).toContain('database history was restored or is missing');expect(box.textContent).toContain('does not prove delivery or failure');expect(box.textContent).not.toContain('Gateway confirmed the settings');expect(box.querySelector('input')!.disabled).toBe(true);await review();expect(box.querySelector('button')!.disabled).toBe(true);await remount();expect(box.querySelector('button')!.disabled).toBe(true);expect(vi.mocked(api).mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0);
+});

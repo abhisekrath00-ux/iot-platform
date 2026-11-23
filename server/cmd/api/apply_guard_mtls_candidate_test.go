@@ -64,6 +64,7 @@ func verifyApplyGuardPolicyMTLS(t *testing.T, port, ca, gc, gk, ac, ak string, i
 	}
 	if integrated {
 		s.applySafetyCandidate = true
+		s.applyAttemptFence = testApplyFence(t)
 		s.opsPublishHook = nil
 	}
 	first := call(m, tenant, "admin", "POST", path, `{}`)
@@ -87,7 +88,7 @@ func verifyApplyGuardPolicyMTLS(t *testing.T, port, ca, gc, gk, ac, ak string, i
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	fresh := &server{st: &store.Store{Pool: pool}, opsPublishHook: s.opsPublishHook, applySafetyCandidate: integrated}
+	fresh := &server{st: &store.Store{Pool: pool}, opsPublishHook: s.opsPublishHook, applySafetyCandidate: integrated, applyAttemptFence: s.applyAttemptFence}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/gateways/{id}/config-push", fresh.listConfigPushes)
 	mux.HandleFunc("POST /v1/gateways/{id}/config-push", fresh.pushGatewayConfig)

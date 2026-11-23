@@ -3674,3 +3674,53 @@ be reconciled; no automatic retry/operator-clear or database rewind is added.
 Production defaults, bounded transport compatibility, adoption, full images,
 operator recovery, Windows/hardware and owner activation remain unaccepted.
 Manifest: docs/validation/apply-integrated-policy-local.json.
+
+#### Retained external Apply fence, local integration not recovery acceptance
+
+The disabled internal policy additionally requires a retained external attempt
+fence. No product constructor, environment, route or menu opens or provisions
+this directory. It must already be an absolute private0700 directory without
+symlink redirection, retained independently of database restoration. A missing
+location fails closed, never creates a new empty journal. Gateway-scoped intent
+creation uses exclusive0600 files, file sync and directory sync BEFORE database
+commit or broker I/O. Failure/uncertainty leaves quarantine; it never deletes
+or retries the intent. Only tenant/gateway/attempt/digest/time are recorded,
+not approved source configuration or credentials. One shared local filesystem
+is required; independent directories/NFS semantics are not accepted here.
+
+Actual pre-attempt full-database restore tests for known and unknown outcomes
+reopen this retained fence, find empty restored attempt history, and refuse the
+next POST409 with one FAKE publisher acceptance. THREE race repeats8.339s pass.
+Updated integrated verified-mTLS no-hook THREE19.662s retains one publication.
+Sixteen concurrent claims produce one winner; reopening, process exit after
+claim, partial intent and missing/redirected directory cannot rearm. THREE
+fence race repeats4.082s pass. A deferred PostgreSQL constraint trigger fails
+at COMMIT after fence sync: no publisher invocation occurs and the next POST
+remains quarantined even after removing the synthetic fault, with zero rows.
+Full policy THREErace3.721s includes that boundary. These are local tests, not
+new remote CI acceptance or a power-loss/filesystem durability certification.
+
+This is deliberately safe quarantine, NOT complete recovery UX. There is no
+clear operation or automatic retry. The current fence blocks later Apply even
+after a terminal gateway receipt; durable authenticated resolution remains to
+be implemented and accepted before activation. Restoring or losing BOTH fence
+and database history can still rearm, so independently retained storage and
+recovery admission are deployment gates. Administrator directory replacement,
+mount lifecycle, permissions/ownership, multiple replicas, image/update and
+operator reconciliation remain unaccepted. Existing production default path
+and SQL catalog remain unchanged. No owner deployment or activation occurred.
+Manifest: docs/validation/apply-retained-fence-local.json.
+
+Read-only recovery visibility now consults the independently retained fence:
+missing storage returns503, an occupied fence adds recovery_quarantined=true
+to observed history, or returns an explicit quarantined safety observation
+without inventing a receipt when DB history is empty. This never creates or
+clears a claim. The Apply UI blocks review/send for that flag even after a
+terminal response, explains that delivery/failure is unproved, and says not to
+delete storage. The default-off wire response remains unchanged. Unit/race
+coverage includes empty, occupied, partial and missing storage; API coverage
+includes rejected receipts, default-off compatibility and actual stale fullDB
+restore. SourceApply31tests pass, including terminal/missing recovery status
+and remount. Local synthetic desktop/mobile pixels inspected, full action and
+quarantine instructions visible, no horizontal overflow, no POST issued. No
+physical gateway, owner recovery or complete recovery workflow is implied.

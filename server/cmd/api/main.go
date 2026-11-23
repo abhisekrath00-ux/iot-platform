@@ -26,6 +26,7 @@ import (
 	"time"
 	_ "time/tzdata" // zone database inside the binary: air-gapped images may have none (quiet hours use IANA zones)
 
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/applyadmission"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/configaudit"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
@@ -54,6 +55,7 @@ import (
 type server struct {
 	// Internal acceptance-only policy. No environment/route/startup enables it.
 	applySafetyCandidate bool
+	applyAttemptFence    *applyadmission.Fence
 
 	opsPublishHook func(topic string, payload []byte) error // tests only; nil means the real broker
 	st             *store.Store
