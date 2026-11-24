@@ -104,6 +104,48 @@ def internal_endpoint(info, network, number):
     return str(address), number
 
 
+# Stable definitions rather than OIDs, which legitimately differ by database.
+CATALOG_SQL = """SELECT json_build_object(
+ 'function', pg_get_functiondef(p.oid), 'body', p.prosrc,
+ 'language', l.lanname, 'security_definer', p.prosecdef,
+ 'result', p.prorettype::regtype::text, 'config', p.proconfig,
+ 'trigger', pg_get_triggerdef(t.oid), 'enabled', t.tgenabled,
+ 'type', t.tgtype, 'args', t.tgnargs, 'qualification', t.tgqual,
+ 'internal', t.tgisinternal, 'function_bound', t.tgfoid=p.oid,
+ 'index', pg_get_indexdef(i.indexrelid), 'unique', i.indisunique,
+ 'valid', i.indisvalid, 'ready', i.indisready,
+ 'keys', i.indnkeyatts, 'attributes', i.indnatts,
+ 'key1', pg_get_indexdef(i.indexrelid,1,true),
+ 'key2', pg_get_indexdef(i.indexrelid,2,true),
+ 'predicate', pg_get_expr(i.indpred,i.indrelid))::text
+ FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang
+ JOIN pg_trigger t ON t.tgrelid='gateway_config_pushes'::regclass
+ AND t.tgname='apply_attempt_guard_candidate'
+ JOIN pg_index i ON i.indexrelid=to_regclass('apply_open_attempt_candidate')
+ AND i.indrelid=t.tgrelid
+ WHERE p.oid=to_regprocedure('apply_attempt_guard_candidate()');"""
+LEDGER_SQL = 'SELECT filename FROM schema_migrations ORDER BY filename'
+
+
+def validate_catalog(value):
+    expected = (ROOT/'server/internal/applyadmission/candidate.sql').read_text().split('AS $guard$')[1].split('$guard$')[0].strip()
+    requirements = {'body': expected, 'language': 'plpgsql', 'security_definer': False,
+                    'result': 'trigger', 'config': None, 'enabled': 'O', 'type': 31,
+                    'args': 0, 'qualification': None, 'internal': False,
+                    'function_bound': True, 'unique': True, 'valid': True,
+                    'ready': True, 'keys': 2, 'attributes': 2,
+                    'key1': 'tenant_id', 'key2': 'gateway_id',
+                    'predicate': "(status = ANY (ARRAY['sent'::text, 'applied'::text]))"}
+    for key, expected_value in requirements.items():
+        actual = value.get(key)
+        if key == 'body' and isinstance(actual, str): actual = actual.strip()
+        if key not in value or actual != expected_value or type(actual) is not type(expected_value):
+            raise RuntimeError('fixture SQL guard differs at '+key)
+    if not all(value.get(key) for key in ('function', 'trigger', 'index')):
+        raise RuntimeError('fixture SQL guard definitions missing')
+    return value
+
+
 def database_tcp_command(name):
     # Do not use the temporary socket-only PostgreSQL init server as readiness.
     return ['docker', 'exec', '-e', 'PGPASSWORD=synthetic-only', name, 'psql',
@@ -148,6 +190,32 @@ def self_test():
         except RuntimeError:
             continue
         raise AssertionError('unsafe fixture network accepted: '+change)
+    catalog = {'body': (ROOT/'server/internal/applyadmission/candidate.sql').read_text().split('AS $guard$')[1].split('$guard$')[0].strip(),
+               'language': 'plpgsql', 'security_definer': False, 'result': 'trigger',
+               'config': None, 'enabled': 'O', 'type': 31, 'args': 0,
+               'qualification': None, 'internal': False, 'function_bound': True,
+               'unique': True, 'valid': True, 'ready': True, 'keys': 2,
+               'attributes': 2, 'key1': 'tenant_id', 'key2': 'gateway_id',
+               'predicate': "(status = ANY (ARRAY['sent'::text, 'applied'::text]))",
+               'function': 'synthetic function', 'trigger': 'synthetic trigger',
+               'index': 'synthetic index'}
+    validate_catalog(catalog)
+    for key in catalog:
+        bad = dict(catalog)
+        bad[key] = None if key in ('function', 'trigger', 'index') else 'mutated'
+        try:
+            validate_catalog(bad)
+        except RuntimeError:
+            continue
+        raise AssertionError('changed catalog accepted: '+key)
+    for key in catalog:
+        bad = dict(catalog)
+        del bad[key]
+        try:
+            validate_catalog(bad)
+        except RuntimeError:
+            continue
+        raise AssertionError('missing catalog field accepted: '+key)
     command = database_tcp_command('synthetic-db')
     assert command[command.index('-h')+1] == '127.0.0.1'
     assert command[command.index('-d')+1] == 'fixture'
@@ -301,6 +369,10 @@ def main():
                     pg(db, "INSERT INTO tenants(id,name) VALUES('image-fixture','Synthetic'); INSERT INTO users(id,tenant_id,email,display_name,role) VALUES('image-user','image-fixture','synthetic@example.invalid','Synthetic','admin'); INSERT INTO sites(id,tenant_id,name) VALUES('image-site','image-fixture','Synthetic'); INSERT INTO gateways(id,tenant_id,site_id,serial,status) VALUES('image-gw','image-fixture','image-site','SYNTHETIC-IMAGE','active')")
                     if guarded:
                         pg(db, (ROOT/'server/internal/applyadmission/candidate.sql').read_text())
+                        catalog_before = validate_catalog(json.loads(pg(db, CATALOG_SQL)))
+                    ledger_before = pg(db, LEDGER_SQL)
+                    expected_ledger = '\n'.join(sorted(p.name for p in (ROOT/'server/migrations').glob('*.sql')))
+                    assert ledger_before == expected_ledger and len(ledger_before.splitlines()) == 93
                     observer = socket.create_connection(broker_endpoint, timeout=5)
                     observer.settimeout(3)
                     try:
@@ -333,7 +405,7 @@ def main():
                         ids = [first_id]
                         if guarded:
                             assert pg(db, "SELECT row_to_json(p)::text FROM gateway_config_pushes p") == row_before
-                            assert pg(db, "SELECT (to_regprocedure('apply_attempt_guard_candidate()') IS NOT NULL)::int || ',' || (EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='gateway_config_pushes'::regclass AND tgname='apply_attempt_guard_candidate' AND tgenabled='O'))::int || ',' || (EXISTS(SELECT 1 FROM pg_index WHERE indexrelid='apply_open_attempt_candidate'::regclass AND indisunique AND indisvalid))::int") == '1,1,1' 
+                            assert validate_catalog(json.loads(pg(db, CATALOG_SQL))) == catalog_before
                             observer.settimeout(.5)
                             try:
                                 packet(observer)
@@ -343,9 +415,10 @@ def main():
                         else:
                             ids.append(delivery())
                         assert len(set(ids)) == len(ids)
-                        assert pg(db, 'SELECT count(*) FROM schema_migrations') == '93'
+                        assert pg(db, LEDGER_SQL) == ledger_before
                         results.append({'case': tag, 'first_image': first, 'second_image': second,
-                                        'next_http': again[0], 'deliveries': len(ids), 'ledger': 93,
+                                        'next_http': again[0], 'deliveries': len(ids), 'ledger': 93, 'exact_ledger_names': True,
+                                        'exact_catalog': guarded,
                                         'expected': 'retained database blocks resend' if guarded else 'OPEN baseline rearm'})
                     finally:
                         observer.close()

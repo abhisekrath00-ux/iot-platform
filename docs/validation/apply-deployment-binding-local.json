@@ -1,0 +1,34 @@
+{
+  "state": "LOCAL UNPUBLISHED offline binding and enabled-candidate mTLS acceptance, not product activation",
+  "source_sha256": {
+    "server/internal/applyadmission/binding.go": "b7d18c5bb7150a4f3c4bed7e802bbaf0657314eacbf299b0d1eafbef3910d6c0",
+    "server/internal/applyadmission/binding_test.go": "047b5b0315f612bfdf6182abb3fa4098dbc737a435863229c825ce96cca54332",
+    "server/cmd/api/apply_deployment_binding_test.go": "03d3eb7bb6d3db35cc42a35d4ceee952567a07f2a830d1bd64461b0c0f93cb52",
+    "server/cmd/api/apply_guard_mtls_candidate_test.go": "f96cc6cbe9882cb6adf47d7c940af1fcd560921ac78fbd09c32ca552fb81a949"
+  },
+  "results": {
+    "binding_preflight_policy_three_race": "3.693s",
+    "store_three_race": "4.161s",
+    "verified_mtls_compiled_ingest_three_race": "20.439s includes parent mixed pipeline, candidate subcase0.38s finalrepeat",
+    "fresh_full_api": "34.434s",
+    "vet": "pass",
+    "compiled_ingest_sha256": "b7bef1b5bf3995fb2d2f9ead6a484ec7a76915a739b9e283e082a4240174d0d7"
+  },
+  "assertions": [
+    "explicit offline separate expected binding reservation synced before store provisioning; never overwrites/retries existing binding",
+    "refuses occupied store, inside-store binding, symlink/public/partial/unknown/trailing/mismatched deployment or replaced store",
+    "realPG handler202 one fakepublication/reopen409/live store replacement blocks publication",
+    "enabled candidate fresh prepared binding/newinstallpreflight/reopened expected binding/nonempty source/envelopeSHA256/independentEd25519 field checks",
+    "actual certificate-required broker no publisher hook; compiled ingest synthetic applied-confirmed receipt permits version2 distinct observed envelope, thirdPOST409"
+  ],
+  "limits": [
+    "Not a product CLI/startup provisioning or activation route",
+    "Binding outside store is a path/separate identifier boundary, not proof of separate physical volume, fs durability or operator custody",
+    "Read-only preflight is not a writer quiescence lease; no existing legacy reconciliation",
+    "Fresh server object/pool/store reopen, not new API process/container/image or native updater",
+    "No archive restore added in this slice; earlier separate retained-store restore evidence unchanged",
+    "Receipts are synthetic, no physical executor or owner hardware",
+    "Parent pipeline still includes other verified broker/ingest cases; time not all candidate-only",
+    "No publication/dispatch/merge/deploy/spending"
+  ]
+}

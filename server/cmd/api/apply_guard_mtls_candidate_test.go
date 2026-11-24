@@ -1,12 +1,18 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/applyadmission"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -67,9 +73,33 @@ func verifyApplyGuardPolicyMTLS(t *testing.T, port, ca, gc, gk, ac, ak string, i
 		}
 		return publishApplyMQTTOnceCandidate(t.Context(), got, b)
 	}
+	bindingDirectory, bindingPath := "", ""
 	if integrated {
+		base := t.TempDir()
+		if err := os.Chmod(base, 0700); err != nil {
+			t.Fatal(err)
+		}
+		bindingDirectory = filepath.Join(base, "retained")
+		bindingPath = filepath.Join(base, "expected.json")
+		if err := os.Mkdir(bindingDirectory, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := applyadmission.PrepareNewDeploymentBinding(bindingDirectory, bindingPath, "disposable-mtls"); err != nil {
+			t.Fatal(err)
+		}
+		s.applyAttemptFence, err = applyadmission.OpenDeploymentFence(bindingDirectory, bindingPath, "disposable-mtls")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := s.st.Pool.Begin(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := applyadmission.PreflightNewInstall(t.Context(), tx, s.applyAttemptFence); err != nil {
+			t.Fatal(err)
+		}
+		tx.Rollback(t.Context())
 		s.applySafetyCandidate = true
-		s.applyAttemptFence = testApplyFence(t)
 		s.opsPublishHook = nil
 	}
 	first := call(m, tenant, "admin", "POST", path, `{}`)
@@ -82,9 +112,7 @@ func verifyApplyGuardPolicyMTLS(t *testing.T, port, ca, gc, gk, ac, ak string, i
 	case <-time.After(3 * time.Second):
 		t.Fatal("signed envelope not observed")
 	}
-	if e.TenantID != tenant || e.Signature == "" {
-		t.Fatal("envelope identity/signature missing")
-	}
+	verifyIndependentlyObservedApply(t, e, tenant)
 	if _, err := s.st.Pool.Exec(t.Context(), `UPDATE gateway_config_pushes SET created_at=now()-interval '1 day' WHERE id=$1`, e.PushID); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +121,12 @@ func verifyApplyGuardPolicyMTLS(t *testing.T, port, ca, gc, gk, ac, ak string, i
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	if integrated {
+		s.applyAttemptFence, err = applyadmission.OpenDeploymentFence(bindingDirectory, bindingPath, "disposable-mtls")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	fresh := &server{st: &store.Store{Pool: pool}, opsPublishHook: s.opsPublishHook, applySafetyCandidate: integrated, applyAttemptFence: s.applyAttemptFence}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/gateways/{id}/config-push", fresh.listConfigPushes)
@@ -182,6 +216,7 @@ func verifyApplyGuardPolicyMTLS(t *testing.T, port, ca, gc, gk, ac, ak string, i
 		}
 		select {
 		case next := <-seen:
+			verifyIndependentlyObservedApply(t, next, tenant)
 			if next.PushID == e.PushID || next.Version != e.Version+1 {
 				t.Fatal("not distinct new request", next)
 			}
@@ -196,4 +231,27 @@ func verifyApplyGuardPolicyMTLS(t *testing.T, port, ca, gc, gk, ac, ak string, i
 	}
 	assertGuardLedger(t, s)
 	t.Log("ISOLATED_DB_GUARD_AND_ONE_CONNECTION_CANDIDATES_REAL_MTLS_BROKER_ACK_HANDLER202_ONE_SIGNED_OBSERVER_DELIVERY_DAYOLD_NEW_POOL_GET_SENT_POST409_ONE_PUBLISH; no executor, gateway receipt, physical application or activation")
+}
+
+// Independent canonical bytes and Ed25519 verification, not the server signing
+// helper. This is synthetic source content observed at a read-only subscriber.
+func verifyIndependentlyObservedApply(t *testing.T, e configPushEnvelope, tenant string) {
+	t.Helper()
+	digest := sha256.Sum256([]byte(e.DevicesYAML))
+	if e.TenantID != tenant || e.Serial != "SER-"+tenant || e.PushID == "" || e.Version < 1 || e.ApprovedBy != "test-user" || e.SHA256 != hex.EncodeToString(digest[:]) || !strings.Contains(e.DevicesYAML, "10.0.0.7") || !strings.Contains(e.DevicesYAML, "modbus-tcp") || !e.ExpiresAt.After(e.IssuedAt) || e.ExpiresAt.Sub(e.IssuedAt) > 20*time.Minute || e.IssuedAt.After(time.Now().Add(time.Minute)) || !e.ExpiresAt.After(time.Now()) {
+		t.Fatal("observed envelope/content mismatch", e)
+	}
+	seed, err := base64.StdEncoding.DecodeString(os.Getenv("FLEET_SIGNING_KEY"))
+	if err != nil || len(seed) != ed25519.SeedSize {
+		t.Fatal("synthetic signing seed unavailable")
+	}
+	key := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
+	sig, err := base64.StdEncoding.DecodeString(e.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := strings.Join([]string{"hexmon-config-push-v1", e.TenantID, e.Serial, strconv.Itoa(e.Version), e.PushID, e.SHA256, e.ExpiresAt.UTC().Format(time.RFC3339)}, "\n")
+	if !ed25519.Verify(key, []byte(canonical), sig) {
+		t.Fatal("observed envelope signature invalid")
+	}
 }

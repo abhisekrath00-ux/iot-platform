@@ -66,3 +66,37 @@ test.each([
 ])('read-only recovery reason %s explains quarantine and keeps Apply blocked',async(reason,text)=>{
  mock('admin',[{status:'quarantined',recovery_quarantined:true,recovery_reason:reason,retained_attempt:{id:'retained-exact-request',version:2,sha256:'synthetic-fingerprint'}}]);await render();expect(box.textContent).toContain(text);expect(box.textContent).toContain('retained-exact-request');expect(box.textContent).toContain('intent record, not a gateway confirmation');expect(box.querySelector('button')!.disabled).toBe(true);expect(box.querySelector('input')!.disabled).toBe(true);expect(vi.mocked(api).mock.calls.every(([,i])=>i?.method!=='POST')).toBe(true);
 });
+
+
+test('unsafe readiness revokes prior review and requires fresh review after recovery with unchanged sources',async()=>{
+ vi.useFakeTimers();let safe=true;mock();const previous=vi.mocked(api).getMockImplementation()!;
+ vi.mocked(api).mockImplementation((p,i)=>p.endsWith('source-readiness')?Promise.resolve({...readiness,server_ready:safe,reason:safe?'':'Apply safety checks are not ready.'}):previous(p,i));
+ await render();await review();expect(box.querySelector('button')!.disabled).toBe(false);
+ safe=false;await act(async()=>vi.advanceTimersByTimeAsync(5000));expect(box.querySelector<HTMLInputElement>('input')!.checked).toBe(false);expect(box.querySelector('input')!.disabled).toBe(true);expect(box.querySelector('button')!.disabled).toBe(true);
+ safe=true;await act(async()=>vi.advanceTimersByTimeAsync(5000));expect(box.querySelector<HTMLInputElement>('input')!.checked).toBe(false);expect(box.querySelector('button')!.disabled).toBe(true);
+ expect(vi.mocked(api).mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0);await review();expect(box.querySelector('button')!.disabled).toBe(false);
+});
+
+test('status read failure revokes review rather than reusing it after recovery',async()=>{
+ vi.useFakeTimers();let offline=false;mock();const previous=vi.mocked(api).getMockImplementation()!;
+ vi.mocked(api).mockImplementation((p,i)=>offline&&p.endsWith('config-push')?Promise.reject(Error('read unavailable')):previous(p,i));
+ await render();await review();offline=true;await act(async()=>vi.advanceTimersByTimeAsync(5000));expect(box.querySelector<HTMLInputElement>('input')!.checked).toBe(false);expect(box.querySelector('input')!.disabled).toBe(true);
+ offline=false;await act(async()=>vi.advanceTimersByTimeAsync(5000));expect(box.querySelector('button')!.disabled).toBe(true);expect(vi.mocked(api).mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0);
+});
+
+
+test('older read failure cannot revoke a newer completed readiness observation',async()=>{
+ vi.useFakeTimers();let reads=0;let reject!:(e:Error)=>void;mock();const previous=vi.mocked(api).getMockImplementation()!;
+ vi.mocked(api).mockImplementation((p,i)=>{if(p.endsWith('config-push')&&++reads===2)return new Promise((_,r)=>{reject=r});return previous(p,i)});
+ await render();await review();await act(async()=>vi.advanceTimersByTimeAsync(5000));await act(async()=>vi.advanceTimersByTimeAsync(5000));await act(async()=>reject(Error('older failed read')));
+ expect(box.textContent).not.toContain('Could not check gateway application status');expect(box.querySelector<HTMLInputElement>('input')!.checked).toBe(true);expect(box.querySelector('button')!.disabled).toBe(false);expect(vi.mocked(api).mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0);
+});
+
+test('source list changing away and back does not revive an earlier review',async()=>{
+ vi.useFakeTimers();let sha='desired';mock();const previous=vi.mocked(api).getMockImplementation()!;
+ vi.mocked(api).mockImplementation((p,i)=>p.endsWith('source-readiness')?Promise.resolve({...readiness,desired_sha256:sha}):previous(p,i));
+ await render();await review();sha='changed';await act(async()=>vi.advanceTimersByTimeAsync(5000));expect(box.querySelector<HTMLInputElement>('input')!.checked).toBe(false);sha='desired';await act(async()=>vi.advanceTimersByTimeAsync(5000));expect(box.querySelector<HTMLInputElement>('input')!.checked).toBe(false);expect(box.querySelector('button')!.disabled).toBe(true);expect(vi.mocked(api).mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0);
+});
+test('returning to an earlier gateway requires a fresh review even with unchanged sources',async()=>{
+ mock();await render();await review();await act(async()=>root.render(<SourceApply gateway="gateway-2"/>));await act(async()=>root.render(<SourceApply gateway="gateway-1"/>));expect(box.querySelector<HTMLInputElement>('input')!.checked).toBe(false);expect(box.querySelector('button')!.disabled).toBe(true);expect(vi.mocked(api).mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0);
+});

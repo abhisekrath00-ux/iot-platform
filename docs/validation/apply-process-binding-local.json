@@ -1,0 +1,18 @@
+{
+  "state": "LOCAL UNPUBLISHED separate test-executable API processes and schema archive restore",
+  "source_sha256": {
+    "server/cmd/api/apply_process_binding_test.go": "bed14b2cb89cba37c8265bf365fb5534b0d28b9ce46f99574211a035ef8b3db0"
+  },
+  "three_race_s": 11.917,
+  "fresh_normal_api_s": 35.476,
+  "store_three_race_s": 4.233,
+  "vet": "pass",
+  "cases": "each repetition starts three separate child test executable processes with fresh pools and independently reopened deployment binding; firstPOST202, second409; actual PG schema archive restored preattempt empty history; thirdGETquarantine/POST409; protocolpeer1connection1publication",
+  "limits": [
+    "Test executable entrypoint only, not shipped API binary/container/image/product auth middleware",
+    "Loopback plaintext MQTT protocol peer, not actual Mosquitto/mTLS in this case",
+    "Schema archive, not full DB or product restore/updater script",
+    "No physical executor, production activation or owner environment changes",
+    "Existing separate mTLS/compiled ingest fixture cannot be combined into a single process+restore+mTLS acceptance claim"
+  ]
+}

@@ -1,9 +1,9 @@
 {
-  "state": "PREPARED TCP readiness correction, two actual runs failed before Apply cases",
+  "state": "ACTUAL sequential controls at58fdeb9; stronger exact catalog/ledger assertions LOCAL ONLY",
   "base": "9c18ea1c3eed20ea9663f49f7bb14b0c3c1a0303",
   "source_sha256": {
     ".github/workflows/ci.yml": "c65cbe0d6292e2cb87a848e9a72bd675ed63a191810f3e3065d9e5613b842ffb",
-    "scripts/test-apply-image-compat.py": "f4c30a589d4b1ef11b36b9e0c469061ea003d9b3e2cceec8dd04a6b1e598cf68"
+    "scripts/test-apply-image-compat.py": "72b018d6cc25bfb0d8e0869bfcb5705dfd30d8539977b5fdcee144d4b1f618d2"
   },
   "local": "compile/self-test incl TCP refusal/wrong output/eventual success/exhaustion; exited process refusal; internal-only metadata negatives; framing; actual secure-selector legacy refusal",
   "workflow_bounds": {
@@ -50,5 +50,68 @@
     "internal_endpoint_metadata": "pass; actual host-to-API reachability not proved",
     "cleanup": "pass"
   },
-  "startup_review": "same API_PORT/migration corpus in both fixed revisions; JWT/cache/OAuth/MQTT/fleet env supported; broker handshake precedes Apply; no automatic application or Apply retry"
+  "startup_review": "same API_PORT/migration corpus in both fixed revisions; JWT/cache/OAuth/MQTT/fleet env supported; broker handshake precedes Apply; no automatic application or Apply retry",
+  "accepted_run": {
+    "results": [
+      {
+        "case": "old-to-new-baseline",
+        "first_image": "sha256:993a39864f43877095fb82c8d069e6f89bd5b6f9ab3d73f9f23cb0a3750c86f7",
+        "second_image": "sha256:31f15ea3a294e839a45b3dfd3716f081d360b31c4b4446745566fdbdc792dbfa",
+        "next_http": 202,
+        "deliveries": 2,
+        "ledger": 93,
+        "expected": "OPEN baseline rearm"
+      },
+      {
+        "case": "old-to-new-guarded",
+        "first_image": "sha256:993a39864f43877095fb82c8d069e6f89bd5b6f9ab3d73f9f23cb0a3750c86f7",
+        "second_image": "sha256:31f15ea3a294e839a45b3dfd3716f081d360b31c4b4446745566fdbdc792dbfa",
+        "next_http": 409,
+        "deliveries": 1,
+        "ledger": 93,
+        "expected": "retained database blocks resend"
+      },
+      {
+        "case": "new-to-old-baseline",
+        "first_image": "sha256:31f15ea3a294e839a45b3dfd3716f081d360b31c4b4446745566fdbdc792dbfa",
+        "second_image": "sha256:993a39864f43877095fb82c8d069e6f89bd5b6f9ab3d73f9f23cb0a3750c86f7",
+        "next_http": 202,
+        "deliveries": 2,
+        "ledger": 93,
+        "expected": "OPEN baseline rearm"
+      },
+      {
+        "case": "new-to-old-guarded",
+        "first_image": "sha256:31f15ea3a294e839a45b3dfd3716f081d360b31c4b4446745566fdbdc792dbfa",
+        "second_image": "sha256:993a39864f43877095fb82c8d069e6f89bd5b6f9ab3d73f9f23cb0a3750c86f7",
+        "next_http": 409,
+        "deliveries": 1,
+        "ledger": 93,
+        "expected": "retained database blocks resend"
+      }
+    ],
+    "limits": [
+      "Actual fixed image sequential replacement, NOT native updater acceptance",
+      "No enabled candidate, retained-store deployment, mTLS, mixed concurrent writers or physical executor",
+      "Plaintext broker confined to disposable internal network, direct host observer, no published ports",
+      "No owner environment, production Compose, existing volumes or account secrets"
+    ],
+    "run": "https://github.com/abhisekrath00-ux/iot-platform/actions/runs/45178581694",
+    "head": "58fdeb91afa665a8860fd221ec38fc1fe7b8e3c7",
+    "old_source": "0574e75b8a25de5e7589d5933aca0266e10fc32b",
+    "raw_log_sha256": {
+      "137706177203.log": "5488c0d450e1dd6158ed2fbb921eb1efcf9d8dba4de23ae5801914826f560938",
+      "137706177102.log": "f6dbe5028851caa7801ddf8435d4537ea551a3f4837ee66a7ceae4b5bb7ed928",
+      "137706177226.log": "3ba19b11a251a2865e2e7ee8c359a4eb5868b2d6967c2677c5a7712cebcf9149",
+      "137706177181.log": "beabe6a505d21d7e361400f5a2c9d9f0b22e61f3b6598c7b76271a8b78033b8e",
+      "137706176534.log": "2278452b6cbf7927c7cc75db34bb1dcd799837beb73a8fd995ad07b511c16f43"
+    },
+    "precision_correction": "58fdeb9 compared exact guarded row, catalog presence/flags and ledger count93 only; not full definitions or exact filenames",
+    "signature_limit": "observer checked tenant and nonempty signature, not independent Ed25519 verification"
+  },
+  "local_stronger_contract": {
+    "actual_images": "NOT RUN",
+    "catalog": "real PG14 temporary-schema transaction validation;22 mutated/missing semantic and definition fields rejected; rollback",
+    "compile_self_test": "pass"
+  }
 }

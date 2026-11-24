@@ -3823,8 +3823,9 @@ images, then passes exact local image IDs to an explicitly opted-in disposable
 internal Docker network with direct Linux host observation and no published
 ports. Separate PG volumes cover
 sequential old->new/new->old baseline and guarded retained-DB replacements,
-expected status/receipt/delivery counts and exact ledger93. The guarded row and
-guard catalog must survive image replacement. No app image is implicitly pulled.
+expected status/receipt/delivery counts and ledger count93. The guarded row must
+survive image replacement; initial catalog assertion checks named object presence
+and enabled/valid flags, not full definition identity. No app image is implicitly pulled.
 
 Local checks cover Python compilation, exact image-ID refusal, MQTT framing,
 actual unchanged secure-selector legacy-updater refusal before file changes,
@@ -3860,3 +3861,118 @@ cannot publish a configuration. TCP readiness contracts simulate refusal,
 wrong SQL output, eventual success and exhaustion; dead-process checks refuse
 an exited API with no automatic restart. These local contracts cannot prove
 Docker endpoint behavior or replace the still-required actual image cases.
+
+
+Actual run45178581694 on exact58fdeb91afa665a8860fd221ec38fc1fe7b8e3c7
+passed all five jobs after full step/raw-log review. All four sequential
+complete-image cases executed: old0574e75->current and current->old baseline
+controls each expired/rearmed (HTTP202, two distinct signature-bearing publications),
+while SQL-guarded retained-DB controls kept the exact row and catalog presence/flags (HTTP409,
+one observed publication), each retaining ledger93. Actual private host-to-API
+and MQTT connections, authenticated TCP SQL readiness and cleanup passed.
+The earlier two failed-before-case runs remain recorded. This narrows the
+fixed-image retained-DB compatibility gap, not the baseline rearm defect.
+No enabled candidate/retained-store deployment, simultaneous mixed writers,
+successful native updater, mTLS or hardware/owner acceptance is established.
+
+
+Evidence precision correction: run45178581694 compared guarded rows exactly,
+but its catalog assertion checked named function existence, enabled trigger and
+valid unique index, and its ledger assertion checked count93 only. It did NOT
+compare complete catalog definitions or the exact migration filename set. Those
+stronger claims are withdrawn for that accepted run. A local harness revision
+now validates the reviewed function body and trigger/index semantics, compares
+complete before/after definitions, and compares all93 migration filenames.
+Real PG14 disposable-schema transaction validation passed with22 changed or
+missing semantic/definition fields rejected, then rolled back. Compile/self-test
+passes. These stronger assertions have not run in actual replacement images.
+
+The image observer also checked tenant and a nonempty signature field, not an
+independent Ed25519 signature verification. Its deliveries are signature-bearing
+envelopes, not cryptographically verified envelopes. Compiled-edge/mTLS tests
+are separate evidence and cannot upgrade this image observer's coverage.
+
+Consolidated assertion-to-claim audit is in
+validation/apply-image-claim-audit.md. The four cases use an empty device list,
+retain the same running DB during sequential API replacement, manually age the
+row before its exact snapshot, and observe guarded no-extra-delivery for0.5s.
+They do not restart/restore DB, verify every envelope field/signature, exercise a
+device executor, or attest reproducible builds from immutable dependencies.
+
+
+Local GUI readiness repair: a blocked server-readiness observation, unresolved
+or quarantined history, or current status-read failure revokes the prior source
+review. Recovery with the same source fingerprint requires a fresh explicit
+checkbox review; the checkbox is disabled while readiness/status is unsafe.
+Older failed reads cannot override a newer completed observation. No POST,
+automatic retry, policy activation or update behavior is added. Two new tests
+first reproduced the stale-review defect, then passed after repair. Full web
+458 tests pass, including the additional stale-generation regression; build/typecheck pass;
+synthetic desktop/mobile actual pixels show unchecked disabled review on unsafe
+readiness and a fresh unchecked review after recovery. This is local UI evidence,
+not owner hardware or image acceptance.
+
+The local review-freshness batch also clears review when its gateway/source
+identity changes. Returning to a previously reviewed gateway or source fingerprint
+does not revive its prior checkbox state. Both cases were reproduced as failing
+tests before repair, then passed with all 42 component tests. Synthetic browser
+interaction verified both return paths with 11 GET observations and zero POST;
+desktop and mobile pixels show a fresh unchecked review and disabled Apply.
+These remain local observations, not deployed product acceptance.
+
+
+Local next-batch retained-store preparation: a conservative read-only new-install
+preflight refuses every existing Apply DB state, including terminal history,
+requires the exact SQL guard and a separately bound identity-only retained store.
+It never installs SQL, provisions or clears storage, changes startup or publishes.
+This observation does not serialize filesystem writers or authorize adoption.
+13-case acceptance, three race policy/readiness repeats4.423s, store primitive
+three repeats4.123s, fresh disposable full API35.604s and vet pass. Earlier reused
+DB full API failed stale/fixed-ID fixture state and is not counted as acceptance.
+Deployment, legacy reconciliation, offline provisioning UX, enabled-candidate
+image/end-to-end and native secure updater remain implementation/validation work.
+See validation/apply-readiness-next-batch.md for autonomous versus owner-dependent
+gates and the unexecuted coherent publication/validation proposal.
+
+
+#### Local offline deployment binding and enabled-candidate integration
+
+An explicit offline library operation reserves and syncs a private independent
+binding file before provisioning the empty retained store. It binds an explicit
+deployment ID and random expected store ID outside that store. Existing or
+uncertain reservation is preserved, never overwritten, reset or automatically
+retried. Startup/env/menu/CLI does not call it. Existing legacy DB reconciliation
+and operator preparation UX remain unfinished. Same administrator control or
+rollback of both histories/binding is not prevented; separate path is not proof
+of independent physical storage or durable operator custody.
+
+Binding tests refuse occupied/redirected/public/partial/trailing/unknown state,
+wrong deployment and missing/replaced stores. Real PG disabled-candidate handler
+202/one fake publication then reopened binding409 and live store replacement
+fail closed. Combined policy/preflight/binding THREErace3.693s and store
+THREErace4.161s pass. Fresh explicitly disposable DB full API34.434s/vet pass.
+
+The enabled-candidate mTLS fixture now prepares and reopens the independent
+binding, runs conservative empty-history preflight, sends a nonempty synthetic
+source, independently checks SHA256 and Ed25519 canonical signature plus tenant,
+serial, version, approver and timestamps. Actual certificate-required broker,
+no publisher hook, compiled ingest synthetic applied/confirmed receipt then
+permits a distinct version2 envelope; thirdPOST409. THREErace20.439s includes
+the parent mixed pipeline, final candidate subcase0.38s. This is new server
+object/pool/store reopen, NOT API process/container/image/native updater or
+physical execution. No additional archive restore was added in this slice.
+Existing image evidence remains narrower and no new dispatch was performed.
+Manifest: validation/apply-deployment-binding-local.json.
+
+
+Local separate-process retained binding acceptance now starts three child API
+test executables with fresh pools and reopened independent deployment binding.
+First POST202 sends one loopback MQTT publication, second process POST409.
+Actual PostgreSQL schema archive restores pre-attempt empty history; third
+process GET shows quarantine and POST409, with one total connection/publication.
+THREErace11.917s pass. Fresh normal full API35.476s/store THREErace4.233s/vet pass.
+This is test executable entrypoint, plaintext MQTT protocol peer and schema
+archive, NOT shipped API binary/auth middleware, image, actual mTLS broker,
+full DB/native updater or physical execution. Separate mTLS evidence is not
+combined into a single process/restore/mTLS claim. Manifest:
+validation/apply-process-binding-local.json.

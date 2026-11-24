@@ -1,0 +1,16 @@
+{
+  "state": "LOCAL UNPUBLISHED GUI review freshness repair",
+  "base": "58fdeb91afa665a8860fd221ec38fc1fe7b8e3c7",
+  "source_sha256": {
+    "web/src/components/SourceApply.tsx": "7afb49473bea56994c4ff845e350b1d756012cef379c82ef5d669d672fc622d5",
+    "web/src/components/SourceApply.test.tsx": "09110ee744bfd144cd677cdae9818f0bd071b759698aa7cd99033e217e5f537b"
+  },
+  "regressions": "unsafe readiness and current read failure reproduced2 failing tests before repair; after repair40 component tests incl stale older read failure pass; two additional failures reproduced fingerprint-away-and-back and gateway-away-and-back review revival, repaired by clearing review on review-identity change",
+  "web": "full71files458tests pass50.67s;42component pass; typecheck/productionbuild pass(existing chunkwarning)",
+  "visual": "synthetic local desktop unsafe-review-revoked and390px mobile recovered-needs-review pixels inspected; zeroPOST/no overflow; final h163 actual desktop source-return and390px mobile gateway-return screenshots inspected, unchecked review/disabled Apply,11GET zeroPOST/no overflow",
+  "limits": [
+    "No image execution for local batch",
+    "No server policy enable, owner environment, hardware or updater changes",
+    "Fresh explicit review required after unsafe observation; not server admission authority"
+  ]
+}

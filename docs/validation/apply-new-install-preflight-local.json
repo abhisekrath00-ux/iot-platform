@@ -1,0 +1,21 @@
+{
+  "state": "LOCAL UNPUBLISHED read-only new-install preflight, no adoption authority",
+  "source_sha256": {
+    "server/internal/applyadmission/preflight.go": "fd79f9412c43fd996fd27db414f47a8a5ce27be40f2ce64868201fe6403c37c6",
+    "server/cmd/api/apply_new_install_preflight_test.go": "176bc1616fe6f7f38a679ea0ba0ebf9cb8ecd639b7eb4aa6d680db715e3d5721"
+  },
+  "results": {
+    "13cases": "4.724s",
+    "three_race_policy_readiness": "4.423s",
+    "store_three_race": "4.123s",
+    "fresh_full_api": "35.604s",
+    "vet": "pass",
+    "reused_full_api": "failed stale fixture/fixed-ID duplicates, retained /tmp/h164-api.log"
+  },
+  "limits": [
+    "No startup/CLI invocation, SQL install or storage provisioning",
+    "Read-only observation, not writer-quiescence lease",
+    "No existing-history reconciliation or automatic adoption",
+    "No real deployment/mount/updater/image/physical acceptance"
+  ]
+}
