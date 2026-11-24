@@ -1,0 +1,40 @@
+{
+  "state": "LOCAL UNPUBLISHED minimal websocket advisory dependency repair",
+  "failed_remote_tip": "893bc2ffab2381666cb00322ac4bb4c928e7cdf6",
+  "failed_remote_run": "https://github.com/abhisekrath00-ux/iot-platform/actions/runs/45356695214",
+  "source_sha256": {
+    "server/go.mod": "dc232465514a5c1cc1f673e88e9093299ffc46a64a24037a2544b96901208f52",
+    "server/go.sum": "5c1706eaae5d1d96f59b1e0845dec79a2c1a2781edca3432ed9a8166b8d43149",
+    "edge/go.mod": "5840c0e52f733340ca3abe51c119d460ab4d7de3af39d06a625fd642af63e00a",
+    "edge/go.sum": "2db1af43cca3699435363a92af9a1f6595a10d6e79c069eead391a258d667169"
+  },
+  "change": "both modules1.5.3 to v1.5.4-0.20240701034025-d67f41855da4, upstream crypto/rand mask fix; no unrelated dependencies",
+  "sources": [
+    "https://vuln.go.dev/ID/GO-2026-6278.json",
+    "https://github.com/gorilla/websocket/commit/d67f41855da42d7bccd9ef050c49f7e54e783b95",
+    "https://github.com/canolgun-commits/websocket/security/advisories/GHSA-w67g-5rqw-f597"
+  ],
+  "results": {
+    "go": "1.26.11",
+    "server_symbol_scan": "No vulnerabilities found",
+    "edge_symbol_scan": "0called/imported;2requiredmodule-onlynotcalled",
+    "npm_audit": "0",
+    "fresh_api_s": 36.688,
+    "edge_tests_vet_build": "pass",
+    "server_vet_build": "pass",
+    "verified_mtls_race_with_parent_pipeline_s": 7.87,
+    "candidate_subcase_s": 0.91,
+    "cross_compile": "linuxarm64/windowsamd64/windowsarm64pass",
+    "server_all_packages": "disjoint API36.688s, remaining package invocation pass, processing114.690s; Go1.26.11; no whole-order claim"
+  },
+  "limits": [
+    "Full server package coverage completed disjoint on repaired revision, cached/optional opt-in limits remain; not a single uninterrupted all-package invocation",
+    "Interrupted calls sometimes finished later commands despite timeout; final mTLS freshDB verified independently, allscratchDBsdropped",
+    "Earlier API reused partially used DB and failed duplicate fixtures, freshpass supersedes only that fixture issue",
+    "Go1.26.6 package scan13stdlib findings not current1.26.11 result",
+    "Owner running image/compiler/config unverified; historical0574e75 and893bc module manifests1.5.3, not proof owner uses either",
+    "Server MQTT builder tcp/ssl; edge tcp/ssl builder reviewed, no directGorillausagefound; scantrace not deployment reachability/exploitation proof",
+    "GHSA version text conflicts Go advisory; explicitfixedcommit selected conservatively",
+    "No remote publication/dispatch or ownerchange"
+  ]
+}
