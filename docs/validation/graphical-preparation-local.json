@@ -1,0 +1,27 @@
+{
+  "state": "LOCAL UNPUBLISHED graphical preparation only",
+  "base": "eedc125cf784e8fe2c8987628435d09645af1024",
+  "source_sha256": {
+    "scripts/secure-update-gui.py": "4a97659e007fefc21e9f8a5d89c2f80c8037a2fb8a0cb8ca9ab7889af11368b2",
+    "scripts/test-secure-update-gui.py": "ca843440620eae61101a7638318d5d4c39fd5c89e22a67e6b358d85d705c68f1",
+    "scripts/setup.sh": "295f1667dd19f3b3aea22c0f9767184fb3daac7742328ce067471820f6224dfe"
+  },
+  "checks": [
+    "GUI controller4 tests pass; updateprepare5/review5/readiness6/adapter8 pass",
+    "Actual Tk initial/cancel/uncertain pixels inspected, callbacks injected/no Docker",
+    "No listener, background worker, close-while-running refusal, oneattempt perwindow, redacted errors"
+  ],
+  "limits": [
+    "Manual exact project/localimage selection, Tkprerequisite not packaged",
+    "Perwindow lock NOT durable multiwindow retryprotection",
+    "No actual Docker selecteddeployment/nativeimage/updaterexecution/Windows acceptance",
+    "No remote publication/dispatch/ownerchange"
+  ],
+  "native_requirement": [
+    "Disposable Linux Docker runner only, synthetic project/no ownerfiles",
+    "Exercise current secure selector with HTTPSsidecar and exact local old/newimages",
+    "Invoke GUI backend prepare, validate private files/manifests/noDocker mutation and unchanged selectedconfig/containerIDs",
+    "Exercise error/cancel/timeout paths with retained partial bundle; no automatic retry",
+    "Report exact revision/joblogs and fixture limits; execution/rollback is separate acceptance"
+  ]
+}

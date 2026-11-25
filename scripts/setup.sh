@@ -14,6 +14,7 @@
 #   bash scripts/setup.sh secure-readiness PROJECT  read-only application/schema/writer check
 #   bash scripts/setup.sh secure-recovery-review  read-only interrupted-setup review
 #   bash scripts/setup.sh secure-update-review PROJECT RECEIPT  read-only prepared update review
+#   bash scripts/setup.sh secure-update-prepare PROJECT IMAGE BUNDLE  private plan only, no update
 #   bash scripts/setup.sh cluster [host]   Patroni view: leader, replicas, lag (HA installs; host defaults to $HEXTHINGS_NODE or localhost)
 # Menu keys: up/down or j/k, Enter, number keys, q. Works without colour (NO_COLOR), on narrow terminals,
 # and without a terminal (subcommands only; the menu refuses with a usage line).
@@ -190,6 +191,25 @@ cmd_doctor() {
   echo ""; [ "$bad" = 0 ] && echo "  Doctor found nothing wrong." || echo "  Doctor found problems above. After fixing, run it again."
   return "$bad"
 }
+guided_secure_update_prepare() {
+  echo "  Prepare a private server update plan. This does not install or run an update."
+  echo "  Use an already-local candidate image selected for this installation. No download is performed."
+  echo "  The private bundle contains resolved secrets. Keep it on this server and do not share it."
+  local project image bundle answer
+  read -r -p "  Existing Compose project name: " project || return 1
+  read -r -p "  Already-local candidate image ID (sha256:...): " image || return 1
+  read -r -p "  New private bundle path directly inside this checkout: " bundle || return 1
+  echo "  No current configuration, service or database will be changed."
+  echo "  Existing or partial bundles will not be overwritten."
+  read -r -p "  Type PREPARE to create the private plan, or Enter to cancel: " answer || return 1
+  [ "$answer" = PREPARE ] || { echo "  Cancelled. No plan or update requested.";return 0; }
+  cmd_secure_update_prepare "$project" "$image" "$bundle"
+}
+cmd_secure_update_prepare() {
+  command -v python3 >/dev/null 2>&1 || { echo "  Update preparation needs Python3. Nothing changed.";return 1; }
+  [ "$#" = 3 ] && [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] || { echo "  Supply exact existing project, already-local sha256 image ID and new private bundle path. No update requested.";return 2; }
+  python3 "$here/secure-update-prepare.py" --root "$root" --project "$1" --image "$2" --bundle "$3"
+}
 cmd_secure_update_review() {
   command -v python3 >/dev/null 2>&1 || { echo "  Update review needs Python3. Nothing changed.";return 1; }
   local project=${1:-} receipt=${2:-}
@@ -239,6 +259,8 @@ dispatch() {
   case "$1" in
     single) shift; exec bash "$here/install.sh" "$@" ;;
     multi) shift; if [ $# -eq 0 ]; then if [ -t 0 ]; then guided_multi; else echo "multi node: bash scripts/setup.sh multi plan|render|check|drill --nodes n1=IP,n2=IP,n3=IP --vip IP"; echo "details: docs/ha-multi-node.md"; fi; else bash "$here/install-ha.sh" "$@"; fi ;;
+    secure-update-gui) python3 "$here/secure-update-gui.py" ;;
+    secure-update-prepare) shift;cmd_secure_update_prepare "$@" ;;
     secure-update-review) shift;cmd_secure_update_review "${1:-}" "${2:-}" ;;
     secure-readiness) shift;cmd_secure_readiness "${1:-}" ;;
     secure-prepare) cmd_secure_prepare ;;
@@ -257,9 +279,9 @@ if [ $# -gt 0 ]; then dispatch "$@"; exit $?; fi
 [ -t 0 ] && [ -t 1 ] || { echo "usage: setup.sh single|multi|status|health|logs|backup|verify|restore|upgrade|cluster|start|stop|restart|doctor|open|version|ai [args]  (the interactive menu needs a terminal)" >&2; exit 2; }
 
 # ---- interactive menu -------------------------------------------------------------------------
-labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Start" "Stop" "Restart" "Doctor" "AI status" "Open in browser" "Prepare private TLS setup" "Check secure setup readiness" "Review interrupted setup" "Review prepared server update" "Quit")
-hints=("one-machine Docker setup" "plan automatic DB failover" "services and their state" "live probes and latency" "pick service; Ctrl-C stops" "Postgres dump to backups" "verify, confirm, restore" "legacy only; secure upgrade unavailable" "HA leader, replicas and lag" "start; include saved AI model" "stop; keep data" "restart services" "Docker, disk, service checks" "local model status" "show/open web address" "prepare only; no activation" "check only; no changes" "review only; no recovery" "read-only; not update approval" "")
-keys=(single multi status health logs backup restore upgrade cluster start stop restart doctor ai open secure-prepare secure-readiness secure-recovery-review secure-update-review quit)
+labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Start" "Stop" "Restart" "Doctor" "AI status" "Open in browser" "Prepare private TLS setup" "Check secure setup readiness" "Review interrupted setup" "Review prepared server update" "Prepare server update plan" "Quit")
+hints=("one-machine Docker setup" "plan automatic DB failover" "services and their state" "live probes and latency" "pick service; Ctrl-C stops" "Postgres dump to backups" "verify, confirm, restore" "legacy only; no secure upgrade" "HA leader, replicas and lag" "start; include saved AI model" "stop; keep data" "restart services" "Docker, disk, service checks" "local model status" "show/open web address" "prepare only; no activation" "check only; no changes" "review only; no recovery" "read-only; not update approval" "private plan; no update" "")
+keys=(single multi status health logs backup restore upgrade cluster start stop restart doctor ai open secure-prepare secure-readiness secure-recovery-review secure-update-review secure-update-prepare quit)
 sel=0; n=${#labels[@]}
 cleanup() { [ "$COLOR" = 1 ] && printf '\033[?25h'; }
 trap 'cleanup; echo; exit 130' INT TERM
@@ -301,6 +323,7 @@ while :; do
   fi
   k=${keys[$sel]}
   case "$k" in
+    secure-update-prepare) guided_secure_update_prepare;pause ;;
     secure-update-review) cmd_secure_update_review;pause ;;
     secure-readiness) cmd_secure_readiness;pause ;;
     secure-prepare) cmd_secure_prepare;pause ;;

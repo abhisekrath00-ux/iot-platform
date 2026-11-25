@@ -3976,3 +3976,83 @@ archive, NOT shipped API binary/auth middleware, image, actual mTLS broker,
 full DB/native updater or physical execution. Separate mTLS evidence is not
 combined into a single process/restore/mTLS claim. Manifest:
 validation/apply-process-binding-local.json.
+
+
+Local unpublished preparation entrypoints (recovered November 25):
+- apply-preparation checks explicit existing store/binding/deployment and the
+  exact guarded empty-history database observation. It never provisions files,
+  installs SQL or activates Apply. Output always denies activation and service
+  changes. Missing/mismatched storage and private-output tests pass locally.
+- setup.sh secure-update-prepare and its separate guided menu create a private
+  application-only update plan from an exact existing project and already-local
+  image ID. PREPARE confirms diagnostics only; Enter cancels. No pull/build/run,
+  schema update or service start/stop is requested. Each Docker command has a
+  15-second timeout and no automatic retry. Bundles contain resolved secrets and
+  must not be shared. Existing or partial bundles are not overwritten.
+- The secure-web sidecar is classified as web so selected secure installations
+  can retain it unchanged during application planning. Unexpected DB access,
+  privileged mode and host networking remain refused.
+The November 25 environment reset erased the earlier local checkout and logs.
+Source was reconstructed from recorded edits on exact published eedc125 and
+revalidated: 115 tests across 16 Python suites, full stubbed-Docker/curl real PTY
+suite, Go race/unit and vet pass. Fresh November 25 revalidation then passed three actual disposable PostgreSQL
+14.24 race repeats (1.090s) on the recovered preparation command, including exact
+guard/empty history and terminal-history refusal with unchanged row count/store.
+Actual XFCE pixels were rechecked before confirmation and after cancellation.
+The database fixture covers the Apply table, not a full deployed schema. No new
+native Docker, image, owner, Windows or physical-source acceptance is claimed.
+These are operator preparation tools, NOT the requested no-terminal GUI or a
+finished secure updater. Existing secure legacy Upgrade refusal is unchanged.
+No remote publication, workflow dispatch, main merge or owner activation.
+
+
+Local graphical preparation caller (unpublished): `setup.sh secure-update-gui`
+opens a Tk desktop window on the server, with no HTTP listener/browser bridge.
+It collects the existing project, already-local candidate image ID and new plan
+folder name, previews the exact request in a confirmation dialog, and requires
+private-file acknowledgement. Cancel requests nothing. The background worker
+uses the existing preparation/review adapter; errors are redacted and an attempt
+locks this window against retry. Closing during a check is refused. This window
+cannot update services, install schema, pull/build/run images or activate Apply.
+Four controller tests cover invalid/existing/symlink targets, concurrent
+single-attempt behavior, redaction and successful review without update authority.
+Actual Tk pixels and scripted cancel/uncertain states were checked locally using
+a user-local Tk dependency, not an installed product package. This is still an
+operator preparation UI: project/image selection is manual, Tk is a prerequisite,
+and the caller has not received real selected-deployment Docker acceptance.
+The per-window lock is not a durable multi-window operation ledger. Preserve
+partial plans and do not open another window to retry an uncertain operation.
+A finished nontechnical GUI/updater still needs installation discovery, image
+provenance/selection, reviewed maintenance, native rollback/recovery and paired
+server/Windows acceptance. Existing secure legacy Upgrade refusal is unchanged.
+
+
+Proposed native preparation route (local, not dispatched): ci.yml has a separate
+workflow_dispatch boolean native_update_preparation, default false, enabling one
+public-repository standard Ubuntu job capped at ten minutes. It runs the local
+preparation contracts and a new Docker fixture through the GUI Session backend.
+The fixture builds two tiny synthetic sleeping-process images, starts one unique
+Compose project with a synthetic committed secure selector and HTTPS-sidecar
+shape, then checks unchanged selector/config/container IDs and private plan modes.
+A missing-local-image attempt must refuse without fallback; session retry refuses.
+No ports, bind mounts, privileged containers, real application/database/edge or
+owner files are used. This proves Docker preparation wiring only, not actual
+updater execution, rollback or application compatibility. Local syntax/contracts
+pass, but the native fixture has NOT run here because Docker is unavailable.
+No new artifact/cache storage is configured. Publication and dispatch remain
+pending a separate decision; the old workflow cannot exercise this new route.
+
+
+November 25 local regression checkpoint for the preparation batch: all 63 server
+packages have passing disjoint coverage on Go1.26.11, including fresh-database API
+27.741s and ingestprocessing93.795s, plus server vet/build. The combined sweep
+was interrupted by the command time cap. Its second API pass reused fixture
+state and failed with duplicate/retained fixture rows; that result is preserved,
+not counted as passing. API acceptance uses the preceding fresh-database pass.
+Edge tests/vet/build and LinuxARM64/WindowsAMD64/WindowsARM64 cross-build pass.
+Web build and71files/458tests pass, npm audit0. Preparation actual PG three race
+repeats1.100s and119tests/17focusedPython suites/fullrealPTY pass.
+This is local disjoint package coverage, not a single uninterrupted invocation
+or remote CI. Opt-in native Docker, image, actual MQTT/mTLS and external-service
+fixtures were not rerun in this checkpoint. Native preparation job remains
+unexecuted and publication/dispatch require a separate decision.

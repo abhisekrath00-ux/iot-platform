@@ -149,4 +149,7 @@ ok("hexthings help prints usage", r.returncode == 0 and "hexthings ai" in r.stdo
 o, rc = tty([], [b"j" * 9 + b"\r", b"q"], total=12)
 ok("menu: arrow to the 10th entry (Start) runs it", "Started" in o and "Press Enter to return" in o, o[-300:])
 o, rc = tty([], [b"q"]); ok("menu lists Doctor, AI status and Open", all(w in o for w in ("Doctor", "AI status", "Open in browser")), o[-400:])
+# New preparation menu is a distinct explicit local-file operation, not Upgrade.
+o, rc = tty([], [b"20", b"\r", b"fixture\n", b"sha256:"+b"b"*64+b"\n", b"/tmp/not-created-preparation\n", b"\n", b"\r", b"q\n"], env(NO_COLOR="1",COLUMNS="100"),wait=1.2,total=30)
+ok("guided private update preparation can cancel before any plan request", rc==0 and "Cancelled. No plan or update requested." in o and "resolved secrets" in o,o[-500:])
 sys.exit(1 if fails else 0)

@@ -1,0 +1,105 @@
+{
+  "state": "RECOVERED LOCAL UNPUBLISHED, fresh partial revalidation",
+  "base": "eedc125cf784e8fe2c8987628435d09645af1024",
+  "source_sha256": {
+    "server/cmd/apply-preparation/main.go": "2c831a2c5e47c9a301925758e6ea88b24c399a265d0682845de14b7b0b47f594",
+    "server/cmd/apply-preparation/main_test.go": "a9e71851108e2d6a4552cb43963d7a91d13b5dafcd79501a698bfb70af4deaed",
+    "scripts/secure-update-prepare.py": "df9d0d1ba9c7b461d1f71f8dd8e3f21671f0e4f2b6455355a85d0ef3a93dbfd1",
+    "scripts/test-secure-update-prepare.py": "3d89db162935cbecfaac8be55bac53710c47f9c9e4ddcfe3a31266c11dc28a94",
+    "scripts/secure-readiness.py": "8ba01d01d0d49c20870e10f1568dcb5c011d1be3ec7130a3f41e62b3c2e66491",
+    "scripts/test-secure-readiness.py": "7e8ae61d353caea7bd4827b70c9e2c09568a644767fb66bc0d4940a622d19aa5",
+    "scripts/setup.sh": "d2c09c316772ce28536885e26d3a79291d4853c202cbe44346fa7408c21441fb",
+    "scripts/test-setup-ui.py": "4f9415e28da1419e6ff208e69fb9f747c5d91830b5794829311d66430af19e8c"
+  },
+  "python_results": [
+    {
+      "suite": "update-prepare",
+      "code": 0,
+      "seconds": 0.162
+    },
+    {
+      "suite": "update-review",
+      "code": 0,
+      "seconds": 0.361
+    },
+    {
+      "suite": "readiness",
+      "code": 0,
+      "seconds": 0.048
+    },
+    {
+      "suite": "application-docker",
+      "code": 0,
+      "seconds": 0.09
+    },
+    {
+      "suite": "application",
+      "code": 0,
+      "seconds": 0.155
+    },
+    {
+      "suite": "execution",
+      "code": 0,
+      "seconds": 0.199
+    },
+    {
+      "suite": "state",
+      "code": 0,
+      "seconds": 0.233
+    },
+    {
+      "suite": "runtime",
+      "code": 0,
+      "seconds": 0.037
+    },
+    {
+      "suite": "transport-docker",
+      "code": 0,
+      "seconds": 0.152
+    },
+    {
+      "suite": "recovery-review",
+      "code": 0,
+      "seconds": 0.489
+    },
+    {
+      "suite": "application-provider",
+      "code": 0,
+      "seconds": 0.607
+    },
+    {
+      "suite": "application-production",
+      "code": 0,
+      "seconds": 0.189
+    },
+    {
+      "suite": "application-startgate",
+      "code": 0,
+      "seconds": 1.228
+    },
+    {
+      "suite": "application-startgroup",
+      "code": 0,
+      "seconds": 0.459
+    },
+    {
+      "suite": "application-local-admission",
+      "code": 0,
+      "seconds": 0.041
+    },
+    {
+      "suite": "disposable-docker",
+      "code": 0,
+      "seconds": 0.063
+    }
+  ],
+  "pty": "PASS full stubbed Docker/curl suite including guided cancellation",
+  "go": "Fresh actual disposable PostgreSQL14.24 integration and unit three race repeats1.090s PASS; vet PASS",
+  "limits": [
+    "Environment reset erased pre-reset local files and logs",
+    "No native Docker/image/Windows/physical/owner activation acceptance",
+    "No publication/dispatch or upgrade guard change",
+    "Fresh PG fixture uses base Apply table only, not full deployed database"
+  ],
+  "visual": "Fresh actual XFCE terminal pixels inspected before PREPARE and after cancellation; no plan/Docker requested"
+}

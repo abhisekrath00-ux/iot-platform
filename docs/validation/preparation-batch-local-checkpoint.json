@@ -1,0 +1,363 @@
+{
+  "state": "LOCAL UNPUBLISHED proposal, no dispatch",
+  "base": "eedc125cf784e8fe2c8987628435d09645af1024",
+  "server_package_coverage": {
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/aieval": {
+      "log": "h176-server.log",
+      "result": "ok\t0.003s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/airuntime": {
+      "log": "h176-server.log",
+      "result": "ok\t0.512s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/apply-preparation": {
+      "log": "h176-server.log",
+      "result": "ok\t0.029s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/cachecheck": {
+      "log": "h176-server.log",
+      "result": "ok\t0.003s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/fleetkey": {
+      "log": "h176-server.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/ingest": {
+      "log": "h176-server.log",
+      "result": "ok\t0.008s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/loadtest": {
+      "log": "h176-server.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/mcp": {
+      "log": "h176-server.log",
+      "result": "ok\t0.271s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/mcpeval": {
+      "log": "h176-server.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/setupctl": {
+      "log": "h176-server.log",
+      "result": "ok\t0.440s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/tenantctl": {
+      "log": "h176-server.log",
+      "result": "ok\t0.341s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/tsbench": {
+      "log": "h176-server.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/aitools": {
+      "log": "h176-server.log",
+      "result": "ok\t0.007s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/anomaly": {
+      "log": "h176-server.log",
+      "result": "ok\t0.001s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/applyadmission": {
+      "log": "h176-server.log",
+      "result": "ok\t0.033s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/ask": {
+      "log": "h176-server.log",
+      "result": "ok\t0.001s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/assistant": {
+      "log": "h176-server.log",
+      "result": "ok\t0.002s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/auth": {
+      "log": "h176-server.log",
+      "result": "ok\t0.718s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/authorityschema": {
+      "log": "h176-server.log",
+      "result": "ok\t0.003s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/brokeracl": {
+      "log": "h176-server.log",
+      "result": "ok\t0.027s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/commission": {
+      "log": "h176-server.log",
+      "result": "ok\t0.005s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/configaudit": {
+      "log": "h176-server.log",
+      "result": "ok\t0.003s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/control": {
+      "log": "h176-server.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/diagnose": {
+      "log": "h176-server.log",
+      "result": "ok\t0.002s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/docsrag": {
+      "log": "h176-server.log",
+      "result": "ok\t0.216s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/enroll": {
+      "log": "h176-server.log",
+      "result": "ok\t0.001s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/fleet": {
+      "log": "h176-server.log",
+      "result": "ok\t0.002s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/flow": {
+      "log": "h176-server.log",
+      "result": "ok\t0.005s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/flow/jsfn": {
+      "log": "h176-server.log",
+      "result": "ok\t0.637s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/forecast": {
+      "log": "h176-server.log",
+      "result": "ok\t0.005s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/googlews": {
+      "log": "h176-server.log",
+      "result": "ok\t0.010s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/health": {
+      "log": "h176-server.log",
+      "result": "ok\t0.001s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/indexsink": {
+      "log": "h176-server.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/ingestjournal": {
+      "log": "h176-server.log",
+      "result": "ok\t0.005s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/cmd/api": {
+      "log": "h176-api.log",
+      "result": "ok\t27.741s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/ingestprocessing": {
+      "log": "h176-processing.log",
+      "result": "ok\t93.795s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/kpi": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.001s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/leader": {
+      "log": "h176-rest.log",
+      "result": "ok\t7.709s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/llm": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.005s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/loadstats": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.002s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/mdns": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.003s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/migrate": {
+      "log": "h176-rest.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/mqttconfig": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.004s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/notify": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.013s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/oidcstate": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.050s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/pairingproof": {
+      "log": "h176-rest.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/pki": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.055s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/processingschema": {
+      "log": "h176-rest.log",
+      "result": "ok\t3.194s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/redisx": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.004s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/redisx/redisxtest": {
+      "log": "h176-rest.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/report": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.199s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/respcache": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.122s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/retention": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.063s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/rules": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.004s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/search": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.010s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/secrets": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.003s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/setupbootstrap": {
+      "log": "h176-rest.log",
+      "result": "ok\t13.970s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/setupconnection": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.244s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/sparkplug": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.002s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/store": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.003s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/totp": {
+      "log": "h176-rest.log",
+      "result": "ok\t0.001s"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/tsstore": {
+      "log": "h176-rest.log",
+      "result": "?\t[no test files]"
+    },
+    "github.com/abhisekrath00-ux/iot-platform/server/internal/tsstore/storetest": {
+      "log": "h176-rest.log",
+      "result": "?\t[no test files]"
+    }
+  },
+  "server": "63packages disjoint Go1.26.11 pass; vet/build pass",
+  "api_fresh_database_seconds": 27.741,
+  "processing_seconds": 93.795,
+  "preparation_three_actual_pg_race_seconds": 1.1,
+  "python": [
+    {
+      "suite": "update-gui",
+      "code": 0,
+      "seconds": 0.186
+    },
+    {
+      "suite": "update-prepare",
+      "code": 0,
+      "seconds": 0.195
+    },
+    {
+      "suite": "update-review",
+      "code": 0,
+      "seconds": 0.389
+    },
+    {
+      "suite": "readiness",
+      "code": 0,
+      "seconds": 0.057
+    },
+    {
+      "suite": "application-docker",
+      "code": 0,
+      "seconds": 0.086
+    },
+    {
+      "suite": "application",
+      "code": 0,
+      "seconds": 0.149
+    },
+    {
+      "suite": "execution",
+      "code": 0,
+      "seconds": 0.205
+    },
+    {
+      "suite": "state",
+      "code": 0,
+      "seconds": 0.248
+    },
+    {
+      "suite": "runtime",
+      "code": 0,
+      "seconds": 0.041
+    },
+    {
+      "suite": "transport-docker",
+      "code": 0,
+      "seconds": 0.167
+    },
+    {
+      "suite": "recovery-review",
+      "code": 0,
+      "seconds": 0.568
+    },
+    {
+      "suite": "application-provider",
+      "code": 0,
+      "seconds": 0.63
+    },
+    {
+      "suite": "application-production",
+      "code": 0,
+      "seconds": 0.182
+    },
+    {
+      "suite": "application-startgate",
+      "code": 0,
+      "seconds": 1.231
+    },
+    {
+      "suite": "application-startgroup",
+      "code": 0,
+      "seconds": 0.488
+    },
+    {
+      "suite": "application-local-admission",
+      "code": 0,
+      "seconds": 0.041
+    },
+    {
+      "suite": "disposable-docker",
+      "code": 0,
+      "seconds": 0.069
+    }
+  ],
+  "web": "71files458tests build pass/npm audit0; existing chunk warning",
+  "edge": "alltests/vet/build and linuxarm64/windowsamd64/windowsarm64 crossbuild pass",
+  "pty": "full realPTY stubDocker/curl pass",
+  "failures_retained": [
+    "Combinedsweep stopped by commandtimecap",
+    "SecondAPIpass reused initialDB fixturestate and failed duplicate/retainedrowtests; not accepted; firstfreshAPIpass is evidence"
+  ],
+  "limits": [
+    "Disjoint package invocations not uninterrupted fullsuite",
+    "No new symbol govulncheck/MQTTmTLS/ValkeyTLS/Dockerimage/nativeWindows acceptance",
+    "New nativepreparation Dockerfixture unexecuted; workflowinput defaultfalse",
+    "GUI manualselection/Tkprerequisite/perwindow retryguard only, NOTfinishedinstallerupdater"
+  ],
+  "proposal": "After immediate live source/head/free checks and parentapproval publish coherent reviewbatch then oneexactrevisionci workflow_dispatch native_update_preparation=true apply_image_compat=false; no main/release/ownerchange"
+}

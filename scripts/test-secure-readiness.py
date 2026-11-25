@@ -25,6 +25,16 @@ class Tests(unittest.TestCase):
         self.assertEqual(value['roles']['elasticsearch'],'data_store')
         for name in ['redis','ai-runtime']:images[name]=IMAGE
         self.assertEqual(m.classify(config,images)['disabled_profiles'],[])
+    def test_secure_https_sidecar_classified_without_enabling_writes(self):
+        config=self.config();config['services']['secure-web']={'image':IMAGE,'network_mode':'service:api'}
+        images={name:IMAGE for name in config['services']};v=m.classify(config,images)
+        self.assertEqual(v['writers'],['api','ingest','mcp']);self.assertEqual(v['roles']['secure-web'],'web')
+        for change in ['database','privileged','host']:
+            bad=copy.deepcopy(config)
+            if change=='database':bad['services']['secure-web']['environment']={'DATABASE_URL':'unexpected'}
+            if change=='privileged':bad['services']['secure-web']['privileged']=True
+            if change=='host':bad['services']['secure-web']['network_mode']='host'
+            with self.assertRaises(ValueError):m.classify(bad,images)
     def test_unknown_missing_replica_or_unexpected_writer_refuses(self):
         for change in ['custom','command','missing','db','host','replica']:
             config=self.config();images={name:IMAGE for name in config['services']}

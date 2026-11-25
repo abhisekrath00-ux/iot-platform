@@ -1,0 +1,20 @@
+{
+  "state": "LOCAL PROPOSAL, NOT executed or published",
+  "base": "eedc125cf784e8fe2c8987628435d09645af1024",
+  "hashes": {
+    ".github/workflows/ci.yml": "319b010578a8e5372d7c8aa60d00b7b15a04bda43b1e1d922d061404e9a37eb8",
+    "scripts/test-secure-update-preparation-native.py": "8ced0c6eeb5f3b97744bf6c745d5bacd9c878991f5afbfe8799055b76227bab0"
+  },
+  "route": "ci.yml workflow_dispatch native_update_preparation=true apply_image_compat=false",
+  "bounds": [
+    "defaultfalse/publicrepoonly/ubuntu-latest/10minutes/contentsread/noartifactsorcache",
+    "unique synthetic project, tiny sleepingprocess images, nohostports/binds/privileged/ownerfiles",
+    "GUI Session backend, exact localimages/privateplan/unchangedselectorconfigcontainerIDs",
+    "missinglocalimage refusal and sessionnoretry",
+    "Notrealapplication/DB/updaterexecution/rollback/Windowsacceptance"
+  ],
+  "local": "AST/YAML/focusedcontracts pass; actualDocker NOT run locally",
+  "free_evidence": "Live repository private=false Nov25 07:00; GitHub billing docs fetched Nov25 07:03 standardpublicrunnersfree. Recheck immediatelybeforeexecution.",
+  "billing_source": "https://docs.github.com/en/billing/managing-billing-for-your-products/managing-billing-for-github-actions/about-billing-for-github-actions",
+  "publication": "NOTauthorized; require full coherent local regression then reviewpublication+singlefixedrevisiondispatchdecision"
+}

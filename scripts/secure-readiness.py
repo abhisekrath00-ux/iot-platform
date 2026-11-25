@@ -25,7 +25,7 @@ runtime=load('secure-runtime')
 REQUIRED_PROTOCOLS={'certificate_acl_snapshot_v1','read_only_setup_readiness_v1'}
 ROLES={'api':'database_writer','ingest':'database_writer','mcp':'database_writer',
        'postgres':'data_store','mosquitto':'broker','elasticsearch':'data_store',
-       'redis':'data_store','web':'web','ai-runtime':'local_model'}
+       'redis':'data_store','web':'web','secure-web':'web','ai-runtime':'local_model'}
 
 
 def classify(config,images):
