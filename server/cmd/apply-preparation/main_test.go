@@ -64,7 +64,7 @@ func TestIntegrationPreparationReadOnlyDatabase(t *testing.T) {
 	defer conn.Close(context.Background())
 	schema := fmt.Sprintf("apply_preparation_%d", time.Now().UnixNano())
 	quoted := pgx.Identifier{schema}.Sanitize()
-	if _, err = conn.Exec(t.Context(), "CREATE SCHEMA "+quoted+";CREATE TABLE "+quoted+".gateway_config_pushes (LIKE public.gateway_config_pushes INCLUDING ALL); SET search_path TO "+quoted+",public"); err != nil {
+	if _, err = conn.Exec(t.Context(), "CREATE SCHEMA "+quoted+"; SET search_path TO "+quoted); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
@@ -72,6 +72,15 @@ func TestIntegrationPreparationReadOnlyDatabase(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+	// Other Go packages may migrate public concurrently. Build the fixture only
+	// from the real table migration in our own schema, never from their state.
+	migration, err := os.ReadFile("../../migrations/0073_config_pushes.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = conn.Exec(t.Context(), string(migration)); err != nil {
+		t.Fatal(err)
+	}
 	guard, err := os.ReadFile("../../internal/applyadmission/candidate.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +93,7 @@ func TestIntegrationPreparationReadOnlyDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := u.Query()
-	q.Set("search_path", schema+",public")
+	q.Set("search_path", schema)
 	u.RawQuery = q.Encode()
 	base := t.TempDir()
 	os.Chmod(base, 0700)
