@@ -4,10 +4,16 @@ on:
     branches: [main]
     paths: ['scripts/*ps1', 'scripts/test-edge-native-linux.sh', 'edge/packaging/**', 'edge/packaging/*ps1', 'edge/cmd/edge-setup/**', 'scripts/build-edge.sh', '.github/workflows/windows-installer.yml']
   workflow_dispatch:
+    inputs:
+      windows_recovery_review:
+        description: 'Windows-only installer recovery contracts, pixels and fixed historical/current service fixture'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   native-windows-powershell-contracts:
+    if: ${{ !inputs.windows_recovery_review }}
     runs-on: windows-2025
     timeout-minutes: 10
     steps:
@@ -42,6 +48,7 @@ jobs:
           path: ${{ runner.temp }}/hexthings-edge-setup.png
 
   native-windows-edge-service:
+    if: ${{ !inputs.windows_recovery_review }}
     runs-on: windows-2025
     timeout-minutes: 15
     steps:
@@ -54,6 +61,7 @@ jobs:
         shell: powershell
         run: ./scripts/test-edge-native-windows.ps1
   native-ubuntu-edge-run:
+    if: ${{ !inputs.windows_recovery_review }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -66,3 +74,46 @@ jobs:
         run: bash scripts/build-edge.sh 0.0.0-native
       - name: Disposable systemd lifecycle from the .run (not desktop, reboot or telemetry)
         run: sudo -E bash scripts/test-edge-native-linux.sh
+
+  windows-contracts-and-pixels:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_recovery_review && github.event.repository.private == false }}
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: PowerShell5.1 contracts, no installation
+        shell: powershell
+        run: |
+          & ./scripts/test-edge-windows-exits.ps1
+          & ./scripts/test-edge-manager.ps1
+          & ./scripts/test-edge-upgrade-transaction.ps1
+      - name: PowerShell7 contracts, no installation
+        shell: pwsh
+        run: |
+          ./scripts/test-edge-windows-exits.ps1
+          ./scripts/test-edge-manager.ps1
+          ./scripts/test-edge-upgrade-transaction.ps1
+      - name: Actual WinForms pixels, no installation or enrollment
+        shell: powershell
+        run: |
+          powershell -NoProfile -STA -ExecutionPolicy Bypass -File edge/packaging/setup-wizard.ps1 -RenderPreview "$env:RUNNER_TEMP/hexthings-edge-setup.png"
+          if ($LASTEXITCODE -ne 0) { throw 'Actual form rendering failed' }
+          & ./scripts/emit-windows-preview.ps1
+  windows-historical-current-service:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_recovery_review && github.event.repository.private == false }}
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Disposable historical/current SCM install and upgrade recovery
+        shell: powershell
+        run: ./scripts/test-edge-native-windows.ps1
