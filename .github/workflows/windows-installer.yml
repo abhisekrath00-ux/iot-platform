@@ -5,6 +5,10 @@ on:
     paths: ['scripts/*ps1', 'scripts/test-edge-native-linux.sh', 'edge/packaging/**', 'edge/packaging/*ps1', 'edge/cmd/edge-setup/**', 'scripts/build-edge.sh', '.github/workflows/windows-installer.yml']
   workflow_dispatch:
     inputs:
+      linux_identity_mapping_review:
+        description: 'One synthetic privileged Linux mapping check, no service activation or artifacts'
+        type: boolean
+        default: false
       windows_recovery_review:
         description: 'Windows-only installer recovery contracts, pixels and fixed historical/current service fixture'
         type: boolean
@@ -17,7 +21,7 @@ permissions:
   contents: read
 jobs:
   native-windows-powershell-contracts:
-    if: ${{ !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
+    if: ${{ !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
     runs-on: windows-2025
     timeout-minutes: 10
     steps:
@@ -52,7 +56,7 @@ jobs:
           path: ${{ runner.temp }}/hexthings-edge-setup.png
 
   native-windows-edge-service:
-    if: ${{ !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
+    if: ${{ !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
     runs-on: windows-2025
     timeout-minutes: 15
     steps:
@@ -65,7 +69,7 @@ jobs:
         shell: powershell
         run: ./scripts/test-edge-native-windows.ps1
   native-ubuntu-edge-run:
-    if: ${{ !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
+    if: ${{ !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -80,7 +84,7 @@ jobs:
         run: sudo -E bash scripts/test-edge-native-linux.sh
 
   windows-contracts-and-pixels:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.linux_identity_mapping_review && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
     runs-on: windows-2025
     timeout-minutes: 12
     steps:
@@ -114,7 +118,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Recovery routing clicks failed' }
           & ./scripts/emit-windows-preview.ps1
   windows-historical-current-service:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.linux_identity_mapping_review && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
@@ -134,7 +138,7 @@ jobs:
           & ./scripts/emit-windows-preview.ps1
 
   windows-claim-store-prototype:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_claim_store_prototype && !inputs.windows_recovery_review && github.event.repository.private == false }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.linux_identity_mapping_review && inputs.windows_claim_store_prototype && !inputs.windows_recovery_review && github.event.repository.private == false }}
     runs-on: windows-2025
     timeout-minutes: 10
     permissions:
@@ -155,3 +159,24 @@ jobs:
           Set-Location edge
           go test -tags hex_candidate_native_prototype ./internal/claim -run '^TestCandidateWindowsPrototype' -count=1 -v -timeout 5m
           if ($LASTEXITCODE -ne 0) { throw 'Dormant native claim store acceptance failed; keep product storage disabled' }
+
+  linux-identity-mapping-review:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Compile exact product, no cache or artifacts
+        run: cd edge && go build -o "$RUNNER_TEMP/edge-agent-review" ./cmd/edge-agent
+      - name: Synthetic ownership and stopped static unit only
+        env:
+          HEX_DISPOSABLE_LINUX_MAPPING_REVIEW: '1'
+        run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_OS,HEX_DISPOSABLE_LINUX_MAPPING_REVIEW bash edge/packaging/test-private-linux-mapping.sh "$RUNNER_TEMP/edge-agent-review"
