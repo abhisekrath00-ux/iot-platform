@@ -88,18 +88,26 @@ jobs:
         run: |
           & ./scripts/test-edge-windows-exits.ps1
           & ./scripts/test-edge-manager.ps1
+          & ./scripts/test-edge-recovery-manager.ps1
           & ./scripts/test-edge-upgrade-transaction.ps1
       - name: PowerShell7 contracts, no installation
         shell: pwsh
         run: |
           ./scripts/test-edge-windows-exits.ps1
           ./scripts/test-edge-manager.ps1
+          ./scripts/test-edge-recovery-manager.ps1
           ./scripts/test-edge-upgrade-transaction.ps1
       - name: Actual WinForms pixels, no installation or enrollment
         shell: powershell
         run: |
           powershell -NoProfile -STA -ExecutionPolicy Bypass -File edge/packaging/setup-wizard.ps1 -RenderPreview "$env:RUNNER_TEMP/hexthings-edge-setup.png"
           if ($LASTEXITCODE -ne 0) { throw 'Actual form rendering failed' }
+          & ./scripts/emit-windows-preview.ps1
+      - name: Actual recovery routing clicks with stand-in backend, no service changes
+        shell: powershell
+        run: |
+          powershell -NoProfile -STA -ExecutionPolicy Bypass -File scripts/test-edge-recovery-clicks-windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Recovery routing clicks failed' }
           & ./scripts/emit-windows-preview.ps1
   windows-historical-current-service:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_recovery_review && github.event.repository.private == false }}
@@ -116,4 +124,7 @@ jobs:
           cache: false
       - name: Disposable historical/current SCM install and upgrade recovery
         shell: powershell
-        run: ./scripts/test-edge-native-windows.ps1
+        run: |
+          powershell -NoProfile -STA -ExecutionPolicy Bypass -File scripts/test-edge-native-windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Integrated real backend recovery clicks failed' }
+          & ./scripts/emit-windows-preview.ps1
