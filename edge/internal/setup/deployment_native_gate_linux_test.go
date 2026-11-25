@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/claim"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -71,13 +72,17 @@ func TestNativeRootOriginStoppedInstaller(t *testing.T) {
 	if serviceUID == "0" || serviceGID == "0" {
 		t.Fatal("distinct nonroot identity required")
 	}
-	finalRoot := filepath.Join(root, "payload")
-	finalState := filepath.Join(root, "state")
-	finalUnit := filepath.Join(root, "synthetic-only.service")
-	dir := filepath.Join(root, "attempt")
-	prep := filepath.Join(root, "prepared")
-	accept := filepath.Join(root, "acceptance")
-	inputs := filepath.Join(root, "inputs")
+	private, deployed, e := nativeStoppedFixtureBoundaries(root)
+	if e != nil {
+		t.Fatal(e)
+	}
+	finalRoot := filepath.Join(deployed, "payload")
+	finalState := filepath.Join(deployed, "state")
+	finalUnit := filepath.Join(deployed, "synthetic-only.service")
+	dir := filepath.Join(private, "attempt")
+	prep := filepath.Join(private, "prepared")
+	accept := filepath.Join(private, "acceptance")
+	inputs := filepath.Join(private, "inputs")
 	for _, p := range []string{accept, inputs} {
 		if e = os.Mkdir(p, 0700); e != nil {
 			t.Fatal(e)
@@ -226,4 +231,44 @@ func TestNativeRootOriginStoppedInstaller(t *testing.T) {
 		t.Fatal("revoked root recovery accepted", e, string(out))
 	}
 	t.Log("PASS root-origin genuine preparation/staging/signed HTTPS enrollment/private acceptance/handoff/fresh root stopped adapter, exact repeat, revoked refusal, distinct service-user lint/read-exec/no-write and writable0700state; unit only synthetic/tmp, no systemd reload/start/enable or artifacts")
+}
+
+// The service must traverse the deployment ancestry, never the retained private
+// preparation ancestry. Keep the product's strict private-parent checks intact.
+func nativeStoppedFixtureBoundaries(root string) (string, string, error) {
+	private, deployed := filepath.Join(root, "private"), filepath.Join(root, "deployed")
+	if e := os.Mkdir(private, 0700); e != nil {
+		return "", "", e
+	}
+	if e := os.Mkdir(deployed, 0755); e != nil {
+		return "", "", e
+	}
+	return private, deployed, nil
+}
+
+func TestNativeStoppedFixturePrivatePreparationBoundary(t *testing.T) {
+	root := t.TempDir()
+	if e := os.Chmod(root, 0755); e != nil {
+		t.Fatal(e)
+	}
+	private, deployed, e := nativeStoppedFixtureBoundaries(root)
+	if e != nil {
+		t.Fatal(e)
+	}
+	raw, _ := json.Marshal(map[string]string{"Dir": filepath.Join(private, "prepared")})
+	var out bytes.Buffer
+	if e = claim.RunCandidatePrepareInstall(bytes.NewReader(raw), &out); e != nil {
+		t.Fatal("actual private preparation rejected fixture", e)
+	}
+	for path, mode := range map[string]os.FileMode{private: 0700, deployed: 0755, filepath.Join(private, "prepared"): 0700} {
+		info, e := os.Stat(path)
+		if e != nil || info.Mode().Perm() != mode {
+			t.Fatal("fixture boundary", path, e)
+		}
+	}
+	raw, _ = json.Marshal(map[string]string{"Dir": filepath.Join(root, "unsafe-prepared")})
+	if e = claim.RunCandidatePrepareInstall(bytes.NewReader(raw), &out); e == nil {
+		t.Fatal("product allowed0755 immediate private parent")
+	}
+	t.Log("PASS actual preparation accepts isolated0700private ancestry, refuses shared0755parent; deployment ancestry stays separately traversable")
 }
