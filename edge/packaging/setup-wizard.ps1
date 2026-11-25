@@ -6,7 +6,16 @@ $dir = Join-Path $env:ProgramData 'Hexmon\edge'
 $exe = Join-Path $dir 'edge-agent.exe'
 $config = Join-Path $dir 'edge-agent.yaml'
 function Assert-SetupExit([int]$Code, [string]$Step) { if ($Code -ne 0) { throw "$Step failed (exit $Code)" } }
+function Assert-NoPendingUpgrade {
+  if (Test-Path -LiteralPath (Join-Path $dir 'install-pending.json')) { throw 'An earlier first installation needs review. Preserve its files and any saved identity. Do not repeat enrollment or start the service.' }
+  if (Test-Path -LiteralPath (Join-Path $dir 'upgrade-pending.json')) { throw 'An executable upgrade is unresolved. Keep its files. Use explicit executable upgrade recovery before starting, pairing or replacing configuration.' }
+}
+function Repair-SetupUpgrade {
+  & (Join-Path $here 'install-windows.ps1') -RecoverUpgrade
+  Assert-SetupExit $LASTEXITCODE 'Executable upgrade recovery'
+}
 function Assert-ReadyConfig {
+  Assert-NoPendingUpgrade
   if (-not (Test-Path $config)) { throw 'Import your generated gateway YAML first.' }
   $sample = Join-Path $here 'edge-agent.example.yaml'
   if ((Test-Path $sample) -and (Get-FileHash $sample).Hash -eq (Get-FileHash $config).Hash) { throw 'The example YAML is not a commissioned gateway config. Import your generated YAML first.' }
@@ -18,12 +27,14 @@ function Invoke-SetupInstall([hashtable]$Parameters) {
   Assert-SetupExit $LASTEXITCODE 'Agent installation'
 }
 function Set-SetupBoot([bool]$Enabled) {
+  Assert-NoPendingUpgrade
   if ($Enabled) { Assert-ReadyConfig }
   if ($Enabled) { Set-Content -Path "$dir\start-on-boot" -Value 'yes' } elseif (Test-Path "$dir\start-on-boot") { Remove-Item "$dir\start-on-boot" -Force }
   $mode = if ($Enabled) { 'Automatic' } else { 'Manual' }
   Set-Service -Name HexmonEdge -StartupType $mode
 }
 function Import-SetupConfig([string]$candidate, [bool]$StartOnBoot) {
+  Assert-NoPendingUpgrade
   & $exe -check-config -config $candidate -identity-dir "$dir\data";Assert-SetupExit $LASTEXITCODE 'New configuration check'
   $sample=Join-Path $here 'edge-agent.example.yaml';if ((Get-FileHash $candidate).Hash -eq (Get-FileHash $sample).Hash) { throw 'Do not use the unchanged example config.' }
   if ((Get-Service HexmonEdge).Status -eq 'Running') { throw 'Stop the service before replacing its config.' }
@@ -36,6 +47,7 @@ function Assert-SecureSetupServer([string]$Address) {
   if ($uri.Scheme -ne 'https' -and -not ($uri.Scheme -eq 'http' -and $uri.IsLoopback)) { throw 'Use HTTPS for server pairing. HTTP is only available for a local loopback test.' }
 }
 function Get-SetupConfig([string]$ServerAddress,[string]$GatewaySerial,[bool]$StartOnBoot,[bool]$AllowSignedSources) {
+  Assert-NoPendingUpgrade
   Assert-SecureSetupServer $ServerAddress
   if (-not $GatewaySerial.Trim()) { throw 'Enter the saved gateway serial.' }
   if (-not (Test-Path $exe)) { throw 'Install the edge application first.' }
@@ -56,6 +68,7 @@ function Get-SetupSerialPorts {
   @([System.IO.Ports.SerialPort]::GetPortNames() | Sort-Object -Unique)
 }
 function Invoke-SetupPairing([string]$ServerAddress,[string]$GatewaySerial,[string]$Action) {
+  Assert-NoPendingUpgrade
   Assert-SecureSetupServer $ServerAddress
   if (-not $GatewaySerial.Trim()) { throw 'Enter the saved gateway serial.' }
   if (-not (Test-Path $exe)) { throw 'Install the edge application first.' }
@@ -121,7 +134,9 @@ Button 'Install / upgrade' 22 372 190 { Run-Action {
   if ($code.Text -and -not ($server.Text -and $serial.Text)) { throw 'Provide server, code and serial together, or leave all blank for install-only.' }
   if ($code.Text) { Assert-SecureSetupServer $server.Text }
   $args=@{};if ($code.Text) { if ($server.Text -notmatch '^https?://') { throw 'Server address must start with http:// or https://' };$args.ClaimApi=$server.Text.Trim();$args.ClaimCode=$code.Text.Trim();$args.ClaimSerial=$serial.Text.Trim() }
+  $existingService=Get-Service HexmonEdge -ErrorAction SilentlyContinue
   Invoke-SetupInstall $args
+  if ($existingService) { $code.Clear();$output.Text='Executable upgrade verified. Existing configuration, identity and startup choice were retained. No pairing or config fetch was requested. Check Health and actual readings separately.';return }
   # Keep a durable local manager. On a new install startup remains Manual until configuration.
   Copy-Item (Join-Path $here 'uninstall-windows.ps1') $dir -Force
   Copy-Item (Join-Path $here 'setup-wizard.ps1') $dir -Force

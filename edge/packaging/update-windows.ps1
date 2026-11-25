@@ -1,4 +1,4 @@
-# Verifies a downloaded edge package against SHA256SUMS, then upgrades in place with automatic rollback.
+# Verifies a downloaded edge package against SHA256SUMS, then upgrades with retained intent and explicit recovery after interruption.
 #   .\update-windows.ps1 -Package hexmon-edge-<ver>-windows-<arch>.zip [-Sums SHA256SUMS]
 param([Parameter(Mandatory)][string]$Package, [string]$Sums = "")
 $ErrorActionPreference = "Stop"

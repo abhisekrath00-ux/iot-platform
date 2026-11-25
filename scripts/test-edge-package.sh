@@ -36,11 +36,30 @@ for arch in amd64 arm64; do
   [ "$(head -c2 "$setup")" = MZ ] || fail "setup file is not a PE executable"
 done
 python3 - "$out" <<'PYTEST'
-import hashlib,json,pathlib,sys
+import hashlib,io,json,pathlib,sys,zipfile
 out=pathlib.Path(sys.argv[1]);manifest=json.loads((out/'manifest.json').read_text())
 assert len(manifest['packages'])==10
 for p in manifest['packages']:
  data=(out/p['filename']).read_bytes();assert len(data)==p['size'];assert hashlib.sha256(data).hexdigest()==p['sha256']
 assert {p['id'] for p in manifest['packages']} >= {'windows-amd64-exe','linux-amd64-run','linux-amd64-deb'}
+# Check actual self-contained payload bytes, not just the PE magic or ZIP listing.
+for arch in ['amd64','arm64']:
+ name='hexmon-edge-0.0.0-pkgtest-windows-'+arch
+ with zipfile.ZipFile(out/(name+'.zip')) as archive:
+  want={pathlib.PurePosixPath(n).name:archive.read(n) for n in archive.namelist() if not n.endswith('/')}
+ for item in ['first-install-review.ps1','upgrade-transaction.ps1','install-windows.ps1','setup-wizard.ps1','uninstall-windows.ps1']:
+  assert want[item]==(out.parent.parent/'edge/packaging'/item).read_bytes(),item
+ data=(out/(name+'-setup.exe')).read_bytes();position=0;found=False
+ while True:
+  position=data.find(b'PK\x05\x06',position)
+  if position<0:break
+  end=position+22+int.from_bytes(data[position+20:position+22],'little');position+=4
+  try:
+   with zipfile.ZipFile(io.BytesIO(data[:end])) as archive:
+    got={n:archive.read(n) for n in archive.namelist() if not n.endswith('/')}
+   if got==want:found=True;break
+  except (zipfile.BadZipFile,ValueError,KeyError):pass
+ assert found,'Self-contained Windows payload differs from checked package'
+
 PYTEST
 echo "edge package checks passed (10-artifact inventory, hashes, PE headers and self-extractor verification; not native installation)"

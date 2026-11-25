@@ -2,6 +2,8 @@
 param([switch]$Purge)
 $ErrorActionPreference = 'Stop'
 $dir = Join-Path $env:ProgramData 'Hexmon\edge'
+if (Test-Path -LiteralPath (Join-Path $dir 'upgrade-pending.json')) { throw 'Unresolved executable upgrade. Preserve state and explicitly recover it before uninstall or purge.' }
+if (Test-Path -LiteralPath (Join-Path $dir 'install-pending.json')) { throw 'Unresolved first installation. Preserve its files and identity for review before uninstall or purge.' }
 $svc = Get-Service HexmonEdge -ErrorAction SilentlyContinue
 if ($svc) {
  $installed = Get-CimInstance Win32_Service -Filter "Name='HexmonEdge'"

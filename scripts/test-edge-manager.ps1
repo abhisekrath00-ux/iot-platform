@@ -7,6 +7,17 @@ try {
  $env:ProgramData=$tmp
  . (Join-Path $PSScriptRoot '../edge/packaging/setup-wizard.ps1') -ContractOnly
  function Set-Service {param($Name,$StartupType);$script:lastStartup=$StartupType}
+ New-Item -ItemType Directory -Force -Path $dir|Out-Null
+ Set-Content (Join-Path $dir 'upgrade-pending.json') '{}'
+ $blocked=$false;try{Set-SetupBoot $false}catch{$blocked=$true};if(-not $blocked){throw 'Pending upgrade allowed startup mutation'}
+ $blocked=$false;try{Assert-ReadyConfig}catch{$blocked=$true};if(-not $blocked){throw 'Pending upgrade allowed Start gate'}
+ $blocked=$false;try{Get-SetupConfig 'https://server.example' 'SAVED-001' $false $false}catch{$blocked=$true};if(-not $blocked){throw 'Pending upgrade allowed config fetch'}
+ $blocked=$false;try{Invoke-SetupPairing 'https://server.example' 'SAVED-001' 'request'}catch{$blocked=$true};if(-not $blocked){throw 'Pending upgrade allowed pairing'}
+ Remove-Item (Join-Path $dir 'upgrade-pending.json')
+ Set-Content (Join-Path $dir 'install-pending.json') '{}'
+ $blocked=$false;try{Assert-ReadyConfig}catch{$blocked=$true};if(-not $blocked){throw 'Interrupted first install allowed Start'}
+ Remove-Item (Join-Path $dir 'install-pending.json')
+ Write-Host 'PASS pending executable upgrade blocks Start, config fetch and pairing before agent calls'
  $script:lastStartup='unset';Set-SetupBoot $false
  if($script:lastStartup -ne 'Manual'){throw 'Manual choice was not applied'}
  $blocked=$false;try{Set-SetupBoot $true}catch{$blocked=$true}

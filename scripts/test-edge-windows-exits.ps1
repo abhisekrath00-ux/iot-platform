@@ -29,7 +29,7 @@ try {
   try { Invoke-Expression $branch[0].Extent.Text; throw 'success marker reached' } catch {
     if($_.Exception.Message -notmatch 'Gateway enrollment failed \(exit 23\)'){throw};$refused=$true
   }
-  if(-not $refused -or '-identity-dir' -notin $script:seenArgs -or ($dir + '\data') -notin $script:seenArgs){throw 'Enrollment identity/exit binding failed'}
+  if(-not $refused -or '-identity-dir' -notin $script:seenArgs -or (Join-Path $dir data) -notin $script:seenArgs){throw 'Enrollment identity/exit binding failed'}
   Write-Host 'PASS actual enrollment branch refuses child exit23 and uses service data identity directory'
   $guide=Join-Path (Split-Path $PSScriptRoot -Parent) 'edge/packaging/install.ps1'
   $text=Get-Content -LiteralPath $guide -Raw
