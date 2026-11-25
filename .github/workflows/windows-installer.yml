@@ -9,11 +9,15 @@ on:
         description: 'Windows-only installer recovery contracts, pixels and fixed historical/current service fixture'
         type: boolean
         default: false
+      windows_claim_store_prototype:
+        description: 'One dormant claim-store package test, synthetic temp only, no services or artifacts'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   native-windows-powershell-contracts:
-    if: ${{ !inputs.windows_recovery_review }}
+    if: ${{ !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
     runs-on: windows-2025
     timeout-minutes: 10
     steps:
@@ -48,7 +52,7 @@ jobs:
           path: ${{ runner.temp }}/hexthings-edge-setup.png
 
   native-windows-edge-service:
-    if: ${{ !inputs.windows_recovery_review }}
+    if: ${{ !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
     runs-on: windows-2025
     timeout-minutes: 15
     steps:
@@ -61,7 +65,7 @@ jobs:
         shell: powershell
         run: ./scripts/test-edge-native-windows.ps1
   native-ubuntu-edge-run:
-    if: ${{ !inputs.windows_recovery_review }}
+    if: ${{ !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -76,7 +80,7 @@ jobs:
         run: sudo -E bash scripts/test-edge-native-linux.sh
 
   windows-contracts-and-pixels:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_recovery_review && github.event.repository.private == false }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
     runs-on: windows-2025
     timeout-minutes: 12
     steps:
@@ -110,7 +114,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Recovery routing clicks failed' }
           & ./scripts/emit-windows-preview.ps1
   windows-historical-current-service:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_recovery_review && github.event.repository.private == false }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
@@ -128,3 +132,26 @@ jobs:
           powershell -NoProfile -STA -ExecutionPolicy Bypass -File scripts/test-edge-native-windows.ps1
           if ($LASTEXITCODE -ne 0) { throw 'Integrated real backend recovery clicks failed' }
           & ./scripts/emit-windows-preview.ps1
+
+  windows-claim-store-prototype:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_claim_store_prototype && !inputs.windows_recovery_review && github.event.repository.private == false }}
+    runs-on: windows-2025
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Dormant claim-store package only, no service or owner material
+        shell: powershell
+        env:
+          HEX_NATIVE_CANDIDATE_STORE_ACCEPTANCE: '1'
+        run: |
+          Set-Location edge
+          go test -tags hex_candidate_native_prototype ./internal/claim -run '^TestCandidateWindowsPrototype' -count=1 -v -timeout 5m
+          if ($LASTEXITCODE -ne 0) { throw 'Dormant native claim store acceptance failed; keep product storage disabled' }
