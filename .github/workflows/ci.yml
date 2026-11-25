@@ -7,6 +7,11 @@ on:
     paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
     inputs:
+      selected_application_generation:
+        description: 'Run disposable selected historical/current generation rollback and second update (no owner deployment)'
+        required: false
+        default: false
+        type: boolean
       real_application_preparation:
         description: 'Run disposable real-app preparation only (no updater/owner deployment)'
         required: false
@@ -372,3 +377,28 @@ jobs:
         run: python3 scripts/test-real-application-preparation-route.py
       - name: Real application GUI backend preparation only, disposable fixture
         run: sudo env PATH="$PATH" GITHUB_ACTIONS=true RUNNER_OS=Linux HEXTHINGS_REAL_PREPARATION_ONLY=1 python3 scripts/test-secure-application-native.py
+
+  selected-application-generation:
+    if: github.event_name == 'workflow_dispatch' && inputs.selected_application_generation && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          check-latest: true
+          cache: false
+      - name: Selected-generation local safety and route contracts
+        run: |
+          python3 scripts/test-secure-generation.py
+          python3 scripts/test-secure-generation-execution.py
+          python3 scripts/test-secure-generation-faults.py
+          python3 scripts/test-secure-generation-provider.py
+          python3 scripts/test-selected-application-generation-route.py
+      - name: Fixed historical/current application generations in disposable fixture
+        run: sudo env PATH="$PATH" GITHUB_ACTIONS=true RUNNER_OS=Linux HEXTHINGS_SELECTED_GENERATION_ONLY=1 python3 scripts/test-secure-application-native.py
