@@ -34,7 +34,7 @@ class LocalOperator:
             raise ValueError('Simple exact local database/admin names required.')
         self.journal,self.catalog,self.image,self.guard=journal,catalog,image,guard
         self.run=runner or subprocess.run
-        self.path=journal.directory/'postgres-operator.json'
+        self.path=getattr(journal,'resource_directory',journal.directory)/'postgres-operator.json'
 
     def check(self):
         self.journal.locked()
@@ -190,10 +190,10 @@ class LocalOperator:
         self.check();value=self.record()
         if value['stage']not in {'creating','copying','removed'}:
             raise ValueError('Only pre-SQL partial staging can be reset here; inspect ready tools first.')
-        archived=self.journal.directory/(value['source']+'-discarded.json')
+        archived=getattr(self.journal,'resource_directory',self.journal.directory)/(value['source']+'-discarded.json')
         if archived.exists()or archived.is_symlink():raise ValueError('Tool recovery evidence already exists.')
         if value['stage']=='removed':
-            self.path.rename(archived);state.sync_directory(self.journal.directory);return
+            self.path.rename(archived);state.sync_directory(getattr(self.journal,'resource_directory',self.journal.directory));return
         source=self.command(['container','ls','-a','--filter','name=^/'+value['source']+'$','--format','{{.ID}}']).strip()
         if source:self.source(value)
         # Static read-only shell, exact generated path passed as an argument.
@@ -224,7 +224,7 @@ class LocalOperator:
             self.command(['exec','--user','0',self.catalog.container,'rm','-rf','--',value['directory']])
         if source:self.command(['rm',value['source']])
         value['stage']='removed';state.atomic(self.path,value)
-        self.path.rename(archived);state.sync_directory(self.journal.directory)
+        self.path.rename(archived);state.sync_directory(getattr(self.journal,'resource_directory',self.journal.directory))
         # Ordinary admission remains held. The caller may now prepare fresh tools
         # or accept the prior runtime, never blindly repeat an attempted SQL step.
 

@@ -23,6 +23,7 @@ def load(name):
 application = load('secure-application-docker')
 transport = load('secure-transport-docker')
 state = application.state
+generations = load('secure-generation')
 
 
 @dataclasses.dataclass(frozen=True)
@@ -60,15 +61,24 @@ class GuardedEffects:
 
 
 class GuardedJournal:
-    def __init__(self, journal, check):
-        self.journal, self.check = journal, check
+    def __init__(self, journal, check, generation=None):
+        self.journal, self.check, self.generation = journal, check, generation
 
     def __getattr__(self, name):
         return getattr(self.journal, name)
 
     def begin(self, *args, **kwargs):
         self.check()
-        self.journal.begin(*args, **kwargs)
+        if self.generation is None:
+            self.journal.begin(*args, **kwargs)
+        else:
+            project, previous, candidate, images, receipt = args
+            value = state.read_private(pathlib.Path(self.generation.inspect()['archive']) / 'successor.json')
+            if (kwargs != {'kind': 'application_bootstrap'} or project != value['project']
+                    or str(previous) != value['previous'] or str(candidate) != value['candidate']
+                    or images != value['previous_images'] or state.digest(receipt) != value['receipt_sha256']):
+                raise ValueError('Successor begin differs from exact generation intent.')
+            self.generation.publish(lambda _: self.check())
         value = self.journal.read()
         value['maintenance_state'] = 'held'
         state.atomic(self.journal.directory / 'journal.json', value)
@@ -133,6 +143,17 @@ class Coordinator:
             journal_path = journal.directory / 'journal.json'
             has_journal = journal_path.exists() or journal_path.is_symlink()
             has_marker = marker.exists() or marker.is_symlink()
+            generation = generations.Generation(journal)
+            has_intent = generations.exists(generation.intent)
+            generation_value = generation.inspect() if has_intent else None
+            if has_intent and (scope != 'application_bootstrap'
+                    or generation_value['receipt'] != str(receipt)
+                    or generation_value['receipt_sha256'] != target.receipt_sha256
+                    or generation_value['project'] != project):
+                raise ValueError('Recovery requires the exact application generation.')
+            if action == 'activate' and has_intent:
+                raise ValueError('Earlier generation handoff requires explicit recovery.')
+            predecessor_held = bool(generation_value and generation_value['state'] == 'predecessor_held')
             binding = {'version': 1, 'root': str(root), 'project': project,
                        'scope': scope, 'previous': str(previous),
                        'candidate': str(candidate), 'receipt': str(receipt),
@@ -141,9 +162,9 @@ class Coordinator:
                 raise ValueError('Maintenance session does not match this reviewed target.')
             if action == 'activate' and has_marker:
                 raise ValueError('An earlier maintenance attempt requires explicit recovery.')
-            if action == 'recover' and not has_journal and not has_marker:
+            if action == 'recover' and not has_journal and not has_marker and not has_intent:
                 raise ValueError('No interrupted execution or maintenance session to recover.')
-            if action == 'recover' and has_journal:
+            if action == 'recover' and has_journal and not predecessor_held:
                 value = journal.read()
                 if (value.get('kind', 'transport_only') != scope or value.get('project') != project
                         or value.get('previous') != str(previous) or value.get('candidate') != str(candidate)
@@ -153,6 +174,20 @@ class Coordinator:
             # Only the locked adapter's pre-change inspection can use it.
             selected = state.selection(root) if action == 'activate' else None
             checked_callback(self.provider.review, target)
+            if action == 'activate' and selected is not None:
+                if scope != 'application_bootstrap':
+                    raise ValueError('Only explicit application generations support selected updates.')
+                handler = getattr(self.provider, 'generation_handoff', None)
+                if not callable(handler):
+                    raise ValueError('Provider must explicitly support durable generation rollover.')
+                generation_value = generation.prepare(project, receipt)
+                predecessor_held = True
+                has_intent = True
+            if has_intent:
+                handler = getattr(self.provider, 'generation_handoff', None)
+                if not callable(handler):
+                    raise ValueError('Provider must explicitly support durable generation rollover.')
+                checked_callback(handler, journal, target, generation_value)
             # Persist admission blocking before provider.enter can establish a
             # fence or fail. Power loss here must never reopen ordinary actions.
             state.atomic(marker, binding)
@@ -167,6 +202,8 @@ class Coordinator:
                 check()
                 if pathlib.Path(requested_root).resolve() != root:
                     raise ValueError('Maintenance inspection target changed.')
+                if has_intent:
+                    return generation.predecessor_selection()
                 if journal_path.exists() or journal_path.is_symlink():
                     raise ValueError('Pre-change inspection cannot run after a transaction starts.')
                 if selected:
@@ -191,9 +228,9 @@ class Coordinator:
                 adapter = self.factory(target, receipt, authorize, accepted, compatible)
                 adapter.selection_reader = selected_for_inspection
                 effects = GuardedEffects(adapter, check)
-                protected = GuardedJournal(journal, check)
+                protected = GuardedJournal(journal, check, generation if has_intent else None)
                 engine = application.app.ApplicationTransaction(protected, effects) if scope == 'application_bootstrap' else transport.load('secure-transaction').Transaction(protected, effects)
-                if action == 'recover' and not has_journal:
+                if action == 'recover' and (not has_journal or predecessor_held):
                     # Admission/fence may have changed, but begin() never ran,
                     # so no transaction service/schema effect was allowed.
                     authorize('application-recover' if scope == 'application_bootstrap' else 'recover', project, previous, candidate)
@@ -220,12 +257,16 @@ class Coordinator:
                 if final and final['phase'] not in {'committed', 'restored'}:
                     raise ValueError('Runtime was not durably settled. Keep maintenance protection.')
                 checked_callback(self.provider.release, ticket, target)
-                if final:
+                if final and not (action == 'recover' and predecessor_held):
                     final['maintenance_state'] = 'released'
                     state.atomic(journal_path, final)
                 # If interrupted between release and this removal, normal
                 # selection remains blocked and fresh recovery rechecks runtime.
+                if has_intent:
+                    generation.settle(lambda _: check())
                 state.unlink_durable(marker)
+                if has_intent:
+                    generation.finish()
                 state.selection(root)
                 return result
             except BaseException:

@@ -15,6 +15,7 @@ import re
 import stat
 import sys
 import textwrap
+import types
 
 # A read-only review must not create __pycache__ in the installation.
 sys.dont_write_bytecode = True
@@ -30,6 +31,7 @@ def load(name):
 
 state = load('secure-state')
 transaction = load('secure-transaction')
+generations = load('secure-generation')
 
 
 @contextlib.contextmanager
@@ -66,6 +68,28 @@ def inspect(root):
     with existing_lock(directory):
         journal = directory / 'journal.json'
         marker = directory / 'maintenance.json'
+        if exists(directory / 'generation-intent.json'):
+            # Share the already-held read-only review lock. No journal creation
+            # or generation settlement can be reached through this view.
+            view = types.SimpleNamespace(root=root, directory=directory, locked=lambda: None,
+                                         read=lambda: state.read_private(journal))
+            pending = generations.Generation(view).inspect()
+            if exists(marker):
+                admission = state.read_private(marker)
+                if (admission.get('receipt') != pending['receipt']
+                        or admission.get('receipt_sha256') != pending['receipt_sha256']
+                        or admission.get('root') != str(root)
+                        or admission.get('project') != pending['project']
+                        or admission.get('scope') != 'application_bootstrap'):
+                    raise ValueError('Generation maintenance session differs from intent.')
+            result.update(state='generation_' + pending['state'], normal_actions_blocked=True,
+                          scope='application_bootstrap', project=pending['project'],
+                          recovery_execution_available=False,
+                          next_checks=['Recover the exact interrupted application generation.',
+                                       'Verify the selected predecessor if successor publication never happened.',
+                                       'Recheck live runtime and original admission before clearing either block.',
+                                       'Do not retry schema application or delete generation evidence.'])
+            return result
         admission = None
         if exists(marker):
             admission = state.read_private(marker)

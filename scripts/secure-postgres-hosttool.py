@@ -27,7 +27,7 @@ class HostTool:
         if not re.fullmatch(state.IMAGE,image)or not callable(guard):raise ValueError('Exact candidate image and live admission guard required.')
         self.journal,self.image,self.guard=journal,image,guard
         self.run=runner or subprocess.run
-        self.path=journal.directory/'postgres-hosttool.json'
+        self.path=getattr(journal,'resource_directory',journal.directory)/'postgres-hosttool.json'
 
     def check(self):
         self.journal.locked()
@@ -51,7 +51,7 @@ class HostTool:
                 or not isinstance(v.get('cid'),str)or (v['cid']and not re.fullmatch(r'[a-f0-9]{64}',v['cid']))
                 or (v['stage']!='creating'and not v['cid'])
                 or v['stage']not in {'creating','copying','ready','released'}
-                or v['binary']!=str(self.journal.directory/(v['source']+'.bin'))
+                or v['binary']!=str(getattr(self.journal,'resource_directory',self.journal.directory)/(v['source']+'.bin'))
                 or (v['stage']in {'copying','ready','released'}and not re.fullmatch(r'[a-f0-9]{64}',v.get('sha256','')))):
             raise ValueError('Exact durable host probe staging record required.')
         return v
@@ -121,7 +121,7 @@ class HostTool:
         if self.path.exists()or self.path.is_symlink():raise ValueError('Existing host tool needs explicit fresh resume or release.')
         source='hexthings-hostprobe-'+uuid.uuid4().hex
         v={'version':1,'binding':self.check(),'image':self.image,'source':source,'cid':'','stage':'creating','sha256':'',
-           'binary':str(self.journal.directory/(source+'.bin'))}
+           'binary':str(getattr(self.journal,'resource_directory',self.journal.directory)/(source+'.bin'))}
         state.atomic(self.path,v)
         return self.resume()
 

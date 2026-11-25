@@ -60,7 +60,7 @@ class StartGate:
                 raise ValueError('Only existing exact read-only file binds are supported alongside the admission gate.')
         self.journal, self.project, self.name, self.base, self.guard = journal, project, name, copy.deepcopy(service), guard
         self.slot = slot
-        self.path = journal.directory / ('startgate-' + slot + '-' + name + '.json')
+        self.path = getattr(journal,'resource_directory',journal.directory) / ('startgate-' + slot + '-' + name + '.json')
 
     def check(self):
         self.journal.locked()
@@ -75,7 +75,7 @@ class StartGate:
                 or value['version'] != 1 or value['binding'] != binding or value['project'] != self.project
                 or value['name'] != self.name or value['service'] != self.base or value['slot'] != self.slot
                 or not re.fullmatch(r'[a-f0-9]{32}', value.get('token', ''))
-                or value['directory'] != str(self.journal.directory / ('startgate-' + self.slot + '-' + self.name + '-' + value['token']))
+                or value['directory'] != str(getattr(self.journal,'resource_directory',self.journal.directory) / ('startgate-' + self.slot + '-' + self.name + '-' + value['token']))
                 or value['stage'] not in {'preparing','held','releasing','released'}
                 or (value['container'] is not None and not re.fullmatch(r'[a-f0-9]{64}', value['container']))):
             raise ValueError('Exact durable application-gate scope required; keep admission held.')
@@ -102,7 +102,7 @@ class StartGate:
             raise ValueError('Existing application gate requires exact fresh recovery, not replacement.')
         token = uuid.uuid4().hex
         value = {'version':1,'binding':binding,'project':self.project,'name':self.name,'service':self.base,
-                 'token':token,'directory':str(self.journal.directory / ('startgate-' + self.slot + '-' + self.name + '-' + token)),
+                 'token':token,'directory':str(getattr(self.journal,'resource_directory',self.journal.directory) / ('startgate-' + self.slot + '-' + self.name + '-' + token)),
                  'stage':'preparing','container':None,'slot':self.slot}
         state.atomic(self.path, value)  # before mkdir; interrupted creation remains recoverable
         path = pathlib.Path(value['directory']); path.mkdir(mode=0o755); path.chmod(0o755); state.sync_directory(path.parent)

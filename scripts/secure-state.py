@@ -84,6 +84,7 @@ class Journal:
     def __init__(self, root):
         self.root = pathlib.Path(root).resolve()
         self.directory = self.root / '.secure-deployment'
+        self.resource_directory = self.directory
         self.fd = None
 
     def __enter__(self):
@@ -121,7 +122,7 @@ class Journal:
         self.locked()
         if kind not in {'transport_only', 'application_bootstrap'}:
             raise ValueError('Explicit supported transaction kind required.')
-        for name in ['journal.json', 'selected.json']:
+        for name in ['journal.json', 'selected.json', 'generation-intent.json']:
             path = self.directory / name
             if path.exists() or path.is_symlink():
                 raise ValueError('Existing deployment state needs explicit settlement; no new activation.')
@@ -248,6 +249,9 @@ def selection(root):
         return None
     if directory.is_symlink() or directory.stat().st_mode & 0o077:
         raise ValueError('Private deployment state invalid; refuse lab fallback.')
+    intent = directory / 'generation-intent.json'
+    if intent.exists() or intent.is_symlink():
+        raise ValueError('Generation handoff needs explicit recovery. No lab fallback.')
     maintenance = directory / 'maintenance.json'
     if maintenance.exists() or maintenance.is_symlink():
         raise ValueError('Maintenance session needs explicit recovery settlement. No lab fallback.')

@@ -176,7 +176,7 @@ class Tests(unittest.TestCase):
             root = pathlib.Path(td)
             scripts = root / 'scripts'
             scripts.mkdir()
-            for name in ['setup.sh', 'hx-ui.sh', 'secure-recovery-review.py', 'secure-state.py', 'secure-transaction.py']:
+            for name in ['setup.sh', 'hx-ui.sh', 'secure-recovery-review.py', 'secure-state.py', 'secure-transaction.py', 'secure-generation.py']:
                 shutil.copy2(HERE / name, scripts / name)
             self.fixture(root, 'application_bootstrap', 'changing')
             bin = root / 'bin'

@@ -12,6 +12,7 @@ remain outside the supported concurrent-writer boundary.
 import dataclasses
 import importlib.util
 import pathlib
+import re
 from urllib.parse import urlsplit, parse_qs
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -49,7 +50,22 @@ class Provider:
         if target.scope != 'application_bootstrap' or pathlib.Path(target.root) != journal.root:
             raise ValueError('Only the exact reviewed application transaction is supported.')
         self.journal, self.target = journal, target
-        self.path = journal.directory / 'application-provider.json'
+        active = journal.read() if (journal.directory / 'journal.json').exists() else None
+        if active and active.get('receipt_sha256') == target.receipt_sha256 and active.get('generation'):
+            name = active['generation']
+            if not re.fullmatch(r'generation-[a-f0-9]{64}-[a-f0-9]{64}', name):
+                raise ValueError('Invalid durable provider generation.')
+            archive = journal.directory / name
+            directory = archive / 'resources'
+            for path in [archive, directory]:
+                if path.is_symlink() or not path.is_dir() or path.stat().st_mode & 0o077:
+                    raise ValueError('Private durable provider generation required.')
+            original = state.read_private(archive / 'successor.json')
+            if any(active.get(key) != original.get(key) for key in
+                   ['generation','receipt_sha256','previous','candidate','project']):
+                raise ValueError('Provider generation differs from its immutable successor.')
+            journal.resource_directory = directory
+        self.path = journal.resource_directory / 'application-provider.json'
         self.host = hostmod.DockerHost(self.catalog, target.project, self.runner)
         self.host.bind()
         old = state.read_private(target.previous)
@@ -64,6 +80,109 @@ class Provider:
                 or expected.get('image') != self.host.binding['image']
                 or old['services']['postgres']['image'] != self.host.binding['image']):
             raise ValueError('Catalog/host must match exact reviewed PostgreSQL CID/image/database/admin.')
+
+    def generation_handoff(self, journal, target, value):
+        """Use a fresh durable provider namespace, keep old evidence untouched.
+
+        Only Coordinator's validated intent supplies the name. New admission
+        still starts from freshly checked HBA/catalog state, never a copied old
+        barrier or released tool record. No owner grant is supplied here.
+        """
+        if journal is not self.journal or target != self.target:
+            raise ValueError('Generation must use the exact provider-held journal.')
+        self.review(target)
+        generation = execution.generations.Generation(journal)
+        if generation.inspect() != value:
+            raise ValueError('Generation changed before provider binding.')
+        archive = pathlib.Path(value['archive'])
+        directory = archive / 'resources'
+        if not execution.generations.exists(directory):
+            directory.mkdir(mode=0o700)
+            state.sync_directory(archive)
+        if directory.is_symlink() or not directory.is_dir() or directory.stat().st_mode & 0o077:
+            raise ValueError('Private generation provider namespace required.')
+        journal.resource_directory = directory
+        self.path = directory / 'application-provider.json'
+        self.generation = generation
+        if value['state'] == 'predecessor_held':
+            self.verify_predecessor_provider(archive)
+
+    def verify_predecessor_provider(self, archive):
+        """Never accept a restricted predecessor HBA as a fresh baseline."""
+        predecessor = state.read_private(archive / 'journal.json')
+        prior_name = predecessor.get('generation')
+        prior = self.journal.directory
+        if prior_name is not None:
+            if not re.fullmatch(r'generation-[a-f0-9]{64}-[a-f0-9]{64}', prior_name):
+                raise ValueError('Invalid predecessor provider generation.')
+            parent = prior / prior_name
+            prior = parent / 'resources'
+            for directory in [parent, prior]:
+                if directory.is_symlink() or not directory.is_dir() or directory.stat().st_mode & 0o077:
+                    raise ValueError('Private predecessor provider evidence required.')
+        path = prior / 'application-provider.json'
+        if not execution.generations.exists(path):
+            if prior_name is not None:
+                raise ValueError('Predecessor provider evidence is missing.')
+            # An independently installed settled selector may have no provider
+            # records. Other existing maintenance records may not be ignored.
+            for name in ['postgres-hba.json', 'postgres-hosttool.json', 'postgres-operator.json']:
+                if execution.generations.exists(prior / name):
+                    raise ValueError('Unbound predecessor maintenance evidence remains.')
+            return
+        record = state.read_private(path)
+        binding = record.get('binding', {})
+        if (record.get('stage') != 'released' or record.get('original_allow') is not True
+                or record.get('host') != self.host.binding
+                or any(binding.get(key) != predecessor.get(key) for key in
+                       ['project', 'previous', 'candidate', 'receipt_sha256'])
+                or binding.get('root') != str(self.journal.root)
+                or binding.get('scope') != 'application_bootstrap'):
+            raise ValueError('Exact released predecessor provider required.')
+        live = fence.DatabaseFence(self.journal, self.catalog, self.reviewer).inspect(record.get('identity'))
+        entering = not execution.generations.exists(self.path)
+        if entering and live['allow'] is not True:
+            raise ValueError('Predecessor database admission is not original.')
+        barrier = state.read_private(prior / 'postgres-hba.json')
+        raw = self.host.path.read_bytes()
+        if not entering:
+            current = state.read_private(self.path)
+            if (current.get('binding') != self.binding() or current.get('host') != self.host.binding
+                    or current.get('identity') != record.get('identity')):
+                raise ValueError('Interrupted successor provider differs from predecessor identity.')
+            path = self.journal.resource_directory / 'postgres-hba.json'
+            if execution.generations.exists(path):
+                current_barrier = state.read_private(path)
+                if any(current_barrier.get('binding', {}).get(key) != item for key, item in self.binding().items()):
+                    raise ValueError('Interrupted successor barrier differs from target.')
+                raw = bytes.fromhex(current_barrier['original'])
+            # Missing new barrier means no host HBA publication was possible.
+        if (barrier.get('stage') != 'released' or barrier.get('path') != str(self.host.path)
+                or barrier.get('database') != self.catalog.database or barrier.get('admin') != self.catalog.user
+                or any(barrier.get('binding', {}).get(key) != item for key, item in binding.items())
+                or any(barrier.get(key) != raw.hex() for key in ['original', 'current', 'pending'])):
+            raise ValueError('Exact unchanged original predecessor HBA required.')
+        for name, stage in [('postgres-hosttool.json', 'released'), ('postgres-operator.json', 'removed')]:
+            path = prior / name
+            if execution.generations.exists(path):
+                tool = state.read_private(path)
+                if tool.get('stage') != stage or any(tool.get('binding', {}).get(key) != item for key, item in binding.items()):
+                    raise ValueError('Predecessor static tools are not settled.')
+                if name == 'postgres-hosttool.json':
+                    binary = pathlib.Path(tool['binary'])
+                    if binary.parent != prior or execution.generations.exists(binary):
+                        raise ValueError('Released predecessor host tool is not absent.')
+        self.host.check()
+
+    def transaction(self):
+        value = self.journal.read() if (self.journal.directory / 'journal.json').exists() else None
+        if value and (value.get('receipt_sha256') != self.target.receipt_sha256
+                      or value.get('previous') != self.target.previous or value.get('candidate') != self.target.candidate):
+            generation = getattr(self, 'generation', None)
+            if generation is None or generation.inspect()['state'] != 'predecessor_held':
+                raise ValueError('Provider active transaction differs from exact target.')
+            return None
+        return value
 
     def review(self, target):
         if self.journal is None or target != self.target:
@@ -144,14 +263,17 @@ class Provider:
             value = self.record()
             if target.action != 'recover': raise ValueError('Existing host-provider session needs explicit recovery.')
         else:
-            if target.action != 'activate': raise ValueError('No durable host-provider session to recover.')
+            if target.action != 'activate':
+                generation = getattr(self, 'generation', None)
+                if generation is None or generation.inspect()['state'] != 'predecessor_held':
+                    raise ValueError('No durable host-provider session to recover.')
             live = self.database.inspect()
             if live['allow'] is not True: raise ValueError('Database was already closed; cannot invent reopening authority.')
             value = {'version':1,'binding':self.binding(),'host':self.host.binding,
                      'identity':self.database.identity(live),'original_allow':True,'stage':'preparing','peers':[]}
             state.atomic(self.path, value)
         self.barrier = hostmod.hba.Barrier(self.journal,self.host.path,self.catalog.database,self.catalog.user,self.host.check,self.reload)
-        final = self.journal.read() if (self.journal.directory/'journal.json').exists() else None
+        final = self.transaction()
         if final and final['phase'] in {'committed','restored'}:
             # Settled recovery never closes/reopens a fresh SQL attempt. Restore
             # the retained exact baseline and finish direct runtime acceptance.
@@ -160,6 +282,13 @@ class Provider:
             if not live['allow']: raise ValueError('Settled database admission unexpectedly closed; separate support required.')
             self.barrier.recover_release()
             self.save(value,'original',[])
+        elif (getattr(self, 'generation', None) is not None
+                and self.generation.inspect()['state'] == 'predecessor_held'
+                and self.barrier.record_path.exists() and self.barrier.read()['stage'] == 'released'
+                and value['stage'] in {'original', 'released'}):
+            # Lost pre-begin release acknowledgement, no successor effect.
+            # Prove exact original admission; never reuse a released fence.
+            self.original()
         else:
             self.barrier.enter(recovery=self.barrier.record_path.exists())
             self.close_local(value)
@@ -297,7 +426,7 @@ class Provider:
 
     def release(self,ticket,target):
         self.check(ticket,target)
-        value = self.record(); final = self.journal.read() if (self.journal.directory/'journal.json').exists() else None
+        value = self.record(); final = self.transaction()
         if not final:
             if target.action != 'recover' or self.adapter is None:
                 raise ValueError('Only explicit pre-change recovery can release without a journal.')
@@ -305,7 +434,11 @@ class Provider:
             current = {name:{'image':item['Image'],'container_id':item['Id']} for name,item in found.items()}
             if current != self.adapter.plan['current_services']:
                 raise ValueError('Pre-change recovery requires exact unchanged original service identities.')
-            self.barrier.release(); self.save(value,'original',[]); self.original()
+            if self.barrier.read()['stage'] == 'released':
+                self.original()
+            else:
+                self.barrier.release()
+            self.save(value,'original',[]); self.original()
             self.save(value,'released',[]); return
         if final['phase'] not in {'committed','restored'}:
             raise ValueError('Concrete provider requires a durably settled application before release.')

@@ -130,7 +130,7 @@ class Barrier:
         if not callable(inventory) or not callable(reload_and_verify):
             raise ValueError('Fresh host inventory and actual connection verifier required.')
         self.inventory, self.reload = inventory, reload_and_verify
-        self.record_path = journal.directory / 'postgres-hba.json'
+        self.record_path = getattr(journal,'resource_directory',journal.directory) / 'postgres-hba.json'
 
     def checked(self):
         self.journal.locked()

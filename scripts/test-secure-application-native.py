@@ -169,7 +169,9 @@ class Effects:
 def main():
     global FIXTURE_JWT
     preparation_only=os.environ.get('HEXTHINGS_REAL_PREPARATION_ONLY')=='1'
-    if preparation_only:FIXTURE_JWT='synthetic-preparation-only-not-for-deployment-2026'
+    generation_only=os.environ.get('HEXTHINGS_SELECTED_GENERATION_ONLY')=='1'
+    if preparation_only and generation_only:raise SystemExit('Choose preparation or generation proof, not both')
+    if preparation_only or generation_only:FIXTURE_JWT='synthetic-preparation-only-not-for-deployment-2026'
     if os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_OS')!='Linux' or os.geteuid()!=0:raise SystemExit('Disposable standard Ubuntu runner only')
     with tempfile.TemporaryDirectory(prefix='hexthings-application-ci-')as td:
         work=pathlib.Path(td);project='hexthings-app-ci-'+str(os.getpid());oldimage=project+':old';newimage=project+':new';testimage=project+':operator'
@@ -215,6 +217,9 @@ def main():
             postgres_id=call(compose+['ps','-q','postgres']).strip()
             if preparation_only:
                 load('test-secure-application-provider-native').prove(work,project,newimage,testimage,basepath,preparation_only=True)
+                return
+            if generation_only:
+                load('test-secure-application-provider-native').prove(work,project,newimage,testimage,basepath)
                 return
             load('test-secure-postgres-fence-native').prove(postgres_id,work,project)
             load('test-secure-postgres-hba-native').prove(postgres_id,work,project)

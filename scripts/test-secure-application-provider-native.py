@@ -36,7 +36,7 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
     if (os.environ.get('GITHUB_ACTIONS')!='true'or os.environ.get('RUNNER_OS')!='Linux'or os.geteuid()!=0
             or parent_root.parent!=pathlib.Path('/tmp')or not parent_root.name.startswith('hexthings-application-ci-')
             or not parent_project.startswith('hexthings-app-ci-')):raise ValueError('Fresh native fixture only.')
-    if preparation_only:fixture.FIXTURE_JWT='synthetic-preparation-only-not-for-deployment-2026'
+    if preparation_only or os.environ.get('HEXTHINGS_SELECTED_GENERATION_ONLY')=='1':fixture.FIXTURE_JWT='synthetic-preparation-only-not-for-deployment-2026'
     # Keep fatal-signal diagnostics, but use a Python watchdog for periodic
     # progress stacks. v62 terminated during a timed C faulthandler dump; cause
     # unresolved. This diagnostic change is not product acceptance or a fix.
@@ -129,6 +129,19 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
                 if (root/'retry-plan').exists():raise ValueError('GUI retry wrote files.')
                 print('PASS real-application GUI Session preparation: actual API/ingest/MCP and PostgreSQL/MQTT/web, fixture committed selector, unchanged IDs/config/selector and authenticated retained inventory, private files, redaction and no retry. No updater execution, owner activation, full background compatibility, Windows GUI interaction or physical meter proof.',flush=True)
                 return
+            # Established-selection lifecycle fixture: bind the actual old
+            # runtime before the first update. This models settled installation
+            # state, not proof of an earlier installer transaction.
+            resolved=json.loads(call(compose+['config','--format','json']).stdout)
+            for name,item in helper.identities(path).items():resolved['services'][name]['image']=item['image']
+            resolved,_=m.application.app.runtime.freeze(resolved,{name:item['image']for name,item in helper.identities(path).items()})
+            selected=root/'selected-old-runtime.json';m.state.atomic(selected,resolved)
+            with m.state.Journal(root)as journal:
+                files={str(selected):m.state.digest(selected)}
+                m.state.atomic(journal.directory/'selected.json',{'version':1,'project':project,'config':str(selected),'sha256':files[str(selected)],'files':files})
+                m.state.atomic(journal.directory/'journal.json',{'version':1,'kind':'application_bootstrap','phase':'committed',
+                    'project':project,'candidate':str(selected),'candidate_sha256':files[str(selected)],'files':files,'maintenance_state':'released'})
+            state_inode=(root/'.secure-deployment').stat().st_ino
             m.application.prepare(root,project,image,root/'plan')
             receipt=root/'plan/preflight.json';helper.old=root/'plan/previous-runtime.json';helper.new=root/'plan/candidate-runtime.json'
             baseline_host=m.hostmod.DockerHost(m.fence.DockerCatalog(cid,'ci','application_fixture'),project)
@@ -248,19 +261,22 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
             before_cleanup_sql=sum('apply-reviewed'in cmd for cmd in commands)
             caller,provider=coordinator();trace_commands[0]=True;checkpoint('fresh recover after released host/local tool cleanup');caller.run(root,project,receipt,'recover');trace_commands[0]=False
             if sum('apply-reviewed'in cmd for cmd in commands)!=before_cleanup_sql:raise ValueError('Released-tool recovery replayed schema.')
-            evidence=list((root/'.secure-deployment').glob('postgres-hosttool-released-*.json'))
+            evidence=list(provider.journal.resource_directory.glob('postgres-hosttool-released-*.json'))
             if len(evidence)!=1 or m.state.read_private(evidence[0])['stage']!='released':raise ValueError('Released host generation evidence missing.')
             print('PASS actual production provider fresh settled recovery after lost host/local cleanup acknowledgement: released generation archived, new exact tools proved, no schema replay or early admission release.',flush=True)
             if m.state.selection(root)['config']!=str(helper.old)or hba.read_bytes()!=baseline:raise ValueError('Actual provider rollback release failed.')
-            os.rename(root/'.secure-deployment',root/'.provider-restored-evidence')
-            plan=m.state.read_private(receipt);plan['current_services']=helper.identities(helper.old);m.state.atomic(receipt,plan)
+            # Reprepare from the real restored selector into a NEW immutable
+            # plan. Never reset, rename or delete the installation state folder.
+            m.application.prepare(root,project,image,root/'second-plan')
+            receipt=root/'second-plan/preflight.json'
+            helper.old=root/'second-plan/previous-runtime.json';helper.new=root/'second-plan/candidate-runtime.json'
             force_failure[0]=False;caller,provider=coordinator(LostRelease);checkpoint('activate with lost release acknowledgement')
             try:caller.run(root,project,receipt,'activate')
             except Loss:pass
             else:raise ValueError('Actual provider settled release interruption missing.')
             with m.state.Journal(root)as journal:
                 if journal.read()['phase']!='committed'or journal.read().get('maintenance_state')!='held':raise ValueError('Lost release did not retain durably committed admission block.')
-                if m.state.read_private(journal.directory/'postgres-hba.json')['stage']!='released':raise ValueError('Original HBA release did not actually finish before loss.')
+                if m.state.read_private(provider.barrier.record_path)['stage']!='released':raise ValueError('Original HBA release did not actually finish before loss.')
             try:m.state.selection(root)
             except ValueError:pass
             else:raise ValueError('Lost release permitted ordinary selection.')
@@ -269,6 +285,11 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
             if result['state']!='committed'or result['changed']is not False:raise ValueError('Settled provider recovery repeated transaction.')
             if sum('apply-reviewed'in cmd for cmd in commands)!=before_sql:raise ValueError('Settled provider recovery replayed schema.')
             if m.state.selection(root)['config']!=str(helper.new)or hba.read_bytes()!=baseline:raise ValueError('Settled provider recovery chose wrong runtime/HBA.')
+            if (root/'.secure-deployment').stat().st_ino!=state_inode:raise ValueError('Native generation replaced the installation state directory.')
+            archives=list((root/'.secure-deployment').glob('generation-*/successor.json'))
+            if len(archives)!=2 or any(m.state.read_private(p)['kind']!='application_bootstrap'for p in archives):raise ValueError('Both immutable generation archives required.')
+            if (root/'.secure-deployment/generation-intent.json').exists():raise ValueError('Settled native generation intent remains.')
+            print('PASS established selected-generation lifecycle: actual fixed historical/current application images; committed fixture predecessor -> forced rollback -> restored selection -> newly prepared second update -> committed selection; exact state directory inode unchanged and two immutable generation archives retained. Initial settled selector is fixture-created, not installer proof.',flush=True)
             # Drop gate manager for final inspection: original Cmd/env/mounts,
             # PID1, image/health and limited authenticated retained-list proof.
             provider.adapter.runtime_group=None

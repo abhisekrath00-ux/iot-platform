@@ -156,7 +156,7 @@ class DatabaseFence:
         if not callable(reviewer):
             raise ValueError('Fresh target/downtime scope reviewer required.')
         self.journal, self.catalog, self.reviewer = journal, catalog, reviewer
-        self.path = journal.directory / 'postgres-fence.json'
+        self.path = getattr(journal,'resource_directory',journal.directory) / 'postgres-fence.json'
         self.ticket = None
 
     def review(self, target):

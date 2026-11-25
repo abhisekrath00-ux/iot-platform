@@ -87,7 +87,7 @@ class Group:
             # equal the original literal gate script verified by StartGate.
             recipe['services'][name]['command'][2]=recipe['services'][name]['command'][2].replace('$','$$')
         raw=json.dumps(recipe,sort_keys=True,separators=(',',':')).encode()
-        effective=self.journal.directory/('startgroup-'+slot+'-'+hashlib.sha256(raw).hexdigest()+'.json')
+        effective=getattr(self.journal,'resource_directory',self.journal.directory)/('startgroup-'+slot+'-'+hashlib.sha256(raw).hexdigest()+'.json')
         if effective.exists():
             if gates.state.read_private(effective)!=recipe:raise ValueError('Durable gated Compose recipe changed.')
         else:gates.state.atomic(effective,recipe)
@@ -132,7 +132,7 @@ class Group:
         if prove_original_admission()is not None:raise ValueError('Fresh exact original admission proof required.')
         # Persist before recreate. A fresh settled-release recovery can repeat
         # exact Compose reconciliation and acceptance, never schema application.
-        marker=self.journal.directory/'startgroup-normalize.json'
+        marker=getattr(self.journal,'resource_directory',self.journal.directory)/'startgroup-normalize.json'
         operation={'version':1,'binding':gates.state.read_private(self.journal.directory/'maintenance.json'),
                    'phase':settled,'slot':slot,'config':value[slot],'sha256':gates.state.digest(value[slot]),'stage':'reconciling'}
         if marker.exists():
