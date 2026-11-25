@@ -103,7 +103,75 @@ func main() {
 	openExplorerFlag := flag.Bool("open-explorer", false, "request a temporary loopback explorer from the running agent; no service restart or device read")
 	closeExplorerFlag := flag.Bool("close-explorer", false, "close the running agent explorer and temporary connections without stopping telemetry")
 	explorerListen := flag.String("explorer-listen", "", "opt-in read-only Modbus explorer on literal loopback IP:port; owned or explicitly opened temporary connections, disabled by default")
+	runtimeMapping := flag.Bool("review-runtime-mapping", false, "emit reviewed config/unit mapping from explicit private inputs, no installation or start")
+	claimAcceptPrivate := flag.Bool("accept-private-identity", false, "experimental explicit private identity transaction after current recovery; no system install or service")
+	claimPrepareReview := flag.Bool("review-private-install", false, "read-only private preparation review, no replay or repair")
+	claimPrepare := flag.Bool("prepare-private-install", false, "experimental private payload preparation only from stdin; no system installation or service")
+	claimInstallStage := flag.Bool("create-staged-install", false, "experimental new retained attempt and installer binding from stdin; no installation")
+	claimInstallReview := flag.Bool("review-staged-install", false, "experimental read-only explicit installer binding from stdin; no install or start")
+	claimReview := flag.Bool("review-retained-claim", false, "read-only retained attempt review from stdin, no network or installer changes")
+	claimRecovery := flag.Bool("recover-retained-claim", false, "experimental explicit same-attempt HTTPS result recovery from stdin, no enrollment retry or installer changes")
+	claimNewAttempt := flag.Bool("create-retained-claim", false, "experimental explicit new retained claim from stdin, refuses existing state, no installer changes")
 	flag.Parse()
+	if *runtimeMapping || *claimAcceptPrivate || *claimPrepareReview || *claimPrepare || *claimInstallStage || *claimInstallReview || *claimReview || *claimRecovery || *claimNewAttempt {
+		n := 0
+		flag.Visit(func(f *flag.Flag) { n++ })
+		if n != 1 || flag.NArg() != 0 {
+			log.Fatal("retained claim review or recovery cannot be combined with any other action")
+		}
+		if *runtimeMapping {
+			if e := setup.RunRuntimeMapping(os.Stdin, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
+		}
+		if *claimAcceptPrivate {
+			if e := claim.RunCandidateAcceptPrivateIdentity(context.Background(), os.Stdin, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
+		}
+		if *claimPrepareReview {
+			if e := claim.RunCandidateReviewPreparation(os.Stdin, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
+		}
+		if *claimPrepare {
+			if e := claim.RunCandidatePrepareInstall(os.Stdin, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
+		}
+		if *claimInstallStage {
+			if e := claim.RunCandidateInstallStage(context.Background(), os.Stdin, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
+		}
+		if *claimInstallReview {
+			if e := claim.RunCandidateInstallReview(os.Stdin, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
+		}
+		if *claimNewAttempt {
+			if e := claim.RunCandidateEnrollment(context.Background(), os.Stdin, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
+		}
+		if *claimRecovery {
+			if e := claim.RunCandidateRecovery(context.Background(), os.Stdin, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
+		}
+		if e := claim.RunCandidateReview(os.Stdin, os.Stdout); e != nil {
+			log.Fatal(e)
+		}
+		return
+	}
 
 	switch {
 	case *openExplorerFlag || *closeExplorerFlag:

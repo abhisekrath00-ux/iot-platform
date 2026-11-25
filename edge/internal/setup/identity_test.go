@@ -7,9 +7,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"github.com/abhisekrath00-ux/iot-platform/edge/internal/claim"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,6 +42,25 @@ func TestValidateIdentityRequiresMatchingTrustedCurrentPair(t *testing.T) {
 	save()
 	if err := ValidateIdentity(dir, "serial"); err != nil {
 		t.Fatal(err)
+	}
+	// New accepted identities have issuing CA only, distinct from broker CA.
+	if err = os.Rename(filepath.Join(dir, "ca.pem"), filepath.Join(dir, "device-ca.pem")); err != nil {
+		t.Fatal(err)
+	}
+	if err = ValidateIdentity(dir, "serial"); err != nil {
+		t.Fatal("device-only issuing trust refused", err)
+	}
+	serverConfig := []byte("gateway_id: gateway\ntenant_id: tenant\nserial: serial\nmqtt: {host: broker.example.invalid, port: 8883, tls: true}\nautodetect: {enabled: false}\ndevices: []\n")
+	brokerPath := filepath.Join(t.TempDir(), "broker-transport.pem")
+	if err = os.WriteFile(brokerPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mapping, err := BuildRuntimeMapping(serverConfig, &claim.Identity{GatewayID: "gateway"}, "serial", "tenant", dir, brokerPath, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})), "/opt/hexthings/edge-agent", "/etc/hexthings/runtime.yaml", "/var/lib/hexthings-runtime", "hexmon")
+	if err != nil || mapping.CanStart || !strings.Contains(mapping.Unit, "-identity-dir "+dir) || strings.Contains(mapping.Unit, "[Install]") || !strings.Contains(mapping.ConfigYAML, filepath.Join(dir, "identity.key")) {
+		t.Fatal("runtime mapping", err, mapping)
+	}
+	if _, err = BuildRuntimeMapping(serverConfig, &claim.Identity{GatewayID: "gateway"}, "serial", "tenant", dir, brokerPath, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})), "/opt/hexthings/edge%agent", "/etc/hexthings/runtime.yaml", "/var/lib/hexthings-runtime", "root"); err == nil {
+		t.Fatal("unsafe service mapping accepted")
 	}
 	if ValidateIdentity(dir, "wrong") == nil {
 		t.Fatal("wrong serial accepted")
