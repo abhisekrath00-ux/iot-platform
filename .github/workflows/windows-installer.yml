@@ -5,6 +5,10 @@ on:
     paths: ['scripts/*ps1', 'scripts/test-edge-native-linux.sh', 'edge/packaging/**', 'edge/packaging/*ps1', 'edge/cmd/edge-setup/**', 'scripts/build-edge.sh', '.github/workflows/windows-installer.yml']
   workflow_dispatch:
     inputs:
+      linux_root_stopped_review:
+        description: 'One disposable root-origin stopped installer gate, no start/enable or artifacts'
+        type: boolean
+        default: false
       linux_identity_mapping_review:
         description: 'One synthetic privileged Linux mapping check, no service activation or artifacts'
         type: boolean
@@ -21,7 +25,7 @@ permissions:
   contents: read
 jobs:
   native-windows-powershell-contracts:
-    if: ${{ !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
+    if: ${{ !inputs.linux_root_stopped_review && !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
     runs-on: windows-2025
     timeout-minutes: 10
     steps:
@@ -56,7 +60,7 @@ jobs:
           path: ${{ runner.temp }}/hexthings-edge-setup.png
 
   native-windows-edge-service:
-    if: ${{ !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
+    if: ${{ !inputs.linux_root_stopped_review && !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
     runs-on: windows-2025
     timeout-minutes: 15
     steps:
@@ -69,7 +73,7 @@ jobs:
         shell: powershell
         run: ./scripts/test-edge-native-windows.ps1
   native-ubuntu-edge-run:
-    if: ${{ !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
+    if: ${{ !inputs.linux_root_stopped_review && !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -84,7 +88,7 @@ jobs:
         run: sudo -E bash scripts/test-edge-native-linux.sh
 
   windows-contracts-and-pixels:
-    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.linux_identity_mapping_review && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
+    if: ${{ !inputs.linux_root_stopped_review && github.event_name == 'workflow_dispatch' && !inputs.linux_identity_mapping_review && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
     runs-on: windows-2025
     timeout-minutes: 12
     steps:
@@ -118,7 +122,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Recovery routing clicks failed' }
           & ./scripts/emit-windows-preview.ps1
   windows-historical-current-service:
-    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.linux_identity_mapping_review && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
+    if: ${{ !inputs.linux_root_stopped_review && github.event_name == 'workflow_dispatch' && !inputs.linux_identity_mapping_review && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
@@ -138,7 +142,7 @@ jobs:
           & ./scripts/emit-windows-preview.ps1
 
   windows-claim-store-prototype:
-    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.linux_identity_mapping_review && inputs.windows_claim_store_prototype && !inputs.windows_recovery_review && github.event.repository.private == false }}
+    if: ${{ !inputs.linux_root_stopped_review && github.event_name == 'workflow_dispatch' && !inputs.linux_identity_mapping_review && inputs.windows_claim_store_prototype && !inputs.windows_recovery_review && github.event.repository.private == false }}
     runs-on: windows-2025
     timeout-minutes: 10
     permissions:
@@ -161,7 +165,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Dormant native claim store acceptance failed; keep product storage disabled' }
 
   linux-identity-mapping-review:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
+    if: ${{ !inputs.linux_root_stopped_review && github.event_name == 'workflow_dispatch' && inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -180,3 +184,27 @@ jobs:
         env:
           HEX_DISPOSABLE_LINUX_MAPPING_REVIEW: '1'
         run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_OS,HEX_DISPOSABLE_LINUX_MAPPING_REVIEW bash edge/packaging/test-private-linux-mapping.sh "$RUNNER_TEMP/edge-agent-review"
+
+  linux-root-stopped-review:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.linux_root_stopped_review && !inputs.linux_identity_mapping_review && !inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@v6
+      with:
+        go-version: '1.26'
+        cache: false
+    - name: Compile acceptance-only product and harness, no cache or artifacts
+      working-directory: edge
+      run: 'go build -tags hex_deployment_native_acceptance -o "$RUNNER_TEMP/edge-native-stopped" ./cmd/edge-agent
+  
+        go test -c -race -tags hex_deployment_native_acceptance -o "$RUNNER_TEMP/stopped-native.test" ./internal/setup
+  
+        '
+    - name: Genuine retained root-origin stopped installer and distinct service user
+      run: 'sudo env HEX_NATIVE_STOPPED_ACCEPTANCE=1 HEX_NATIVE_STOPPED_AGENT="$RUNNER_TEMP/edge-native-stopped" "$RUNNER_TEMP/stopped-native.test" -test.run ''^TestNativeRootOriginStoppedInstaller$'' -test.v -test.count=1 -test.timeout=5m
+  
+        '
