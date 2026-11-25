@@ -36,6 +36,7 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
     if (os.environ.get('GITHUB_ACTIONS')!='true'or os.environ.get('RUNNER_OS')!='Linux'or os.geteuid()!=0
             or parent_root.parent!=pathlib.Path('/tmp')or not parent_root.name.startswith('hexthings-application-ci-')
             or not parent_project.startswith('hexthings-app-ci-')):raise ValueError('Fresh native fixture only.')
+    if preparation_only:fixture.FIXTURE_JWT='synthetic-preparation-only-not-for-deployment-2026'
     # Keep fatal-signal diagnostics, but use a Python watchdog for periodic
     # progress stacks. v62 terminated during a timed C faulthandler dump; cause
     # unresolved. This diagnostic change is not product acceptance or a fix.
@@ -84,7 +85,7 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
                 if role is not None:
                     def enc(value):return base64.urlsafe_b64encode(json.dumps(value,separators=(',',':')).encode()).rstrip(b'=')
                     unsigned=enc({'alg':'HS256','typ':'JWT'})+b'.'+enc({'sub':('write-viewer'if role=='viewer'else'write-user')if tenant=='write-tenant'else'retain-user','tenant_id':tenant,'role':role,'exp':int(time.time())+120})
-                    signature=base64.urlsafe_b64encode(hmac.new(b'synthetic-application-only',unsigned,hashlib.sha256).digest()).rstrip(b'=')
+                    signature=base64.urlsafe_b64encode(hmac.new(fixture.FIXTURE_JWT.encode(),unsigned,hashlib.sha256).digest()).rstrip(b'=')
                     headers['Authorization']='Bearer '+(unsigned+b'.'+signature).decode()
                 data=None if body is None else json.dumps(body,allow_nan=False).encode()
                 if data is not None:headers['Content-Type']='application/json'

@@ -18,6 +18,7 @@ import urllib.error
 HERE=pathlib.Path(__file__).resolve().parent
 ROOT=HERE.parent
 OLD_COMMIT='bfe5d89b46324a566fd089b6c83ab9c111dc9231'
+FIXTURE_JWT='synthetic-application-only'
 
 class SyntheticProcessLoss(BaseException):pass
 
@@ -118,7 +119,7 @@ class Effects:
     def token_for(tenant):
         def enc(value):return base64.urlsafe_b64encode(json.dumps(value,separators=(',',':')).encode()).rstrip(b'=')
         header=enc({'alg':'HS256','typ':'JWT'});payload=enc({'sub':'retain-user','tenant_id':tenant,'role':'admin','exp':int(time.time())+120})
-        unsigned=header+b'.'+payload;signature=base64.urlsafe_b64encode(hmac.new(b'synthetic-application-only',unsigned,hashlib.sha256).digest()).rstrip(b'=')
+        unsigned=header+b'.'+payload;signature=base64.urlsafe_b64encode(hmac.new(FIXTURE_JWT.encode(),unsigned,hashlib.sha256).digest()).rstrip(b'=')
         return (unsigned+b'.'+signature).decode()
     @contextlib.contextmanager
     def retained_client(self,port):
@@ -166,7 +167,9 @@ class Effects:
             if self.fail:raise ValueError('Forced post-candidate-acceptance application rollback')
 
 def main():
+    global FIXTURE_JWT
     preparation_only=os.environ.get('HEXTHINGS_REAL_PREPARATION_ONLY')=='1'
+    if preparation_only:FIXTURE_JWT='synthetic-preparation-only-not-for-deployment-2026'
     if os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_OS')!='Linux' or os.geteuid()!=0:raise SystemExit('Disposable standard Ubuntu runner only')
     with tempfile.TemporaryDirectory(prefix='hexthings-application-ci-')as td:
         work=pathlib.Path(td);project='hexthings-app-ci-'+str(os.getpid());oldimage=project+':old';newimage=project+':new';testimage=project+':operator'
@@ -174,7 +177,6 @@ def main():
             # Preparation is read-only against the current real image. Historical
             # source/build compatibility belongs to later updater acceptance.
             sources=[('new',ROOT/'server')]
-            oldimage=newimage
         else:
             # Read the exact public checkpoint only; never checkout/merge/tag/push.
             if subprocess.run(['git','cat-file','-e',OLD_COMMIT+'^{commit}'],cwd=ROOT,capture_output=True).returncode:
@@ -188,6 +190,15 @@ def main():
                 subprocess.run(['go','build','-o',str(context/binary),'./cmd/'+binary],cwd=source,env=dict(os.environ,CGO_ENABLED='0',GOTOOLCHAIN='auto'),check=True)
             (context/'Dockerfile').write_text('FROM alpine:3.20\nCOPY '+('api ingest mcp tenantctl' if label=='old' else 'api ingest mcp tenantctl setupctl')+' /bin/\nCOPY migrations /migrations\nWORKDIR /\n')
             call(['docker','build','-t',oldimage if label=='old' else newimage,context])
+        if preparation_only:
+            # A distinct configuration digest is required by the production
+            # planner. Reuse the exact current layers; label is fixture-only.
+            variant=work/'label-variant';variant.mkdir()
+            (variant/'Dockerfile').write_text('FROM '+newimage+'\nLABEL hexthings.fixture.preparation=running-current\n')
+            call(['docker','build','-t',oldimage,variant])
+            metadata=[json.loads(call(['docker','image','inspect',tag]))[0]for tag in [oldimage,newimage]]
+            if metadata[0]['Id']==metadata[1]['Id']or metadata[0]['RootFS']!=metadata[1]['RootFS']:
+                raise ValueError('Preparation fixture requires distinct IDs with identical current binary layers.')
         subprocess.run(['go','test','-c','-o',str(work/'bootstrap-tests'),'./internal/setupbootstrap'],cwd=ROOT/'server',env=dict(os.environ,CGO_ENABLED='0',GOTOOLCHAIN='auto'),check=True)
         shutil.copytree(ROOT/'server/migrations',work/'migrations');(work/'Dockerfile').write_text('FROM alpine:3.20\nCOPY bootstrap-tests /bootstrap-tests\nCOPY migrations /migrations\nWORKDIR /\nENTRYPOINT ["/bootstrap-tests"]\n');call(['docker','build','-t',testimage,work])
         db='postgres://ci:synthetic-ci-only@postgres:5432/application_fixture?sslmode=disable'
@@ -195,7 +206,7 @@ def main():
          'postgres':{'image':'postgres:16-alpine','environment':{'POSTGRES_USER':'ci','POSTGRES_PASSWORD':'synthetic-ci-only','POSTGRES_DB':'application_fixture'},'healthcheck':{'test':['CMD-SHELL','pg_isready -U ci'],'interval':'1s','timeout':'2s','retries':30}},
          'mosquitto':{'image':'eclipse-mosquitto:2@sha256:75d6662dee52c947dc9dd9c29f1d8d7ffef78ddaf38001caa09755681e8bbc98'},
          'web':{'image':'nginx:1.27-alpine'}}}
-        for name in ['api','ingest','mcp']:base['services'][name]={'image':oldimage,'command':['/bin/'+name],'environment':{'DATABASE_URL':db,'JWT_SIGNING_SECRET':'synthetic-application-only','MQTT_TLS':'false','MQTT_HOST':'mosquitto','MQTT_PORT':'1883'},'depends_on':{'postgres':{'condition':'service_healthy'}}}
+        for name in ['api','ingest','mcp']:base['services'][name]={'image':oldimage,'command':['/bin/'+name],'environment':{'DATABASE_URL':db,'JWT_SIGNING_SECRET':FIXTURE_JWT,'MQTT_TLS':'false','MQTT_HOST':'mosquitto','MQTT_PORT':'1883'},'depends_on':{'postgres':{'condition':'service_healthy'}}}
         base['services']['api']['ports']=[{'target':8000,'published':'18101','host_ip':'127.0.0.1'}]
         basepath=work/'docker-compose.yml';basepath.write_text(json.dumps(base));basepath.chmod(0o600)
         compose=['docker','compose','-p',project,'-f',str(basepath)]
