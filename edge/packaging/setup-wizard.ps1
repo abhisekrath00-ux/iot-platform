@@ -1,5 +1,5 @@
 # Bundled Windows desktop setup/manager. No internet download, embedded secrets or public networking.
-param([switch]$ContractOnly, [string]$RenderPreview = "")
+param([switch]$ContractOnly, [string]$RenderPreview = "", [switch]$NoShow)
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dir = Join-Path $env:ProgramData 'Hexmon\edge'
@@ -13,6 +13,41 @@ function Assert-NoPendingUpgrade {
 function Repair-SetupUpgrade {
   & (Join-Path $here 'install-windows.ps1') -RecoverUpgrade
   Assert-SetupExit $LASTEXITCODE 'Executable upgrade recovery'
+}
+function Get-SetupInstallReview {
+  $text=& (Join-Path $here 'install-windows.ps1') -ReviewInstall
+  Assert-SetupExit $LASTEXITCODE 'Interrupted installation review'
+  $value=($text -join "`n") | ConvertFrom-Json
+  if($value.version -ne 1 -or $value.review_only -ne $true -or $value.can_start -ne $false -or $value.can_retry_enrollment -ne $false -or $value.can_clear_pending -ne $false){throw 'No verified read-only installation review.'}
+  return $value
+}
+function Confirm-SetupRecovery([string]$Title,[string]$Message) {
+  return ([System.Windows.Forms.MessageBox]::Show($Message,$Title,'YesNo','Warning') -eq 'Yes')
+}
+function Invoke-SetupRecoveryAction([string]$Action) {
+  if($Action -eq 'review') {
+    $value=Get-SetupInstallReview
+    $identity=if(@($value.saved_identity_files).Count){'Saved identity or pairing files are present and will be retained.'}else{'No saved identity files were found in this review.'}
+    $next=if($value.enrollment_was_requested){'Pairing may have reached the server. Keep your claim code blank. Install-only recovery is blocked until the server and saved identity are reconciled.'}else{'If this was install-only, Resume install can finish service registration without starting it.'}
+    return ('Review only. Executable: '+$value.binary+'. Service: '+$value.service+'. '+$identity+' '+$next+' Nothing changed.')
+  }
+  if($Action -eq 'resume') {
+    $value=Get-SetupInstallReview
+    if($value.enrollment_was_requested){throw 'Pairing outcome is uncertain. Keep the saved identity and claim code unchanged. Install-only recovery cannot repeat or accept enrollment. Review the gateway on your server first.'}
+    if($value.binary -ne 'exact_candidate' -or $value.config_exact -ne $true -or $value.service -notin @('absent','Stopped')){throw 'Recovery needs the exact saved executable/config and an absent or stopped service. Nothing changed.'}
+    if(-not(Confirm-SetupRecovery 'Resume install only?' 'Finish this interrupted install-only service registration? The service will remain stopped/manual. Saved configuration and identity are retained. No pairing, download or Start will run.')){return 'Recovery cancelled. Pending installation retained. Nothing changed.'}
+    & (Join-Path $here 'install-windows.ps1') -ResumeInstall |Out-Null
+    Assert-SetupExit $LASTEXITCODE 'Install-only recovery'
+    return 'Install-only recovery verified. Service is stopped/manual. Identity and config retained. Connect/get config or review saved config before choosing Start. Check actual readings separately.'
+  }
+  if($Action -eq 'restore') {
+    if(Test-Path -LiteralPath (Join-Path $dir 'install-pending.json')){throw 'This is an interrupted first install, not an executable upgrade. Choose Review install first.'}
+    if(-not(Test-Path -LiteralPath (Join-Path $dir 'upgrade-pending.json'))){throw 'No interrupted executable upgrade is recorded. Nothing changed.'}
+    if(-not(Confirm-SetupRecovery 'Restore previous executable?' 'Stop the edge service if running and restore the exact retained executable from the interrupted upgrade? Saved config, identity and startup choice are retained. The service stays stopped until you separately choose Start. No pairing or download will run.')){return 'Restore cancelled. Pending upgrade retained. Nothing changed.'}
+    Repair-SetupUpgrade |Out-Null
+    return 'Previous executable verified and restored. Service is stopped. Config, identity and startup choice retained. Review Health/config before choosing Start; verify readings separately.'
+  }
+  throw 'Choose Review install, Resume install or Restore previous executable.'
 }
 function Assert-ReadyConfig {
   Assert-NoPendingUpgrade
@@ -106,7 +141,7 @@ $form.Text = 'HexThings Edge - Install and manage'
 $workArea=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $form.Size=New-Object System.Drawing.Size(700,([Math]::Min(800,$workArea.Height-40)))
 $form.MinimumSize=New-Object System.Drawing.Size(700,500)
-$form.AutoScroll=$true;$form.AutoScrollMinSize=New-Object System.Drawing.Size(0,854)
+$form.AutoScroll=$true;$form.AutoScrollMinSize=New-Object System.Drawing.Size(0,952)
 $form.StartPosition = 'CenterScreen'; $form.AutoScaleMode = 'Dpi'
 $font = New-Object System.Drawing.Font('Segoe UI',10); $form.Font = $font
 function Label($text,$y) { $x=New-Object System.Windows.Forms.Label; $x.Text=$text;$x.Location=New-Object System.Drawing.Point(22,$y);$x.Size=New-Object System.Drawing.Size(635,30);$form.Controls.Add($x);return $x }
@@ -125,7 +160,7 @@ $boot=New-Object System.Windows.Forms.CheckBox;$boot.Text='Start automatically w
 $svc=Get-Service HexmonEdge -ErrorAction SilentlyContinue
 if ($svc) { $boot.Checked = $svc.StartType -eq 'Automatic' };if (Test-Path "$dir\start-on-boot") { $boot.Checked=$true }
 $null=Label 'No automatic discovery or commands. Config is checked before startup.' 330
-$output=New-Object System.Windows.Forms.TextBox;$output.Multiline=$true;$output.ReadOnly=$true;$output.ScrollBars='Vertical';$output.Location=New-Object System.Drawing.Point(22,636);$output.Size=New-Object System.Drawing.Size(635,160);$form.Controls.Add($output)
+$output=New-Object System.Windows.Forms.TextBox;$output.Multiline=$true;$output.ReadOnly=$true;$output.ScrollBars='Vertical';$output.Location=New-Object System.Drawing.Point(22,734);$output.Size=New-Object System.Drawing.Size(635,160);$form.Controls.Add($output)
 $output.Text="Install requires Administrator access. The agent runs as a Windows service. This build is unsigned.`r`nInstall does not prove a sensor is connected. Existing identity/config are retained."
 function Run-Action([scriptblock]$Action) { try { $output.Text='Working...';$form.Refresh(); & $Action; } catch { $output.Text="FAILED: $($_.Exception.Message)`r`nNo claim of complete setup. Check the existing service/config before retrying." } }
 function Button($text,$x,$y,$width,[scriptblock]$action) { $b=New-Object System.Windows.Forms.Button;$b.Text=$text;$b.Location=New-Object System.Drawing.Point($x,$y);$b.Size=New-Object System.Drawing.Size($width,38);$b.Add_Click($action);$form.Controls.Add($b) }
@@ -182,7 +217,12 @@ Button 'Close device explorer' 327 568 330 { Run-Action {
  $null=Invoke-SetupExplorer 'close'
  $output.Text='Explorer listener and temporary connections closed. Existing source telemetry, configuration, identity and startup choice are unchanged.'
 } }
-$null=Label 'Local status when running: http://127.0.0.1:8088 (on this PC only)' 808
+$null=Label 'Interrupted install or upgrade? Review first. Recovery never starts the service.' 617
+Button 'Review install' 22 652 190 { Run-Action { $output.Text=Invoke-SetupRecoveryAction 'review' } }
+Button 'Resume install only' 227 652 205 { Run-Action { $output.Text=Invoke-SetupRecoveryAction 'resume' } }
+Button 'Restore previous executable' 447 652 210 { Run-Action { $output.Text=Invoke-SetupRecoveryAction 'restore' } }
+$null=Label 'Local status when running: http://127.0.0.1:8088 (on this PC only)' 906
+if ($NoShow) { return }
 if ($RenderPreview) {
   $form.Show();$form.Refresh();[System.Windows.Forms.Application]::DoEvents()
   $bitmap=New-Object System.Drawing.Bitmap($form.Width,$form.Height)

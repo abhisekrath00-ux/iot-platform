@@ -15,6 +15,23 @@ try {
 } finally {Pop-Location}
 $dir=Join-Path $env:ProgramData 'Hexmon/edge'
 try {
+ # Actual new buttons -> real installer backend -> real SCM. Only the modal
+ # Yes/No answer is supplied by this disposable test, never auto-confirmed in product.
+ . "$stage/setup-wizard.ps1" -NoShow
+ $here=$stage
+ function Confirm-SetupRecovery([string]$Title,[string]$Message){return $true}
+ $form.Show();[System.Windows.Forms.Application]::DoEvents()
+ $script:recoveryFrames=New-Object System.Collections.ArrayList
+ function Invoke-NativeRecoveryClick([string]$Label,[string]$Expected) {
+  $buttons=@($form.Controls|Where-Object {$_.Text -eq $Label -and $_ -is [System.Windows.Forms.Button]})
+  if($buttons.Count -ne 1){throw 'Missing actual recovery control'}
+  $form.ScrollControlIntoView($buttons[0]);$buttons[0].PerformClick();[System.Windows.Forms.Application]::DoEvents()
+  if($output.Text -notmatch $Expected -or $output.Text.StartsWith('FAILED:')){throw ('Actual recovery button failed: '+$output.Text)}
+  $form.ScrollControlIntoView($output);$form.Refresh();[System.Windows.Forms.Application]::DoEvents()
+  $image=New-Object System.Drawing.Bitmap($form.Width,$form.Height)
+  $form.DrawToBitmap($image,(New-Object System.Drawing.Rectangle(0,0,$form.Width,$form.Height)))
+  [void]$script:recoveryFrames.Add($image)
+ }
  # Actual install-only service-registration acknowledgement loss. No enrollment.
  $realNewService=(Get-Command New-Service -CommandType Cmdlet)
  function New-Service {
@@ -28,7 +45,8 @@ try {
  $review=(& "$stage/install-windows.ps1" -ReviewInstall)|ConvertFrom-Json
  if(-not $review.review_only -or $review.binary -ne 'exact_candidate' -or -not $review.config_exact -or $review.service -ne 'Stopped' -or $review.can_start -or $review.can_retry_enrollment){throw 'Actual first-install review lost exact stopped state'}
  $blocked=$false;try{& "$stage/install-windows.ps1"}catch{$blocked=$true};if(-not $blocked){throw 'Pending first-install rerun was not refused'}
- & "$stage/install-windows.ps1" -ResumeInstall
+ Invoke-NativeRecoveryClick 'Review install' 'Review only'
+ Invoke-NativeRecoveryClick 'Resume install only' 'stopped/manual'
  if(Test-Path "$dir/install-pending.json"){throw 'Explicit native install-only resume did not settle'}
  if($LASTEXITCODE -ne 0){throw 'Native install-only recovery failed'}
  Write-Host 'PASS actual first-install SCM acknowledgement loss, read-only review, refused rerun and explicit stopped/manual no-enrollment resume.'
@@ -36,6 +54,7 @@ try {
  $service=Get-CimInstance Win32_Service -Filter "Name='HexmonEdge'"
  if($service.StartMode -ne 'Manual' -or $service.State -ne 'Stopped'){throw 'New install must be stopped/manual'}
  . "$stage/setup-wizard.ps1" -ContractOnly
+ function Confirm-SetupRecovery([string]$Title,[string]$Message){return $true}
  $blocked=$false;try{Set-SetupBoot $true}catch{$blocked=$true};if(-not $blocked){throw 'Example config must not enable boot startup'}
  @'
 gateway_id: ci-fixture
@@ -110,7 +129,7 @@ devices: []
  $newHash=(Get-FileHash "$stage/edge-agent.exe").Hash
  if($oldHash -eq $newHash){throw 'Historical/current binaries must be distinct'}
  Write-Host ('WINDOWS_HISTORICAL_CURRENT='+(@{historical_source=$historicalSource;historical_sha256=$oldHash;current_sha256=$newHash}|ConvertTo-Json -Compress))
- & "$stage/install-windows.ps1" -RecoverUpgrade
+ Invoke-NativeRecoveryClick 'Restore previous executable' 'Service is stopped'
  if(Test-Path "$dir/upgrade-pending.json"){throw 'Recovery did not settle intent'}
  if((Get-Service HexmonEdge).Status -ne 'Stopped'){throw 'Recovery must not restart automatically'}
  if((Get-FileHash "$dir/edge-agent.yaml").Hash -ne $hash -or (Get-FileHash "$dir/data/identity.key").Hash -ne $keyHash){throw 'Upgrade recovery changed retained config/key'}
@@ -130,7 +149,7 @@ devices: []
  function Test-EdgeUpgradeHealth {param($Executable,$Config);throw 'fixture distinct candidate health acknowledgement loss'}
  $blocked=$false;try{Invoke-EdgeUpgrade -Directory $dir -Candidate "$stage/edge-agent.exe"}catch{$blocked=$true}
  if(-not $blocked -or (Get-FileHash "$dir/edge-agent.exe").Hash -ne $newHash){throw 'Distinct candidate replacement failure was not exercised'}
- & "$stage/install-windows.ps1" -RecoverUpgrade
+ Invoke-NativeRecoveryClick 'Restore previous executable' 'Service is stopped'
  if((Get-FileHash "$dir/edge-agent.exe").Hash -ne $oldHash -or (Get-Service HexmonEdge).Status -ne 'Stopped'){throw 'Explicit recovery did not restore distinct historical binary stopped'}
  Set-Item Function:Test-EdgeUpgradeHealth $realHealth
  Start-Service HexmonEdge
@@ -155,7 +174,14 @@ devices: []
  if(Test-Path "$dir/edge-agent.exe"){throw 'Agent binary remains'}
  if((Get-FileHash "$dir/data/identity.key").Hash -ne $keyHash){throw 'Identity key changed'}
  if((Get-FileHash "$dir/edge-agent.yaml").Hash -ne $hash -or -not(Test-Path "$dir/data/ci-retain-marker")){throw 'Uninstall did not retain config/identity fixture'}
+ $combined=New-Object System.Drawing.Bitmap($form.Width,($form.Height*$script:recoveryFrames.Count))
+ $graphics=[System.Drawing.Graphics]::FromImage($combined)
+ for($i=0;$i -lt $script:recoveryFrames.Count;$i++){$graphics.DrawImageUnscaled($script:recoveryFrames[$i],0,($i*$form.Height))}
+ $combined.Save((Join-Path $env:RUNNER_TEMP 'hexthings-edge-setup.png'),[System.Drawing.Imaging.ImageFormat]::Png)
+ $graphics.Dispose();$combined.Dispose();foreach($image in $script:recoveryFrames){$image.Dispose()}
+ Write-Host 'PASS integrated actual new recovery button PerformClick -> actual reviewed installer -> real SCM first-install resume and historical/current restore, with captured state frames. Modal answer supplied by fixture; no physical pointer/UAC/reboot/meter proof.'
  Write-Host 'PASS real native service install, manual/automatic settings, start/health/stop, stopped upgrade and retained-config uninstall. No reboot/UAC/GUI-click/telemetry proof.'
 } finally {
+ if($form){$form.Close();$form.Dispose()}
  if(Get-Service HexmonEdge -ErrorAction SilentlyContinue){Stop-Service HexmonEdge -Force -ErrorAction SilentlyContinue;sc.exe delete HexmonEdge|Out-Null}
 }
