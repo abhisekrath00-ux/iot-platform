@@ -32,7 +32,7 @@ def load(name):
 m=load('secure-application-provider');production=load('secure-application-production');fixture=load('test-secure-application-native');writesmod=load('test-secure-application-writes-fixture');acceptmod=load('secure-application-acceptance');connectionmod=load('secure-application-connections');hosttoolmod=load('secure-postgres-hosttool')
 class Loss(BaseException):pass
 
-def prove(parent_root,parent_project,newimage,testimage,basepath):
+def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_only=False):
     if (os.environ.get('GITHUB_ACTIONS')!='true'or os.environ.get('RUNNER_OS')!='Linux'or os.geteuid()!=0
             or parent_root.parent!=pathlib.Path('/tmp')or not parent_root.name.startswith('hexthings-application-ci-')
             or not parent_project.startswith('hexthings-app-ci-')):raise ValueError('Fresh native fixture only.')
@@ -103,6 +103,31 @@ def prove(parent_root,parent_project,newimage,testimage,basepath):
             snapshot=helper.retained_snapshot
             image=json.loads(call(['docker','image','inspect',newimage]).stdout)[0]['Id']
             checkpoint('prepare exact application plan')
+            if preparation_only:
+                gui=load('secure-update-gui')
+                # Only this disposable fixture: model an already settled selection
+                # using the actual running, immutable resolved Compose definition.
+                resolved=json.loads(call(compose+['config','--format','json']).stdout)
+                for name,item in helper.identities(path).items():resolved['services'][name]['image']=item['image']
+                selected=root/'selected-runtime.json';m.state.atomic(selected,resolved)
+                marker=root/'.secure-deployment';marker.mkdir(mode=0o700)
+                files={str(selected):m.state.digest(selected)}
+                m.state.atomic(marker/'selected.json',{'version':1,'project':project,'config':str(selected),'sha256':files[str(selected)],'files':files})
+                m.state.atomic(marker/'journal.json',{'version':1,'phase':'committed','project':project,'candidate':str(selected),'candidate_sha256':files[str(selected)],'files':files})
+                before_ids=helper.identities(path);before_files={p:p.read_bytes()for p in [path,selected,*marker.iterdir()]}
+                before_snapshot=helper.retained_snapshot
+                session=gui.Session(root);text=session.run(project,image,'plan')
+                if 'NOT approval'not in text or 'synthetic-ci-only'in text:raise ValueError('GUI preparation authority or redaction mismatch.')
+                if before_ids!=helper.identities(path)or any(p.read_bytes()!=v for p,v in before_files.items()):raise ValueError('GUI preparation changed runtime/selector/config.')
+                helper.probe(18103)
+                if helper.retained_snapshot!=before_snapshot:raise ValueError('GUI preparation changed retained inventory.')
+                if (root/'plan').stat().st_mode&0o777!=0o700 or any(p.stat().st_mode&0o777!=0o600 for p in (root/'plan').iterdir()):raise ValueError('GUI preparation exposed private files.')
+                try:session.run(project,image,'retry-plan')
+                except ValueError:pass
+                else:raise ValueError('GUI preparation repeated its operation.')
+                if (root/'retry-plan').exists():raise ValueError('GUI retry wrote files.')
+                print('PASS real-application GUI Session preparation: actual API/ingest/MCP and PostgreSQL/MQTT/web, fixture committed selector, unchanged IDs/config/selector and authenticated retained inventory, private files, redaction and no retry. No updater execution, owner activation, full background compatibility, Windows GUI interaction or physical meter proof.',flush=True)
+                return
             m.application.prepare(root,project,image,root/'plan')
             receipt=root/'plan/preflight.json';helper.old=root/'plan/previous-runtime.json';helper.new=root/'plan/candidate-runtime.json'
             baseline_host=m.hostmod.DockerHost(m.fence.DockerCatalog(cid,'ci','application_fixture'),project)

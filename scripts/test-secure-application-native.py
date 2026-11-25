@@ -166,15 +166,23 @@ class Effects:
             if self.fail:raise ValueError('Forced post-candidate-acceptance application rollback')
 
 def main():
+    preparation_only=os.environ.get('HEXTHINGS_REAL_PREPARATION_ONLY')=='1'
     if os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_OS')!='Linux' or os.geteuid()!=0:raise SystemExit('Disposable standard Ubuntu runner only')
     with tempfile.TemporaryDirectory(prefix='hexthings-application-ci-')as td:
         work=pathlib.Path(td);project='hexthings-app-ci-'+str(os.getpid());oldimage=project+':old';newimage=project+':new';testimage=project+':operator'
-        # Read the exact public checkpoint only; never checkout/merge/tag/push.
-        if subprocess.run(['git','cat-file','-e',OLD_COMMIT+'^{commit}'],cwd=ROOT,capture_output=True).returncode:
-            call(['git','fetch','--no-tags','--depth=1','origin',OLD_COMMIT],ROOT)
-        archive=call(['git','archive',OLD_COMMIT,'server'],ROOT,binary=True);oldsrc=work/'old-source';oldsrc.mkdir()
-        subprocess.run(['tar','-x','-C',oldsrc],input=archive,check=True)
-        for label,source in [('old',oldsrc/'server'),('new',ROOT/'server')]:
+        if preparation_only:
+            # Preparation is read-only against the current real image. Historical
+            # source/build compatibility belongs to later updater acceptance.
+            sources=[('new',ROOT/'server')]
+            oldimage=newimage
+        else:
+            # Read the exact public checkpoint only; never checkout/merge/tag/push.
+            if subprocess.run(['git','cat-file','-e',OLD_COMMIT+'^{commit}'],cwd=ROOT,capture_output=True).returncode:
+                call(['git','fetch','--no-tags','--depth=1','origin',OLD_COMMIT],ROOT)
+            archive=call(['git','archive',OLD_COMMIT,'server'],ROOT,binary=True);oldsrc=work/'old-source';oldsrc.mkdir()
+            subprocess.run(['tar','-x','-C',oldsrc],input=archive,check=True)
+            sources=[('old',oldsrc/'server'),('new',ROOT/'server')]
+        for label,source in sources:
             context=work/label;context.mkdir();shutil.copytree(source/'migrations',context/'migrations')
             for binary in (['api','ingest','mcp','tenantctl'] if label=='old' else ['api','ingest','mcp','tenantctl','setupctl']):
                 subprocess.run(['go','build','-o',str(context/binary),'./cmd/'+binary],cwd=source,env=dict(os.environ,CGO_ENABLED='0',GOTOOLCHAIN='auto'),check=True)
@@ -194,6 +202,9 @@ def main():
         try:
             call(compose+['up','-d','--wait','postgres','mosquitto','web'])
             postgres_id=call(compose+['ps','-q','postgres']).strip()
+            if preparation_only:
+                load('test-secure-application-provider-native').prove(work,project,newimage,testimage,basepath,preparation_only=True)
+                return
             load('test-secure-postgres-fence-native').prove(postgres_id,work,project)
             load('test-secure-postgres-hba-native').prove(postgres_id,work,project)
             helper=Effects(work,project,work/'previous.json',work/'candidate.json',testimage)
@@ -334,6 +345,6 @@ def main():
             result=subprocess.run(compose+['logs','--no-color','--tail','25'],capture_output=True,text=True)
             if result.returncode:print('Synthetic application logs unavailable')
             subprocess.run(compose+['down','--volumes','--remove-orphans'],check=False)
-            for image in [oldimage,newimage,testimage]:subprocess.run(['docker','image','rm',image],check=False)
+            for image in set([oldimage,newimage,testimage]):subprocess.run(['docker','image','rm',image],check=False)
 
 if __name__=='__main__':main()
