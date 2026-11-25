@@ -11,12 +11,66 @@
 # Test/packaging overrides (all default to the real system paths):
 #   HEXMON_PREFIX HEXMON_ETC HEXMON_STATE HEXMON_UNIT_DIR HEXMON_SKIP_SYSTEMD=1 HEXMON_SKIP_USER=1
 set -euo pipefail
+# Experimental staging-only paths run the bundled agent directly, before any
+# installer/user/systemd/config mutation. JSON stdin supplies an explicit new
+# private staging directory and pinned trust. No installed identity is accepted
+# or copied into place, and no pending state is cleared by these paths.
+for staging_arg in "$@"; do
+  case "$staging_arg" in
+    --stage-retained-claim|--recover-staged-claim|--review-staged-claim|--review-staged-install|--create-staged-install|--prepare-private-install|--review-private-install|--accept-private-identity|--review-runtime-mapping|--assemble-private-runtime)
+      [ "$#" = 1 ] || { echo 'Staged enrollment cannot be combined with installer arguments.' >&2;exit 2; };;
+  esac
+done
+case "${1:-}" in
+  --stage-retained-claim|--recover-staged-claim|--review-staged-claim|--review-staged-install|--create-staged-install|--prepare-private-install|--review-private-install|--accept-private-identity|--review-runtime-mapping|--assemble-private-runtime)
+    [ "$#" = 1 ] || { echo 'Staged enrollment cannot be combined with installer arguments.' >&2;exit 2; }
+    here="$(cd "$(dirname "$0")" && pwd)"
+    case "$(uname -m)" in
+      x86_64|amd64) staged_bin="$here/edge-agent-linux-amd64";;
+      aarch64|arm64) staged_bin="$here/edge-agent-linux-arm64";;
+      *) echo 'Unsupported staging architecture.' >&2;exit 2;;
+    esac
+    [ -f "$staged_bin" ] || staged_bin="$here/edge-agent"
+    [ -f "$staged_bin" ] && [ -x "$staged_bin" ] && [ ! -L "$staged_bin" ] || { echo 'Exact bundled staging executable missing or unsafe.' >&2;exit 2; }
+    case "$1" in
+      --stage-retained-claim) exec "$staged_bin" -create-retained-claim;;
+      --recover-staged-claim) exec "$staged_bin" -recover-retained-claim;;
+      --assemble-private-runtime) exec "$staged_bin" -assemble-private-runtime;;
+      --review-runtime-mapping) exec "$staged_bin" -review-runtime-mapping;;
+      --accept-private-identity) exec "$staged_bin" -accept-private-identity;;
+      --review-private-install) exec "$staged_bin" -review-private-install;;
+      --prepare-private-install) exec "$staged_bin" -prepare-private-install;;
+      --create-staged-install) exec "$staged_bin" -create-staged-install;;
+      --review-staged-install) exec "$staged_bin" -review-staged-install;;
+      --review-staged-claim) exec "$staged_bin" -review-retained-claim;;
+    esac
+    ;;
+esac
 PREFIX="${HEXMON_PREFIX:-/usr/local/bin}"
 ETC="${HEXMON_ETC:-/etc/hexmon}"
 STATE="${HEXMON_STATE:-/var/lib/hexmon-edge}"
 UNIT_DIR="${HEXMON_UNIT_DIR:-/etc/systemd/system}"
 SKIP_SYSTEMD="${HEXMON_SKIP_SYSTEMD:-0}"
 SKIP_USER="${HEXMON_SKIP_USER:-0}"
+
+# Never turn a staged/uncertain result into an installed identity by rerunning
+# ordinary setup. Existing/partial identity also forbids legacy enrollment.
+# These checks precede user, directory, binary, config or unit mutations.
+for retained_name in candidate-started candidate-intent.json candidate-response.json request-started intent.json response.json; do
+  if [ -e "$STATE/$retained_name" ] || [ -L "$STATE/$retained_name" ]; then
+    echo 'Retained enrollment requires explicit staged review/recovery; installation remains blocked.' >&2;exit 2
+  fi
+done
+for enrollment_arg in "$@"; do
+  case "$enrollment_arg" in
+    -claim-code|-claim-code=*|-claim-api|-claim-api=*|-claim-serial|-claim-serial=*|-enroll|-enroll=*)
+      for identity_name in identity.key identity.json identity.crt ca.pem device-ca.pem; do
+        if [ -e "$STATE/$identity_name" ] || [ -L "$STATE/$identity_name" ]; then
+          echo 'Existing or partial identity refuses new enrollment; preserve it and use explicit recovery.' >&2;exit 2
+        fi
+      done;;
+  esac
+done
 
 [ "$(id -u)" = 0 ] || [ "$SKIP_SYSTEMD" = 1 ] || { echo "run as root (sudo)"; exit 1; }
 here="$(cd "$(dirname "$0")" && pwd)"

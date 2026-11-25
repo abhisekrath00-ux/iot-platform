@@ -41,7 +41,7 @@ func compiledSourceApplyAndReading(t *testing.T, portable, uncertainPublication 
 		t.Skip("compiled edge/ingest and disposable broker binaries required")
 	}
 	s, _ := testServer(t)
-	tenant := "itest-source-pipeline"
+	tenant := fmt.Sprintf("itest-source-pipeline-%d", time.Now().UnixNano())
 	if portable {
 		tenant += "-explorer"
 	}

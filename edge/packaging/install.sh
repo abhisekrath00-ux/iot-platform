@@ -10,6 +10,15 @@
 # NO_COLOR is set, or HEXTHINGS_ASCII=1.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
+# Explicit experimental staging is not installation and must bypass prompts,
+# health probes, boot preferences and the installed service manager entirely.
+for staging_arg in "$@"; do
+  case "$staging_arg" in
+    --stage-retained-claim|--recover-staged-claim|--review-staged-claim|--review-staged-install|--create-staged-install|--prepare-private-install|--review-private-install|--accept-private-identity|--review-runtime-mapping|--assemble-private-runtime)
+      [ "$#" = 1 ] || { echo 'Staged enrollment cannot be combined with installer arguments.' >&2;exit 2; }
+      exec bash "$here/install-linux.sh" "$staging_arg";;
+  esac
+done
 SERVER=""; CODE=""; SERIAL=""; YES=0; SKIPNET="${HEXTHINGS_SKIP_NET_CHECK:-0}"
 while [ $# -gt 0 ]; do
   case "$1" in

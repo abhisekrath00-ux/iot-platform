@@ -3,6 +3,7 @@
 package setup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -69,8 +70,14 @@ func Fetch(ctx context.Context, client *http.Client, server string, id *claim.Id
 		return nil, fmt.Errorf("server setup does not match this gateway identity and serial")
 	}
 	var cfg config.Config
-	if err := yaml.Unmarshal([]byte(out.YAML), &cfg); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader([]byte(out.YAML)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid server configuration")
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		return nil, fmt.Errorf("single server configuration required")
 	}
 	if cfg.GatewayID != id.GatewayID || cfg.TenantID != out.TenantID || cfg.Serial != serial {
 		return nil, fmt.Errorf("configuration identity does not match")
@@ -85,10 +92,8 @@ func Fetch(ctx context.Context, client *http.Client, server string, id *claim.Id
 	if cfg.Autodetect.Enabled == nil || *cfg.Autodetect.Enabled || cfg.Autodetect.AutoAdd || cfg.RemoteRestart || cfg.AllowAutomaticCommands || len(cfg.AllowedCommands) > 0 || len(cfg.Outputs) > 0 || len(cfg.Rules) > 0 || cfg.ManagedDevices {
 		return nil, fmt.Errorf("server setup requested unapproved discovery, commands, outputs or managed updates")
 	}
-	for _, d := range cfg.Devices {
-		if len(d.Writes) > 0 {
-			return nil, fmt.Errorf("server setup requested device writes")
-		}
+	if err := validateSourceInputs(&cfg); err != nil {
+		return nil, err
 	}
 	if allowManaged {
 		if !out.Signed || cfg.FleetPublicKey == "" {
@@ -99,8 +104,7 @@ func Fetch(ctx context.Context, client *http.Client, server string, id *claim.Id
 		}
 		cfg.ManagedDevices = true
 	}
-	// Marshal the typed shape, dropping unknown fields instead of forwarding
-	// unrecognized future security settings into a local configuration.
+	// Marshal only the strictly decoded and checked source configuration.
 	b, err := yaml.Marshal(cfg)
 	if err != nil {
 		return nil, err

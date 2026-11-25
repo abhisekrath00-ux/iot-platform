@@ -21,3 +21,7 @@ func (*candidateInstallTargetGuard) Validate() error {
 func candidateRequireNewDestination(candidateInstallTargets) error {
 	return fmt.Errorf("native destination preflight unavailable")
 }
+
+func candidateHoldInstallTargetsChecked(candidateInstallPlan, func(candidateInstallPlan) error) (*candidateInstallTargetGuard, error) {
+	return nil, fmt.Errorf("native deployment guard unavailable")
+}

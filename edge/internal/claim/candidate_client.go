@@ -55,6 +55,17 @@ func candidateClaimWithInstallPlan(ctx context.Context, client *http.Client, dir
 	return candidateClaimOperation(ctx, client, dir, server, code, serial, recoverOnly, deviceRoots, responseKey, expectedTenant, deviceTrustDER, targets, nil)
 }
 func candidateClaimOperation(ctx context.Context, client *http.Client, dir, server, code, serial string, recoverOnly bool, deviceRoots *x509.CertPool, responseKey ed25519.PublicKey, expectedTenant string, deviceTrustDER []byte, targets *candidateInstallTargets, accept func(*candidateStore, candidateIntent, []byte) error) error {
+	return candidateClaimCheckedOperation(ctx, client, dir, server, code, serial, recoverOnly, deviceRoots, responseKey, expectedTenant, deviceTrustDER, targets, accept, nil)
+}
+
+// A nonnil deployment check is used only by the separate synchronous verified
+// deployment route. Ordinary create/recovery keeps its absent-final baseline.
+func candidateClaimCheckedOperation(ctx context.Context, client *http.Client, dir, server, code, serial string, recoverOnly bool, deviceRoots *x509.CertPool, responseKey ed25519.PublicKey, expectedTenant string, deviceTrustDER []byte, targets *candidateInstallTargets, accept func(*candidateStore, candidateIntent, []byte) error, deploymentCheck func(*candidateStore, candidateIntent, candidateInstallPlan) error) error {
+	checkPlan := candidateCheckInstallSnapshot
+	if deploymentCheck != nil && (!recoverOnly || targets != nil || accept == nil) {
+		return fmt.Errorf("explicit deployment recovery only")
+	}
+
 	if targets != nil && (recoverOnly || !candidateValidInstallTargets(dir, *targets)) {
 		return fmt.Errorf("explicit new staging and distinct installer targets required")
 	}
@@ -151,7 +162,19 @@ func candidateClaimOperation(ctx context.Context, client *http.Client, dir, serv
 		}
 		// An installer-bound attempt cannot recover through a malformed or
 		// partial plan. Recovery preserves its explicit binding, never repairs.
-		if e = candidateValidateOptionalInstallPlan(store, v, dir); e != nil {
+		if deploymentCheck != nil {
+			checkPlan = func(plan candidateInstallPlan) error {
+				cached, err := store.Read("candidate-response.json")
+				if err != nil {
+					return fmt.Errorf("verified cached identity required before deployment recovery")
+				}
+				if err = candidateVerifyResponse(cached, v, key, deviceRoots, responseKey, expectedTenant); err != nil {
+					return err
+				}
+				return deploymentCheck(store, v, plan)
+			}
+		}
+		if e = candidateValidateInstallPlanChecked(store, v, dir, checkPlan); e != nil {
 			return e
 		}
 		// A partial or mismatched saved response must refuse locally before any
@@ -180,7 +203,7 @@ func candidateClaimOperation(ctx context.Context, client *http.Client, dir, serv
 		if candidateDecodeRecovery(planRaw, &plan) != nil {
 			return fmt.Errorf("installer plan unavailable")
 		}
-		targetGuard, e = candidateHoldInstallTargets(plan)
+		targetGuard, e = candidateHoldInstallTargetsChecked(plan, checkPlan)
 		if e != nil {
 			return e
 		}

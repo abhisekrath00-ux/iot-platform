@@ -21,6 +21,14 @@ type candidateInstallTargets struct {
 	State       string
 	Unit        string
 	Destination string
+	// Optional final layout must be selected before enrollment. It does not
+	// authorize a privileged commit or changing service state.
+	DeploymentRoot  string
+	DeploymentState string
+	DeploymentUnit  string
+	ServiceUID      string
+	ServiceGID      string
+	Activation      string
 }
 type candidateInstallPlan struct {
 	Version        int
@@ -94,6 +102,12 @@ func candidateValidInstallTargets(dir string, t candidateInstallTargets) bool {
 		return false
 	}
 	paths := []string{dir, t.Binary, t.Config, t.State, t.Unit, t.Destination}
+	if candidateHasDeployment(t) {
+		if !candidateValidServiceID(t.ServiceUID) || !candidateValidServiceID(t.ServiceGID) || t.Activation != "stopped-only" {
+			return false
+		}
+		paths = append(paths, t.DeploymentRoot, t.DeploymentState, t.DeploymentUnit)
+	}
 	for i, p := range paths {
 		if !filepath.IsAbs(p) || filepath.Clean(p) != p || p == string(filepath.Separator) {
 			return false
@@ -123,6 +137,9 @@ func candidateStrictInstallTargets(raw []byte) bool {
 }
 
 func candidateValidateOptionalInstallPlan(store *candidateStore, intent candidateIntent, dir string) error {
+	return candidateValidateInstallPlanChecked(store, intent, dir, candidateCheckInstallSnapshot)
+}
+func candidateValidateInstallPlanChecked(store *candidateStore, intent candidateIntent, dir string, check func(candidateInstallPlan) error) error {
 	raw, e := store.Read("candidate-install-plan.json")
 	if os.IsNotExist(e) {
 		marker, readErr := store.Read("candidate-started")
@@ -143,12 +160,12 @@ func candidateValidateOptionalInstallPlan(store *candidateStore, intent candidat
 	if plan.IntentSHA256 != hex.EncodeToString(digest[:]) {
 		return fmt.Errorf("retained install intent differs; no request")
 	}
-	return candidateCheckInstallSnapshot(plan)
+	return check(plan)
 }
 
 func candidateCheckInstallSnapshot(plan candidateInstallPlan) error {
 	snapshot, e := candidateSnapshotInstallTargets(plan.Targets)
-	if e != nil || len(plan.TargetSnapshot) != 7 || !reflect.DeepEqual(snapshot, plan.TargetSnapshot) {
+	if e != nil || len(plan.TargetSnapshot) != candidateInstallSnapshotSize(plan.Targets) || !reflect.DeepEqual(snapshot, plan.TargetSnapshot) {
 		return fmt.Errorf("installed targets differ or are unsafe; no install or request")
 	}
 	return nil
@@ -160,13 +177,40 @@ func candidateStrictInstallSnapshot(raw []byte) bool {
 		return false
 	}
 	var snapshot struct {
-		Binary      string `json:"binary"`
-		Config      string `json:"config"`
-		Unit        string `json:"unit"`
-		Key         string `json:"identity.key"`
-		Identity    string `json:"identity.json"`
-		State       string `json:"state_directory"`
-		Destination string `json:"destination_parent"`
+		Binary                string `json:"binary"`
+		Config                string `json:"config"`
+		Unit                  string `json:"unit"`
+		Key                   string `json:"identity.key"`
+		Identity              string `json:"identity.json"`
+		State                 string `json:"state_directory"`
+		Destination           string `json:"destination_parent"`
+		DeploymentParent      string `json:"deployment_parent"`
+		DeploymentStateParent string `json:"deployment_state_parent"`
+		DeploymentUnitParent  string `json:"deployment_unit_parent"`
 	}
 	return candidateDecodeRecovery(outer["TargetSnapshot"], &snapshot) == nil
+}
+
+func candidateHasDeployment(t candidateInstallTargets) bool {
+	return t.DeploymentRoot != "" || t.DeploymentState != "" || t.DeploymentUnit != "" || t.ServiceUID != "" || t.ServiceGID != "" || t.Activation != ""
+}
+func candidateValidServiceID(s string) bool {
+	// Canonical positive decimal UID/GID, deliberately exclude root.
+	if len(s) == 0 || len(s) > 10 || s[0] == '0' {
+		return false
+	}
+	var n uint64
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+		n = n*10 + uint64(c-'0')
+	}
+	return n > 0 && n < 4294967295
+}
+func candidateInstallSnapshotSize(t candidateInstallTargets) int {
+	if candidateHasDeployment(t) {
+		return 10
+	}
+	return 7
 }

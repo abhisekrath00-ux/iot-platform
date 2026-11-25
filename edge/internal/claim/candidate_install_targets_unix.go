@@ -19,6 +19,13 @@ import (
 // This is read-only evidence, not a commit lock or same-user/root protection.
 func candidateSnapshotInstallTargets(targets candidateInstallTargets) (map[string]string, error) {
 	out := map[string]string{}
+	deployment, e := candidateSnapshotDeploymentTargets(targets)
+	if e != nil {
+		return nil, e
+	}
+	for n, v := range deployment {
+		out[n] = v
+	}
 	for label, path := range map[string]string{"binary": targets.Binary, "config": targets.Config, "unit": targets.Unit} {
 		fd, e := candidateOpenTargetDirectory(filepath.Dir(path))
 		if e != nil {
@@ -182,13 +189,21 @@ func candidateHashTarget(dir int, name string, max int64, private bool) (string,
 // Held read-only parent handles do not lock files. Validate reopens the exact
 // selected paths and compares parent identities as well as content baselines.
 type candidateInstallTargetGuard struct {
-	plan candidateInstallPlan
-	dirs map[string]int
+	plan  candidateInstallPlan
+	dirs  map[string]int
+	check func(candidateInstallPlan) error
 }
 
 func candidateHoldInstallTargets(plan candidateInstallPlan) (*candidateInstallTargetGuard, error) {
-	g := &candidateInstallTargetGuard{plan: plan, dirs: map[string]int{}}
-	for _, p := range []string{filepath.Dir(plan.Targets.Binary), filepath.Dir(plan.Targets.Config), filepath.Dir(plan.Targets.Unit), plan.Targets.State, filepath.Dir(plan.Targets.Destination)} {
+	return candidateHoldInstallTargetsChecked(plan, candidateCheckInstallSnapshot)
+}
+func candidateHoldInstallTargetsChecked(plan candidateInstallPlan, check func(candidateInstallPlan) error) (*candidateInstallTargetGuard, error) {
+	g := &candidateInstallTargetGuard{plan: plan, dirs: map[string]int{}, check: check}
+	paths := []string{filepath.Dir(plan.Targets.Binary), filepath.Dir(plan.Targets.Config), filepath.Dir(plan.Targets.Unit), plan.Targets.State, filepath.Dir(plan.Targets.Destination)}
+	if candidateHasDeployment(plan.Targets) {
+		paths = append(paths, filepath.Dir(plan.Targets.DeploymentRoot), filepath.Dir(plan.Targets.DeploymentState), filepath.Dir(plan.Targets.DeploymentUnit))
+	}
+	for _, p := range paths {
 		if _, ok := g.dirs[p]; ok {
 			continue
 		}
@@ -227,7 +242,7 @@ func (g *candidateInstallTargetGuard) Validate() error {
 			return fmt.Errorf("installed parent directory replaced")
 		}
 	}
-	return candidateCheckInstallSnapshot(g.plan)
+	return g.check(g.plan)
 }
 
 func candidateRequireNewDestination(targets candidateInstallTargets) error {
@@ -245,4 +260,38 @@ func candidateRequireNewDestination(targets candidateInstallTargets) error {
 		}
 	}
 	return nil
+}
+
+// Final targets are exclusive new leaves. Snapshot binds all existing parents;
+// identity and payload cannot be installed here by this read-only code.
+func candidateSnapshotDeploymentTargets(t candidateInstallTargets) (map[string]string, error) {
+	out := map[string]string{}
+	if !candidateHasDeployment(t) {
+		return out, nil
+	}
+	if t.Activation != "stopped-only" || !candidateValidServiceID(t.ServiceUID) || !candidateValidServiceID(t.ServiceGID) {
+		return nil, fmt.Errorf("complete stopped deployment contract required")
+	}
+	for label, path := range map[string]string{"deployment_parent": t.DeploymentRoot, "deployment_state_parent": t.DeploymentState, "deployment_unit_parent": t.DeploymentUnit} {
+		if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == "/" {
+			return nil, fmt.Errorf("canonical final target required")
+		}
+		fd, e := candidateOpenTargetDirectory(filepath.Dir(path))
+		if e != nil {
+			return nil, e
+		}
+		var st unix.Stat_t
+		e = unix.Fstatat(fd, filepath.Base(path), &st, unix.AT_SYMLINK_NOFOLLOW)
+		if e != unix.ENOENT {
+			unix.Close(fd)
+			return nil, fmt.Errorf("final deployment target already exists or is unverifiable")
+		}
+		e = unix.Fstat(fd, &st)
+		unix.Close(fd)
+		if e != nil {
+			return nil, e
+		}
+		out[label] = fmt.Sprintf("%d:%d", st.Dev, st.Ino)
+	}
+	return out, nil
 }

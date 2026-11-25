@@ -105,3 +105,47 @@ func TestFetchRejectsURLsBeforeSendingAndNeverFollowsRedirect(t *testing.T) {
 		t.Fatal("followed redirect", calls)
 	}
 }
+
+func TestFetchRefusesSourceSecretsMalformedShapesAndExtraDocuments(t *testing.T) {
+	out := result()
+	calls := 0
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; json.NewEncoder(w).Encode(out) }))
+	defer srv.Close()
+	id := &claim.Identity{GatewayID: "g", IngestToken: "synthetic-token"}
+	for _, field := range []string{"client_cert", "client_key", "server_cert", "password_env", "community_env", "snmp_auth_pass_env", "snmp_priv_pass_env"} {
+		t.Run(field, func(t *testing.T) {
+			out = result()
+			out.YAML = strings.Replace(out.YAML, "devices: []", "devices: [{id: meter, "+field+": local-secret-selection}]", 1)
+			if b, e := Fetch(context.Background(), srv.Client(), srv.URL, id, "s", false); e == nil || len(b) != 0 {
+				t.Fatal("unsafe source returned config", e)
+			}
+		})
+	}
+	for _, tc := range []struct{ name, yaml string }{
+		{"missing interval", "devices: [{id: meter}]"},
+		{"missing range", "devices: [{id: meter, interval: 100ms, points: [{id: temperature}]}]"},
+		{"nonfinite range", "devices: [{id: meter, interval: 100ms, points: [{id: temperature, min: 0, max: .inf}]}]"},
+		{"duplicate devices", "devices: [{id: same}, {id: same}]"},
+		{"missing device", "devices: [{profile: modbus-tcp}]"},
+		{"duplicate points", "devices: [{id: meter, points: [{id: same}, {id: same}]}]"},
+		{"missing point", "devices: [{id: meter, points: [{register: 1}]}]"},
+		{"invalid address", "devices: [{id: meter, port: /dev/ttyS0, address: 999}]"},
+		{"unknown source field", "devices: [{id: meter, future_credential: local-secret}]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out = result()
+			out.YAML = strings.Replace(out.YAML, "devices: []", tc.yaml, 1)
+			if b, e := Fetch(context.Background(), srv.Client(), srv.URL, id, "s", false); e == nil || len(b) != 0 {
+				t.Fatal("unchecked source returned config", e)
+			}
+		})
+	}
+	out = result()
+	out.YAML += "---\nallowed_commands: [restart]\n"
+	if b, e := Fetch(context.Background(), srv.Client(), srv.URL, id, "s", false); e == nil || len(b) != 0 {
+		t.Fatal("extra document accepted", e)
+	}
+	if calls != 17 {
+		t.Fatal("unexpected request count", calls)
+	}
+}

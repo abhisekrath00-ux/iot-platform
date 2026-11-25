@@ -34,8 +34,15 @@ func BuildRuntimeMapping(raw []byte, id *claim.Identity, serial, tenant, identit
 	return buildRuntimeMappingChecked(raw, id, serial, tenant, identityDir, brokerCAFile, brokerCAPEM, binary, configPath, stateDir, user)
 }
 func buildRuntimeMappingChecked(raw []byte, id *claim.Identity, serial, tenant, identityDir, brokerCAFile, brokerCAPEM, binary, configPath, stateDir, user string) (RuntimeMapping, error) {
+	return buildRuntimeMappingWithService(raw, id, serial, tenant, identityDir, brokerCAFile, brokerCAPEM, binary, configPath, stateDir, user, user, false)
+}
+func buildRuntimeMappingWithService(raw []byte, id *claim.Identity, serial, tenant, identityDir, brokerCAFile, brokerCAPEM, binary, configPath, stateDir, user, group string, numeric bool) (RuntimeMapping, error) {
+	serviceOK := regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,30}$`).MatchString(user) && user == group && user != "root"
+	if numeric {
+		serviceOK = validNumericServiceID(user) && validNumericServiceID(group)
+	}
 	refuse := RuntimeMapping{}
-	if id == nil || id.GatewayID == "" || serial == "" || tenant == "" || len(raw) > 2<<20 || !regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,30}$`).MatchString(user) || user == "root" {
+	if id == nil || id.GatewayID == "" || serial == "" || tenant == "" || len(raw) > 2<<20 || !serviceOK {
 		return refuse, fmt.Errorf("explicit accepted identity, trust, targets and non-root service user required")
 	}
 	// systemd performs its own expansion. Keep generated fields to a conservative
@@ -85,10 +92,8 @@ func buildRuntimeMappingChecked(raw []byte, id *claim.Identity, serial, tenant, 
 	if cfg.MQTT.CAFile != "" || cfg.MQTT.CertFile != "" || cfg.MQTT.KeyFile != "" || cfg.QueuePath != "" || cfg.ArtifactDir != "" || cfg.UI.Listen != "" {
 		return refuse, fmt.Errorf("server must not choose local runtime paths")
 	}
-	for _, d := range cfg.Devices {
-		if len(d.Writes) > 0 {
-			return refuse, fmt.Errorf("device writes refused")
-		}
+	if e := validateSourceInputs(&cfg); e != nil {
+		return refuse, e
 	}
 	cfg.MQTT.CAFile = brokerCAFile
 	cfg.MQTT.CertFile = filepath.Join(identityDir, "identity.crt")
@@ -101,7 +106,21 @@ func buildRuntimeMappingChecked(raw []byte, id *claim.Identity, serial, tenant, 
 		return refuse, e
 	}
 	args := " -config " + configPath + " -identity-dir " + identityDir
-	unit := strings.Join([]string{"[Unit]", "Description=HexThings Edge, explicit activation required", "After=network-online.target", "Wants=network-online.target", "[Service]", "User=" + user, "Group=" + user, "ExecStartPre=" + binary + " -check-config" + args, "ExecStart=" + binary + args, "Restart=on-failure", "NoNewPrivileges=true", "ProtectSystem=strict", "ProtectHome=true", "PrivateTmp=true", "ReadOnlyPaths=" + identityDir + " " + brokerCAFile + " " + configPath, "ReadWritePaths=" + stateDir, ""}, "\n")
+	unit := strings.Join([]string{"[Unit]", "Description=HexThings Edge, explicit activation required", "After=network-online.target", "Wants=network-online.target", "[Service]", "User=" + user, "Group=" + group, "ExecStartPre=" + binary + " -check-config" + args, "ExecStart=" + binary + args, "Restart=on-failure", "NoNewPrivileges=true", "ProtectSystem=strict", "ProtectHome=true", "PrivateTmp=true", "ReadOnlyPaths=" + identityDir + " " + brokerCAFile + " " + configPath, "ReadWritePaths=" + stateDir, ""}, "\n")
 	// No Install section: generation cannot enable boot startup.
 	return RuntimeMapping{ConfigYAML: string(mapped), Unit: unit, CanStart: false, Message: "Mapping only. File installation, service-account access, current authorization and real broker connectivity remain unverified. No unit was installed or enabled."}, nil
+}
+
+func validNumericServiceID(s string) bool {
+	if len(s) == 0 || len(s) > 10 || s[0] == '0' {
+		return false
+	}
+	var n uint64
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+		n = n*10 + uint64(c-'0')
+	}
+	return n > 0 && n < 4294967295
 }
