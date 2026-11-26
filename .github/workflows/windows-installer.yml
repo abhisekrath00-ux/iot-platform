@@ -208,3 +208,50 @@ jobs:
       run: 'sudo env HEX_NATIVE_STOPPED_ACCEPTANCE=1 HEX_NATIVE_STOPPED_AGENT="$RUNNER_TEMP/edge-native-stopped" "$RUNNER_TEMP/stopped-native.test" -test.run ''^TestNativeRootOriginStoppedInstaller$'' -test.v -test.count=1 -test.timeout=5m
   
         '
+
+  confined-systemd-feasibility:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.linux_root_stopped_review && inputs.linux_identity_mapping_review && inputs.windows_recovery_review && !inputs.windows_claim_store_prototype && github.event.repository.private == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v6
+        timeout-minutes: 1
+        with:
+          persist-credentials: false
+      - name: Confirm production directive reference unchanged
+        timeout-minutes: 1
+        run: cmp edge/packaging/hexmon-edge.service scripts/confined-systemd-probe/production-unit.reference
+      - name: Prefetch and build fixed probe image only
+        timeout-minutes: 7
+        run: |
+          test "$(podman --version)" = 'podman version 4.9.3'
+          sudo timeout --signal=TERM --kill-after=10 90 podman pull docker.io/library/ubuntu@sha256:9a04f13b3f80ef056361e30868593b1cfd2279fe19e4081cb93a90bf56819d6a
+          sudo timeout --signal=TERM --kill-after=10 300 podman build --pull=never --iidfile "$RUNNER_TEMP/confined-image.id" scripts/confined-systemd-probe
+      - name: Reserve exact owner evidence
+        timeout-minutes: 1
+        run: sudo install -d -m 700 -o root -g root "$RUNNER_TEMP/confined-owner"
+      - name: Confined feasibility, no application activation
+        timeout-minutes: 3
+        run: sudo env PROBE_IMAGE_ID_FILE="$RUNNER_TEMP/confined-image.id" timeout --signal=TERM --kill-after=10 120 python3 scripts/confined-systemd-probe/host.py run "$RUNNER_TEMP/confined-owner"
+      - name: Independent exact container cleanup after interruption
+        timeout-minutes: 1
+        if: always()
+        run: |
+          if sudo test -f "$RUNNER_TEMP/confined-owner/owner.json"; then
+            sudo timeout --signal=TERM --kill-after=10 45 python3 scripts/confined-systemd-probe/host.py cleanup "$RUNNER_TEMP/confined-owner"
+          fi
+      - name: Remove only exact locally built image after container cleanup
+        timeout-minutes: 1
+        if: always()
+        run: |
+          if test -s "$RUNNER_TEMP/confined-image.id"; then
+            image=$(cat "$RUNNER_TEMP/confined-image.id")
+            test "${#image}" = 71
+            case "$image" in sha256:*) ;; *) exit 1 ;; esac
+            sudo timeout --signal=TERM --kill-after=5 20 podman image rm "$image"
+            set +e
+            sudo timeout --signal=TERM --kill-after=5 5 podman image exists "$image"
+            status=$?
+            set -e
+            test "$status" = 1
+          fi
