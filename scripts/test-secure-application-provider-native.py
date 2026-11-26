@@ -110,14 +110,17 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
                 # using the actual running, immutable resolved Compose definition.
                 resolved=json.loads(call(compose+['config','--format','json']).stdout)
                 for name,item in helper.identities(path).items():resolved['services'][name]['image']=item['image']
-                selected=root/'selected-runtime.json';m.state.atomic(selected,resolved)
+                # Keep the exact existing Compose path recorded in container labels.
+                # This fixture settles that same file to the already-running resolved
+                # definition before the unchanged-state baseline, not a label bypass.
+                selected=path;m.state.atomic(selected,resolved)
                 marker=root/'.secure-deployment';marker.mkdir(mode=0o700)
                 files={str(selected):m.state.digest(selected)}
                 m.state.atomic(marker/'selected.json',{'version':1,'project':project,'config':str(selected),'sha256':files[str(selected)],'files':files})
                 m.state.atomic(marker/'journal.json',{'version':1,'phase':'committed','project':project,'candidate':str(selected),'candidate_sha256':files[str(selected)],'files':files})
                 before_ids=helper.identities(path);before_files={p:p.read_bytes()for p in [path,selected,*marker.iterdir()]}
                 before_snapshot=helper.retained_snapshot
-                session=gui.Session(root);text=session.run(project,image,'plan')
+                session=gui.Session(root);session.refresh();text=session.run(project,image,'plan')
                 if 'NOT approval'not in text or 'synthetic-ci-only'in text:raise ValueError('GUI preparation authority or redaction mismatch.')
                 if before_ids!=helper.identities(path)or any(p.read_bytes()!=v for p,v in before_files.items()):raise ValueError('GUI preparation changed runtime/selector/config.')
                 helper.probe(18103)

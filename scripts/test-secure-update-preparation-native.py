@@ -38,7 +38,7 @@ def main():
             call(compose+['up','-d','--no-build','--pull','never'],root)
             def ids():return sorted(call(compose+['ps','-a','-q'],root).split())
             before_ids=ids();before={p.name:p.read_bytes()for p in marker.iterdir()};config_before=config.read_bytes()
-            session=gui.Session(root);text=session.run(project,new,'private-plan')
+            session=gui.Session(root);session.refresh();text=session.run(project,new,'private-plan')
             if 'NOT approval'not in text or 'synthetic@'in text:raise ValueError('Review authority/redaction mismatch')
             if before_ids!=ids()or before!={p.name:p.read_bytes()for p in marker.iterdir()}or config.read_bytes()!=config_before:raise ValueError('Preparation changed selection or containers')
             if (root/'private-plan').stat().st_mode&0o777!=0o700:raise ValueError('Shared plan folder')
@@ -49,7 +49,7 @@ def main():
             else:raise ValueError('GUI session repeated its operation')
             if (root/'another-plan').exists():raise ValueError('Retry wrote files')
             # A real missing local image must fail without pull/run fallback.
-            missing=gui.Session(root)
+            missing=gui.Session(root);missing.refresh()
             try:missing.run(project,'sha256:'+'0'*64,'missing-image')
             except ValueError:pass
             else:raise ValueError('Unknown image accepted')

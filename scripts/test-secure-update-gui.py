@@ -89,4 +89,56 @@ class Tests(unittest.TestCase):
             session.discover=fail
             with self.assertRaises(ValueError):session.refresh()
             self.assertIsNone(session.snapshot)
+
+    def test_default_backend_all_subordinate_calls_keep_preview_transport_after_drift(self):
+        import json,os,types
+        from unittest.mock import patch
+        spec=importlib.util.spec_from_file_location('prepfixture',pathlib.Path(__file__).with_name('test-secure-update-prepare.py'));f=importlib.util.module_from_spec(spec);spec.loader.exec_module(f)
+        for endpoint in ['unix:///var/run/docker.sock','npipe:////./pipe/docker_engine']:
+            with self.subTest(endpoint=endpoint),tempfile.TemporaryDirectory()as td:
+                root=pathlib.Path(td);(root/'docker-compose.yml').write_text('fixture config')
+                config=f.fixture.Tests().config();calls=[];contexts=[]
+                containers=[{'Id':format(n+1,'x')*64,'Image':f.OLD,'Config':{'Labels':{'com.docker.compose.project':'fixture','com.docker.compose.service':name,'com.docker.compose.project.working_dir':str(root),'com.docker.compose.project.config_files':str(root/'docker-compose.yml')},'Env':[key+'='+value for key,value in service.get('environment',{}).items()],'Cmd':service.get('command'),'Entrypoint':None},'State':{'Status':'running'}}for n,(name,service)in enumerate(config['services'].items())]
+                def execute(args,**kw):
+                    calls.append(args)
+                    if args==['docker','context','inspect']:
+                        contexts.append(args);return types.SimpleNamespace(returncode=0,stdout=json.dumps([{'Endpoints':{'docker':{'Host':endpoint}}}]))
+                    self.assertEqual(args[:3],['docker','--host',endpoint])
+                    for key in ['DOCKER_CONTEXT','DOCKER_HOST','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH']:self.assertNotIn(key,kw['env'])
+                    args=['docker',*args[3:]]
+                    if args[:2]==['docker','ps']or args[-3:]==['ps','-a','-q']:return types.SimpleNamespace(returncode=0,stdout=' '.join(c['Id']for c in containers))
+                    if args==['docker','image','ls','--no-trunc','--quiet']:return types.SimpleNamespace(returncode=0,stdout=f.OLD+'\n'+IMAGE)
+                    if args[:2]==['docker','inspect']:value=containers
+                    elif args[:3]==['docker','image','inspect']:value=[{'Id':i,'Os':'linux','Architecture':'amd64','Config':{'Env':[]}}for i in args[3:]]
+                    elif args[-3:]==['config','--format','json']:value=config
+                    elif args[-2:]==['config','--quiet']:return types.SimpleNamespace(returncode=0,stdout='')
+                    else:raise AssertionError('Unexpected subordinate command '+repr(args))
+                    return types.SimpleNamespace(returncode=0,stdout=json.dumps(value))
+                with patch.object(m.inventory.subprocess,'run',side_effect=execute),patch.dict(os.environ,{'DOCKER_CONTEXT':'initial'}):
+                    session=m.Session(root);session.refresh();session.validate_choice('fixture',IMAGE)
+                    os.environ['DOCKER_CONTEXT']='remote';os.environ['DOCKER_HOST']='ssh://remote.invalid'
+                    text=session.run('fixture',IMAGE,'plan')
+                self.assertIn('NOT approval',text);self.assertEqual(len(contexts),1)
+                self.assertTrue((root/'plan/preflight.json').is_file())
+                self.assertEqual(sum(args[-2:]==['config','--quiet']for args in calls),2)
+                self.assertTrue(any(args[-3:]==['config','--format','json']for args in calls))
+                self.assertNotIn(endpoint,text);self.assertNotIn(endpoint,(root/'plan/preflight.json').read_text())
+                print('BOUND_TRANSPORT_PROOF='+json.dumps({'transport':'local-pipe'if endpoint.startswith('npipe:')else'local-unix','context_resolutions':len(contexts),'pinned_calls':len(calls)-len(contexts),'backend_compose_config_checks':sum(args[-2:]==['config','--quiet']for args in calls),'commands':[args[3:]for args in calls if args[:2]==['docker','--host']]},sort_keys=True))
+    def test_default_backend_cannot_use_unbound_custom_discovery(self):
+        with tempfile.TemporaryDirectory()as td:
+            session=m.Session(td,discover=lambda*a:SNAPSHOT)
+            with self.assertRaises(ValueError):session.refresh()
+            self.assertIsNone(session.snapshot);self.assertIsNone(session._transport)
+            session.snapshot=SNAPSHOT
+            with self.assertRaises(ValueError):session.run('fixture',IMAGE,'plan')
+            self.assertFalse(session.attempted);self.assertEqual(list(pathlib.Path(td).iterdir()),[])
+    def test_failed_bound_refresh_drops_transport_and_snapshot(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory()as td:
+            session=m.Session(td)
+            with patch.object(m.inventory,'LocalTransport')as factory,patch.object(m.inventory,'scan',return_value=SNAPSHOT):
+                session.refresh();self.assertIsNotNone(session._transport)
+                factory.side_effect=ValueError('fixture failure')
+                with self.assertRaises(ValueError):session.refresh()
+            self.assertIsNone(session._transport);self.assertIsNone(session.snapshot)
 if __name__=='__main__':unittest.main()

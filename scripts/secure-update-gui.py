@@ -22,10 +22,17 @@ class Session:
     """One private-plan attempt per window, including an uncertain outcome."""
     def __init__(self,root,prepare=None,discover=None):
         self.root=pathlib.Path(root).resolve();self.prepare=prepare or backend.prepare
-        self.attempted=False;self.lock=threading.Lock();self.discover=discover or inventory.inventory;self.snapshot=None
+        self.attempted=False;self.lock=threading.Lock();self.discover=discover;self.snapshot=None;self._transport=None;self._default_prepare=prepare is None
     def refresh(self):
-        self.snapshot=None
-        self.snapshot=self.discover(self.root)
+        self.snapshot=None;self._transport=None
+        if self.discover is not None:
+            if self._default_prepare:raise ValueError('Default preparation requires verified local inventory. No plan requested.')
+            value=self.discover(self.root)
+        else:
+            transport=inventory.LocalTransport(self.root)
+            value=inventory.scan(self.root,transport)
+            self._transport=transport
+        self.snapshot=value
         return self.snapshot
     def validate_choice(self,project,image):
         if self.snapshot is None:raise ValueError('Refresh local inventory and explicitly select a project and image first.')
@@ -43,10 +50,22 @@ class Session:
             path=self.validate(project,image,name);chosen=self.validate_choice(project,image)
             # Re-read metadata immediately before preparation. This does not replace
             # the backend's full Compose/image/container verification.
-            if inventory.choice(self.discover(self.root),project,image)!=chosen:
-                self.snapshot=None;raise ValueError('Local selection changed. Refresh and review again. No plan requested.')
-            self.attempted=True
-        try:return backend.review.display(self.prepare(self.root,project,image,path))
+            try:
+                if self.discover is None:
+                    if not isinstance(self._transport,inventory.LocalTransport):raise ValueError('Verified local transport required.')
+                    current=inventory.scan(self.root,self._transport)
+                else:
+                    if self._default_prepare:raise ValueError('Verified local transport required.')
+                    current=self.discover(self.root)
+                if inventory.choice(current,project,image)!=chosen:raise ValueError('Local selection changed.')
+            except Exception:
+                self.snapshot=None;self._transport=None
+                raise ValueError('Local selection could not be confirmed. Refresh and review again. No plan requested.')from None
+            transport=self._transport;self.attempted=True
+        try:
+            if self._default_prepare:
+                return backend.review.display(self.prepare(self.root,project,image,path,execute=transport.execute))
+            return backend.review.display(self.prepare(self.root,project,image,path))
         except Exception:raise ValueError(FAILURE)from None
 
     def validate_existing(self,project,name):

@@ -57,4 +57,14 @@ class Tests(unittest.TestCase):
         self.assertIn('inputs.real_application_preparation',job);self.assertIn('github.event.repository.private == false',job);self.assertIn('runs-on: ubuntu-latest',job)
         self.assertIn('cache: false',job);self.assertNotIn('upload-artifact',job);self.assertIn('HEXTHINGS_REAL_PREPARATION_ONLY=1',job)
         block=text.split('      real_application_preparation:\n')[1].split('      native_update_preparation:')[0];self.assertIn('default: false',block)
+
+    def test_native_gui_callers_refresh_inventory_and_keep_actual_compose_path(self):
+        text=(HERE/'test-secure-application-provider-native.py').read_text()
+        self.assertIn('selected=path;m.state.atomic(selected,resolved)',text)
+        self.assertIn('session=gui.Session(root);session.refresh();text=session.run',text)
+        synthetic=(HERE/'test-secure-update-preparation-native.py').read_text()
+        self.assertIn('session=gui.Session(root);session.refresh();text=session.run',synthetic)
+        self.assertIn('missing=gui.Session(root);missing.refresh()',synthetic)
+        self.assertIn("'-f',str(root/'selected-runtime.json')",synthetic)
+        self.assertNotIn("selected=root/'selected-runtime.json'",text)
 if __name__=='__main__':unittest.main()

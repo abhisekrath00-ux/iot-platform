@@ -10,31 +10,46 @@ HERE=pathlib.Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('state',HERE/'secure-state.py');state=importlib.util.module_from_spec(spec);spec.loader.exec_module(state)
 ERROR='Local inventory unavailable or changed. Check local Docker access and the installed Compose project. No files or services changed.'
 IMAGE=re.compile(r'sha256:[a-f0-9]{64}')
+class LocalTransport:
+    """One verified local endpoint and private environment for a whole plan.
+
+    No endpoint is included in repr, UI results or plan receipts. The command
+    seam is also used by preparation's existing execute injection.
+    """
+    def __init__(self,root,execute=None):
+        self._execute=execute or subprocess.run;self._environment=dict(os.environ)
+        try:
+            result=self._execute(['docker','context','inspect'],cwd=pathlib.Path(root).resolve(),capture_output=True,text=True,timeout=20,env=dict(self._environment))
+            if result.returncode:raise ValueError(ERROR)
+            contexts=json.loads(result.stdout)
+            if len(contexts)!=1:raise ValueError(ERROR)
+            host=contexts[0]['Endpoints']['docker']['Host']
+            local_unix=isinstance(host,str)and host.startswith('unix:///')and len(host)>len('unix:///')and not host.startswith('unix:////')
+            local_pipe=isinstance(host,str)and re.fullmatch(r'npipe:////\./pipe/[a-zA-Z0-9_.-]+',host)is not None
+            if not (local_unix or local_pipe):raise ValueError(ERROR)
+            self._endpoint=host
+            for key in ['DOCKER_CONTEXT','DOCKER_HOST','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH']:
+                self._environment.pop(key,None)
+        except (OSError,subprocess.SubprocessError,ValueError,KeyError,TypeError,AttributeError):
+            raise ValueError(ERROR)from None
+    def execute(self,args,**kwargs):
+        if not args or args[0]!='docker' or any(x in args[1:]for x in ['--host','-H','--context','-c']):
+            raise ValueError(ERROR)
+        # This private transport owns destination/environment, never caller input.
+        kwargs['env']=dict(self._environment);kwargs.setdefault('timeout',20)
+        try:return self._execute(['docker','--host',self._endpoint,*args[1:]],**kwargs)
+        except (OSError,subprocess.SubprocessError):raise ValueError(ERROR)from None
+
 def inventory(root,execute=subprocess.run):
+    return scan(root,LocalTransport(root,execute))
+
+def scan(root,transport):
     root=pathlib.Path(root).resolve()
-    endpoint=None
-    environment=dict(os.environ)
     def call(args):
-        command=args if endpoint is None else ['docker','--host',endpoint,*args[1:]]
-        p=execute(command,cwd=root,capture_output=True,text=True,timeout=20,env=dict(environment))
+        p=transport.execute(args,cwd=root,capture_output=True,text=True)
         if p.returncode:raise ValueError(ERROR)
         return p.stdout
     try:
-        # Let the installed CLI resolve context/environment precedence. In
-        # particular, context inspect without a name uses CurrentContext and its
-        # default-context endpoint already accounts for DOCKER_HOST.
-        contexts=json.loads(call(['docker','context','inspect']))
-        if len(contexts)!=1:raise ValueError(ERROR)
-        host=contexts[0]['Endpoints']['docker']['Host']
-        local_unix=isinstance(host,str)and host.startswith('unix:///')and len(host)>len('unix:///')and not host.startswith('unix:////')
-        local_pipe=isinstance(host,str)and re.fullmatch(r'npipe:////\./pipe/[a-zA-Z0-9_.-]+',host)is not None
-        if not (local_unix or local_pipe):raise ValueError(ERROR)
-        # All later reads use this exact local endpoint, not mutable context.
-        # --host selects the default context; remove environment context/host
-        # overrides and TLS flags that are irrelevant to local socket transport.
-        endpoint=host
-        for key in ['DOCKER_CONTEXT','DOCKER_HOST','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH']:
-            environment.pop(key,None)
         selected=state.selection(root)
         config=pathlib.Path(selected['config'])if selected else root/'docker-compose.yml'
         if config.is_symlink()or not config.is_file():raise ValueError(ERROR)
