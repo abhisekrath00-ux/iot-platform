@@ -57,11 +57,13 @@ def inspect_summary(x):
     state = x.get('State', {})
     return {'Id': x.get('Id'), 'Image': x.get('Image'),
             'State': {k: state.get(k) for k in ('Status', 'Running', 'ExitCode', 'Error', 'OOMKilled', 'Pid')},
-            'HostConfig': {k: h.get(k) for k in ('Privileged', 'NetworkMode', 'CgroupMode', 'PidMode', 'Cgroups', 'SecurityOpt', 'PidsLimit', 'Memory', 'CpuPeriod', 'CpuQuota', 'LogConfig')},
+            'HostConfig': {k: h.get(k) for k in ('Privileged', 'NetworkMode', 'CgroupMode', 'PidMode', 'Cgroups', 'SecurityOpt', 'PidsLimit', 'Memory', 'CpuPeriod', 'CpuQuota')},
+            'LogConfig': {k: h.get('LogConfig', {}).get(k) for k in ('Type', 'Size')},
             'EffectiveCaps': x.get('EffectiveCaps'),
             'MountCount': len(x.get('Mounts') or []),
             'BindCount': len(h.get('Binds') or []),
-            'PortBindingCount': len(h.get('PortBindings') or {})}
+            'PortBindingCount': len(h.get('PortBindings') or {}),
+            'Tty': x.get('Config', {}).get('Tty')}
 
 
 def best_effort(kind, get_value):
@@ -74,6 +76,7 @@ def best_effort(kind, get_value):
 
 
 def validate_inspect(x):
+    assert x['Config']['Tty'] is True, 'private pseudo-TTY required for diagnostic console'
     h = x['HostConfig']
     assert h['Privileged'] is False and h['NetworkMode'] == 'none'
     # Podman4.9.3 reports CgroupMode, not Docker's CgroupnsMode.
@@ -133,7 +136,7 @@ def run(d):
     assert image_id(observed) == image, 'built image mismatch'
     state={'name':'hex-confined-probe-'+uuid.uuid4().hex,'token':uuid.uuid4().hex,'image':image,'image_identity':evidence}
     save(d,state)  # Before container creation; cleanup finds only matching random label+image.
-    args=['create','--name',state['name'],'--label','hex.confined.owner='+state['token'],
+    args=['create','--tty','--name',state['name'],'--label','hex.confined.owner='+state['token'],
           '--pull=never','--network=none','--cgroupns=private','--pid=private',
           '--systemd=always','--cap-drop=all']
     for cap in CAPS:args.append('--cap-add='+cap)

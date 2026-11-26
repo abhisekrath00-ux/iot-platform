@@ -15,7 +15,7 @@ host=importlib.util.module_from_spec(spec);spec.loader.exec_module(host)
 
 
 def valid_inspect():
-    return {'HostConfig':{'Privileged':False,'NetworkMode':'none','CgroupMode':'private','Cgroups':'default','PidMode':'private','PortBindings':{},'Binds':[], 'SecurityOpt':[], 'PidsLimit':128,'Memory':805306368,'CpuPeriod':100000,'CpuQuota':200000,'LogConfig':{'Type':'k8s-file'}}, 'Mounts':[], 'EffectiveCaps':['CAP_'+c for c in host.CAPS]}
+    return {'Config':{'Tty':True,'Labels':{}}, 'HostConfig':{'Privileged':False,'NetworkMode':'none','CgroupMode':'private','Cgroups':'default','PidMode':'private','PortBindings':{},'Binds':[], 'SecurityOpt':[], 'PidsLimit':128,'Memory':805306368,'CpuPeriod':100000,'CpuQuota':200000,'LogConfig':{'Type':'k8s-file'}}, 'Mounts':[], 'EffectiveCaps':['CAP_'+c for c in host.CAPS]}
 
 
 class Fake:
@@ -138,6 +138,8 @@ class Contracts(unittest.TestCase):
                 def call(*args,**kw):
                     if args[:2]==('image','inspect'):return iid+'\n'
                     if args[0]=='create':
+                        self.assertEqual(args.count('--tty'),1)
+                        self.assertNotIn('--privileged',args)
                         state=json.loads((d/'owner.json').read_text());f.x['Config']['Labels']['hex.confined.owner']=state['token'];return 'a'*64+'\n'
                     if args[0]=='start':return 'a'*64+'\n'
                     if args[0]=='exec':return 'fake inside PASS'
@@ -213,8 +215,25 @@ class Contracts(unittest.TestCase):
         self.assertNotIn('hidden',text);self.assertNotIn('alice:secret',text)
         self.assertEqual(len(text.splitlines()),1)
     def test_summary_excludes_unselected_private_fields(self):
-        x=valid_inspect();x.update({'Config':{'Env':['PASSWORD=hidden'],'Labels':{'owner':'hidden'}},'Args':['hidden']})
+        x=valid_inspect();x.update({'Config':{'Tty':True,'Env':['PASSWORD=hidden'],'Labels':{'owner':'hidden'}},'Args':['hidden']})
         text=str(host.inspect_summary(x));self.assertNotIn('hidden',text)
+
+    def test_required_tty_strict_boolean(self):
+        host.validate_inspect(valid_inspect())
+        for value in [False, None, 0, 1, 'true']:
+            with self.subTest(value=value):
+                x=valid_inspect();x['Config']['Tty']=value
+                with self.assertRaises(AssertionError):host.validate_inspect(x)
+        for missing in ['Tty','Config']:
+            x=valid_inspect()
+            if missing=='Tty':del x['Config']['Tty']
+            else:del x['Config']
+            with self.assertRaises(KeyError):host.validate_inspect(x)
+    def test_logconfig_allowlist_excludes_nested_paths(self):
+        x=valid_inspect();x['HostConfig']['LogConfig'].update({'Path':'DO_NOT_EMIT','Config':{'path':'DO_NOT_EMIT'},'Tag':'DO_NOT_EMIT','Size':'1M'})
+        summary=host.inspect_summary(x)
+        self.assertEqual(summary['LogConfig'],{'Type':'k8s-file','Size':'1M'})
+        self.assertNotIn('DO_NOT_EMIT',str(summary));self.assertIs(summary['Tty'],True)
 
     def test_version_grammar(self):
         import re
