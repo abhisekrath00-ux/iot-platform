@@ -29,10 +29,14 @@ def load(name):
 app=load('secure-application');state=load('secure-state');runtime=load('secure-runtime');production=load('secure-application-docker');retained=load('secure-application-reads');execution=load('secure-execution');clientmod=load('secure-application-client')
 
 def call(args,cwd=None,binary=False,input=None):
-    result=subprocess.run(list(map(str,args)),cwd=cwd,capture_output=True,text=not binary,input=input)
+    owner=load('real-application-fixture-cleanup').current() if os.environ.get('HEXTHINGS_REAL_PREPARATION_ONLY')=='1' else None
+    creating=args[:2]in (['docker','build'],['docker','run']) or (args[:2]==['docker','compose'] and 'up'in args)
+    key=owner.begin('docker-create')if owner and creating else None
+    result=subprocess.run(list(map(str,args)),cwd=cwd,capture_output=True,text=not binary,input=input,**({'timeout':180}if owner else{}))
     if result.returncode:
         detail=result.stderr.decode(errors='replace') if binary else result.stderr
         raise ValueError('Disposable application fixture command failed: '+' '.join(map(str,args[:3]))+'\n'+detail[-6000:])
+    if key:owner.complete(key)
     return result.stdout
 
 class Effects:
@@ -47,7 +51,9 @@ class Effects:
         self.db='postgres://ci:synthetic-ci-only@postgres:5432/application_fixture?sslmode=disable'
     def compose(self,path,*args,binary=False,input=None):return call(['docker','compose','-p',self.project,'-f',path,*args],self.root,binary,input)
     def operator(self,action):
-        output=call(['docker','run','--rm','--network',self.project+'_default','-e','GITHUB_ACTIONS=true','-e','TEST_DATABASE_URL='+self.db,'-e','BOOTSTRAP_TEST_MIGRATIONS=/migrations','-e','HEXTHINGS_SYNTHETIC_APP_ACTION='+action,self.testimage,'-test.run','^TestSyntheticApplicationFixtureOperator$','-test.v'])
+        owner=load('real-application-fixture-cleanup').current()
+        owned_args=[] if owner is None else ['--name',owner.operator(self.project),'--label','hexthings.preparation.owner='+owner.data['token']]
+        output=call(['docker','run','--rm',*owned_args,'--network',self.project+'_default','-e','GITHUB_ACTIONS=true','-e','TEST_DATABASE_URL='+self.db,'-e','BOOTSTRAP_TEST_MIGRATIONS=/migrations','-e','HEXTHINGS_SYNTHETIC_APP_ACTION='+action,self.testimage,'-test.run','^TestSyntheticApplicationFixtureOperator$','-test.v'])
         if action=='inspect':
             lines=[line[len('HEXTHINGS_SCHEMA='):]for line in output.splitlines()if line.startswith('HEXTHINGS_SCHEMA=')]
             if len(lines)!=1:raise ValueError('No exact synthetic schema result')
@@ -166,7 +172,7 @@ class Effects:
             self.compose(path,'exec','-T','postgres','psql','-U','ci','-d','application_fixture','-v','ON_ERROR_STOP=1','-c','CREATE TABLE IF NOT EXISTS post_backup_retention(id integer PRIMARY KEY);INSERT INTO post_backup_retention VALUES(1) ON CONFLICT DO NOTHING')
             if self.fail:raise ValueError('Forced post-candidate-acceptance application rollback')
 
-def main():
+def fixture_main():
     global FIXTURE_JWT
     preparation_only=os.environ.get('HEXTHINGS_REAL_PREPARATION_ONLY')=='1'
     generation_only=os.environ.get('HEXTHINGS_SELECTED_GENERATION_ONLY')=='1'
@@ -175,6 +181,9 @@ def main():
     if os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_OS')!='Linux' or os.geteuid()!=0:raise SystemExit('Disposable standard Ubuntu runner only')
     with tempfile.TemporaryDirectory(prefix='hexthings-application-ci-')as td:
         work=pathlib.Path(td);project='hexthings-app-ci-'+str(os.getpid());oldimage=project+':old';newimage=project+':new';testimage=project+':operator'
+        owner=load('real-application-fixture-cleanup').current() if preparation_only else None
+        if owner:
+            owner.register_project(project);owner.register_images([oldimage,newimage,testimage])
         if preparation_only:
             # Preparation is read-only against the current real image. Historical
             # source/build compatibility belongs to later updater acceptance.
@@ -191,18 +200,18 @@ def main():
             for binary in (['api','ingest','mcp','tenantctl'] if label=='old' else ['api','ingest','mcp','tenantctl','setupctl']):
                 subprocess.run(['go','build','-o',str(context/binary),'./cmd/'+binary],cwd=source,env=dict(os.environ,CGO_ENABLED='0',GOTOOLCHAIN='auto'),check=True)
             (context/'Dockerfile').write_text('FROM alpine:3.20\nCOPY '+('api ingest mcp tenantctl' if label=='old' else 'api ingest mcp tenantctl setupctl')+' /bin/\nCOPY migrations /migrations\nWORKDIR /\n')
-            call(['docker','build','-t',oldimage if label=='old' else newimage,context])
+            call(['docker','build',*(['--label','hexthings.preparation.owner='+owner.data['token']]if owner else[]),'-t',oldimage if label=='old' else newimage,context])
         if preparation_only:
             # A distinct configuration digest is required by the production
             # planner. Reuse the exact current layers; label is fixture-only.
             variant=work/'label-variant';variant.mkdir()
             (variant/'Dockerfile').write_text('FROM '+newimage+'\nLABEL hexthings.fixture.preparation=running-current\n')
-            call(['docker','build','-t',oldimage,variant])
+            call(['docker','build',*(['--label','hexthings.preparation.owner='+owner.data['token']]if owner else[]),'-t',oldimage,variant])
             metadata=[json.loads(call(['docker','image','inspect',tag]))[0]for tag in [oldimage,newimage]]
             if metadata[0]['Id']==metadata[1]['Id']or metadata[0]['RootFS']!=metadata[1]['RootFS']:
                 raise ValueError('Preparation fixture requires distinct IDs with identical current binary layers.')
         subprocess.run(['go','test','-c','-o',str(work/'bootstrap-tests'),'./internal/setupbootstrap'],cwd=ROOT/'server',env=dict(os.environ,CGO_ENABLED='0',GOTOOLCHAIN='auto'),check=True)
-        shutil.copytree(ROOT/'server/migrations',work/'migrations');(work/'Dockerfile').write_text('FROM alpine:3.20\nCOPY bootstrap-tests /bootstrap-tests\nCOPY migrations /migrations\nWORKDIR /\nENTRYPOINT ["/bootstrap-tests"]\n');call(['docker','build','-t',testimage,work])
+        shutil.copytree(ROOT/'server/migrations',work/'migrations');(work/'Dockerfile').write_text('FROM alpine:3.20\nCOPY bootstrap-tests /bootstrap-tests\nCOPY migrations /migrations\nWORKDIR /\nENTRYPOINT ["/bootstrap-tests"]\n');call(['docker','build',*(['--label','hexthings.preparation.owner='+owner.data['token']]if owner else[]),'-t',testimage,work])
         db='postgres://ci:synthetic-ci-only@postgres:5432/application_fixture?sslmode=disable'
         base={'services':{
          'postgres':{'image':'postgres:16-alpine','environment':{'POSTGRES_USER':'ci','POSTGRES_PASSWORD':'synthetic-ci-only','POSTGRES_DB':'application_fixture'},'healthcheck':{'test':['CMD-SHELL','pg_isready -U ci'],'interval':'1s','timeout':'2s','retries':30}},
@@ -210,6 +219,7 @@ def main():
          'web':{'image':'nginx:1.27-alpine'}}}
         for name in ['api','ingest','mcp']:base['services'][name]={'image':oldimage,'command':['/bin/'+name],'environment':{'DATABASE_URL':db,'JWT_SIGNING_SECRET':FIXTURE_JWT,'MQTT_TLS':'false','MQTT_HOST':'mosquitto','MQTT_PORT':'1883'},'depends_on':{'postgres':{'condition':'service_healthy'}}}
         base['services']['api']['ports']=[{'target':8000,'published':'18101','host_ip':'127.0.0.1'}]
+        if owner:owner.decorate(base,project)
         basepath=work/'docker-compose.yml';basepath.write_text(json.dumps(base));basepath.chmod(0o600)
         compose=['docker','compose','-p',project,'-f',str(basepath)]
         try:
@@ -358,9 +368,24 @@ def main():
             print('PASS production Docker adapter and setupctl: real disposable interrupted coordinator after committed reviewed SQL before acknowledgement blocked normal selection; separate recovery inspected actual schema, checked old-API compatibility and restored exact prior writers without replaying the DB archive. Simulated process loss, not physical power loss.',flush=True)
 
         finally:
-            result=subprocess.run(compose+['logs','--no-color','--tail','25'],capture_output=True,text=True)
-            if result.returncode:print('Synthetic application logs unavailable')
-            subprocess.run(compose+['down','--volumes','--remove-orphans'],check=False)
-            for image in set([oldimage,newimage,testimage]):subprocess.run(['docker','image','rm',image],check=False)
+            if owner:
+                load('real-application-fixture-cleanup').diagnostics(owner,compose+['logs','--no-color','--tail','25'])
+            else:
+                result=subprocess.run(compose+['logs','--no-color','--tail','25'],capture_output=True,text=True)
+                if result.returncode:print('Synthetic application logs unavailable')
+                subprocess.run(compose+['down','--volumes','--remove-orphans'],check=False)
+                for image in set([oldimage,newimage,testimage]):subprocess.run(['docker','image','rm',image],check=False)
+
+def main():
+    # Entire setup, including builds and temporary-directory creation, is covered.
+    prep=os.environ.get('HEXTHINGS_REAL_PREPARATION_ONLY')=='1'
+    if not prep:return fixture_main()
+    if os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_OS')!='Linux' or os.geteuid()!=0:raise SystemExit('Disposable standard Ubuntu runner only')
+    cleanup=load('real-application-fixture-cleanup')
+    path=os.environ.get('HEXTHINGS_CLEANUP_MANIFEST')
+    if not path:raise ValueError('Private cleanup ledger required before setup')
+    owner=cleanup.Owner.create(path)
+    try:return fixture_main()
+    finally:owner=cleanup.Owner(path);owner.cleanup()
 
 if __name__=='__main__':main()

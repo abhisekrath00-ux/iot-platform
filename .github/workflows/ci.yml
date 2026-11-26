@@ -374,9 +374,15 @@ jobs:
           check-latest: true
           cache: false
       - name: Real application preparation route contracts
-        run: python3 scripts/test-real-application-preparation-route.py
+        run: |
+          python3 scripts/test-real-application-preparation-route.py
+          python3 scripts/test-real-application-fixture-cleanup.py
       - name: Real application GUI backend preparation only, disposable fixture
-        run: sudo env PATH="$PATH" GITHUB_ACTIONS=true RUNNER_OS=Linux HEXTHINGS_REAL_PREPARATION_ONLY=1 python3 scripts/test-secure-application-native.py
+        run: sudo env PATH="$PATH" GITHUB_ACTIONS=true RUNNER_OS=Linux HEXTHINGS_CLEANUP_MANIFEST="$RUNNER_TEMP/hexthings-real-preparation-cleanup.json" HEXTHINGS_REAL_PREPARATION_ONLY=1 python3 scripts/test-secure-application-native.py
+      - name: Verify exact owned preparation fixture cleanup
+        if: always()
+        timeout-minutes: 3
+        run: sudo python3 scripts/real-application-fixture-cleanup.py "$RUNNER_TEMP/hexthings-real-preparation-cleanup.json"
 
   selected-application-generation:
     if: github.event_name == 'workflow_dispatch' && inputs.selected_application_generation && github.event.repository.private == false

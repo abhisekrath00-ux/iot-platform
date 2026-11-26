@@ -53,8 +53,16 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
     with tempfile.TemporaryDirectory(prefix='hexthings-application-ci-provider-')as td:
         root=pathlib.Path(td);path=root/'docker-compose.yml';base=json.loads(basepath.read_text())
         base['services']['api']['ports'][0]['published']='18103';path.write_text(json.dumps(base));path.chmod(0o600)
+        owner=fixture.load('real-application-fixture-cleanup').current() if preparation_only else None
+        if owner:
+            owner.register_project(project);owner.decorate(base,project)
+            path.write_text(json.dumps(base));path.chmod(0o600)
         compose=['docker','compose','-p',project,'-f',str(path)]
-        def call(args,check=True):return subprocess.run(list(map(str,args)),cwd=root,capture_output=True,text=True,timeout=180,check=check)
+        def call(args,check=True):
+            key=owner.begin('provider-up')if owner and args[:2]==['docker','compose']and 'up'in args else None
+            result=subprocess.run(list(map(str,args)),cwd=root,capture_output=True,text=True,timeout=180,check=check)
+            if key and result.returncode==0:owner.complete(key)
+            return result
         def inspect(cid):return json.loads(call(['docker','inspect',cid]).stdout)[0]
         commands=[];trace_commands=[False]
         started=time.monotonic();last_report=[started]
@@ -307,5 +315,7 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
             print('PASS actual concrete Linux host provider through real Coordinator: exact immutable PG catalog/volume/HBA; original89 to additive93 using static candidate local socket operator; all API/ingest/MCP dynamic endpoints gated and exact SCRAM admitted with fresh outside-IP denial; forced actual candidate failure -> dedicated previous-image compatibility group -> exact previous restoration; post-backup row retained; real committed journal followed by lost original-HBA-release acknowledgement; fresh settled recovery performs no apply-reviewed replay; direct final Cmd/PID1/images/health with no gate manager and original HBA; private admission removed only last. Synthetic fixture scope/limited authenticated retained lists only, limited profile-create and HTTP telemetry write/read/retry/role/tenant proof, not full background compatibility, owner activation or physical reading.',flush=True)
         finally:
             watchdog_stop.set();watchdog_thread.join(timeout=2)
-            result=call(compose+['logs','--no-color','--tail','20'],False);print(result.stdout[-6000:],flush=True)
-            call(compose+['down','--volumes','--remove-orphans'],False)
+            if owner:fixture.load('real-application-fixture-cleanup').diagnostics(owner,compose+['logs','--no-color','--tail','20'])
+            else:
+                result=call(compose+['logs','--no-color','--tail','20'],False);print(result.stdout[-6000:],flush=True)
+                call(compose+['down','--volumes','--remove-orphans'],False)

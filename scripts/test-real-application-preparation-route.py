@@ -8,12 +8,12 @@ class Tests(unittest.TestCase):
         r=subprocess.run([sys.executable,str(HERE/'test-secure-application-native.py')],env=env,capture_output=True,text=True,timeout=10)
         self.assertNotEqual(r.returncode,0);self.assertIn('Disposable standard Ubuntu runner only',r.stderr)
     def test_preparation_branch_returns_before_mutation_proofs(self):
-        tree=ast.parse((HERE/'test-secure-application-native.py').read_text());main=next(n for n in tree.body if isinstance(n,ast.FunctionDef)and n.name=='main')
+        tree=ast.parse((HERE/'test-secure-application-native.py').read_text());main=next(n for n in tree.body if isinstance(n,ast.FunctionDef)and n.name=='fixture_main')
         branch=next(n for n in ast.walk(main)if isinstance(n,ast.If)and isinstance(n.test,ast.Name)and n.test.id=='preparation_only'and isinstance(n.body[-1],ast.Return))
         self.assertIsInstance(branch.body[-1],ast.Return)
         call=branch.body[0].value;self.assertEqual(call.func.attr,'prove');self.assertTrue(any(k.arg=='preparation_only'and k.value.value is True for k in call.keywords))
     def test_preparation_build_is_current_only_no_historical_fetch(self):
-        tree=ast.parse((HERE/'test-secure-application-native.py').read_text());main=next(n for n in tree.body if isinstance(n,ast.FunctionDef)and n.name=='main')
+        tree=ast.parse((HERE/'test-secure-application-native.py').read_text());main=next(n for n in tree.body if isinstance(n,ast.FunctionDef)and n.name=='fixture_main')
         branch=next(n for n in ast.walk(main)if isinstance(n,ast.If)and isinstance(n.test,ast.Name)and n.test.id=='preparation_only'and n.orelse)
         text=ast.unparse(ast.Module(body=branch.body,type_ignores=[]))
         self.assertIn("sources = [('new', ROOT / 'server')]",text);self.assertNotIn('oldimage = newimage',text)
