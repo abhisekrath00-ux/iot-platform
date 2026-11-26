@@ -154,6 +154,12 @@ func main() {
 		log.Printf("google workspace connection enabled")
 	}
 	mux := http.NewServeMux()
+	// Candidate recovery remains off. No environment activation or schema mutation.
+	candidateClose, err := registerCandidateEnrollment(ctx, mux, enroll.CandidateServiceConfig{})
+	if err != nil {
+		log.Fatalf("candidate enrollment: %v", err)
+	}
+	defer candidateClose()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Pool.Ping(r.Context()); err != nil {
 			http.Error(w, "db down", http.StatusServiceUnavailable)
