@@ -1,13 +1,15 @@
 FROM docker.io/library/ubuntu@sha256:9a04f13b3f80ef056361e30868593b1cfd2279fe19e4081cb93a90bf56819d6a
 # Official noble-20261110.1 amd64, fetched public OCI manifest in provenance.json.
 # Frozen Ubuntu archive date, signed apt metadata. All fetch/build before probe.
+# Bootstrap only from distribution CA roots supplied by the GitHub Ubuntu runner.
+COPY bootstrap-ca.crt /tmp/bootstrap-ca.crt
 RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod 755 /usr/sbin/policy-rc.d \
- && apt-get update --snapshot 20261125T000000Z \
- && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y --snapshot 20261125T000000Z systemd systemd-sysv dbus iproute2 python3 util-linux \
+ && apt-get -o Acquire::https::CAInfo=/tmp/bootstrap-ca.crt update --snapshot 20261125T000000Z \
+ && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::https::CAInfo=/tmp/bootstrap-ca.crt install --no-install-recommends -y --snapshot 20261125T000000Z ca-certificates systemd systemd-sysv dbus iproute2 python3 util-linux \
  && dpkg-query -W > /image-packages.txt \
  && systemd --version > /image-systemd-version.txt \
  && python3 -c 'import pathlib,re; v=pathlib.Path("/image-systemd-version.txt").read_text().splitlines()[0]; assert re.fullmatch(r"systemd 255(?:\.[0-9]+)*(?: \([^\r\n]+\))?",v),v' \
- && rm -rf /var/lib/apt/lists/* /usr/sbin/policy-rc.d \
+ && rm -rf /var/lib/apt/lists/* /usr/sbin/policy-rc.d /tmp/bootstrap-ca.crt \
  && mkdir -p /etc/hexmon /var/lib/hexmon-edge /home/probe-visible \
  && chmod 777 /etc/hexmon /var/lib/hexmon-edge \
  && printf 'visible only outside protected service\n' > /home/probe-visible/sentinel \

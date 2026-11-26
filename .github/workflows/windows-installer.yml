@@ -225,6 +225,11 @@ jobs:
         timeout-minutes: 7
         run: |
           test "$(podman --version)" = 'podman version 4.9.3'
+          # Distribution roots only, not locally-added runner certificates.
+          dpkg-query -W ca-certificates
+          test -s /usr/share/ca-certificates/mozilla/ISRG_Root_X1.crt
+          cat /usr/share/ca-certificates/mozilla/*.crt > scripts/confined-systemd-probe/bootstrap-ca.crt
+          sha256sum scripts/confined-systemd-probe/bootstrap-ca.crt
           sudo timeout --signal=TERM --kill-after=10 90 podman pull docker.io/library/ubuntu@sha256:9a04f13b3f80ef056361e30868593b1cfd2279fe19e4081cb93a90bf56819d6a
           sudo timeout --signal=TERM --kill-after=10 300 podman build --pull=never --iidfile "$RUNNER_TEMP/confined-image.id" scripts/confined-systemd-probe
       - name: Reserve exact owner evidence
