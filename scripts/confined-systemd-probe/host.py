@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path
 import subprocess
+import sys
 import time
 import uuid
 
@@ -40,6 +41,36 @@ def container_id(value):
 
 def audit_ids(kind, **values):
     print(json.dumps({'identity_check': kind, **values}), flush=True)
+
+
+def diagnostic(kind, value):
+    # One JSON line cannot create runner commands or terminal control sequences.
+    text = str(value)
+    text = re.sub(r'(?i)(authorization|password|passwd|secret|token|api[_-]?key)([\s:=]+)[^\s,;]+', r'\1\2[redacted]', text)
+    text = re.sub(r'(?i)(https?://)[^/@\s]+:[^/@\s]+@', r'\1[redacted]@', text)
+    print(json.dumps({'diagnostic': kind, 'text': text[:8192], 'truncated': len(text) > 8192}, ensure_ascii=True), flush=True)
+
+
+def inspect_summary(x):
+    # Deliberately omit environment, labels, host paths, command and config.
+    h = x.get('HostConfig', {})
+    state = x.get('State', {})
+    return {'Id': x.get('Id'), 'Image': x.get('Image'),
+            'State': {k: state.get(k) for k in ('Status', 'Running', 'ExitCode', 'Error', 'OOMKilled', 'Pid')},
+            'HostConfig': {k: h.get(k) for k in ('Privileged', 'NetworkMode', 'CgroupMode', 'PidMode', 'Cgroups', 'SecurityOpt', 'PidsLimit', 'Memory', 'CpuPeriod', 'CpuQuota', 'LogConfig')},
+            'EffectiveCaps': x.get('EffectiveCaps'),
+            'MountCount': len(x.get('Mounts') or []),
+            'BindCount': len(h.get('Binds') or []),
+            'PortBindingCount': len(h.get('PortBindings') or {})}
+
+
+def best_effort(kind, get_value):
+    try:
+        diagnostic(kind, get_value())
+    except Exception as e:
+        # Error class only: a diagnostic failure must not mask the probe error.
+        try: diagnostic(kind + '-unavailable', type(e).__name__)
+        except Exception: pass
 
 
 def validate_inspect(x):
@@ -109,17 +140,24 @@ def run(d):
     args += ['--pids-limit=128','--memory=768m','--cpus=2','--log-driver=k8s-file',
              '--log-opt=max-size=1048576','--env','PROBE_HOST_NETNS='+os.readlink('/proc/self/ns/net'),
              '--env','PROBE_HOST_CGROUPNS='+os.readlink('/proc/self/ns/cgroup'),image]
+    readiness = None
     try:
         state['id']=container_id(call(*args).removesuffix('\n'));save(d,state)
         x=inspect_owned(state)
         (d/'inspect-before-start.json').write_text(json.dumps(x, indent=2))
+        best_effort('inspect-before-start', lambda: inspect_summary(x))
         validate_inspect(x)
         save(d,{**state,'inspect_before_start':x})
         call('start',state['id'])
         # Readiness check only, no host systemctl.
         deadline=time.monotonic()+30
         while True:
-            p=subprocess.run(['podman','exec',state['id'],'systemctl','show','--property=Version'],capture_output=True,text=True,timeout=5)
+            try:
+                p=subprocess.run(['podman','exec',state['id'],'systemctl','show','--property=Version'],capture_output=True,text=True,timeout=5)
+            except subprocess.TimeoutExpired as e:
+                readiness = {'error': 'TimeoutExpired', 'stdout': e.stdout, 'stderr': e.stderr}
+                raise
+            readiness = {'returncode': p.returncode, 'stdout': p.stdout, 'stderr': p.stderr}
             if p.returncode==0:break
             if time.monotonic()>deadline:raise RuntimeError('container systemd unavailable')
             time.sleep(.2)
@@ -127,12 +165,29 @@ def run(d):
         (d/'probe.log').write_text(output)
         state['result']='passed';save(d,state)
     except BaseException as e:
-        state['result']='failed';state['error']=type(e).__name__;save(d,state)
+        best_effort('failed-readiness', lambda: readiness)
+        state['result']='failed';state['error']=type(e).__name__
+        try: save(d,state)
+        except Exception: pass
         raise
     finally:
-        # Bounded logs even after readiness/probe failure; always-step repeats cleanup.
-        try:(d/'container.log').write_text(call('logs','--tail','100',state['name'])[-65536:])
-        finally:cleanup(d)
+        primary_error = sys.exc_info()[1]
+        # Emit before exact cleanup destroys the evidence. Each read is bounded.
+        if primary_error is not None:
+            best_effort('inspect-after-failure', lambda: inspect_summary(inspect_owned(state) or {}))
+        def container_logs():
+            output = call('logs','--tail','100',state['name'])[-65536:]
+            try: (d/'container.log').write_text(output)
+            except Exception: pass
+            return output
+        best_effort('container-logs', container_logs)
+        try:
+            cleanup(d)
+        except BaseException as cleanup_error:
+            best_effort('cleanup-failed', lambda: type(cleanup_error).__name__)
+            if primary_error is None: raise
+            # The independent workflow cleanup remains required on this path.
+
 
 
 if __name__=='__main__':

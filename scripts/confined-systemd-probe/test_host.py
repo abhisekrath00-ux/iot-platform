@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Local fake-Podman contract tests. No process/container/service effects."""
 import importlib.util
+import io
+from contextlib import redirect_stdout
 import json
 from pathlib import Path
 import subprocess
@@ -146,6 +148,74 @@ class Contracts(unittest.TestCase):
                 with patch.dict(host.os.environ,{'PROBE_IMAGE_ID_FILE':str(p)}),patch.object(host,'call',call),patch.object(host.subprocess,'run',run_command):host.run(d)
                 state=json.loads((d/'owner.json').read_text());self.assertEqual(state['result'],'passed');self.assertEqual(state['cleanup'],'exact container absent');self.assertIsNone(f.x)
                 self.assertTrue((d/'image-identity.json').exists());self.assertTrue((d/'inspect-before-start.json').exists())
+    def failure_fixture(self, d, logs_fail=False, cleanup_fail=False, output_fail=False, exec_timeout=False):
+        image='sha256:'+'1'*64;p=d/'iid';p.write_text(image)
+        f=Fake({'image':image,'token':'unused'});f.x.update(valid_inspect());base=f.call
+        events=[]
+        def call(*args,**kw):
+            events.append(args[0])
+            if args[:2]==('image','inspect'):return '1'*64+'\n'
+            if args[0]=='create':
+                state=json.loads((d/'owner.json').read_text());f.x['Config']['Labels']['hex.confined.owner']=state['token'];return 'a'*64
+            if args[0]=='start':return ''
+            if args[0]=='logs':
+                if logs_fail:raise RuntimeError('log reader failed')
+                return 'init failure password=not-for-output\n::error::not-a-runner-command\x1b[31m'
+            return base(*args,**kw)
+        def run_command(args,**kw):
+            if args[:2]==['podman','exec']:
+                if exec_timeout:raise subprocess.TimeoutExpired(args,5,output=b'timed-out-stdout',stderr=b'timed-out-stderr')
+                return subprocess.CompletedProcess(args,1,'failed-version-output','Failed to connect to bus')
+            return f.run(args,**kw)
+        real_cleanup=host.cleanup
+        def cleanup(d):
+            events.append('cleanup')
+            if cleanup_fail:raise RuntimeError('cleanup synthetic failure')
+            return real_cleanup(d)
+        expected_error = subprocess.TimeoutExpired if exec_timeout else RuntimeError
+        expected_message = 'timed out' if exec_timeout else 'container systemd unavailable'
+        output=io.StringIO()
+        with patch.dict(host.os.environ,{'PROBE_IMAGE_ID_FILE':str(p)}),patch.object(host,'call',call),patch.object(host.subprocess,'run',run_command),patch.object(host.time,'monotonic',side_effect=[0,31]),patch.object(host,'cleanup',cleanup),redirect_stdout(output):
+            if output_fail:
+                with patch.object(host,'diagnostic',side_effect=OSError('output failed')):
+                    with self.assertRaisesRegex(expected_error,expected_message):host.run(d)
+            else:
+                with self.assertRaisesRegex(expected_error,expected_message):host.run(d)
+        return output.getvalue(),events,f
+    def test_failed_readiness_diagnostics_before_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            text,events,f=self.failure_fixture(Path(directory))
+            self.assertIn('failed-readiness',text);self.assertIn('failed-version-output',text)
+            self.assertIn('Failed to connect to bus',text);self.assertIn('inspect-before-start',text)
+            self.assertIn('inspect-after-failure',text);self.assertIn('container-logs',text)
+            self.assertLess(events.index('logs'),events.index('cleanup'));self.assertIsNone(f.x)
+            self.assertLess(text.index('container-logs'),text.index('Exact labeled container'))
+            self.assertNotIn('not-for-output',text);self.assertNotIn('\n::error::',text)
+            self.assertNotIn('hex.confined.owner',text);self.assertNotIn('exact-random-owner',text)
+    def test_diagnostics_failure_still_cleans_and_preserves_error(self):
+        for options in [{'logs_fail':True},{'output_fail':True},{'logs_fail':True,'cleanup_fail':True}]:
+            with self.subTest(options=options),tempfile.TemporaryDirectory() as directory:
+                text,events,f=self.failure_fixture(Path(directory),**options)
+                self.assertIn('cleanup',events)
+                if not options.get('cleanup_fail'):self.assertIsNone(f.x)
+                else:self.assertIsNotNone(f.x);self.assertIn('cleanup-failed',text)
+    def test_readiness_exec_timeout_captured_before_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            text,events,f=self.failure_fixture(Path(directory),exec_timeout=True)
+            self.assertIn('timed-out-stdout',text);self.assertIn('timed-out-stderr',text)
+            self.assertIn('TimeoutExpired',text);self.assertIsNone(f.x)
+            self.assertLess(events.index('logs'),events.index('cleanup'))
+    def test_diagnostics_are_bounded_sanitized_json_lines(self):
+        output=io.StringIO()
+        with redirect_stdout(output):host.diagnostic('bounded','password=hidden https://alice:secret@example.test '+('x'*20000)+'\n::error::fake\x1b')
+        text=output.getvalue();data=json.loads(text)
+        self.assertTrue(data['truncated']);self.assertEqual(len(data['text']),8192)
+        self.assertNotIn('hidden',text);self.assertNotIn('alice:secret',text)
+        self.assertEqual(len(text.splitlines()),1)
+    def test_summary_excludes_unselected_private_fields(self):
+        x=valid_inspect();x.update({'Config':{'Env':['PASSWORD=hidden'],'Labels':{'owner':'hidden'}},'Args':['hidden']})
+        text=str(host.inspect_summary(x));self.assertNotIn('hidden',text)
+
     def test_version_grammar(self):
         import re
         pattern=r'systemd 255(?:\.[0-9]+)*(?: \([^\r\n]+\))?'
