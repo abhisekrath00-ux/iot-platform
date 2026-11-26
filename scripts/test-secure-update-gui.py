@@ -33,4 +33,40 @@ class Tests(unittest.TestCase):
             session=m.Session(root,lambda*a:m.backend.review.inspect(root,'fixture',receipt))
             text=session.run('fixture',IMAGE,'new');self.assertIn('NOT approval',text);self.assertNotIn(str(root),text)
             with self.assertRaises(ValueError):session.run('fixture',IMAGE,'another')
+
+    def test_restarted_session_reads_existing_plan_without_prepare_or_writes(self):
+        with tempfile.TemporaryDirectory()as td:
+            spec=importlib.util.spec_from_file_location('fixture',pathlib.Path(__file__).with_name('test-secure-application-docker.py'));f=importlib.util.module_from_spec(spec);spec.loader.exec_module(f)
+            root=pathlib.Path(td);f.Tests().plan(root)
+            before={str(p):p.read_bytes()for p in root.rglob('*')if p.is_file()}
+            session=m.Session(root,lambda*a:self.fail('Review must not prepare'))
+            for _ in range(2):
+                text=session.review_existing('fixture','plan')
+                self.assertIn('NOT approval',text);self.assertIn('NOT verified',text);self.assertNotIn('synthetic',text);self.assertNotIn(td,text)
+            self.assertEqual(before,{str(p):p.read_bytes()for p in root.rglob('*')if p.is_file()})
+            with self.assertRaises(ValueError):session.run('fixture',IMAGE,'replacement')
+    def test_partial_restart_preserves_private_diagnostics_and_latches_no_retry(self):
+        with tempfile.TemporaryDirectory()as td:
+            root=pathlib.Path(td);plan=root/'partial';plan.mkdir(mode=0o700);evidence=plan/'candidate-runtime.json';evidence.write_text('secret-partial-detail');evidence.chmod(0o600)
+            session=m.Session(root,lambda*a:self.fail('Partial plan must not prepare'))
+            with self.assertRaises(ValueError)as failure:session.review_existing('fixture','partial')
+            self.assertNotIn('secret-partial-detail',str(failure.exception));self.assertIn('incomplete',str(failure.exception));self.assertEqual(evidence.read_text(),'secret-partial-detail')
+            self.assertEqual(list(plan.iterdir()),[evidence]);self.assertTrue(session.attempted)
+            with self.assertRaises(ValueError):session.run('fixture',IMAGE,'replacement')
+    def test_existing_review_rejects_path_escape_symlink_and_nonprivate_folder(self):
+        with tempfile.TemporaryDirectory()as td:
+            root=pathlib.Path(td);(root/'plan').mkdir(mode=0o700);(root/'link').symlink_to(root/'plan');(root/'public').mkdir(mode=0o755)
+            for project,name in [('Fixture','plan'),('fixture','../plan'),('fixture','/plan'),('fixture','link'),('fixture','missing'),('fixture','public')]:
+                session=m.Session(root,lambda*a:self.fail())
+                with self.assertRaises(ValueError):session.review_existing(project,name)
+                self.assertFalse(session.attempted)
+
+    def test_explicit_review_refresh_detects_changed_plan_without_leaking_bytes(self):
+        with tempfile.TemporaryDirectory()as td:
+            spec=importlib.util.spec_from_file_location('fixture',pathlib.Path(__file__).with_name('test-secure-application-docker.py'));f=importlib.util.module_from_spec(spec);spec.loader.exec_module(f)
+            root=pathlib.Path(td);receipt,_,candidate=f.Tests().plan(root)
+            session=m.Session(root,lambda*a:self.fail());session.review_existing('fixture','plan')
+            candidate.write_text('secret-modified-plan')
+            with self.assertRaises(ValueError)as failure:session.review_existing('fixture','plan')
+            self.assertNotIn('secret-modified-plan',str(failure.exception));self.assertEqual(candidate.read_text(),'secret-modified-plan')
 if __name__=='__main__':unittest.main()
