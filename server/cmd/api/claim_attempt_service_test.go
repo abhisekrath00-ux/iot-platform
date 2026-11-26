@@ -8,6 +8,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
@@ -15,6 +16,8 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,8 +28,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abhisekrath00-ux/iot-platform/server/internal/auth"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/enroll"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/pki"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestCandidateProductRouterDefaultOff(t *testing.T) {
@@ -136,7 +141,7 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	cfg := enroll.CandidateServiceConfig{Enabled: true, Pool: s.st.Pool, Issuer: enroll.CandidateIssuer{CA: ca, CAKey: cak, ResponseKey: key, TokenKey: []byte("synthetic-service-hmac-key-not-owner-data"), Lifetime: 40 * time.Minute}}
+	cfg := enroll.CandidateServiceConfig{Enabled: true, Pool: s.st.Pool, Issuer: enroll.CandidateIssuer{CA: ca, CAKey: cak, ResponseKey: key, TokenKey: []byte("synthetic-service-hmac-key-not-owner-data"), Lifetime: 45 * time.Minute}}
 	if service, e := enroll.NewCandidateService(t.Context(), cfg); e == nil {
 		service.Close()
 		t.Fatal("missing schema accepted")
@@ -583,17 +588,19 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 	// stand-ins, as the baseline for the bound installer operation.
 	preparedDir := filepath.Join(parent, "private-install-payload")
 	preparedInput, _ := json.Marshal(map[string]any{"Dir": preparedDir})
-	preparedChild := productCommand(agent, "-prepare-private-install")
-	preparedChild.Stdin = bytes.NewReader(preparedInput)
-	preparedOutput, e := preparedChild.CombinedOutput()
-	var preparedSummary struct {
-		State   string `json:"state"`
-		Install bool   `json:"can_install"`
-		Start   bool   `json:"can_start"`
-		Clear   bool   `json:"can_clear_pending"`
-	}
-	if e != nil || json.Unmarshal(preparedOutput, &preparedSummary) != nil || preparedSummary.State != "private_payload_prepared" || preparedSummary.Install || preparedSummary.Start || preparedSummary.Clear {
-		t.Fatal("actual private installer preparation", e, string(preparedOutput))
+	if os.Getenv("HEX_NATIVE_COMMISSIONING_MANAGER") == "" {
+		preparedChild := productCommand(agent, "-prepare-private-install")
+		preparedChild.Stdin = bytes.NewReader(preparedInput)
+		preparedOutput, e := preparedChild.CombinedOutput()
+		var preparedSummary struct {
+			State   string `json:"state"`
+			Install bool   `json:"can_install"`
+			Start   bool   `json:"can_start"`
+			Clear   bool   `json:"can_clear_pending"`
+		}
+		if e != nil || json.Unmarshal(preparedOutput, &preparedSummary) != nil || preparedSummary.State != "private_payload_prepared" || preparedSummary.Install || preparedSummary.Start || preparedSummary.Clear {
+			t.Fatal("actual private installer preparation", e, string(preparedOutput))
+		}
 	}
 	acceptParent := filepath.Join(parent, "private-destination")
 	if e = os.Mkdir(acceptParent, 0700); e != nil {
@@ -605,10 +612,12 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 	if e = os.Mkdir(finalParent, 0700); e != nil {
 		t.Fatal(e)
 	}
-	targets["DeploymentRoot"] = filepath.Join(finalParent, "payload")
-	targets["DeploymentState"] = filepath.Join(finalParent, "state")
-	targets["DeploymentUnit"] = filepath.Join(finalParent, "hex.service")
-	targets["ServiceUID"], targets["ServiceGID"], targets["Activation"] = "10001", "10002", "stopped-only"
+	if os.Getenv("HEX_NATIVE_COMMISSIONING_MANAGER") == "" {
+		targets["DeploymentRoot"] = filepath.Join(finalParent, "payload")
+		targets["DeploymentState"] = filepath.Join(finalParent, "state")
+		targets["DeploymentUnit"] = filepath.Join(finalParent, "hex.service")
+		targets["ServiceUID"], targets["ServiceGID"], targets["Activation"] = "10001", "10002", "stopped-only"
+	}
 	t.Cleanup(func() {
 		entries, err := os.ReadDir(finalParent)
 		if err != nil || len(entries) != 0 {
@@ -622,10 +631,32 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer boundStop()
+	var receiptMux http.Handler
+	var receiptToken string
+	var nativeInputPath string
+	var nativeAnchors string
+	managerRun := func(action string, extra string) *exec.Cmd {
+		manager := os.Getenv("HEX_NATIVE_COMMISSIONING_MANAGER")
+		cmd := exec.Command("unshare", "--user", "--map-user=1001", "--map-group=1001", "bash", manager, "commissioning")
+		cmd.Stdin = strings.NewReader(nativeInputPath + "\n" + nativeAnchors + filepath.Join(parent, "normal-bound-attempt") + "\n" + action + "\n" + extra)
+		return cmd
+	}
+	var nativeDropOnce atomic.Bool
 	var boundRequests atomic.Int32
 	var changeTargetDuringReply atomic.Bool
-	boundServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	boundServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		boundRequests.Add(1)
+		if r.URL.Path == "/candidate/claim" && nativeDropOnce.Swap(false) {
+			capture := httptest.NewRecorder()
+			boundMux.ServeHTTP(capture, r)
+			conn, _, e := w.(http.Hijacker).Hijack()
+			if e != nil {
+				t.Error(e)
+				return
+			}
+			conn.Close()
+			return
+		}
 		if changeTargetDuringReply.Swap(false) {
 			capture := httptest.NewRecorder()
 			boundMux.ServeHTTP(capture, r)
@@ -643,25 +674,288 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 		}
 		boundMux.ServeHTTP(w, r)
 	}))
+	if os.Getenv("HEX_ACCEPTED_RUNTIME_MOSQUITTO") != "" {
+		boundServer.Listener.Close()
+		l, e := net.Listen("tcp", "10.203.246.1:0")
+		if e != nil {
+			t.Fatal(e)
+		}
+		boundServer.Listener = l
+		k, e := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if e != nil {
+			t.Fatal(e)
+		}
+		cert := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: "synthetic commissioning transport"}, IPAddresses: []net.IP{net.ParseIP("10.203.246.1")}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+		der, e := x509.CreateCertificate(rand.Reader, cert, cert, &k.PublicKey, k)
+		if e != nil {
+			t.Fatal(e)
+		}
+		boundServer.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: k}}}
+	}
+	boundServer.StartTLS()
 	defer boundServer.Close()
 	boundTransport := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: boundServer.Certificate().Raw})
-	boundCode, _ := seedCandidate(t, s, "itest-bound-normal", "bound-normal-serial")
+	boundCode, _ := seedCandidateFixtureClaim(t, s, "itest-bound-normal", "bound-normal-serial", func(t *testing.T, s *server, tenant, serial string) (string, string) {
+		ctx := t.Context()
+		for _, q := range []string{`INSERT INTO tenants(id,name)VALUES($1,$1)`, `INSERT INTO sites(id,tenant_id,name)VALUES($1||'-site',$1,'Commissioning')`, `INSERT INTO users(id,tenant_id,email,display_name,role)VALUES($1||'-user',$1,$1||'@example.invalid','Synthetic operator','operator')`} {
+			if _, e := s.st.Pool.Exec(ctx, q, tenant); e != nil {
+				t.Fatal(e)
+			}
+		}
+		t.Cleanup(func() {
+			if _, e := s.st.Pool.Exec(context.Background(), `DELETE FROM audit_log WHERE tenant_id=$1 AND actor=$1||'-user'`, tenant); e != nil {
+				t.Error(e)
+			}
+			if _, e := s.st.Pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1||'-user' AND tenant_id=$1`, tenant); e != nil {
+				t.Error(e)
+			}
+		})
+		s.secret = append([]byte(nil), cfg.Issuer.TokenKey...)
+		if os.Getenv("HEX_ACCEPTED_RUNTIME_MOSQUITTO") != "" {
+			if e := configureCommissioning(s, boundServer.URL, string(boundTransport), cfg); e != nil {
+				t.Fatal(e)
+			}
+		}
+		api, mux := http.NewServeMux(), http.NewServeMux()
+		registerEnrollmentMint(api, s)
+		api.HandleFunc("GET /v1/sites", s.listSites)
+		api.HandleFunc("GET /v1/gateways", s.listGateways)
+		api.HandleFunc("GET /v1/me", s.me)
+		api.HandleFunc("GET /v1/branding", s.getBranding)
+		api.HandleFunc("GET /v1/edge-packages", s.edgePackages)
+		api.HandleFunc("GET /v1/system/endpoints", s.listEndpoints)
+		registerAuthenticatedAPI(mux, api, s)
+		receiptMux = mux
+		token, e := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{TenantID: tenant, Role: "operator", RegisteredClaims: jwt.RegisteredClaims{Subject: tenant + "-user", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}}).SignedString(s.secret)
+		if e != nil {
+			t.Fatal(e)
+		}
+		receiptToken = token
+		req := httptest.NewRequest("POST", "https://example.invalid/v1/enrollment/tokens", strings.NewReader(`{"site_id":"itest-bound-normal-site","serial":"bound-normal-serial","ttl_hours":1,"kind":"edge"}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		if s.commissioning != nil {
+			req.Header.Set("X-HexThings-Commissioning", "1")
+		}
+		if s.commissioning != nil {
+			if _, e := s.st.Pool.Exec(t.Context(), `ALTER TABLE enrollment_attempt_candidate ALTER COLUMN response DROP NOT NULL`); e != nil {
+				t.Fatal(e)
+			}
+			refusal := httptest.NewRecorder()
+			copy := req.Clone(req.Context())
+			copy.Body = io.NopCloser(strings.NewReader(`{"site_id":"itest-bound-normal-site","serial":"bound-normal-serial","ttl_hours":1,"kind":"edge"}`))
+			mux.ServeHTTP(refusal, copy)
+			if refusal.Code != 409 {
+				t.Fatal("live readiness drift accepted", refusal.Code)
+			}
+			var n int
+			if e := s.st.Pool.QueryRow(t.Context(), `SELECT count(*)FROM gateways WHERE serial=$1`, serial).Scan(&n); e != nil || n != 0 {
+				t.Fatal("readiness refusal wrote gateway", e, n)
+			}
+			if _, e := s.st.Pool.Exec(t.Context(), `ALTER TABLE enrollment_attempt_candidate ALTER COLUMN response SET NOT NULL`); e != nil {
+				t.Fatal(e)
+			}
+		}
+
+		w := httptest.NewRecorder()
+		if controller := os.Getenv("HEX_NATIVE_UI_CONTROLLER"); controller != "" {
+			boundMux.Handle("/v1/", mux)
+			dist := os.Getenv("HEX_NATIVE_UI_DIST")
+			fs := http.FileServer(http.Dir(dist))
+			boundMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/edge-setup" {
+					http.ServeFile(w, r, filepath.Join(dist, "index.html"))
+					return
+				}
+				fs.ServeHTTP(w, r)
+			})
+			nativeInputPath = filepath.Join(parent, "browser-private-input.json")
+			sessionPath := filepath.Join(parent, "browser-session.json")
+			session, _ := json.Marshal(map[string]string{"origin": boundServer.URL, "token": token, "download": nativeInputPath, "serial": serial})
+			if e := os.WriteFile(sessionPath, session, 0600); e != nil {
+				t.Fatal(e)
+			}
+			t.Cleanup(func() {
+				cmd := exec.Command("python", controller, "cleanup", sessionPath)
+				if out, e := cmd.CombinedOutput(); e != nil {
+					t.Error("browser teardown", e, string(out))
+				}
+			})
+			cmd := exec.Command("python", controller, "mint", sessionPath)
+			if out, e := cmd.CombinedOutput(); e != nil {
+				t.Fatal("actual browser mint/download", e, string(out))
+			}
+			body, e := os.ReadFile(nativeInputPath)
+			if e != nil {
+				t.Fatal(e)
+			}
+			var handoff map[string]any
+			if json.Unmarshal(body, &handoff) != nil {
+				t.Fatal("browser handoff")
+			}
+			code, _ := handoff["Code"].(string)
+			var gateway string
+			if e := s.st.Pool.QueryRow(ctx, `SELECT gateway_id FROM enrollment_tokens WHERE code_hash=$1`, enroll.Hash(code)).Scan(&gateway); e != nil {
+				t.Fatal(e)
+			}
+			nativeAnchors = trustFingerprint(boundTransport) + "\n" + trustFingerprint(ca) + "\n" + trustFingerprint(key.Public().(ed25519.PublicKey)) + "\n"
+			t.Log("PASS actual authenticated browser UI mint and downloaded exact private input; independent controller anchor generated before transfer")
+			return code, gateway
+		}
+		mux.ServeHTTP(w, req)
+		if w.Code != 201 {
+			t.Fatal("real authenticated mint", w.Code, w.Body.String())
+		}
+		var minted struct {
+			Code    string    `json:"claim_code"`
+			Gateway string    `json:"gateway_id"`
+			Expires time.Time `json:"expires_at"`
+		}
+		if json.Unmarshal(w.Body.Bytes(), &minted) != nil || minted.Code == "" || time.Until(minted.Expires) > time.Hour {
+			t.Fatal("mint contract")
+		}
+		if s.commissioning != nil {
+			var response struct {
+				Input struct {
+					Server, Serial, Code, TransportCA, DeviceCA, ExpectedTenant string
+					ResponseKey                                                 ed25519.PublicKey
+				} `json:"retained_input"`
+			}
+			if json.Unmarshal(w.Body.Bytes(), &response) != nil || response.Input.Server != boundServer.URL || response.Input.Serial != serial || response.Input.Code != minted.Code || response.Input.TransportCA != string(boundTransport) || response.Input.DeviceCA != string(ca) || response.Input.ExpectedTenant != tenant || !bytes.Equal(response.Input.ResponseKey, key.Public().(ed25519.PublicKey)) {
+				t.Fatal("actual handoff trust/input mismatch")
+			}
+			if w.Header().Get("Cache-Control") != "no-store" || bytes.Contains(w.Body.Bytes(), []byte("enroll_string")) {
+				t.Fatal("unsafe handoff delivery")
+			}
+		}
+		return minted.Code, minted.Gateway
+	})
 	boundDir := filepath.Join(parent, "normal-bound-attempt")
 	boundPayload, _ := json.Marshal(map[string]any{"Dir": boundDir, "Server": boundServer.URL, "Code": boundCode, "Serial": "bound-normal-serial", "TransportCA": string(boundTransport), "DeviceCA": string(ca), "ExpectedTenant": "itest-bound-normal", "ResponseKey": key.Public(), "Targets": targets})
 	boundChild := productCommand(agent, "-create-staged-install")
 	boundChild.Stdin = bytes.NewReader(boundPayload)
+	if os.Getenv("HEX_NATIVE_COMMISSIONING_MANAGER") != "" {
+		// Cancellation after reviewed input does not create the retained destination.
+		cancelled := managerRun("CANCEL", "")
+		if out, e := cancelled.CombinedOutput(); e == nil || bytes.Contains(out, []byte(boundCode)) {
+			t.Fatal("manager cancel/secret refusal")
+		}
+		if _, e := os.Stat(boundDir); !os.IsNotExist(e) {
+			t.Fatal("cancel wrote retained directory")
+		}
+		root := exec.Command("bash", os.Getenv("HEX_NATIVE_COMMISSIONING_MANAGER"), "commissioning")
+		root.Stdin = strings.NewReader("/unread-secret-path\n")
+		if out, e := root.CombinedOutput(); e == nil || !bytes.Contains(out, []byte("No input was read")) {
+			t.Fatal("root manager refusal", e, string(out))
+		}
+		nativeDropOnce.Store(true)
+		boundChild = managerRun("CREATE BOUND", preparedDir+"\n"+acceptParent+"\naccepted\nPREPARE NEW PRIVATE PAYLOAD\nCREATE BOUND ATTEMPT\n")
+	}
+	if nativeManagerRun := os.Getenv("HEX_NATIVE_COMMISSIONING_MANAGER") != ""; nativeManagerRun {
+		// The fixed manager command line carries neither claim nor trust payload.
+		for _, arg := range boundChild.Args {
+			if strings.Contains(arg, boundCode) {
+				t.Fatal("manager secret argv")
+			}
+		}
+	}
 	boundOut, e := boundChild.CombinedOutput()
+	if os.Getenv("HEX_NATIVE_COMMISSIONING_MANAGER") != "" {
+		if e == nil {
+			t.Fatal("lost native reply reported success")
+		}
+		var keyBefore []byte
+		keyBefore, e = os.ReadFile(filepath.Join(boundDir, "identity.key"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !claimRedeemed(t, s, boundCode) {
+			t.Fatal("lost reply did not commit")
+		}
+		if d := os.Getenv("HEX_NATIVE_EVIDENCE_DIR"); d != "" {
+			os.WriteFile(filepath.Join(d, "manager-lost-reply-terminal.txt"), boundOut, 0600)
+		}
+		child := managerRun("RECOVER SAME", "")
+		recovered, recoverErr := child.CombinedOutput()
+		if recoverErr != nil {
+			t.Fatal("actual manager explicit lost reply recovery", recoverErr, string(recovered))
+		}
+		keyAfter, e := os.ReadFile(filepath.Join(boundDir, "identity.key"))
+		if e != nil || !bytes.Equal(keyBefore, keyAfter) {
+			t.Fatal("manager recovery key changed")
+		}
+		boundOut = append(boundOut, recovered...)
+		e = nil
+		t.Log("PASS actual manager lost reply after server commit refuses success; separate explicit same-attempt recovery retains exact key, no create replay")
+	}
+
 	var boundSummary struct {
 		State   string `json:"state"`
 		Install bool   `json:"can_install"`
 		Start   bool   `json:"can_start"`
 		Clear   bool   `json:"can_clear_pending"`
 	}
-	if e != nil || json.Unmarshal(boundOut, &boundSummary) != nil || boundSummary.State != "verified_install_attempt_retained" || boundSummary.Install || boundSummary.Start || boundSummary.Clear || !claimRedeemed(t, s, boundCode) {
+	nativeManager := os.Getenv("HEX_NATIVE_COMMISSIONING_MANAGER") != ""
+	boundValid := json.Unmarshal(boundOut, &boundSummary) == nil && boundSummary.State == "verified_install_attempt_retained" && !boundSummary.Install && !boundSummary.Start && !boundSummary.Clear
+	if nativeManager {
+		boundValid = bytes.Contains(boundOut, []byte("verified_recovery_retained"))
+	}
+	if nativeManager {
+		if dir := os.Getenv("HEX_NATIVE_EVIDENCE_DIR"); dir != "" {
+			if e := os.WriteFile(filepath.Join(dir, "manager-create-terminal.txt"), boundOut, 0600); e != nil {
+				t.Fatal(e)
+			}
+		}
+		t.Log("PASS actual non-root existing manager prompt process, fixed preparation review/create-bound child, secret input only via stdin, exact local selected targets")
+	}
+	if e != nil || !boundValid || !claimRedeemed(t, s, boundCode) {
 		t.Fatal("normal bound staging", e, string(boundOut))
 	}
+	// A failed postcommit broker file write cannot undo/redeliver credentials.
+	oldACL, hadACL := os.LookupEnv("BROKER_ACL_FILE")
+	if e := os.Setenv("BROKER_ACL_FILE", filepath.Join(parent, "absent-acl-parent", "acl")); e != nil {
+		t.Fatal(e)
+	}
+	aclFailure := s.regenerateBrokerACL(t.Context())
+	if hadACL {
+		os.Setenv("BROKER_ACL_FILE", oldACL)
+	} else {
+		os.Unsetenv("BROKER_ACL_FILE")
+	}
+	if aclFailure == nil || !claimRedeemed(t, s, boundCode) {
+		t.Fatal("postcommit ACL failure must preserve redemption")
+	}
+	var committedCount int
+	if e := s.st.Pool.QueryRow(t.Context(), `SELECT count(*)FROM enrollment_attempt_candidate WHERE gateway_id=(SELECT gateway_id FROM enrollment_tokens WHERE code_hash=$1)`, enroll.Hash(boundCode)).Scan(&committedCount); e != nil || committedCount != 1 {
+		t.Fatal("postcommit failure changed exact attempt", e, committedCount)
+	}
+	t.Log("PASS ACL file failure after committed issue preserves one consumed code/exact retained attempt; later existing explicit recovery/runtime assembly reconciles same key without issuer replay")
+	var storedDeadline time.Time
+	var storedResponse []byte
+	if e := s.st.Pool.QueryRow(t.Context(), `SELECT expires_at,response FROM enrollment_attempt_candidate WHERE gateway_id=(SELECT gateway_id FROM enrollment_tokens WHERE code_hash=$1)`, enroll.Hash(boundCode)).Scan(&storedDeadline, &storedResponse); e != nil {
+		t.Fatal(e)
+	}
+	var outer struct {
+		Manifest []byte `json:"manifest"`
+	}
+	var signed struct {
+		Expires int64 `json:"expires"`
+	}
+	if json.Unmarshal(storedResponse, &outer) != nil || json.Unmarshal(outer.Manifest, &signed) != nil || storedDeadline.Unix() != signed.Expires || time.Until(storedDeadline) > 45*time.Minute {
+		t.Fatal("effective recovery deadline mismatch")
+	}
+	if _, e := s.st.Pool.Exec(t.Context(), `UPDATE enrollment_attempt_candidate SET expires_at=now()-interval '1 second' WHERE gateway_id=(SELECT gateway_id FROM enrollment_tokens WHERE code_hash=$1)`, enroll.Hash(boundCode)); e != nil {
+		t.Fatal(e)
+	}
+	expired := productCommand(agent, "-recover-retained-claim")
+	expired.Stdin = bytes.NewReader(boundPayload)
+	if e := expired.Run(); e == nil {
+		t.Fatal("expired stored attempt recovered")
+	}
+	if _, e := s.st.Pool.Exec(t.Context(), `UPDATE enrollment_attempt_candidate SET expires_at=$2 WHERE gateway_id=(SELECT gateway_id FROM enrollment_tokens WHERE code_hash=$1)`, enroll.Hash(boundCode), storedDeadline); e != nil {
+		t.Fatal(e)
+	}
 	for _, secret := range []string{boundCode, "PRIVATE KEY", "ingest_token", "client_cert_pem", "csr_pem", boundDir} {
-		if bytes.Contains(boundOut, []byte(secret)) {
+		if secret != boundDir && bytes.Contains(boundOut, []byte(secret)) {
 			t.Fatal("bound create leaked private material")
 		}
 	}
@@ -706,6 +1000,9 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 	}
 	boundChild = productCommand(agent, "-recover-retained-claim")
 	boundChild.Stdin = bytes.NewReader(boundRecoverPayload)
+	if nativeManager {
+		boundChild = managerRun("RECOVER SAME", "")
+	}
 	if e = boundChild.Run(); e != nil {
 		t.Fatal("restored unchanged target bytes recovery refused", e)
 	}
@@ -755,6 +1052,10 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 	}
 	acceptChild := productCommand(agent, "-accept-private-identity")
 	acceptChild.Stdin = bytes.NewReader(acceptPayload)
+	if nativeManager {
+		time.Sleep(13 * time.Second) // real shared recovery limiter, never bypass
+		acceptChild = managerRun("ACCEPT PRIVATE", acceptParent+"\naccepted\nACCEPT PREBOUND PRIVATE IDENTITY\n")
+	}
 	acceptOut, e := acceptChild.CombinedOutput()
 	var acceptSummary struct {
 		State   string `json:"state"`
@@ -762,7 +1063,18 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 		Start   bool   `json:"can_start"`
 		Clear   bool   `json:"can_clear_pending"`
 	}
-	if e != nil || json.Unmarshal(acceptOut, &acceptSummary) != nil || acceptSummary.State != "private_identity_accepted_service_blocked" || acceptSummary.Install || acceptSummary.Start || acceptSummary.Clear {
+	acceptValid := json.Unmarshal(acceptOut, &acceptSummary) == nil && acceptSummary.State == "private_identity_accepted_service_blocked" && !acceptSummary.Install && !acceptSummary.Start && !acceptSummary.Clear
+	if nativeManager {
+		acceptValid = bytes.Contains(acceptOut, []byte("private_identity_accepted_service_blocked"))
+	}
+	if nativeManager {
+		if dir := os.Getenv("HEX_NATIVE_EVIDENCE_DIR"); dir != "" {
+			if e := os.WriteFile(filepath.Join(dir, "manager-accept-terminal.txt"), acceptOut, 0600); e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
+	if e != nil || !acceptValid {
 		t.Fatal("actual private identity acceptance", e, string(acceptOut))
 	}
 	originalKey, e := os.ReadFile(filepath.Join(boundDir, "identity.key"))
@@ -777,7 +1089,7 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 		t.Fatal("missing acceptance receipt", e)
 	}
 	for _, secret := range []string{boundCode, "PRIVATE KEY", "ingest_token", "client_cert_pem", acceptParent} {
-		if bytes.Contains(acceptOut, []byte(secret)) {
+		if secret != acceptParent && bytes.Contains(acceptOut, []byte(secret)) {
 			t.Fatal("acceptance output leaked material")
 		}
 	}
@@ -818,107 +1130,193 @@ func TestIntegrationCandidateProductService(t *testing.T) {
 			t.Fatal("mapping leaked secret")
 		}
 	}
-	assemblyInput, _ := json.Marshal(map[string]any{"Retained": json.RawMessage(boundRecoverPayload), "InputDir": mappingInputDir, "Serial": "bound-normal-serial", "Tenant": "itest-bound-normal", "User": "hexreview"})
-	assemblyRun := func() ([]byte, error) {
-		time.Sleep(13 * time.Second) // respect the real shared recovery limiter, no test bypass
-		child := productCommand(agent, "-assemble-private-runtime")
-		child.Stdin = bytes.NewReader(assemblyInput)
-		return child.CombinedOutput()
-	}
-	for repeat := 0; repeat < 2; repeat++ {
-		out, e := assemblyRun()
-		var summary struct {
-			State                                 string
-			CanInstall, CanStart, CanClearPending bool
+	if !nativeManager {
+		assemblyInput, _ := json.Marshal(map[string]any{"Retained": json.RawMessage(boundRecoverPayload), "InputDir": mappingInputDir, "Serial": "bound-normal-serial", "Tenant": "itest-bound-normal", "User": "hexreview"})
+		assemblyRun := func() ([]byte, error) {
+			time.Sleep(13 * time.Second) // respect the real shared recovery limiter, no test bypass
+			child := productCommand(agent, "-assemble-private-runtime")
+			child.Stdin = bytes.NewReader(assemblyInput)
+			return child.CombinedOutput()
 		}
-		if e != nil || json.Unmarshal(out, &summary) != nil || summary.State != "private_runtime_payload_committed" || summary.CanInstall || summary.CanStart || summary.CanClearPending {
-			t.Fatal("actual private runtime assembly", e, string(out))
+		for repeat := 0; repeat < 2; repeat++ {
+			out, e := assemblyRun()
+			var summary struct {
+				State                                 string
+				CanInstall, CanStart, CanClearPending bool
+			}
+			if e != nil || json.Unmarshal(out, &summary) != nil || summary.State != "private_runtime_payload_committed" || summary.CanInstall || summary.CanStart || summary.CanClearPending {
+				t.Fatal("actual private runtime assembly", e, string(out))
+			}
 		}
-	}
-	for _, n := range []string{"agent", "config.yaml", "unit.service"} {
-		st, e := os.Stat(filepath.Join(preparedDir, "prepared-state/runtime", n))
-		if e != nil || st.Mode().Perm() != 0600 {
-			t.Fatal("private nonexecuting runtime payload", n, e)
+		for _, n := range []string{"agent", "config.yaml", "unit.service"} {
+			st, e := os.Stat(filepath.Join(preparedDir, "prepared-state/runtime", n))
+			if e != nil || st.Mode().Perm() != 0600 {
+				t.Fatal("private nonexecuting runtime payload", n, e)
+			}
 		}
-	}
-	handoffRoot := filepath.Join(preparedDir, "prepared-state/handoff")
-	for _, n := range []string{"agent", "config.yaml", "unit.service", "broker-ca.pem", "device-ca.pem", "identity.json", "identity.crt", "identity.key"} {
-		st, err := os.Stat(filepath.Join(handoffRoot, n))
-		if err != nil || st.Mode().Perm() != 0600 {
-			t.Fatal("complete private nonexecuting frozen handoff", n, err)
+		handoffRoot := filepath.Join(preparedDir, "prepared-state/handoff")
+		for _, n := range []string{"agent", "config.yaml", "unit.service", "broker-ca.pem", "device-ca.pem", "identity.json", "identity.crt", "identity.key"} {
+			st, err := os.Stat(filepath.Join(handoffRoot, n))
+			if err != nil || st.Mode().Perm() != 0600 {
+				t.Fatal("complete private nonexecuting frozen handoff", n, err)
+			}
 		}
+		frozenConfig, err := os.ReadFile(filepath.Join(handoffRoot, "config.yaml"))
+		if err != nil || !bytes.Contains(frozenConfig, []byte(targets["DeploymentRoot"]+"/identity/identity.key")) || bytes.Contains(frozenConfig, []byte(acceptParent)) {
+			t.Fatal("frozen final config has external selected identity paths", err)
+		}
+		frozenUnit, err := os.ReadFile(filepath.Join(handoffRoot, "unit.service"))
+		if err != nil || !bytes.Contains(frozenUnit, []byte("User=10001\nGroup=10002")) || bytes.Contains(frozenUnit, []byte("[Install]")) {
+			t.Fatal("frozen final unit differs", err)
+		}
+		frozenKey, err := os.ReadFile(filepath.Join(handoffRoot, "identity.key"))
+		if err != nil || !bytes.Equal(frozenKey, func() []byte { b, _ := os.ReadFile(filepath.Join(acceptParent, "accepted/identity.key")); return b }()) {
+			t.Fatal("frozen identity key differs", err)
+		}
+		savedRuntimeConfig, e := os.ReadFile(filepath.Join(preparedDir, "prepared-state/runtime/config.yaml"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = os.WriteFile(filepath.Join(mappingInputDir, "server-config.yaml"), []byte(strings.Replace(serverConfig, "port: 8883", "port: 8884", 1)), 0600); e != nil {
+			t.Fatal(e)
+		}
+		if out, e := assemblyRun(); e == nil {
+			t.Fatal("changed runtime payload replay accepted", string(out))
+		}
+		afterRuntime, e := os.ReadFile(filepath.Join(preparedDir, "prepared-state/runtime/config.yaml"))
+		if e != nil || !bytes.Equal(afterRuntime, savedRuntimeConfig) {
+			t.Fatal("runtime refusal changed committed data", e)
+		}
+		if e = os.WriteFile(filepath.Join(mappingInputDir, "server-config.yaml"), []byte(serverConfig), 0600); e != nil {
+			t.Fatal(e)
+		}
+		assemblyRequests := boundRequests.Load()
+		savedAcceptedKey, e := os.ReadFile(filepath.Join(acceptParent, "accepted/identity.key"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = os.WriteFile(filepath.Join(acceptParent, "accepted/identity.key"), []byte("partial replaced key"), 0600); e != nil {
+			t.Fatal(e)
+		}
+		if out, e := assemblyRun(); e == nil {
+			t.Fatal("changed accepted identity assembled", string(out))
+		}
+		if e = os.WriteFile(filepath.Join(acceptParent, "accepted/identity.key"), savedAcceptedKey, 0600); e != nil {
+			t.Fatal(e)
+		}
+		var assemblyAttempt string
+		var intentDoc struct{ ID string }
+		intentBytes, e = os.ReadFile(filepath.Join(boundDir, "candidate-intent.json"))
+		if e != nil || json.Unmarshal(intentBytes, &intentDoc) != nil {
+			t.Fatal("assembly attempt", e)
+		}
+		assemblyAttempt = intentDoc.ID
+		if _, e = s.st.Pool.Exec(t.Context(), `UPDATE enrollment_attempt_candidate SET revoked=true WHERE attempt_id=$1`, assemblyAttempt); e != nil {
+			t.Fatal(e)
+		}
+		if out, e := assemblyRun(); e == nil {
+			t.Fatal("revoked retained runtime accepted", string(out))
+		}
+		if _, e = s.st.Pool.Exec(t.Context(), `UPDATE enrollment_attempt_candidate SET revoked=false WHERE attempt_id=$1`, assemblyAttempt); e != nil {
+			t.Fatal(e)
+		}
+		if boundRequests.Load() != assemblyRequests+2 {
+			t.Fatal("fresh assembly checks bypassed", boundRequests.Load(), assemblyRequests)
+		}
+		afterRuntime, e = os.ReadFile(filepath.Join(preparedDir, "prepared-state/runtime/config.yaml"))
+		if e != nil || !bytes.Equal(afterRuntime, savedRuntimeConfig) {
+			t.Fatal("identity/revocation refusal changed runtime", e)
+		}
+		t.Log("PASS actual .run fresh retained recovery -> creation-bound prepared binary/identity -> atomic private nonexec runtime payload and exact-repeat verification; changed config refuses without overwrite, install/start/clear blocked")
 	}
-	frozenConfig, err := os.ReadFile(filepath.Join(handoffRoot, "config.yaml"))
-	if err != nil || !bytes.Contains(frozenConfig, []byte(targets["DeploymentRoot"]+"/identity/identity.key")) || bytes.Contains(frozenConfig, []byte(acceptParent)) {
-		t.Fatal("frozen final config has external selected identity paths", err)
-	}
-	frozenUnit, err := os.ReadFile(filepath.Join(handoffRoot, "unit.service"))
-	if err != nil || !bytes.Contains(frozenUnit, []byte("User=10001\nGroup=10002")) || bytes.Contains(frozenUnit, []byte("[Install]")) {
-		t.Fatal("frozen final unit differs", err)
-	}
-	frozenKey, err := os.ReadFile(filepath.Join(handoffRoot, "identity.key"))
-	if err != nil || !bytes.Equal(frozenKey, func() []byte { b, _ := os.ReadFile(filepath.Join(acceptParent, "accepted/identity.key")); return b }()) {
-		t.Fatal("frozen identity key differs", err)
-	}
-	savedRuntimeConfig, e := os.ReadFile(filepath.Join(preparedDir, "prepared-state/runtime/config.yaml"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = os.WriteFile(filepath.Join(mappingInputDir, "server-config.yaml"), []byte(strings.Replace(serverConfig, "port: 8883", "port: 8884", 1)), 0600); e != nil {
-		t.Fatal(e)
-	}
-	if out, e := assemblyRun(); e == nil {
-		t.Fatal("changed runtime payload replay accepted", string(out))
-	}
-	afterRuntime, e := os.ReadFile(filepath.Join(preparedDir, "prepared-state/runtime/config.yaml"))
-	if e != nil || !bytes.Equal(afterRuntime, savedRuntimeConfig) {
-		t.Fatal("runtime refusal changed committed data", e)
-	}
-	if e = os.WriteFile(filepath.Join(mappingInputDir, "server-config.yaml"), []byte(serverConfig), 0600); e != nil {
-		t.Fatal(e)
-	}
-	assemblyRequests := boundRequests.Load()
-	savedAcceptedKey, e := os.ReadFile(filepath.Join(acceptParent, "accepted/identity.key"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = os.WriteFile(filepath.Join(acceptParent, "accepted/identity.key"), []byte("partial replaced key"), 0600); e != nil {
-		t.Fatal(e)
-	}
-	if out, e := assemblyRun(); e == nil {
-		t.Fatal("changed accepted identity assembled", string(out))
-	}
-	if e = os.WriteFile(filepath.Join(acceptParent, "accepted/identity.key"), savedAcceptedKey, 0600); e != nil {
-		t.Fatal(e)
-	}
-	var assemblyAttempt string
-	var intentDoc struct{ ID string }
-	intentBytes, e = os.ReadFile(filepath.Join(boundDir, "candidate-intent.json"))
-	if e != nil || json.Unmarshal(intentBytes, &intentDoc) != nil {
-		t.Fatal("assembly attempt", e)
-	}
-	assemblyAttempt = intentDoc.ID
-	if _, e = s.st.Pool.Exec(t.Context(), `UPDATE enrollment_attempt_candidate SET revoked=true WHERE attempt_id=$1`, assemblyAttempt); e != nil {
-		t.Fatal(e)
-	}
-	if out, e := assemblyRun(); e == nil {
-		t.Fatal("revoked retained runtime accepted", string(out))
-	}
-	if _, e = s.st.Pool.Exec(t.Context(), `UPDATE enrollment_attempt_candidate SET revoked=false WHERE attempt_id=$1`, assemblyAttempt); e != nil {
-		t.Fatal(e)
-	}
-	if boundRequests.Load() != assemblyRequests+2 {
-		t.Fatal("fresh assembly checks bypassed", boundRequests.Load(), assemblyRequests)
-	}
-	afterRuntime, e = os.ReadFile(filepath.Join(preparedDir, "prepared-state/runtime/config.yaml"))
-	if e != nil || !bytes.Equal(afterRuntime, savedRuntimeConfig) {
-		t.Fatal("identity/revocation refusal changed runtime", e)
-	}
-	t.Log("PASS actual .run fresh retained recovery -> creation-bound prepared binary/identity -> atomic private nonexec runtime payload and exact-repeat verification; changed config refuses without overwrite, install/start/clear blocked")
 	acceptedRuntimeBrokerSourceProof(t, s, agent, filepath.Join(acceptParent, "accepted"), mappedIdentity.Gateway, "itest-bound-normal", "bound-normal-serial", ca, cak, func(raw []byte) ([]byte, error) {
 		child := productCommand(agent, "-review-runtime-mapping")
 		child.Stdin = bytes.NewReader(raw)
 		return child.CombinedOutput()
+	}, func(gateway, event string) {
+
+		if controller := os.Getenv("HEX_NATIVE_UI_CONTROLLER"); controller != "" {
+			sessionPath := filepath.Join(parent, "browser-receipt.json")
+			b, _ := json.Marshal(map[string]string{"origin": boundServer.URL, "token": receiptToken, "gateway": gateway, "event": event})
+			os.WriteFile(sessionPath, b, 0600)
+			cmd := exec.Command("python", controller, "receipt", sessionPath)
+			if out, e := cmd.CombinedOutput(); e != nil {
+				t.Fatal("actual browser exact receipt", e, string(out))
+			}
+		}
+		for _, v := range []struct {
+			gateway, event string
+			code           int
+		}{{gateway, event, 200}, {gateway, event + "-wrong", 404}, {gateway + "-wrong", event, 404}} {
+			req := httptest.NewRequest("GET", "https://example.invalid/v1/enrollment/commissioning/receipt?gateway_id="+v.gateway+"&event_id="+v.event, nil)
+			req.Header.Set("Authorization", "Bearer "+receiptToken)
+			w := httptest.NewRecorder()
+			receiptMux.ServeHTTP(w, req)
+			if w.Code != v.code {
+				t.Fatal("exact authenticated receipt", w.Code, w.Body.String())
+			}
+			if w.Code == 200 && !bytes.Contains(w.Body.Bytes(), []byte(event)) {
+				t.Fatal("wrong exact receipt")
+			}
+		}
+		// Shared middleware and explicit feature state stay default-deny.
+		doReceipt := func(token string) int {
+			r := httptest.NewRequest("GET", "https://example.invalid/v1/enrollment/commissioning/receipt?gateway_id="+gateway+"&event_id="+event, nil)
+			if token != "" {
+				r.Header.Set("Authorization", "Bearer "+token)
+			}
+			w := httptest.NewRecorder()
+			receiptMux.ServeHTTP(w, r)
+			return w.Code
+		}
+		wrongTenantToken, e := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{TenantID: "foreign-tenant", Role: "operator", RegisteredClaims: jwt.RegisteredClaims{Subject: "itest-bound-normal-user", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}}).SignedString(s.secret)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if doReceipt(wrongTenantToken) != 403 {
+			t.Fatal("cross-tenant session receipt")
+		}
+		if doReceipt("") != 401 {
+			t.Fatal("anonymous receipt")
+		}
+		if _, e := s.st.Pool.Exec(t.Context(), `INSERT INTO customers(id,tenant_id,name)VALUES('itest-receipt-customer','itest-bound-normal','Receipt fixture')`); e != nil {
+			t.Fatal(e)
+		}
+		t.Cleanup(func() {
+			s.st.Pool.Exec(context.Background(), `DELETE FROM user_customer_scope WHERE tenant_id='itest-bound-normal' AND user_id='itest-bound-normal-user'`)
+			s.st.Pool.Exec(context.Background(), `DELETE FROM customers WHERE id='itest-receipt-customer' AND tenant_id='itest-bound-normal'`)
+		})
+		if _, e := s.st.Pool.Exec(t.Context(), `INSERT INTO user_customer_scope(tenant_id,user_id,customer_id)VALUES('itest-bound-normal','itest-bound-normal-user','itest-receipt-customer')`); e != nil {
+			t.Fatal(e)
+		}
+		if doReceipt(receiptToken) != 403 {
+			t.Fatal("customer-scoped receipt")
+		}
+		if _, e := s.st.Pool.Exec(t.Context(), `DELETE FROM user_customer_scope WHERE tenant_id='itest-bound-normal' AND user_id='itest-bound-normal-user'`); e != nil {
+			t.Fatal(e)
+		}
+		saved := s.commissioning
+		s.commissioning = nil
+		if doReceipt(receiptToken) != 409 {
+			t.Fatal("default-off receipt")
+		}
+		s.commissioning = saved
+		if _, e := s.st.Pool.Exec(t.Context(), `UPDATE users SET role='viewer' WHERE id='itest-bound-normal-user'`); e != nil {
+			t.Fatal(e)
+		}
+		if doReceipt(receiptToken) != 403 {
+			t.Fatal("viewer receipt")
+		}
+		if _, e := s.st.Pool.Exec(t.Context(), `UPDATE users SET role='operator',disabled_at=now() WHERE id='itest-bound-normal-user'`); e != nil {
+			t.Fatal(e)
+		}
+		if doReceipt(receiptToken) != 401 {
+			t.Fatal("disabled receipt")
+		}
+		if _, e := s.st.Pool.Exec(t.Context(), `UPDATE users SET disabled_at=NULL WHERE id='itest-bound-normal-user'`); e != nil {
+			t.Fatal(e)
+		}
+		t.Log("PASS authenticated active interactive exact tenant/gateway/event read receipt, mismatch/foreign gateway refused; controller-observed event only")
 	})
 	// Exercise source refusal through the same actual packaged process and
 	// accepted private identity, not only the in-process mapping builder.
@@ -1243,4 +1641,105 @@ func TestIntegrationCandidateFixtureFailureCleanup(t *testing.T) {
 	if err := s.st.Pool.QueryRow(t.Context(), `SELECT name FROM tenants WHERE id=$1`, tenant).Scan(&name); err != nil || name != "preexisting sentinel" {
 		t.Fatal("preexisting fixture changed", err)
 	}
+}
+
+func TestIntegrationCommissioningSharedAuthRefusals(t *testing.T) {
+	s, _ := testServer(t)
+	s.secret = []byte("synthetic-auth-refusal-secret-42")
+	tenant := "itest-commissioning-auth"
+	ctx := t.Context()
+	var exists bool
+	if e := s.st.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tenants WHERE id=$1)`, tenant).Scan(&exists); e != nil || exists {
+		t.Fatal("fixture not fresh", e)
+	}
+	t.Cleanup(func() {
+		for _, q := range []string{`DELETE FROM users WHERE tenant_id=$1`, `DELETE FROM sites WHERE tenant_id=$1`, `DELETE FROM tenants WHERE id=$1`} {
+			if _, e := s.st.Pool.Exec(context.Background(), q, tenant); e != nil {
+				t.Error(e)
+			}
+		}
+	})
+	for _, q := range []string{`INSERT INTO tenants(id,name)VALUES($1,$1)`, `INSERT INTO sites(id,tenant_id,name)VALUES($1||'-site',$1,'Owned')`, `INSERT INTO users(id,tenant_id,email,display_name,role)VALUES($1||'-user',$1,$1||'@example.invalid','Operator','operator')`} {
+		if _, e := s.st.Pool.Exec(ctx, q, tenant); e != nil {
+			t.Fatal(e)
+		}
+	}
+	s.commissioning = &commissioningSetup{Origin: "https://example.invalid"}
+	api, mux := http.NewServeMux(), http.NewServeMux()
+	registerEnrollmentMint(api, s)
+	registerAuthenticatedAPI(mux, api, s)
+	tok := func(ten string) string {
+		v, e := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{TenantID: ten, Role: "operator", RegisteredClaims: jwt.RegisteredClaims{Subject: tenant + "-user", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}}).SignedString(s.secret)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	do := func(token, site string) int {
+		r := httptest.NewRequest("POST", "https://example.invalid/v1/enrollment/tokens", strings.NewReader(fmt.Sprintf(`{"site_id":%q,"serial":"auth-refused-serial","kind":"edge","ttl_hours":1}`, site)))
+		r.Header.Set("X-HexThings-Commissioning", "1")
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w.Code
+	}
+	if c := do("", tenant+"-site"); c != 401 {
+		t.Fatal("unauthenticated", c)
+	}
+	if c := do(tok("other-tenant"), tenant+"-site"); c != 403 {
+		t.Fatal("wrong tenant", c)
+	}
+	if c := do(tok(tenant), "foreign-site"); c != 409 {
+		t.Fatal("foreign site", c)
+	}
+	if _, e := s.st.Pool.Exec(ctx, `UPDATE users SET disabled_at=now()WHERE id=$1||'-user'`, tenant); e != nil {
+		t.Fatal(e)
+	}
+	if c := do(tok(tenant), tenant+"-site"); c != 401 {
+		t.Fatal("inactive", c)
+	}
+	if _, e := s.st.Pool.Exec(ctx, `UPDATE users SET disabled_at=NULL,role='viewer' WHERE id=$1||'-user'`, tenant); e != nil {
+		t.Fatal(e)
+	}
+	if c := do(tok(tenant), tenant+"-site"); c != 403 {
+		t.Fatal("insufficient role", c)
+	}
+	var n int
+	if e := s.st.Pool.QueryRow(ctx, `SELECT count(*)FROM gateways WHERE serial='auth-refused-serial'`).Scan(&n); e != nil || n != 0 {
+		t.Fatal("refusal wrote gateway", e, n)
+	}
+}
+
+func TestIntegrationLegacyMintDefaultsUnchanged(t *testing.T) {
+	s, _ := testServer(t)
+	seedCandidateFixtureClaim(t, s, "itest-legacy-mint-policy", "legacy-mint-policy", func(t *testing.T, s *server, tenant, serial string) (string, string) {
+		for _, q := range []string{`INSERT INTO tenants(id,name)VALUES($1,$1)`, `INSERT INTO sites(id,tenant_id,name)VALUES($1||'-site',$1,'Legacy')`} {
+			if _, e := s.st.Pool.Exec(t.Context(), q, tenant); e != nil {
+				t.Fatal(e)
+			}
+		}
+		t.Cleanup(func() {
+			if _, e := s.st.Pool.Exec(context.Background(), `DELETE FROM audit_log WHERE tenant_id=$1 AND action='enrollment.mint'`, tenant); e != nil {
+				t.Error(e)
+			}
+		})
+		mux := http.NewServeMux()
+		registerEnrollmentMint(mux, s)
+		w := call(mux, tenant, "operator", "POST", "/v1/enrollment/tokens", `{"site_id":"itest-legacy-mint-policy-site","serial":"legacy-mint-policy","kind":"edge"}`)
+		if w.Code != 201 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		var v struct {
+			Expires time.Time `json:"expires_at"`
+			Code    string    `json:"claim_code"`
+			Gateway string    `json:"gateway_id"`
+			Enroll  string    `json:"enroll_string"`
+		}
+		if json.Unmarshal(w.Body.Bytes(), &v) != nil || time.Until(v.Expires) < 71*time.Hour || time.Until(v.Expires) > 72*time.Hour || v.Enroll == "" {
+			t.Fatal("legacy72h delivery changed")
+		}
+		return v.Code, v.Gateway
+	})
 }

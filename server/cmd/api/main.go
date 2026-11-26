@@ -53,6 +53,7 @@ import (
 )
 
 type server struct {
+	commissioning *commissioningSetup // explicit local composition only, nil in product main
 	// Internal acceptance-only policy. No environment/route/startup enables it.
 	applySafetyCandidate bool
 	applyAttemptFence    *applyadmission.Fence
@@ -390,7 +391,7 @@ func main() {
 	api.HandleFunc("PUT /v1/dashboards/{id}", s.updateDashboard)
 	api.HandleFunc("PUT /v1/dashboards/{id}/customer", s.setDashboardCustomer)
 	api.HandleFunc("DELETE /v1/dashboards/{id}", s.deleteDashboard)
-	api.HandleFunc("POST /v1/enrollment/tokens", s.mintEnrollmentToken)
+	registerEnrollmentMint(api, s)
 	api.HandleFunc("GET /v1/gateways/{id}/edge-config", s.gatewayEdgeConfig)
 	api.HandleFunc("GET /v1/edge/self/setup", s.edgeSelfSetup)
 	api.HandleFunc("POST /v1/edge/self/serial-ports", s.reportSerialPorts)
@@ -516,8 +517,7 @@ func main() {
 	}
 	mux.HandleFunc("POST /v1/lorawan/uplink", s.lorawanUplink) // device token auth, like /v1/device/ingest
 	mux.HandleFunc("POST /v1/device/ingest", s.deviceIngest)   // device token auth, outside the session middleware
-	s.inner = s.invalidateOnWrite(s.activeUser(s.customerScope(api)))
-	mux.Handle("/v1/", auth.Middleware(s.secret, s.resolveAPIKey)(s.inner))
+	registerAuthenticatedAPI(mux, api, s)
 
 	// Only one replica runs the scheduler at a time (Postgres advisory lock).
 	go leader.Run(ctx, st.Pool, leaderReportScheduler, "report-scheduler", 10*time.Second, s.reportScheduler)

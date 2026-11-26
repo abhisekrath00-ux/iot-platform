@@ -2,6 +2,8 @@ package main
 
 // This is a same-user disposable process proof, not installation or systemd.
 import (
+	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -12,6 +14,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/brokeracl"
 	"github.com/abhisekrath00-ux/iot-platform/server/internal/pki"
@@ -28,13 +31,44 @@ import (
 	"time"
 )
 
-func acceptedRuntimeBrokerSourceProof(t *testing.T, s *server, agent, identity, gateway, tenant, serial string, deviceCA, deviceCAKey []byte, mapProduct func([]byte) ([]byte, error)) {
+func acceptedRuntimeBrokerSourceProof(t *testing.T, s *server, agent, identity, gateway, tenant, serial string, deviceCA, deviceCAKey []byte, mapProduct func([]byte) ([]byte, error), exactReceipt func(string, string)) {
 	t.Helper()
 	broker := os.Getenv("HEX_ACCEPTED_RUNTIME_MOSQUITTO")
 	ingest := os.Getenv("HEX_ACCEPTED_RUNTIME_INGEST")
 	if broker == "" {
 		return
 	}
+	// A foreign preexisting telemetry event is not owned by the runtime fixture.
+	sentinel := "commissioning-preexisting-sentinel"
+	var sentinelExists bool
+	if e := s.st.Pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM telemetry WHERE event_id=$1)`, sentinel).Scan(&sentinelExists); e != nil || sentinelExists {
+		t.Fatal("sentinel not fresh", e)
+	}
+	t.Cleanup(func() {
+		var n int
+		if e := s.st.Pool.QueryRow(context.Background(), `SELECT count(*)FROM telemetry WHERE event_id=$1 AND tenant_id='preexisting-sentinel' AND value=777`, sentinel).Scan(&n); e != nil || n != 1 {
+			t.Error("foreign telemetry sentinel changed", e, n)
+		}
+		if _, e := s.st.Pool.Exec(context.Background(), `DELETE FROM telemetry WHERE event_id=$1 AND tenant_id='preexisting-sentinel'`, sentinel); e != nil {
+			t.Error(e)
+		}
+	})
+	if _, e := s.st.Pool.Exec(t.Context(), `INSERT INTO telemetry(event_id,tenant_id,gateway_id,device_id,point_id,observed_at,value,unit,schema_version)VALUES($1,'preexisting-sentinel','foreign-gateway','foreign-device','foreign-point',now(),777,'x',1)`, sentinel); e != nil {
+		t.Fatal(e)
+	}
+	// Registered before any producer/process starts. Later process cleanup runs first.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, e := s.st.Pool.Exec(ctx, `DELETE FROM telemetry WHERE tenant_id=$1 AND gateway_id=$2 AND device_id='synthetic-meter' AND point_id='temperature'`, tenant, gateway); e != nil {
+			t.Error("exact owned telemetry cleanup", e)
+			return
+		}
+		var n int
+		if e := s.st.Pool.QueryRow(ctx, `SELECT count(*)FROM telemetry WHERE tenant_id=$1 AND gateway_id=$2`, tenant, gateway).Scan(&n); e != nil || n != 0 {
+			t.Error("telemetry absence", n, e)
+		}
+	})
 	root := t.TempDir()
 	if e := os.Chmod(root, 0700); e != nil {
 		t.Fatal(e)
@@ -131,8 +165,18 @@ func acceptedRuntimeBrokerSourceProof(t *testing.T, s *server, agent, identity, 
 	}
 	port := l.Addr().(*net.TCPAddr).Port
 	l.Close()
-	acl := save("acl", []byte(brokeracl.Generate([]brokeracl.Entry{{Serial: serial, TenantID: tenant, GatewayID: gateway}})))
-	conf := save("broker.conf", []byte(fmt.Sprintf("listener %d %s\ncafile %s\ncertfile %s\nkeyfile %s\nrequire_certificate true\nuse_identity_as_username true\nallow_anonymous false\nacl_file %s\npersistence false\n", port, ip, caPath, bc, bk, acl)))
+	aclText, _, e := brokeracl.SnapshotCertificateACL(t.Context(), s.st.Pool)
+	if e != nil {
+		t.Fatal(e)
+	}
+	acl := save("acl", []byte(aclText))
+	t.Setenv("BROKER_ACL_FILE", acl)
+	t.Setenv("BROKER_CERT_ONLY", "1")
+	if e := s.regenerateBrokerACL(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	var brokerProcess *os.Process
+	conf := save("broker.conf", []byte(fmt.Sprintf("user root\nlistener %d %s\ncafile %s\ncertfile %s\nkeyfile %s\nrequire_certificate true\nuse_identity_as_username true\nallow_anonymous false\nacl_file %s\npersistence false\n", port, ip, caPath, bc, bk, acl)))
 	start := func(name, bin string, args ...string) *os.File {
 		t.Helper()
 		f, e := os.Create(filepath.Join(root, name+".log"))
@@ -149,17 +193,33 @@ func acceptedRuntimeBrokerSourceProof(t *testing.T, s *server, agent, identity, 
 		if e = cmd.Start(); e != nil {
 			t.Fatal(e)
 		}
+		if name == "broker" {
+			brokerProcess = cmd.Process
+		}
 		t.Cleanup(func() {
-			cmd.Process.Signal(syscall.SIGTERM)
-			done := make(chan struct{})
-			go func() { cmd.Wait(); close(done) }()
-			select {
-			case <-done:
-			case <-time.After(3 * time.Second):
-				cmd.Process.Kill()
-				<-done
+			if e := cmd.Process.Signal(os.Interrupt); e != nil && !errors.Is(e, os.ErrProcessDone) {
+				t.Error("producer signal", name, e)
 			}
-			f.Close()
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			select {
+			case e := <-done:
+				if e != nil {
+					t.Error("producer exit", name, e)
+				}
+			case <-time.After(5 * time.Second):
+				if e := cmd.Process.Kill(); e != nil {
+					t.Error("producer kill", name, e)
+				}
+				<-done
+				t.Error("producer exceeded shutdown deadline", name)
+			}
+			if e := f.Close(); e != nil {
+				t.Error("producer log close", e)
+			}
+			if _, e := os.Stat(fmt.Sprintf("/proc/%d", cmd.Process.Pid)); !os.IsNotExist(e) {
+				t.Error("producer PID remains", name, e)
+			}
 		})
 		return f
 	}
@@ -322,8 +382,88 @@ func acceptedRuntimeBrokerSourceProof(t *testing.T, s *server, agent, identity, 
 						}
 						time.Sleep(30 * time.Millisecond)
 					}
+					if exactReceipt != nil {
+						exactReceipt(gateway, r.Event)
+					}
 					t.Log("PASS same accepted retained identity compiled edge -> distinct-CA mTLS ACL broker -> compiled production ingest -> exact event/tenant/gateway/device/point measured110 PostgreSQL receipt")
 				}
+				// Existing accepted identity proves data denial after current DB revoke and ACL reload.
+				pairV, e := tls.LoadX509KeyPair(filepath.Join(identity, "identity.crt"), filepath.Join(identity, "identity.key"))
+				if e != nil {
+					t.Fatal(e)
+				}
+				connectVictim := func(id string) mqtt.Client {
+					o := mqtt.NewClientOptions().AddBroker(fmt.Sprintf("ssl://%s:%d", ip, port)).SetClientID(id).SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, Certificates: []tls.Certificate{pairV}})
+					c := mqtt.NewClient(o)
+					tok := c.Connect()
+					if !tok.WaitTimeout(5*time.Second) || tok.Error() != nil {
+						t.Fatal("victim connect", tok.Error())
+					}
+					return c
+				}
+				existing := connectVictim("commissioning-existing")
+				defer existing.Disconnect(100)
+				// Drain prior high-rate measured readings before the one-shot witness.
+				for len(messages) > 0 {
+					<-messages
+				}
+				baseline := []byte(`{"probe":"before-denial"}`)
+				tok := existing.Publish(topic, 1, false, baseline)
+				if !tok.WaitTimeout(3*time.Second) || tok.Error() != nil {
+					t.Fatal(tok.Error())
+				}
+				found := false
+				until := time.After(3 * time.Second)
+				for !found {
+					select {
+					case b := <-messages:
+						found = bytes.Equal(b, baseline)
+					case <-until:
+						t.Fatal("no baseline probe")
+					}
+				}
+				if _, e := s.st.Pool.Exec(t.Context(), `UPDATE gateways SET status='revoked' WHERE id=$1 AND tenant_id=$2`, gateway, tenant); e != nil {
+					t.Fatal(e)
+				}
+				if e := s.regenerateBrokerACL(t.Context()); e != nil {
+					t.Fatal(e)
+				}
+				if e := brokerProcess.Signal(syscall.SIGHUP); e != nil {
+					t.Fatal(e)
+				}
+				// Wait for actual broker reload evidence, not a successful signal alone.
+				deadline := time.Now().Add(3 * time.Second)
+				for {
+					b, _ := os.ReadFile(filepath.Join(root, "broker.log"))
+					if strings.Contains(string(b), "Reloading config") {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("reload not observed")
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				fresh := connectVictim("commissioning-fresh")
+				defer fresh.Disconnect(100)
+				for _, c := range []mqtt.Client{existing, fresh} {
+					c.Publish(topic, 0, false, []byte(`{"probe":"denied-after-reload"}`)).WaitTimeout(time.Second)
+				}
+				denial := time.After(600 * time.Millisecond)
+				for {
+					select {
+					case b := <-messages:
+						if bytes.Contains(b, []byte("denied-after-reload")) {
+							t.Fatal("revoked data delivered")
+						}
+					case <-denial:
+						goto denied
+					}
+				}
+			denied:
+				if _, e := s.st.Pool.Exec(t.Context(), `UPDATE gateways SET status='active' WHERE id=$1 AND tenant_id=$2`, gateway, tenant); e != nil {
+					t.Fatal(e)
+				}
+				t.Log("PASS same accepted certificate existing/fresh MQTT connections still connect but publish data denied after DB revoke -> existing ACL regeneration -> observed SIGHUP reload; no disconnect or CONNECT refusal")
 				t.Log("PASS actual .run accepted identity -> checked mapping -> compiled edge same-user runtime -> distinct-CA certificate-required own-topic broker -> independent measured110 receipt; no systemd/privileged installation/physical device proof")
 				return
 			}

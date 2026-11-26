@@ -4,7 +4,9 @@ import { api } from '../lib/api';
 import { DeviceInput, EDGE_TEMPLATES, deviceYaml, validateDevice } from '../lib/edgeSetup';
 
 interface Site { id: string; name: string; }
-interface Minted { server_url: string; fallback_urls?: string[]; warnings?: string[]; gateway_id: string; claim_code: string; expires_at: string; enroll_string: string; }
+interface Commissioning {server:string;tenant:string;transport_sha256:string;device_sha256:string;response_key_sha256:string}
+interface Receipt {event_id:string;gateway_id:string;tenant_id:string;device_id:string;point_id:string;value:number;unit:string;quality:string;observed_at:string;received_at:string;state:string}
+interface Minted { server_url: string; fallback_urls?: string[]; warnings?: string[]; gateway_id: string; claim_code: string; expires_at: string; enroll_string: string; retained_input?: Record<string,unknown>; state?: string; }
 interface Gw { id: string; serial: string; status: string; kind: string; }
 
 function save(name: string, text: string) {
@@ -21,6 +23,12 @@ export default function EdgeSetup() {
   const [gw, setGw] = useState<Gw | null>(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [commissioning, setCommissioning] = useState<Commissioning|null>(null);
+  const [eventID,setEventID]=useState('');
+  const [receipt,setReceipt]=useState<Receipt|null>(null);
+  const [receiptError,setReceiptError]=useState('');
+  const [commissioningMode,setCommissioningMode] = useState(false);
+  useEffect(() => { api<Commissioning>('/v1/enrollment/commissioning').then(setCommissioning).catch(() => setCommissioning(null)); }, []);
   const errs = validateDevice(dev);
   const tpl = EDGE_TEMPLATES.find((t) => t.id === dev.templateId)!;
   const [addr, setAddr] = useState<{ resolved: string[]; warnings: string[] } | null>(null);
@@ -38,10 +46,11 @@ export default function EdgeSetup() {
 
   async function mint() {
     setBusy(true); setMsg('');
-    try { setMinted(await api<Minted>('/v1/enrollment/tokens', { method: 'POST', body: JSON.stringify({ site_id: site, serial: serial.trim(), ttl_hours: 72, kind: 'edge' }) })); }
+    try { setMinted(await api<Minted>('/v1/enrollment/tokens', { method: 'POST', headers: commissioningMode ? {'X-HexThings-Commissioning':'1'} : {}, body: JSON.stringify({ site_id: site, serial: serial.trim(), ttl_hours: commissioningMode ? 1 : 72, kind: 'edge' }) })); }
     catch (e) { setMsg(String((e as Error).message ?? e)); }
     setBusy(false);
   }
+  async function checkReceipt(){setReceipt(null);setReceiptError('');if(!minted)return;try{const r=await api<Receipt>(`/v1/enrollment/commissioning/receipt?gateway_id=${encodeURIComponent(minted.gateway_id)}&event_id=${encodeURIComponent(eventID.trim())}`);if(r.state!=='exact_event_received'||r.gateway_id!==minted.gateway_id||r.event_id!==eventID.trim()||r.tenant_id!==commissioning?.tenant)throw new Error('Exact receipt mismatch');setReceipt(r);}catch(e){setReceiptError(String((e as Error).message??e));}}
   const num = (k: keyof DeviceInput) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setDev({ ...dev, [k]: Number(e.target.value) });
   const lin = `sudo ./install.sh --server ${allAddr.join(',')} --code ${minted?.claim_code ?? 'CODE'} --serial ${serial || 'SERIAL'} --yes`;
   const win = `.\\install.ps1 -Server ${allAddr.join(',')} -Code ${minted?.claim_code ?? 'CODE'} -Serial ${serial || 'SERIAL'}`;
@@ -51,8 +60,8 @@ export default function EdgeSetup() {
     <div>
       <h2>Set up an edge device</h2>
       <p className="muted">Describe the device, download its settings, install the edge agent on the box next to it, plug the sensor in. The platform then shows the data.</p>
-      <EdgeDownloads />
-      <div style={{ marginBottom: 12 }}>{step(1, 'Describe', !!serial && !errs.length)}{step(2, 'Get claim code', !!minted)}{step(3, 'Install and connect', gw?.status === 'active' || gw?.status === 'online')}</div>
+      {!commissioningMode && <EdgeDownloads />}
+      <div style={{ marginBottom: 12 }}>{step(1, 'Describe', !!serial && !errs.length)}{step(2, 'Get claim code', !!minted)}{step(3, commissioningMode ? 'Private handoff, not installation' : 'Install and connect', !commissioningMode && (gw?.status === 'active' || gw?.status === 'online'))}</div>
 
       <div className="card">
         <h3>1. Describe the edge device and sensor</h3>
@@ -131,13 +140,29 @@ export default function EdgeSetup() {
 
       <div className="card" style={{ marginTop: 12 }}>
         <h3>2. Get the claim code and settings</h3>
+        {commissioning && <label style={{display:"flex",gap:8,alignItems:"center"}}><input style={{width:"auto",margin:0}} type="checkbox" checked={commissioningMode} disabled={!!minted} onChange={e=>setCommissioningMode(e.target.checked)}/> Short commissioning handoff, no service installation</label>}
+        {commissioningMode && <p>Confirm this server's independently trusted origin and fingerprints before importing a file. Server: {commissioning?.server}. Tenant: {commissioning?.tenant}. Claim 1 hour, result up to 45 minutes, certificate 1 day. No unattended deployment.</p>}
+        {commissioningMode && <dl style={{overflowWrap:'anywhere'}}><dt>Transport PEM SHA256</dt><dd>{commissioning?.transport_sha256}</dd><dt>Device PEM SHA256</dt><dd>{commissioning?.device_sha256}</dd><dt>Result public key SHA256</dt><dd>{commissioning?.response_key_sha256}</dd></dl>}
         <button disabled={busy || !site || !serial.trim() || errs.length > 0 || !!minted} onClick={mint}>Create claim code</button>{' '}
         <button className="secondary" disabled={errs.length > 0} onClick={() => save('edge-devices.yaml', deviceYaml(dev))}>Download device settings (YAML)</button>
         {msg && <p role="alert">{msg}</p>}
-        {minted && <p role="status">Claim code <code>{minted.claim_code}</code>, valid until {new Date(minted.expires_at).toLocaleString()}. It is shown once. Treat it like a password.</p>}
+        {minted && !commissioningMode && <p role="status">Claim code <code>{minted.claim_code}</code>, valid until {new Date(minted.expires_at).toLocaleString()}. It is shown once. Treat it like a password.</p>}
       </div>
 
-      <div className="card" style={{ marginTop: 12 }}>
+      {commissioningMode ? <div className="card" style={{marginTop:12}}>
+        <h3>3. Review the private commissioning handoff</h3>
+        <p>Choose a private destination folder locally. This input is not an installation command. Keep it private for explicit same-key recovery; do not replay create after an uncertain result.</p>
+        <button disabled={!minted?.retained_input} onClick={()=>save('hexthings-private-commissioning.json',JSON.stringify(minted?.retained_input,null,2))}>Download private input</button>
+        <p>Linux only: run the unpacked adjacent manager as your non-root user with <code>./edge-manager.sh commissioning</code>, never sudo. Choose the private input, retained/prepared folders and separate accepted-identity destination, enter these independently authenticated fingerprints, then explicitly choose CREATE BOUND, RECOVER SAME, or separate ACCEPT PRIVATE. A 0644 browser download is refused. Make a private local copy first; other downloaded copies may remain. No Windows commissioning import or GUI is claimed.</p>
+        <p role="status">{minted ? 'Claim minted. Identity, broker admission and first telemetry are not yet verified here.' : 'Waiting for one authenticated mint.'}</p>
+        <p>After a lost reply, preserve the retained key/attempt and choose explicit recovery with the same private input. Expired or lost state needs an operator decision, not another gateway mint. Browser downloads may retain copies and cannot guarantee private permissions.</p>
+        <h4>Read an exact server receipt</h4>
+        <p>Enter the exact event ID independently observed by your test controller or operator. This is not automatic event discovery. Local retained identity does not prove runtime installation or telemetry. This read never promotes gateway status.</p>
+        <label>Controller/operator-observed event ID<input value={eventID} onChange={e=>{setEventID(e.target.value);setReceipt(null);setReceiptError('');}}/></label>
+        <button disabled={!minted||!eventID.trim()} onClick={()=>void checkReceipt()}>Check exact event receipt</button>
+        {receiptError&&<p role="alert">Receipt unavailable: {receiptError}</p>}
+        {receipt&&<p role="status" style={{overflowWrap:'anywhere'}}>Exact server event received: {receipt.event_id}. Gateway {receipt.gateway_id}. Tenant {receipt.tenant_id}. Device {receipt.device_id}, point {receipt.point_id}: {receipt.value} {receipt.unit}, {receipt.quality}. Observed {receipt.observed_at}, received {receipt.received_at}. Controller/operator-observed event ID, not product auto-discovery.</p>}
+      </div> : <div className="card" style={{ marginTop: 12 }}>
         <h3>3. Install on the edge box, then plug in the sensor</h3>
         {warns.map((w) => <p key={w} role="alert" style={{ color: '#dc2626' }}>{w} Set it under Settings, Server addresses.</p>)}
         {minted?.fallback_urls?.length ? <p className="muted">Fallback addresses are included in the commands above (comma separated). The installer and the claim step try them in order if the first cannot be reached.</p> : null}
@@ -147,7 +172,7 @@ export default function EdgeSetup() {
         <p className="muted">Append the downloaded devices block to <code>/etc/hexmon/edge-agent.yaml</code>, run <code>edge-agent -check-config</code>, then start the service.</p>
         <p>{!minted ? 'Waiting for step 2.' : !gw ? 'Waiting for the edge box to check in…' : `Edge box ${gw.serial}: ${gw.status}.`}</p>
         <p className="muted">Honest status: the generated settings and install commands are unit-tested for format only. The full path (install, claim, meter read, data in the dashboard) has not been run on a real edge box or real meter. The platform never writes to the meter.</p>
-      </div>
+      </div>}
     </div>
   );
 }

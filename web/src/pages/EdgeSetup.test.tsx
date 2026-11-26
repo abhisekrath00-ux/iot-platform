@@ -74,3 +74,35 @@ test('factory serial hint shows vendor-stated settings, never silently replaces 
   await setSel(tplSel, 'schneider-pm8000');
   expect([...box.querySelectorAll('p')].some((p) => p.textContent?.includes('factory serial settings'))).toBe(false);
 });
+
+test('commissioning stays a private short handoff and hides legacy command/service instructions', async()=>{
+ vi.mocked(api).mockImplementation((url:string)=>{
+  if(url==='/v1/sites')return Promise.resolve([{id:'site-1',name:'Main site'}])as any;
+  if(url==='/v1/enrollment/commissioning')return Promise.resolve({server:'https://commission.example.invalid',tenant:'synthetic'})as any;
+  if(url.startsWith('/v1/system/endpoints'))return Promise.resolve({resolved:[],warnings:[]})as any;
+  return Promise.reject(new Error('not mocked'))as any;
+ });
+ await act(async()=>root.render(<MemoryRouter><EdgeSetup/></MemoryRouter>));await act(async()=>{});
+ const checkbox=[...box.querySelectorAll('input[type=checkbox]')].find(e=>e.parentElement?.textContent?.includes('Short commissioning handoff'))as HTMLInputElement;
+ await act(async()=>checkbox.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+ expect(box.textContent).toContain('Short commissioning handoff');
+ expect(box.textContent).toContain('Claim 1 hour, result up to 45 minutes, certificate 1 day');
+ expect(box.textContent).toContain('not an installation command');
+ expect(box.textContent).not.toContain('sudo ./install.sh');
+ expect(box.textContent).not.toContain('start the service');
+ expect([...box.querySelectorAll('button')].find(b=>b.textContent==='Download private input')?.disabled).toBe(true);
+});
+
+test('exact receipt is an explicit scoped read and never inferred from gateway status',async()=>{
+ vi.mocked(api).mockImplementation((url:string)=>{
+  if(url==='/v1/sites')return Promise.resolve([{id:'site-1',name:'Main site'}])as any;
+  if(url==='/v1/enrollment/commissioning')return Promise.resolve({server:'https://commission.example.invalid',tenant:'synthetic',transport_sha256:'a'.repeat(64),device_sha256:'b'.repeat(64),response_key_sha256:'c'.repeat(64)})as any;
+  if(url.startsWith('/v1/system/endpoints'))return Promise.resolve({resolved:[],warnings:[]})as any;
+  return Promise.reject(new Error('not mocked'))as any;
+ });
+ await act(async()=>root.render(<MemoryRouter><EdgeSetup/></MemoryRouter>));await act(async()=>{});
+ const checkbox=[...box.querySelectorAll('input[type=checkbox]')].find(e=>e.parentElement?.textContent?.includes('Short commissioning'))as HTMLInputElement;await act(async()=>checkbox.click());
+ expect(box.textContent).toContain('Transport PEM SHA256');expect(box.textContent).toContain('not automatic event discovery');expect(box.textContent).toContain('never promotes gateway status');expect([...box.querySelectorAll('button')].find(b=>b.textContent==='Check exact event receipt')?.disabled).toBe(true);
+ expect(vi.mocked(api).mock.calls.some(c=>c[0].startsWith('/v1/enrollment/commissioning/receipt'))).toBe(false);
+ expect(box.textContent).not.toContain('Download and install the edge application');
+});

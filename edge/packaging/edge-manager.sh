@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # Local operator menu installed by the executable installer. All writes are explicit.
 set -euo pipefail
+# Commissioning is deliberately before the root/service manager boundary.
+if [ "${1:-}" = commissioning ]; then
+ [ "$#" = 1 ] || { echo 'Commissioning accepts no extra arguments.' >&2;exit 2; }
+ [ "$(id -u)" != 0 ] || { echo 'Run commissioning as your non-root user, without sudo. No input was read.' >&2;exit 2; }
+ here="$(cd "$(dirname "$0")" && pwd)"
+ [ -f "$here/edge-agent" ] && [ -x "$here/edge-agent" ] && [ ! -L "$here/edge-agent" ] || { echo 'Exact adjacent executable unavailable.' >&2;exit 2; }
+ exec "$here/edge-agent" -import-commissioning
+fi
 BIN=${HEXMON_PREFIX:-/usr/local/bin}/edge-agent
 CONFIG=${HEXMON_ETC:-/etc/hexmon}/edge-agent.yaml
 STATE=${HEXMON_STATE:-/var/lib/hexmon-edge}

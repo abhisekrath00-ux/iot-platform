@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -120,6 +121,18 @@ func (c CandidateAttempts) Execute(ctx context.Context, in AttemptInput, recover
 	}
 	if len(response) == 0 || len(response) > 131072 || len(issued.Fingerprint) != 64 {
 		return nil, ErrAttemptRefused
+	}
+	// Persist only the effective recovery deadline, never the longer code TTL.
+	var result struct {
+		Manifest []byte `json:"manifest"`
+	}
+	var manifest CandidateManifest
+	if json.Unmarshal(response, &result) != nil || json.Unmarshal(result.Manifest, &manifest) != nil || manifest.Expires <= time.Now().Unix() {
+		return nil, ErrAttemptRefused
+	}
+	resultDeadline := time.Unix(manifest.Expires, 0)
+	if resultDeadline.Before(expiry) {
+		expiry = resultDeadline
 	}
 	tag, e := tx.Exec(ctx, `UPDATE enrollment_tokens SET claimed_at=now() WHERE id=$1 AND claimed_at IS NULL`, token)
 	if e != nil || tag.RowsAffected() != 1 {

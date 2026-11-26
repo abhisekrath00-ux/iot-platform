@@ -103,6 +103,7 @@ func main() {
 	openExplorerFlag := flag.Bool("open-explorer", false, "request a temporary loopback explorer from the running agent; no service restart or device read")
 	closeExplorerFlag := flag.Bool("close-explorer", false, "close the running agent explorer and temporary connections without stopping telemetry")
 	explorerListen := flag.String("explorer-listen", "", "opt-in read-only Modbus explorer on literal loopback IP:port; owned or explicitly opened temporary connections, disabled by default")
+	commissionImport := flag.Bool("import-commissioning", false, "Linux non-root private commissioning input review and explicit retained create/recover only")
 	runtimeAssembly := flag.Bool("assemble-private-runtime", false, "experimental creation-bound nonexecuting private runtime transaction, no system install or activation")
 	runtimeMapping := flag.Bool("review-runtime-mapping", false, "emit reviewed config/unit mapping from explicit private inputs, no installation or start")
 	claimAcceptPrivate := flag.Bool("accept-private-identity", false, "experimental explicit private identity transaction after current recovery; no system install or service")
@@ -114,11 +115,17 @@ func main() {
 	claimRecovery := flag.Bool("recover-retained-claim", false, "experimental explicit same-attempt HTTPS result recovery from stdin, no enrollment retry or installer changes")
 	claimNewAttempt := flag.Bool("create-retained-claim", false, "experimental explicit new retained claim from stdin, refuses existing state, no installer changes")
 	flag.Parse()
-	if *runtimeAssembly || *runtimeMapping || *claimAcceptPrivate || *claimPrepareReview || *claimPrepare || *claimInstallStage || *claimInstallReview || *claimReview || *claimRecovery || *claimNewAttempt {
+	if *commissionImport || *runtimeAssembly || *runtimeMapping || *claimAcceptPrivate || *claimPrepareReview || *claimPrepare || *claimInstallStage || *claimInstallReview || *claimReview || *claimRecovery || *claimNewAttempt {
 		n := 0
 		flag.Visit(func(f *flag.Flag) { n++ })
 		if n != 1 || flag.NArg() != 0 {
 			log.Fatal("retained claim review or recovery cannot be combined with any other action")
+		}
+		if *commissionImport {
+			if e := setup.RunCommissioningImport(os.Stdin, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
 		}
 		if *runtimeAssembly {
 			if e := setup.RunPrivateRuntimeAssembly(context.Background(), os.Stdin, os.Stdout); e != nil {

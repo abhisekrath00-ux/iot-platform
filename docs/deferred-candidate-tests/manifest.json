@@ -7,15 +7,15 @@
       "original": "server/cmd/api/claim_attempt_service_test.go",
       "deferred": "docs/deferred-candidate-tests/claim_attempt_service_test.go.deferred",
       "sha256": "42ad60246106c6878f18ce3861474301956959305912895b0db3bd398a28024f",
-      "active_sha256": "7ec785d3f3e296fac322f1ff323007e1bb0393dc68979dd5cae32f85eeac1269",
-      "active_revision": "local exact-owned fixture cleanup and failure-cut, parent approved 2026-11-26 14:42 IST"
+      "active_sha256": "9002301c9f49f66d72ba5dfdc38e6464b63444aad537537287140ffa986f2f3e",
+      "active_revision": "local bounded Linux commissioning, exact authenticated receipt and checked telemetry/data-denial acceptance; final publication held for review"
     },
     {
       "original": "server/cmd/api/claim_runtime_pipeline_test.go",
       "deferred": "docs/deferred-candidate-tests/claim_runtime_pipeline_test.go.deferred",
       "sha256": "f20e7edb740d345e81d2031e8e02f9f02380c15af35c4c2b1042bea9f488b374",
-      "active_sha256": "f20e7edb740d345e81d2031e8e02f9f02380c15af35c4c2b1042bea9f488b374",
-      "active_revision": "byte-identical restored original"
+      "active_sha256": "b8bf2dcbd55c59bca3f70d62a73856982952f87e0f33fc5ed9d90e3170ce753b",
+      "active_revision": "local bounded Linux commissioning, exact authenticated receipt and checked telemetry/data-denial acceptance; final publication held for review"
     }
   ]
 }
