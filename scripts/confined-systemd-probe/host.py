@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -26,15 +27,53 @@ def save(d, state):
     finally: os.close(fd)
 
 
+def image_id(value):
+    # Only two full SHA256 spellings. No short IDs, tags, whitespace or coercion.
+    assert isinstance(value, str) and re.fullmatch(r'(?:sha256:)?[0-9a-f]{64}', value), ('malformed image ID', value)
+    return 'sha256:' + value.removeprefix('sha256:')
+
+
+def container_id(value):
+    assert isinstance(value, str) and re.fullmatch(r'[0-9a-f]{64}', value), ('malformed container ID', value)
+    return value
+
+
+def audit_ids(kind, **values):
+    print(json.dumps({'identity_check': kind, **values}), flush=True)
+
+
+def validate_inspect(x):
+    h = x['HostConfig']
+    assert h['Privileged'] is False and h['NetworkMode'] == 'none'
+    # Podman4.9.3 reports CgroupMode, not Docker's CgroupnsMode.
+    assert h['CgroupMode'] == 'private' and h['PidMode'] == 'private'
+    assert h['Cgroups'] == 'default'
+    assert h['PortBindings'] in ({}, None) and h['Binds'] in ([], None)
+    assert x['Mounts'] in ([], None), 'no externally supplied volumes/binds'
+    security = h['SecurityOpt']
+    assert security is None or (isinstance(security, list) and all(isinstance(v, str) and 'unconfined' not in v for v in security))
+    caps = x['EffectiveCaps']
+    assert isinstance(caps, list) and all(isinstance(v, str) and re.fullmatch(r'CAP_[A-Z0-9_]+', v) for v in caps)
+    assert len(caps) == len(set(caps)) and {v.removeprefix('CAP_') for v in caps} == set(CAPS), ('unexpected capability set', caps)
+    assert h['PidsLimit'] == 128 and h['Memory'] == 768 * 1024 * 1024
+    assert h['CpuPeriod'] == 100000 and h['CpuQuota'] == 200000
+    assert h['LogConfig']['Type'] == 'k8s-file'
+
+
 def inspect_owned(state):
     # Exact predeclared unique name; immutable ID captured at first observation.
     result = subprocess.run(['podman','container','exists',state['name']], timeout=10)
     if result.returncode == 1: return None
     if result.returncode != 0: raise RuntimeError('container existence unavailable')
-    x = json.loads(call('inspect',state['name']))[0]
+    data = json.loads(call('container','inspect',state['name']))
+    assert isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict)
+    x = data[0]
+    audit_ids('container', expected_image=state['image'], observed_image=x['Image'], expected_container=state.get('id'), observed_container=x['Id'])
+    container_id(x['Id'])
     assert x['Config']['Labels'].get('hex.confined.owner') == state['token']
-    assert x['Image'] == state['image']
-    if state.get('id'): assert x['Id'] == state['id']
+    assert isinstance(x['State']['Running'], bool), 'unknown running state'
+    assert image_id(x['Image']) == image_id(state['image']), 'owned image mismatch'
+    if state.get('id'): assert container_id(x['Id']) == container_id(state['id']), 'owned container mismatch'
     return x
 
 
@@ -44,7 +83,7 @@ def cleanup(d):
     if x:
         state['id']=x['Id'];save(d,state)
         call('stop','--time','5',x['Id'],timeout=15)
-        x=inspect_owned(state);assert not x['State']['Running']
+        x=inspect_owned(state);assert x['State']['Running'] is False
         call('rm',x['Id'])
     assert inspect_owned(state) is None
     state['cleanup']='exact container absent';save(d,state)
@@ -52,10 +91,16 @@ def cleanup(d):
 
 
 def run(d):
-    image=Path(os.environ['PROBE_IMAGE_ID_FILE']).read_text().strip()
-    assert image.startswith('sha256:') and len(image)==71
-    assert call('image','inspect',image,'--format','{{.Id}}').strip()==image
-    state={'name':'hex-confined-probe-'+uuid.uuid4().hex,'token':uuid.uuid4().hex,'image':image}
+    raw_image = Path(os.environ['PROBE_IMAGE_ID_FILE']).read_text()
+    # IID file from Buildah has no newline; inspect formatter has one newline.
+    image = image_id(raw_image)
+    raw_inspected = call('image','inspect',image,'--format','{{.Id}}')
+    observed = raw_inspected.removesuffix('\n')
+    evidence = {'iid_file': raw_image, 'inspect_stdout': raw_inspected}
+    (d/'image-identity.json').write_text(json.dumps(evidence, indent=2))
+    audit_ids('image', **evidence)
+    assert image_id(observed) == image, 'built image mismatch'
+    state={'name':'hex-confined-probe-'+uuid.uuid4().hex,'token':uuid.uuid4().hex,'image':image,'image_identity':evidence}
     save(d,state)  # Before container creation; cleanup finds only matching random label+image.
     args=['create','--name',state['name'],'--label','hex.confined.owner='+state['token'],
           '--pull=never','--network=none','--cgroupns=private','--pid=private',
@@ -65,16 +110,10 @@ def run(d):
              '--log-opt=max-size=1048576','--env','PROBE_HOST_NETNS='+os.readlink('/proc/self/ns/net'),
              '--env','PROBE_HOST_CGROUPNS='+os.readlink('/proc/self/ns/cgroup'),image]
     try:
-        state['id']=call(*args).strip();save(d,state)
-        x=inspect_owned(state);h=x['HostConfig']
-        assert not h['Privileged'] and h['NetworkMode']=='none' and h['CgroupnsMode']=='private'
-        assert not h.get('PortBindings') and not h.get('Binds')
-        assert not x.get('Mounts'), 'no externally supplied volumes/binds'
-        assert not any('unconfined' in v for v in h.get('SecurityOpt',[]))
-        actual={cap.removeprefix('CAP_') for cap in x['EffectiveCaps']}
-        assert actual==set(CAPS), ('unexpected capability set',actual)
-        assert h.get('PidMode')=='private'
-        assert h.get('CgroupMode','private')=='private' 
+        state['id']=container_id(call(*args).removesuffix('\n'));save(d,state)
+        x=inspect_owned(state)
+        (d/'inspect-before-start.json').write_text(json.dumps(x, indent=2))
+        validate_inspect(x)
         save(d,{**state,'inspect_before_start':x})
         call('start',state['id'])
         # Readiness check only, no host systemctl.
