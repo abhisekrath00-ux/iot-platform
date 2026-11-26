@@ -1,0 +1,9 @@
+# Deferred candidate enrollment test fixtures
+
+These two exact-byte fixtures were introduced in483cdba425ce6a7b285535d3bd9236d681d27804 without their candidate enrollment implementation. They made ordinary server tests fail to compile at1f655f293deff6b362127b847c6a4c04ad07e921. This is a publication-composition correction, not passing or accepted candidate coverage. No assertions are removed from these stored bytes. The manifest records exact SHA256 and original paths.
+
+claim_runtime_pipeline_test.go contains only acceptedRuntimeBrokerSourceProof. Its only caller in the complete published source is claim_attempt_service_test.go; it is part of the same structurally orphaned coverage. Working current-product tests remain in ordinary compilation.
+
+The matching separately preserved unpublished candidate integration needs server/cmd/api/claim_attempt_service.go and server/internal/enroll/candidate.go, candidate.sql, candidate_http.go, candidate_issuer.go, candidate_manifest.go, candidate_service.go, candidate_verify.go, plus their four candidate test files. The candidate service requires explicit synthetic PostgreSQL schema/trust/issuer and HTTPS claim/recovery fixtures. None of those implementations is published by this correction. No product endpoint is enabled, no migration installed, and no guard weakened.
+
+Restore both fixtures to original paths only in a separately reviewed coherent candidate integration that supplies all dependencies, keeps default-off product composition, and passes full ordinary server tests/vet/build plus actual PostgreSQL/HTTPS candidate assertions and explicit broker/pipeline coverage. Until then the deferred assertions are NOT exercised by ordinary CI and must never be reported as coverage passing or delivery readiness. Original failure logs and exact matching unpublished source remain preserved in the build review evidence.

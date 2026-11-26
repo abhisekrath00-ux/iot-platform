@@ -1,0 +1,17 @@
+{
+  "source_commit": "483cdba425ce6a7b285535d3bd9236d681d27804",
+  "observed_tip": "1f655f293deff6b362127b847c6a4c04ad07e921",
+  "coverage": "deferred, not accepted or passed",
+  "files": [
+    {
+      "original": "server/cmd/api/claim_attempt_service_test.go",
+      "deferred": "docs/deferred-candidate-tests/claim_attempt_service_test.go.deferred",
+      "sha256": "42ad60246106c6878f18ce3861474301956959305912895b0db3bd398a28024f"
+    },
+    {
+      "original": "server/cmd/api/claim_runtime_pipeline_test.go",
+      "deferred": "docs/deferred-candidate-tests/claim_runtime_pipeline_test.go.deferred",
+      "sha256": "f20e7edb740d345e81d2031e8e02f9f02380c15af35c4c2b1042bea9f488b374"
+    }
+  ]
+}
