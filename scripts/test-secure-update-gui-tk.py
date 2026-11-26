@@ -42,8 +42,9 @@ class Tests(unittest.TestCase):
             except tk.TclError:pass
         if hasattr(self,'temp'):self.temp.cleanup()
     def window(self,prepare=None):
-        self.session=m.Session(self.temp.name,prepare);self.w=m.Window(self.root,tk,ttk,self.boxes,self.session)
-        for entry,value in zip(self.w.fields,['fixture','sha256:'+'b'*64,'new']):entry.insert(0,value)
+        self.snapshot={'projects':[{'name':'fixture','platform':'linux/amd64','containers':[]}],'images':[{'id':'sha256:'+'b'*64,'platform':'linux/amd64'}]}
+        self.session=m.Session(self.temp.name,prepare,lambda*a:self.snapshot);self.session.refresh();self.w=m.Window(self.root,tk,ttk,self.boxes,self.session)
+        for variable,value in zip(self.w.field_values,['fixture','sha256:'+'b'*64,'new']):variable.set(value)
         self.w.consent.set(True);self.root.update()
     def settle(self):
         end=time.monotonic()+3
@@ -74,7 +75,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(list(pathlib.Path(self.temp.name).iterdir()),[])
     def test_reopened_partial_plan_read_only_recovery_without_consent_or_image(self):
         self.window(lambda*a:self.fail('Recovery must not prepare'));plan=pathlib.Path(self.temp.name)/'partial';plan.mkdir(mode=0o700)
-        (plan/'candidate-runtime.json').write_text('private-partial-secret');self.w.fields[1].delete(0,'end');self.w.fields[2].delete(0,'end');self.w.fields[2].insert(0,'partial');self.w.consent.set(False)
+        (plan/'candidate-runtime.json').write_text('private-partial-secret');self.w.field_values[1].set('');self.w.fields[2].delete(0,'end');self.w.fields[2].insert(0,'partial');self.w.consent.set(False)
         self.w.review_existing();self.settle();self.assertEqual(self.boxes.confirmations,0)
         self.assertIn('incomplete',self.w.output.get('1.0','end'));self.assertNotIn('private-partial-secret',self.w.output.get('1.0','end'))
         self.assertEqual((plan/'candidate-runtime.json').read_text(),'private-partial-secret');self.assertIn('disabled',self.w.button.state())
@@ -86,4 +87,22 @@ class Tests(unittest.TestCase):
     def test_invalid_existing_folder_does_not_disable_correction(self):
         self.window(lambda*a:self.fail());self.w.review_existing()
         self.assertFalse(self.w.running);self.assertFalse(self.session.attempted);self.assertNotIn('disabled',self.w.fields[0].state())
+
+    def test_inventory_refresh_clears_selections_and_never_autochooses(self):
+        self.window(lambda*a:self.fail());self.w.refresh_inventory();self.settle()
+        self.assertEqual(self.w.fields[0].get(),'');self.assertEqual(self.w.fields[1].get(),'')
+        self.assertEqual(tuple(self.w.fields[0]['values']),('fixture',));self.assertFalse(self.session.attempted)
+        self.w.field_values[0].set('fixture');self.w.project_changed()
+        self.assertEqual(tuple(self.w.fields[1]['values']),('sha256:'+'b'*64,));self.assertEqual(self.w.fields[1].get(),'')
+    def test_failed_inventory_keeps_existing_plan_review_available(self):
+        self.window(lambda*a:self.fail())
+        def failed(*a):raise ValueError('private-secret')
+        self.session.discover=failed;self.w.refresh_inventory();self.settle()
+        self.assertIsNone(self.session.snapshot);self.assertNotIn('private-secret',self.w.inventory_status.get())
+        self.assertNotIn('disabled',self.w.review_button.state());self.assertEqual(self.w.fields[0].get(),'')
+    def test_small_supported_window_keeps_result_and_actions_visible(self):
+        self.window(lambda*a:self.fail());self.root.geometry('650x600');self.root.update()
+        for widget in [self.w.button,self.w.review_button,self.w.refresh_button,self.w.output]:
+            self.assertTrue(widget.winfo_ismapped());self.assertLess(widget.winfo_rooty(),600)
+        self.assertGreater(self.w.output.winfo_height(),60)
 if __name__=='__main__':unittest.main()
