@@ -52,6 +52,7 @@ TENANT = 'retain-tenant'
 USER = 'retain-user'
 SECRET = fixture.FIXTURE_JWT
 DEADLINE = 900
+IDLE = 180
 
 
 def stage(name, **fields):
@@ -74,12 +75,39 @@ def caller_command(root, project, receipt):
             '--root', str(root), '--project', project, '--receipt', str(receipt)]
 
 
-def pty_run(root, project, receipt, answers, kill_phase=None, deadline=DEADLINE, command=None):
+def prompt_answers(session, tenant, user, match, answer):
+    """Ordered (prompt substring, response) pairs for the real reviewed caller.
+
+    match is the exact typed-confirmation phrase the caller prints ('APPLY' or
+    'RECOVER', pinned to the caller source by the self-test contract guard);
+    answer is what actually gets typed, which may deliberately differ.
+    """
+    return [('session file path:', session), ('Expected tenant ID:', tenant),
+            ('Expected admin user ID:', user), ('Type ' + match, answer)]
+
+
+def redact(text):
+    for value in (PASSWORD, SECRET):
+        text = text.replace(value, '<redacted-fixture-material>')
+    return text
+
+
+def transcript_tail(output, limit=4000):
+    text = redact(output.decode(errors='replace'))
+    if len(text) > limit:
+        text = '...[' + str(len(text) - limit) + ' chars elided]...\n' + text[-limit:]
+    return text
+
+
+def pty_run(root, project, receipt, answers, kill_phase=None, deadline=DEADLINE, idle=IDLE, command=None):
     """Run the real reviewed caller on a real PTY, answering exact prompts.
 
     answers: ordered (prompt substring, response) pairs. Only prompt substrings
     are matched; echoed answers never retrigger. kill_phase: SIGKILL the process
-    group the first time the durable journal reaches that exact phase.
+    group the first time the durable journal reaches that exact phase. deadline
+    caps the whole run; idle fails fast when the caller goes silent with an
+    unanswered prompt pending (prompt mismatch), naming the unmatched substring.
+    Both failure paths attach the redacted transcript tail.
     """
     journal = pathlib.Path(root) / '.secure-deployment' / 'journal.json'
     master, slave = pty.openpty()
@@ -92,14 +120,28 @@ def pty_run(root, project, receipt, answers, kill_phase=None, deadline=DEADLINE,
     killed = False
     eof = False
     end = time.monotonic() + deadline
+    last_output = time.monotonic()
     try:
         while True:
-            if time.monotonic() > end:
+            now = time.monotonic()
+            if now > end:
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     pass
-                raise ValueError('Reviewed caller exceeded the fixture deadline.')
+                proc.wait()
+                raise ValueError('Reviewed caller exceeded the fixture deadline of ' + str(deadline)
+                                 + 's. Redacted transcript tail:\n' + transcript_tail(output))
+            if pending and not eof and proc.poll() is None and not killed and now - last_output > idle:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                proc.wait()
+                raise ValueError('Reviewed caller silent for ' + str(idle)
+                                 + 's with an unanswered prompt pending (unmatched prompt substring: '
+                                 + repr(pending[0][0]) + '). Redacted transcript tail:\n'
+                                 + transcript_tail(output))
             if eof and proc.poll() is not None:
                 break
             ready, _, _ = select.select([master], [], [], 0.05)
@@ -110,6 +152,7 @@ def pty_run(root, project, receipt, answers, kill_phase=None, deadline=DEADLINE,
                     chunk = b''
                 if chunk:
                     output += chunk
+                    last_output = time.monotonic()
                 else:
                     eof = True
             text = output.decode(errors='replace')
@@ -278,11 +321,10 @@ def fixture_main():
             fd, session = tempfile.mkstemp(prefix='synthetic-apply-session-', dir=work)
             with os.fdopen(fd, 'w') as out:
                 out.write(session_token())
-            prompts = lambda phrase: [('session file path:', session), ('Expected tenant ID:', TENANT),
-                                      ('Expected admin user ID:', USER), ('Type ' + phrase, phrase)]
             retained = helper.retained_snapshot
             new_id = json.loads(call(['docker', 'image', 'inspect', newimage]))[0]['Id']
             variant_id = json.loads(call(['docker', 'image', 'inspect', variantimage]))[0]['Id']
+            answers = lambda match, answer: prompt_answers(session, TENANT, USER, match, answer)
 
             # Refusals before any apply: non-TTY, blank/wrong phrase cancel and
             # a tampered reviewed receipt. None may change anything.
@@ -296,7 +338,7 @@ def fixture_main():
             stage('refusal non-tty')
             preparemod.prepare(work, project, new_id, work / 'plan')
             receipt = work / 'plan' / 'preflight.json'
-            code, out = pty_run(work, project, receipt, prompts('apply'))
+            code, out = pty_run(work, project, receipt, answers('APPLY', 'apply'), deadline=180)
             if code != 0 or 'Cancelled. Nothing changed.' not in out:
                 raise ValueError('Wrong-phrase cancellation missing.')
             checked_output(out, ['apply of the exact prepared plan', 'Not covered:'])
@@ -304,7 +346,7 @@ def fixture_main():
                 raise ValueError('Cancelled apply changed the fixture.')
             stage('refusal wrong phrase cancelled cleanly')
             bad = tampered_bundle(work / 'plan', work / 'plan-tampered')
-            code, out = pty_run(work, project, bad, prompts('APPLY'))
+            code, out = pty_run(work, project, bad, answers('APPLY', 'APPLY'), deadline=180)
             if code != 1 or 'could not be verified' not in out:
                 raise ValueError('Tampered reviewed receipt was not refused.')
             checked_output(out, [])
@@ -314,9 +356,9 @@ def fixture_main():
 
             # Apply 1: exact historical 89 -> current additive 93 through the
             # real reviewed caller, production provider and Coordinator.
-            code, out = pty_run(work, project, receipt, prompts('APPLY'))
+            code, out = pty_run(work, project, receipt, answers('APPLY', 'APPLY'))
             if code != 0 or 'settled: committed' not in out:
-                raise ValueError('Reviewed apply did not settle: ' + out[-2000:])
+                raise ValueError('Reviewed apply did not settle: ' + redact(out)[-2000:])
             checked_output(out, ['Plan SHA256', 'legacy Upgrade entry now permanently refuses'])
             if m.state.selection(work)['config'] != str(work / 'plan' / 'candidate-runtime.json'):
                 raise ValueError('Selection did not move to the reviewed candidate.')
@@ -358,9 +400,9 @@ def fixture_main():
             # Apply 2: republish with identical layers (distinct image ID). The
             # already-93 reviewed apply must be an acknowledged no-op.
             preparemod.prepare(work, project, variant_id, work / 'plan2')
-            code, out = pty_run(work, project, work / 'plan2' / 'preflight.json', prompts('APPLY'))
+            code, out = pty_run(work, project, work / 'plan2' / 'preflight.json', answers('APPLY', 'APPLY'))
             if code != 0 or 'settled: committed' not in out:
-                raise ValueError('Already-93 republish apply did not settle: ' + out[-2000:])
+                raise ValueError('Already-93 republish apply did not settle: ' + redact(out)[-2000:])
             checked_output(out, ['Plan SHA256'])
             if ledger() != new_migrations or helper.retained_snapshot != retained:
                 raise ValueError('Already-93 apply was not an acknowledged no-op.')
@@ -375,7 +417,7 @@ def fixture_main():
             # must hold, then a fresh typed RECOVER must settle consistently.
             preparemod.prepare(work, project, new_id, work / 'plan3')
             receipt3 = work / 'plan3' / 'preflight.json'
-            code, out = pty_run(work, project, receipt3, prompts('APPLY'), kill_phase='changing')
+            code, out = pty_run(work, project, receipt3, answers('APPLY', 'APPLY'), kill_phase='changing')
             if code != -signal.SIGKILL:
                 raise ValueError('Synthetic process loss did not happen.')
             checked_output(out, [])
@@ -390,9 +432,9 @@ def fixture_main():
             else:
                 raise ValueError('Interrupted apply allowed ordinary selection.')
             stage('apply3 interrupted mid-maintenance; selection blocked')
-            code, out = pty_run(work, project, receipt3, prompts('RECOVER'))
+            code, out = pty_run(work, project, receipt3, answers('RECOVER', 'RECOVER'))
             if code != 0 or 'settled: ' not in out:
-                raise ValueError('Typed recovery did not settle: ' + out[-2000:])
+                raise ValueError('Typed recovery did not settle: ' + redact(out)[-2000:])
             checked_output(out, ['RECOVERY of an interrupted maintenance session'])
             settled = out.split('settled: ', 1)[1].split('.', 1)[0].strip()
             if settled not in {'restored', 'committed'}:
@@ -431,8 +473,20 @@ def fixture_main():
 
 def self_test():
     """Local contract checks only; never Docker, never the real caller."""
-    if API_PORT != 8000 or '127.0.0.1:8000' not in (HERE / 'secure-update-apply.py').read_text().split('ORIGIN = ')[1].splitlines()[0]:
+    caller_text = (HERE / 'secure-update-apply.py').read_text()
+    if API_PORT != 8000 or '127.0.0.1:8000' not in caller_text.split('ORIGIN = ')[1].splitlines()[0]:
         raise AssertionError('caller origin drifted from the harness binding')
+    # Prompt contract guard: pin the harness match substrings to the real
+    # caller's prompt construction. Run 1717 hung 15 minutes because a
+    # lower-case 'Type apply' match never appeared in the caller's output.
+    for literal in ('Existing private admin session file path: ', 'Expected tenant ID: ',
+                    'Expected admin user ID: '):
+        if literal not in caller_text:
+            raise AssertionError('caller prompt literal drifted: ' + literal)
+    if "phrase = 'RECOVER' if action == 'recover' else 'APPLY'" not in caller_text:
+        raise AssertionError('caller typed-confirmation phrase construction drifted')
+    if "prompt('  Type ' + phrase + ' to start" not in caller_text:
+        raise AssertionError('caller typed-confirmation prompt construction drifted')
     for prefix, want in [(ROOT_PREFIX, 'hexthings-application-ci-'), (PROJECT_PREFIX, 'hexthings-app-ci-')]:
         if prefix != want:
             raise AssertionError('fixture prefix drifted from the native fixture contract')
@@ -450,13 +504,58 @@ def self_test():
                 'd=prompt("  Type APPLY to start the reviewed maintenance window, or Enter to cancel: ")\n'
                 'sys.exit(0 if (a,b,c,d)==("sess","t1","u1","APPLY") else 7)\n')
         journal.write_text(json.dumps({'phase': 'committed'}))
-        code, out = pty_run(root, 'fixture', root / 'unused', [('session file path:', 'sess'),
-                                                             ('Expected tenant ID:', 't1'),
-                                                             ('Expected admin user ID:', 'u1'),
-                                                             ('Type APPLY', 'APPLY')],
+        code, out = pty_run(root, 'fixture', root / 'unused',
+                            prompt_answers('sess', 't1', 'u1', 'APPLY', 'APPLY'),
                             deadline=30, command=[sys.executable, '-c', mock])
         if code != 0:
             raise AssertionError('PTY driver did not answer the exact prompt sequence')
+
+        # Fail-fast evidence: silence with an unanswered prompt pending names
+        # the unmatched substring and attaches a redacted transcript tail.
+        silent = ('import sys,time\n'
+                  'def prompt(t):\n sys.stdout.write(t);sys.stdout.flush();return sys.stdin.readline().strip()\n'
+                  'a=prompt("  Existing private admin session file path: ")\n'
+                  'sys.stdout.write("fixture marker ' + PASSWORD + ' then silence\\n");sys.stdout.flush()\n'
+                  'time.sleep(30)\n')
+        try:
+            pty_run(root, 'fixture', root / 'unused', prompt_answers('sess', 't1', 'u1', 'APPLY', 'APPLY'),
+                    deadline=60, idle=2, command=[sys.executable, '-c', silent])
+        except ValueError as error:
+            message = str(error)
+        else:
+            raise AssertionError('silent caller with a pending prompt was not failed fast')
+        if 'unmatched prompt substring' not in message or repr('Expected tenant ID:') not in message:
+            raise AssertionError('fail-fast did not name the unmatched prompt substring')
+        if PASSWORD in message or '<redacted-fixture-material>' not in message:
+            raise AssertionError('fail-fast transcript tail was not redacted')
+
+        # Regression of run 1717: a lower-case 'apply' match against the real
+        # upper-case prompt fails fast and names the drifted substring.
+        try:
+            pty_run(root, 'fixture', root / 'unused', prompt_answers('sess', 't1', 'u1', 'apply', 'apply'),
+                    deadline=60, idle=2, command=[sys.executable, '-c', mock])
+        except ValueError as error:
+            message = str(error)
+        else:
+            raise AssertionError('a drifted prompt match was not caught')
+        if repr('Type apply') not in message or 'unmatched prompt substring' not in message:
+            raise AssertionError('regression did not name the drifted match substring')
+
+        # Deadline evidence: a hung caller still yields the redacted tail.
+        hanger = ('import sys,time\n'
+                  'sys.stdout.write("started ' + PASSWORD + '\\n");sys.stdout.flush()\n'
+                  'time.sleep(30)\n')
+        try:
+            pty_run(root, 'fixture', root / 'unused', [], deadline=2, idle=60,
+                    command=[sys.executable, '-c', hanger])
+        except ValueError as error:
+            message = str(error)
+        else:
+            raise AssertionError('hung caller did not hit the fixture deadline')
+        if 'exceeded the fixture deadline of 2s' not in message:
+            raise AssertionError('deadline error lost its context')
+        if PASSWORD in message or '<redacted-fixture-material>' not in message:
+            raise AssertionError('deadline transcript tail was not redacted')
 
         # PTY driver kills exactly at the requested durable phase.
         killer = ('import json,pathlib,time,sys\n'
@@ -493,8 +592,10 @@ def self_test():
                              env=env, capture_output=True, text=True)
     if refusal.returncode == 0 or 'Disposable standard Ubuntu runner only' not in refusal.stderr + refusal.stdout:
         raise AssertionError('native entry ran without disposable-runner markers')
-    print('SELF_TEST_ONLY: PTY prompt driving, phase-triggered SIGKILL, single-byte tamper copy and '
-          'runner-marker refusal; no Docker image, real caller execution or owner acceptance', flush=True)
+    print('SELF_TEST_ONLY: caller prompt contract guard, PTY prompt driving, fail-fast idle mismatch '
+          'evidence, deadline transcript capture (both redacted), phase-triggered SIGKILL, single-byte '
+          'tamper copy and runner-marker refusal; no Docker image, real caller execution or owner acceptance',
+          flush=True)
 
 
 def main():
