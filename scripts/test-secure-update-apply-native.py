@@ -11,6 +11,7 @@ fresh TLS, Windows, full background compatibility or physical device proof.
 --self-test is local only and never touches Docker.
 """
 import argparse
+import ast
 import base64
 import hashlib
 import hmac
@@ -19,6 +20,7 @@ import json
 import os
 import pathlib
 import pty
+import re
 import select
 import shutil
 import signal
@@ -487,6 +489,70 @@ def self_test():
         raise AssertionError('caller typed-confirmation phrase construction drifted')
     if "prompt('  Type ' + phrase + ' to start" not in caller_text:
         raise AssertionError('caller typed-confirmation prompt construction drifted')
+
+    # Failure-line contract: the caller prints the exact ValueError refusal
+    # from the reviewed transaction path and suppresses every other error
+    # type's message.
+    caller = load('secure-update-apply')
+    line = caller.describe_failure('recover', ValueError('A database writer is still active; schema operation refused.'))
+    if 'failed or was refused: ValueError: A database writer is still active; schema operation refused.' not in line:
+        raise AssertionError('caller failure line lost the exact ValueError refusal')
+    if 'Maintenance protection is retained' not in line or 'No legacy fallback exists.' not in line:
+        raise AssertionError('caller failure line lost its settlement guidance')
+    secret = 'fixture-only-never-print-' + PASSWORD
+    for bad in (OSError(secret), KeyError(secret), TypeError(secret), RuntimeError(secret)):
+        line = caller.describe_failure('apply', bad)
+        if secret in line or 'refused: ' + type(bad).__name__ + '. ' not in line:
+            raise AssertionError('caller failure line leaked a ' + type(bad).__name__ + ' message')
+
+    # Static-message guard over the caller's whole module closure: every
+    # ValueError must stay a fixed literal so the failure line can never leak
+    # a path, an environment value or session material. Five audited sites
+    # append machine identifiers only (a field/type name, fixed diagnostic
+    # codes or a service name); any new interpolated ValueError fails here
+    # for review before it can reach the failure line.
+    expected_closure = {'secure-application', 'secure-application-acceptance', 'secure-application-client',
+                        'secure-application-connections', 'secure-application-docker',
+                        'secure-application-local-admission', 'secure-application-production',
+                        'secure-application-provider', 'secure-application-reads',
+                        'secure-application-startgroup', 'secure-execution', 'secure-generation',
+                        'secure-postgres-fence', 'secure-postgres-hba', 'secure-postgres-hba-docker',
+                        'secure-postgres-hosttool', 'secure-postgres-namespace', 'secure-postgres-operator',
+                        'secure-postgres-outside', 'secure-preflight', 'secure-readiness',
+                        'secure-recovery-review', 'secure-runtime', 'secure-state', 'secure-transaction',
+                        'secure-transport-docker', 'secure-update-apply', 'secure-update-review'}
+    seen = set()
+    stack = ['secure-update-apply']
+    while stack:
+        name = stack.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        stack += re.findall(r"load\('([a-z0-9-]+)'\)", (HERE / (name + '.py')).read_text())
+    if seen != expected_closure:
+        raise AssertionError('caller module closure drifted; audit every ValueError message in: '
+                             + ', '.join(sorted(seen ^ expected_closure)))
+    allowed_interpolated = {('secure-application-docker', 'Actual container '),
+                            ('secure-application-provider',
+                             'Exact closed zero-session database behind local-only HBA required. Failed checks: '),
+                            ('secure-runtime', 'An ordinary service has no verified immutable image: '),
+                            ('secure-runtime', 'Exact local immutable image ID required: '),
+                            ('secure-runtime', 'Application image changed during transport migration: ')}
+    for name in sorted(seen):
+        tree = ast.parse((HERE / (name + '.py')).read_text())
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)
+                    and getattr(node.exc.func, 'id', '') == 'ValueError' and node.exc.args):
+                argument = node.exc.args[0]
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    continue
+                cursor = argument
+                while isinstance(cursor, ast.BinOp) and isinstance(cursor.op, ast.Add):
+                    cursor = cursor.left
+                prefix = cursor.value if isinstance(cursor, ast.Constant) and isinstance(cursor.value, str) else None
+                if (name, prefix) not in allowed_interpolated:
+                    raise AssertionError('interpolated ValueError at ' + name + ':' + str(node.lineno)
+                                         + '; audit its content before it can reach the failure line')
     for prefix, want in [(ROOT_PREFIX, 'hexthings-application-ci-'), (PROJECT_PREFIX, 'hexthings-app-ci-')]:
         if prefix != want:
             raise AssertionError('fixture prefix drifted from the native fixture contract')
@@ -592,9 +658,11 @@ def self_test():
                              env=env, capture_output=True, text=True)
     if refusal.returncode == 0 or 'Disposable standard Ubuntu runner only' not in refusal.stderr + refusal.stdout:
         raise AssertionError('native entry ran without disposable-runner markers')
-    print('SELF_TEST_ONLY: caller prompt contract guard, PTY prompt driving, fail-fast idle mismatch '
-          'evidence, deadline transcript capture (both redacted), phase-triggered SIGKILL, single-byte '
-          'tamper copy and runner-marker refusal; no Docker image, real caller execution or owner acceptance',
+    print('SELF_TEST_ONLY: caller prompt contract guard, exact-ValueError failure-line contract, '
+          'static-message AST guard over the caller module closure, PTY prompt driving, fail-fast idle '
+          'mismatch evidence, deadline transcript capture (both redacted), phase-triggered SIGKILL, '
+          'single-byte tamper copy and runner-marker refusal; no Docker image, real caller execution or '
+          'owner acceptance',
           flush=True)
 
 

@@ -189,6 +189,27 @@ def prompt(text):
         return None
 
 
+def describe_failure(action, error):
+    """Failure line safe to print without resolved environment, session
+    material or connection details.
+
+    ValueError refusals raised anywhere in the reviewed transaction path are
+    fixed literals naming only the refused invariant; five audited sites append
+    machine identifiers only (a field/type name, fixed diagnostic codes or a
+    service name), never a path, an environment value or session material, so
+    the exact refusal reason is safe to show. Every other error type stays a
+    bare type name because its message can carry host details.
+    """
+    if isinstance(error, ValueError):
+        return ('Reviewed update ' + action + ' failed or was refused: '
+                + type(error).__name__ + ': ' + str(error)
+                + ' Maintenance protection is retained; use this same entry to recover. '
+                'No legacy fallback exists.')
+    return ('Reviewed update ' + action + ' failed or was refused: ' + type(error).__name__ + '. '
+            'Maintenance protection is retained; use this same entry to recover. '
+            'No legacy fallback exists.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', required=True)
@@ -243,10 +264,7 @@ def main():
     try:
         result = execute(root, args.project, receipt, action, session, tenant, user)
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
-        # Never echo resolved environment, session material or connection details.
-        print('Reviewed update ' + action + ' failed or was refused: ' + type(error).__name__ + '. '
-              'Maintenance protection is retained; use this same entry to recover. '
-              'No legacy fallback exists.', file=sys.stderr)
+        print(describe_failure(action, error), file=sys.stderr)
         return 1
     print('Reviewed update ' + action + ' settled: ' + str(result.get('state', 'unknown')).replace('_', ' ') + '.')
     if action == 'activate':
