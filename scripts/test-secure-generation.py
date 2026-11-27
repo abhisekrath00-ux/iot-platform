@@ -8,7 +8,7 @@ m=load('secure-generation');fixture=load('test-secure-execution')
 class Loss(BaseException):pass
 class Tests(unittest.TestCase):
  def ready(self,root):
-  caller,e,p,receipt=fixture.Tests().fixture(root);caller.run(root,'fixture',receipt,'activate')
+  caller,e,p,receipt=fixture.Tests().fixture(root);caller.run(root,'fixture',receipt,'activate',baseline=fixture.BASELINE)
   selected=m.state.selection(root);nextdir=root/'second';nextdir.mkdir(mode=0o700)
   old=m.state.read_private(selected['config']);new=copy.deepcopy(old)
   for n in ['api','ingest','mcp']:new['services'][n]['image']='sha256:'+'c'*64

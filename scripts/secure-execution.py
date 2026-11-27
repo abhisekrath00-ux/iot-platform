@@ -117,7 +117,7 @@ class Coordinator:
             return application.DockerApplication(target.root, target.project, receipt, authorize, accept, compatible)
         return transport.DockerTransport(target.root, target.project, receipt, authorize, accept)
 
-    def run(self, root, project, receipt, action):
+    def run(self, root, project, receipt, action, baseline=None):
         if action not in {'activate', 'recover'}:
             raise ValueError('Explicit activation or recovery action required.')
         root = pathlib.Path(root).resolve()
@@ -188,6 +188,40 @@ class Coordinator:
                 if not callable(handler):
                     raise ValueError('Provider must explicitly support durable generation rollover.')
                 checked_callback(handler, journal, target, generation_value)
+            baseline_path = journal.directory / 'baseline.json'
+            if scope == 'application_bootstrap':
+                if action == 'activate':
+                    # Persisted under the journal lock BEFORE admission can
+                    # close, so an interrupted recovery never needs a live
+                    # authenticated read the protected state must refuse. Same
+                    # private trust domain as the journal; acceptance compares
+                    # live reads against it, so tampering can only refuse.
+                    if (not isinstance(baseline, dict) or baseline.get('version') != 1
+                            or baseline.get('scope') != 'limited_retained_lists'
+                            or not isinstance(baseline.get('records'), dict)):
+                        raise ValueError('Exact retained-data baseline required before maintenance admission.')
+                    state.atomic(baseline_path, {'version': 1, 'receipt_sha256': target.receipt_sha256,
+                                                 'baseline': baseline})
+                elif has_marker or (has_journal and not predecessor_held):
+                    # Admission was closed for THIS reviewed target (its marker
+                    # or its matching transaction journal): recovery accepts no
+                    # live or supplied baseline, only the exact one durably
+                    # bound to this recorded transaction. An older settled
+                    # journal from a previous receipt does not count: its
+                    # baseline stays until the next activation replaces it.
+                    if baseline is not None:
+                        raise ValueError('Recovery uses only the durable retained-data baseline.')
+                    if not baseline_path.exists() or baseline_path.is_symlink():
+                        raise ValueError('Durable retained-data baseline missing; explicit operator settlement required. No lab fallback.')
+                    recorded = state.read_private(baseline_path)
+                    if (recorded.get('version') != 1 or recorded.get('receipt_sha256') != target.receipt_sha256
+                            or not isinstance(recorded.get('baseline'), dict)):
+                        raise ValueError('Durable retained-data baseline does not match the exact recorded transaction.')
+                # else: the interruption happened before maintenance admission
+                # (intent at most), so admission never closed and the caller's
+                # live baseline read is safe in this case only.
+            elif baseline is not None:
+                raise ValueError('Retained-data baseline requires an application transaction.')
             # Persist admission blocking before provider.enter can establish a
             # fence or fail. Power loss here must never reopen ordinary actions.
             state.atomic(marker, binding)
@@ -267,6 +301,9 @@ class Coordinator:
                 state.unlink_durable(marker)
                 if has_intent:
                     generation.finish()
+                # The baseline stays with the settled transaction record so a
+                # later explicit recovery re-verifies against the exact same
+                # baseline; the next activation replaces it under the lock.
                 state.selection(root)
                 return result
             except BaseException:

@@ -68,7 +68,9 @@ class FakeClient:
 
     def snapshot(self):
         self.events.items.append('snapshot')
-        return {'records': {'/v1/devices': {'d1': {'id': 'd1'}}}}
+        return {'version': 1, 'scope': 'limited_retained_lists',
+                'records': {'/v1/devices': {'d1': {'id': 'd1'}}},
+                'full_compatibility': False, 'runtime_accepted': False}
 
     def compare(self, baseline):
         return {'matched': True, 'full_compatibility': False, 'runtime_accepted': False}
@@ -299,9 +301,16 @@ class Tests(unittest.TestCase):
             self.assertIn('runtime', kinds)
             runtime = next(item for item in acceptance.constructed if item[0] == 'runtime')
             self.assertIs(runtime[1].marker, 'adapter')
-            self.assertEqual(runtime[3], {'records': {'/v1/devices': {'d1': {'id': 'd1'}}}})
+            self.assertEqual(runtime[3], {'version': 1, 'scope': 'limited_retained_lists',
+                                          'records': {'/v1/devices': {'d1': {'id': 'd1'}}},
+                                          'full_compatibility': False, 'runtime_accepted': False})
             self.assertIn(('runtime', str(receipt.parent / 'candidate-runtime.json'), 'candidate'), acceptance.called)
             self.assertEqual(m.state.selection(root)['config'], str(receipt.parent / 'candidate-runtime.json'))
+            # The baseline stays with the settled transaction record, bound to
+            # its receipt, so a later explicit recovery re-verifies against it.
+            settled = m.state.read_private(root / '.secure-deployment' / 'baseline.json')
+            self.assertEqual(settled['receipt_sha256'], m.state.digest(receipt))
+            self.assertEqual(settled['baseline']['records'], {'/v1/devices': {'d1': {'id': 'd1'}}})
 
     def test_interrupted_apply_rolls_back_then_recovers_without_db_replay(self):
         with tempfile.TemporaryDirectory() as td:
@@ -326,7 +335,12 @@ class Tests(unittest.TestCase):
                 self.assertEqual(value['schema_attempted'], m.execution.application.app.ADDED)
             with self.assertRaises(ValueError):
                 m.state.selection(root)
-            # A fresh explicit recovery settles the held maintenance session.
+            # The interrupted transaction holds the baseline persisted before admission.
+            recorded = m.state.read_private(root / '.secure-deployment' / 'baseline.json')
+            self.assertEqual(recorded['receipt_sha256'], m.state.digest(receipt))
+            self.assertEqual(recorded['baseline']['records'], {'/v1/devices': {'d1': {'id': 'd1'}}})
+            # A fresh explicit recovery settles the held maintenance session
+            # using the durable baseline, never a live read.
             events2, acceptance2, provider_class2, client_class2, restore2 = self.seams(root)
             try:
                 result = m.execute(root, 'fixture', receipt, 'recover', str(session), 't1', 'u1',
@@ -335,7 +349,94 @@ class Tests(unittest.TestCase):
                 restore2()
             self.assertEqual(result['state'], 'restored')
             self.assertFalse(result['changed'])
+            self.assertNotIn('snapshot', events2.items)
+            runtime2 = next(item for item in acceptance2.constructed if item[0] == 'runtime')
+            self.assertEqual(runtime2[3], recorded['baseline'])
             self.assertEqual(m.state.selection(root)['config'], str(receipt.parent / 'previous-runtime.json'))
+            # The settled recovery retains the baseline with the transaction record.
+            settled = m.state.read_private(root / '.secure-deployment' / 'baseline.json')
+            self.assertEqual(settled['receipt_sha256'], m.state.digest(receipt))
+
+    def test_recovery_without_durable_baseline_refuses_before_any_work(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            receipt = self.plan(root)
+            session = self.session(root)
+            events, acceptance, provider_class, client_class, restore = self.seams(root, fail='accept-candidate')
+            try:
+                with self.assertRaises(RuntimeError):
+                    m.execute(root, 'fixture', receipt, 'activate', str(session), 't1', 'u1',
+                              provider_class=provider_class, client_class=client_class, runner=fake_runner)
+            finally:
+                restore()
+            baseline_path = root / '.secure-deployment' / 'baseline.json'
+            self.assertTrue(baseline_path.exists())
+            # Content tampering within a correctly bound file is out of this
+            # layer's reach: it fails safe at the real acceptance, whose strict
+            # live comparison (reads.compare) refuses any mismatch; it can
+            # never manufacture an approval. Binding violations refuse here.
+            original = m.state.read_private(baseline_path)
+            for case in ['missing', 'tampered-binding']:
+                with self.subTest(case=case):
+                    try:
+                        if case == 'missing':
+                            baseline_path.unlink()
+                        else:
+                            recorded = copy.deepcopy(original)
+                            recorded['receipt_sha256'] = '0' * 64
+                            m.state.atomic(baseline_path, recorded)
+                        events2, acceptance2, provider_class2, client_class2, restore2 = self.seams(root)
+                        try:
+                            with self.assertRaises(ValueError) as caught:
+                                m.execute(root, 'fixture', receipt, 'recover', str(session), 't1', 'u1',
+                                          provider_class=provider_class2, client_class=client_class2, runner=fake_runner)
+                        finally:
+                            restore2()
+                        self.assertIn('baseline', str(caught.exception))
+                        self.assertNotIn('enter', events2.items)
+                        self.assertNotIn('snapshot', events2.items)
+                        self.assertEqual(acceptance2.constructed, [])
+                        # Maintenance protection is retained after the refusal.
+                        self.assertTrue((root / '.secure-deployment' / 'maintenance.json').exists())
+                    finally:
+                        m.state.atomic(baseline_path, original)
+
+    def test_durable_baseline_source_by_interruption_window(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            receipt = self.plan(root)
+            directory = root / '.secure-deployment'
+            baseline_path = directory / 'baseline.json'
+            # No interruption state at all: pre-admission, live read allowed.
+            self.assertIsNone(m.durable_baseline(root, receipt))
+            directory.mkdir(mode=0o700, exist_ok=True)
+            bound = {'version': 1, 'receipt_sha256': m.state.digest(receipt),
+                     'baseline': {'version': 1, 'scope': 'limited_retained_lists', 'records': {}}}
+            # A bound baseline is authoritative even without a session: this is
+            # the settled-record and post-baseline-write pre-admission case.
+            m.state.atomic(baseline_path, bound)
+            self.assertEqual(m.durable_baseline(root, receipt), bound['baseline'])
+            # A foreign binding refuses even without a session.
+            foreign = dict(bound)
+            foreign['receipt_sha256'] = '0' * 64
+            m.state.atomic(baseline_path, foreign)
+            with self.assertRaises(ValueError):
+                m.durable_baseline(root, receipt)
+            baseline_path.unlink()
+            # A maintenance session without its baseline refuses: admission was
+            # closed, so no live read is ever safe here.
+            m.state.atomic(directory / 'maintenance.json', {'version': 1})
+            with self.assertRaises(ValueError):
+                m.durable_baseline(root, receipt)
+            (directory / 'maintenance.json').unlink()
+            # A transaction journal bound to THIS receipt without its baseline
+            # refuses; a journal from another receipt is not a session here.
+            m.state.atomic(directory / 'journal.json', {'version': 1, 'receipt_sha256': '0' * 64})
+            self.assertIsNone(m.durable_baseline(root, receipt))
+            m.state.atomic(directory / 'journal.json',
+                           {'version': 1, 'receipt_sha256': m.state.digest(receipt)})
+            with self.assertRaises(ValueError):
+                m.durable_baseline(root, receipt)
 
     def test_limited_behavior_reverifies_identity_and_returns_nothing(self):
         client = FakeClient('http://127.0.0.1:8000', 's', 't1', 'u1')

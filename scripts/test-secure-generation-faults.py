@@ -30,7 +30,7 @@ class Tests(unittest.TestCase):
             m.state.atomic = record
             m.generations.state.atomic = record
             try:
-                f.Tests().coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                f.Tests().coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=f.BASELINE)
             finally:
                 m.state.atomic = original
                 m.generations.state.atomic = original_generation
@@ -58,7 +58,7 @@ class Tests(unittest.TestCase):
                     m.generations.state.atomic = fail
                     try:
                         with self.assertRaises(Loss):
-                            helper.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                            helper.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=f.BASELINE)
                     finally:
                         m.state.atomic = original
                         m.generations.state.atomic = original_generation
@@ -73,7 +73,7 @@ class Tests(unittest.TestCase):
                         self.assertNotIn('apply-reviewed-schema', effects.calls)
                     else:
                         self.assertIsNotNone(m.state.selection(root))
-                        helper.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                        helper.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=f.BASELINE)
                     self.assertIsNotNone(m.state.selection(root))
                     self.assertFalse((directory / 'generation-intent.json').exists())
                     self.assertFalse((directory / 'maintenance.json').exists())
@@ -99,7 +99,7 @@ class Tests(unittest.TestCase):
                     m.generations.state.unlink_durable = fail
                     try:
                         with self.assertRaises(Loss):
-                            helper.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                            helper.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=f.BASELINE)
                     finally:
                         m.state.unlink_durable = original
                         m.generations.state.unlink_durable = generation_original
@@ -127,12 +127,12 @@ class Tests(unittest.TestCase):
                     m.generations.Generation.immutable = staticmethod(fail)
                     try:
                         with self.assertRaises(Loss):
-                            helper.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                            helper.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=f.BASELINE)
                     finally:
                         m.generations.Generation.immutable = staticmethod(original)
                     self.assertEqual(m.state.selection(root), selected)
                     effects.calls.clear()
-                    helper.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                    helper.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=f.BASELINE)
                     self.assertIn('apply-reviewed-schema', effects.calls)
                     self.assertIsNotNone(m.state.selection(root))
 
@@ -147,7 +147,7 @@ class Tests(unittest.TestCase):
                 path.write_text(json.dumps(m.state.read_private(path), separators=(',', ':')) + '\n')
             journal_bytes = (root / '.secure-deployment/journal.json').read_bytes()
             receipt_bytes = receipt.read_bytes()
-            helper.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+            helper.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=f.BASELINE)
             archives = list((root / '.secure-deployment').glob('generation-*'))
             self.assertEqual(len(archives), 1)
             self.assertEqual((archives[0] / 'journal.json').read_bytes(), journal_bytes)
@@ -162,7 +162,7 @@ class Tests(unittest.TestCase):
             effects.calls.clear()
             with m.state.Journal(root):
                 with self.assertRaises(ValueError):
-                    helper.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                    helper.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=f.BASELINE)
             self.assertEqual(effects.calls, [])
             self.assertFalse((root / '.secure-deployment/generation-intent.json').exists())
 

@@ -163,8 +163,20 @@ def execute(root, project, receipt, action, session, tenant, user, *,
     # The existing session must be an owned single-link private regular file.
     clientmod.session_file(session)
     client = client_class(ORIGIN, session, tenant, user, allow_loopback_http=True)
-    # Baseline is captured live BEFORE any maintenance admission.
-    baseline = client.snapshot()
+    if action == 'activate':
+        # Captured live BEFORE any maintenance admission; the Coordinator
+        # persists it durably before admission can close.
+        baseline = client.snapshot()
+        pre_admission = False
+    else:
+        # A live read is refused by the protected interrupted state whenever a
+        # maintenance session or recorded transaction exists; the durable
+        # baseline covers exactly that case. An interruption before admission
+        # left admission open, so only there is a live read safe.
+        baseline = durable_baseline(root, receipt)
+        pre_admission = baseline is None
+        if pre_admission:
+            baseline = client.snapshot()
     catalog, endpoint, request = provider_inputs(root, project, receipt, runner)
     provider = provider_class(catalog, reviewer_for(root, project, receipt), endpoint, request, runner)
     active = [provider]
@@ -178,7 +190,51 @@ def execute(root, project, receipt, action, session, tenant, user, *,
                                          lambda previous: check(previous, 'previous'))(value)
 
     caller = execution.Coordinator(provider, accepted, compatible, provider.factory)
-    return caller.run(root, project, receipt, action)
+    # Recovery with a durable session takes its baseline only from the durable
+    # record; the Coordinator refuses a supplied one there. Before admission a
+    # supplied live baseline is the safe source.
+    supplied = baseline if action == 'activate' or pre_admission else None
+    return caller.run(root, project, receipt, action, baseline=supplied)
+
+
+def durable_baseline(root, receipt):
+    """Exact retained-data baseline persisted before the interrupted admission.
+
+    The protected interrupted state refuses live authenticated reads by design,
+    so recovery verifies the restored runtime against the baseline the
+    Coordinator persisted before the interrupted maintenance admission. It
+    lives in the same private journal directory as the transaction journal and
+    holds retained-list inventory only, never credentials or session material.
+
+    Returns None only when no maintenance session or recorded transaction
+    exists: the interruption happened before admission, admission never
+    closed, and the caller may safely take a live baseline instead. A missing
+    or foreign baseline with a session refuses; recovery can never
+    manufacture one.
+    """
+    directory = pathlib.Path(root).resolve() / '.secure-deployment'
+    path = directory / 'baseline.json'
+    if path.is_symlink():
+        raise ValueError('Durable retained-data baseline does not match the exact recorded transaction.')
+    if path.exists():
+        recorded = state.read_private(path)
+        if (recorded.get('version') != 1 or recorded.get('receipt_sha256') != state.digest(receipt)
+                or not isinstance(recorded.get('baseline'), dict)):
+            raise ValueError('Durable retained-data baseline does not match the exact recorded transaction.')
+        return recorded['baseline']
+    # A session for THIS receipt means admission was closed for it: a live
+    # marker, or a transaction journal bound to this receipt. An older settled
+    # journal from a previous receipt is not a session for this one.
+    marker = directory / 'maintenance.json'
+    journal = directory / 'journal.json'
+    session = marker.exists() or marker.is_symlink()
+    if not session and journal.exists() and not journal.is_symlink():
+        session = state.read_private(journal).get('receipt_sha256') == state.digest(receipt)
+    if session:
+        raise ValueError('Durable retained-data baseline missing; explicit operator settlement required. No lab fallback.')
+    # No maintenance session or matching recorded transaction: the
+    # interruption happened before admission, so admission never closed.
+    return None
 
 
 def prompt(text):

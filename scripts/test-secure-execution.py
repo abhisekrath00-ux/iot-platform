@@ -17,6 +17,11 @@ def load(name):
 m = load('secure-execution')
 fixture = load('test-secure-application')
 
+# Synthetic retained-data baseline: exact shape the Coordinator persists for
+# application transactions before maintenance admission.
+BASELINE = {'version': 1, 'scope': 'limited_retained_lists', 'records': {},
+            'full_compatibility': False, 'runtime_accepted': False}
+
 class Session:
     pass
 
@@ -91,14 +96,14 @@ class Tests(unittest.TestCase):
                 self.assertTrue((held[0].directory / 'maintenance.json').exists())
                 return original_enter(target)
             provider.enter = enter
-            caller.run(root, 'fixture', receipt, 'activate')
+            caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             with self.assertRaises(ValueError): held[0].locked()
 
     def test_activation_uses_provider_through_commit_and_releases_last(self):
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
             caller, effects, provider, receipt = self.fixture(root)
-            result = caller.run(root, 'fixture', receipt, 'activate')
+            result = caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             self.assertEqual(result['state'], 'committed')
             self.assertGreater(sum(name == 'check' for name, _ in provider.calls), 15)
             self.assertEqual(provider.calls[-1][0], 'release')
@@ -129,7 +134,7 @@ class Tests(unittest.TestCase):
                 original(*args)
                 provider.valid = False
             effects.apply_reviewed_schema = lose
-            with self.assertRaises(RuntimeError): caller.run(root, 'fixture', receipt, 'activate')
+            with self.assertRaises(RuntimeError): caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             self.assertNotIn('start-candidate', effects.calls)
             self.assertNotIn('stop-all-candidate-writers', effects.calls)
             self.assertNotIn('restore-previous', effects.calls)
@@ -143,7 +148,7 @@ class Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
             caller, effects, provider, receipt = self.fixture(root, crash='apply-reviewed-schema')
-            with self.assertRaises(fixture.Interrupted): caller.run(root, 'fixture', receipt, 'activate')
+            with self.assertRaises(fixture.Interrupted): caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             self.assertEqual(provider.calls[-1][0], 'retain')
             with self.assertRaises(ValueError): m.state.selection(root)
             effects.crash = None
@@ -165,7 +170,7 @@ class Tests(unittest.TestCase):
             root = pathlib.Path(td)
             caller, effects, provider, receipt = self.fixture(root)
             provider.release_fail = True
-            with self.assertRaises(ValueError): caller.run(root, 'fixture', receipt, 'activate')
+            with self.assertRaises(ValueError): caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             with self.assertRaises(ValueError): m.state.selection(root)
             with m.state.Journal(root) as journal:
                 self.assertEqual(journal.read()['phase'], 'committed')
@@ -183,7 +188,7 @@ class Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
             caller, effects, provider, receipt = self.fixture(root, crash='apply-reviewed-schema')
-            with self.assertRaises(fixture.Interrupted): caller.run(root, 'fixture', receipt, 'activate')
+            with self.assertRaises(fixture.Interrupted): caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             plan = m.state.read_private(receipt)
             plan['changed'] = True
             m.state.atomic(receipt, plan)
@@ -220,7 +225,7 @@ class Tests(unittest.TestCase):
                 self.assertTrue((root / '.secure-deployment/maintenance.json').is_file())
                 raise fixture.Interrupted('Fence admission lost before journal.begin')
             provider.enter = interrupted_enter
-            with self.assertRaises(fixture.Interrupted): caller.run(root, 'fixture', receipt, 'activate')
+            with self.assertRaises(fixture.Interrupted): caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             self.assertFalse((root / '.secure-deployment/journal.json').exists())
             self.assertEqual(effects.calls, [])
             with self.assertRaises(ValueError): m.state.selection(root)
@@ -242,6 +247,73 @@ class Tests(unittest.TestCase):
         wrapped = m.GuardedEffects(Effect(), lambda: checks.append(len(effects)))
         self.assertEqual(wrapped.call(), 'result')
         self.assertEqual(checks, [0, 1])
+
+    def test_application_activation_requires_exact_baseline_before_admission(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            caller, effects, provider, receipt = self.fixture(root)
+            for damaged in [None, {'version': 2}, {'version': 1, 'scope': 'other', 'records': {}},
+                            {'version': 1, 'scope': 'limited_retained_lists'}]:
+                with self.subTest(damaged=damaged):
+                    with self.assertRaises(ValueError):
+                        caller.run(root, 'fixture', receipt, 'activate', baseline=damaged)
+            # Refusal happens before admission blocking and before any enter.
+            self.assertEqual([call[0] for call in provider.calls if call[0] == 'enter'], [])
+            self.assertFalse((root / '.secure-deployment/maintenance.json').exists())
+            self.assertFalse((root / '.secure-deployment/journal.json').exists())
+
+    def test_baseline_is_durable_before_admission_and_bound_to_the_receipt(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            caller, effects, provider, receipt = self.fixture(root)
+            original_enter = provider.enter
+            def enter(target):
+                # Inside admission, the baseline is already durable and bound.
+                recorded = m.state.read_private(root / '.secure-deployment/baseline.json')
+                self.assertEqual(recorded['receipt_sha256'], m.state.digest(receipt))
+                self.assertEqual(recorded['baseline'], BASELINE)
+                return original_enter(target)
+            provider.enter = enter
+            caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
+            # The baseline stays with the settled transaction record, so a
+            # later explicit recovery re-verifies against the exact same one.
+            settled = m.state.read_private(root / '.secure-deployment/baseline.json')
+            self.assertEqual(settled['receipt_sha256'], m.state.digest(receipt))
+            self.assertEqual(settled['baseline'], BASELINE)
+
+    def test_recovery_refuses_missing_or_foreign_baseline_before_admission(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            caller, effects, provider, receipt = self.fixture(root, crash='apply-reviewed-schema')
+            with self.assertRaises(fixture.Interrupted):
+                caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
+            baseline_path = root / '.secure-deployment/baseline.json'
+            self.assertTrue(baseline_path.exists())
+            original = m.state.read_private(baseline_path)
+            try:
+                for case in ['missing', 'foreign']:
+                    with self.subTest(case=case):
+                        if case == 'missing':
+                            baseline_path.unlink()
+                        else:
+                            m.state.atomic(baseline_path, original)
+                            damaged = dict(original)
+                            damaged['receipt_sha256'] = '0' * 64
+                            m.state.atomic(baseline_path, damaged)
+                        provider.calls.clear()
+                        with self.assertRaises(ValueError):
+                            caller.run(root, 'fixture', receipt, 'recover')
+                        self.assertEqual([call[0] for call in provider.calls if call[0] == 'enter'], [])
+                        # Maintenance protection is retained for explicit settlement.
+                        self.assertTrue((root / '.secure-deployment/maintenance.json').exists())
+                        m.state.atomic(baseline_path, original)
+                # Supplied baselines are never accepted for recovery.
+                provider.calls.clear()
+                with self.assertRaises(ValueError):
+                    caller.run(root, 'fixture', receipt, 'recover', baseline=BASELINE)
+                self.assertEqual([call[0] for call in provider.calls if call[0] == 'enter'], [])
+            finally:
+                m.state.atomic(baseline_path, original)
 
 if __name__ == '__main__':
     unittest.main()

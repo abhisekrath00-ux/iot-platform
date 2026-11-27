@@ -29,6 +29,7 @@ def load(name):
     spec=importlib.util.spec_from_file_location(name,HERE/(name+'.py'))
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 
+BASELINE={'version':1,'scope':'limited_retained_lists','records':{},'full_compatibility':False,'runtime_accepted':False}
 m=load('secure-application-provider');production=load('secure-application-production');fixture=load('test-secure-application-native');writesmod=load('test-secure-application-writes-fixture');acceptmod=load('secure-application-acceptance');connectionmod=load('secure-application-connections');hosttoolmod=load('secure-postgres-hosttool')
 class Loss(BaseException):pass
 
@@ -256,7 +257,7 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
             # Actual 89->93 and forced candidate failure: runtime-group previous
             # compatibility, no network migration container or DB archive replay.
             caller,provider=coordinator();checkpoint('activate with forced candidate failure')
-            try:caller.run(root,project,receipt,'activate')
+            try:caller.run(root,project,receipt,'activate',baseline=BASELINE)
             except RuntimeError:
                 with m.state.Journal(root)as journal:
                     if journal.read()['phase']!='restored' or journal.read().get('maintenance_state')!='held':raise
@@ -282,7 +283,7 @@ def prove(parent_root,parent_project,newimage,testimage,basepath,preparation_onl
             receipt=root/'second-plan/preflight.json'
             helper.old=root/'second-plan/previous-runtime.json';helper.new=root/'second-plan/candidate-runtime.json'
             force_failure[0]=False;caller,provider=coordinator(LostRelease);checkpoint('activate with lost release acknowledgement')
-            try:caller.run(root,project,receipt,'activate')
+            try:caller.run(root,project,receipt,'activate',baseline=BASELINE)
             except Loss:pass
             else:raise ValueError('Actual provider settled release interruption missing.')
             with m.state.Journal(root)as journal:

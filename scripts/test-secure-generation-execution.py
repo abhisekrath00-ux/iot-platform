@@ -15,6 +15,7 @@ def load(name):
 
 fixture = load('test-secure-execution')
 m = fixture.m
+BASELINE = fixture.BASELINE
 
 class Lost(BaseException):
     pass
@@ -31,12 +32,12 @@ class Tests(unittest.TestCase):
         caller, effects, provider, receipt = fixture.Tests().fixture(root, fail='accept-candidate' if restored else None)
         if restored:
             with self.assertRaises(RuntimeError):
-                caller.run(root, 'fixture', receipt, 'activate')
+                caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             effects.fail = None
             provider = fixture.Provider()
             self.coordinator(effects, provider).run(root, 'fixture', receipt, 'recover')
         else:
-            caller.run(root, 'fixture', receipt, 'activate')
+            caller.run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
         return effects
 
     def next_plan(self, root, name='second', image='c'):
@@ -72,7 +73,7 @@ class Tests(unittest.TestCase):
                 inode = (root / '.secure-deployment').stat().st_ino
                 for name, image in [('second', 'c'), ('third', 'd')]:
                     receipt = self.next_plan(root, name, image)
-                    result = self.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                    result = self.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
                     self.assertEqual(result['state'], 'committed')
                     self.assertEqual(m.state.selection(root)['config'], str(receipt.parent / 'candidate-runtime.json'))
                     self.assertIn('retained-identity', effects.rows)
@@ -91,7 +92,7 @@ class Tests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     effects.selection_reader(root)
             effects.stop_writers = lambda *args: (setattr(effects, 'stopped', True), after_begin())[-1]
-            self.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+            self.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
 
     def test_generation_requires_explicit_provider_support_and_review_before_intent(self):
         for unsupported in [False, True]:
@@ -103,7 +104,7 @@ class Tests(unittest.TestCase):
                 provider = fixture.Provider() if unsupported else Provider()
                 provider.review_fail = not unsupported
                 with self.assertRaises(ValueError):
-                    self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate')
+                    self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
                 self.assertFalse((root / '.secure-deployment/generation-intent.json').exists())
                 self.assertEqual(m.state.selection(root), selected)
 
@@ -123,7 +124,7 @@ class Tests(unittest.TestCase):
                 else:
                     provider.enter = lost
                 with self.assertRaises(Lost):
-                    self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate')
+                    self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
                 self.assertEqual(effects.calls, [])
                 with self.assertRaises(ValueError):
                     m.state.selection(root)
@@ -142,7 +143,7 @@ class Tests(unittest.TestCase):
             effects.crash = 'apply-reviewed-schema'
             effects.calls.clear()
             with self.assertRaises(fixture.fixture.Interrupted):
-                self.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                self.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             with self.assertRaises(ValueError):
                 m.state.selection(root)
             effects.crash = None
@@ -168,7 +169,7 @@ class Tests(unittest.TestCase):
             provider = Provider()
             provider.release_fail = True
             with self.assertRaises(ValueError):
-                self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate')
+                self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             with self.assertRaises(ValueError):
                 m.state.selection(root)
             effects.calls.clear()
@@ -185,16 +186,16 @@ class Tests(unittest.TestCase):
             provider = Provider()
             provider.enter = lambda *args: (_ for _ in ()).throw(Lost())
             with self.assertRaises(Lost):
-                self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate')
+                self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             self.coordinator(effects).run(root, 'fixture', receipt, 'recover')
             selected = m.state.selection(root)
             effects.calls.clear()
             with self.assertRaises(ValueError):
-                self.coordinator(effects).run(root, 'fixture', receipt, 'activate')
+                self.coordinator(effects).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             self.assertEqual(effects.calls, [])
             self.assertEqual(m.state.selection(root), selected)
             fresh = self.next_plan(root, 'fresh-second')
-            self.assertEqual(self.coordinator(effects).run(root, 'fixture', fresh, 'activate')['state'], 'committed')
+            self.assertEqual(self.coordinator(effects).run(root, 'fixture', fresh, 'activate', baseline=BASELINE)['state'], 'committed')
 
     def test_recovery_review_handles_intent_before_marker_and_active_successor_without_writes(self):
         review = fixture.load('secure-recovery-review')
@@ -211,7 +212,7 @@ class Tests(unittest.TestCase):
                     effects.crash = 'apply-reviewed-schema'
                     error = fixture.fixture.Interrupted
                 with self.assertRaises(error):
-                    self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate')
+                    self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
                 before = {str(path): path.read_bytes() for path in root.rglob('*') if path.is_file()}
                 result = review.inspect(root)
                 self.assertEqual(result['state'], expected)
@@ -228,7 +229,7 @@ class Tests(unittest.TestCase):
             provider = Provider()
             provider.enter = lambda *args: (_ for _ in ()).throw(Lost())
             with self.assertRaises(Lost):
-                self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate')
+                self.coordinator(effects, provider).run(root, 'fixture', receipt, 'activate', baseline=BASELINE)
             plan = m.state.read_private(receipt)
             plan['changed'] = True
             m.state.atomic(receipt, plan)

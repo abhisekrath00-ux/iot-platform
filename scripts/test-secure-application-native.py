@@ -27,6 +27,7 @@ def load(name):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 
 app=load('secure-application');state=load('secure-state');runtime=load('secure-runtime');production=load('secure-application-docker');retained=load('secure-application-reads');execution=load('secure-execution');clientmod=load('secure-application-client')
+BASELINE={'version':1,'scope':'limited_retained_lists','records':{},'full_compatibility':False,'runtime_accepted':False}
 
 def call(args,cwd=None,binary=False,input=None):
     owner=load('real-application-fixture-cleanup').current() if os.environ.get('HEXTHINGS_REAL_PREPARATION_ONLY')=='1' else None
@@ -296,7 +297,7 @@ def fixture_main():
                 normal_enter(target)
                 raise SyntheticProcessLoss('Synthetic process loss during maintenance admission')
             maintenance.enter=lose_admission
-            try:caller.run(work,project,receiptpath,'activate')
+            try:caller.run(work,project,receiptpath,'activate',baseline=BASELINE)
             except SyntheticProcessLoss:pass
             else:raise ValueError('Admission interruption did not occur')
             if (work/'.secure-deployment/journal.json').exists() or helper.identities(helper.old)!=before_admission:raise ValueError('Admission loss changed transaction services')
@@ -315,7 +316,7 @@ def fixture_main():
             print('PASS production caller admission interruption: durable maintenance marker precedes provider entry; process loss before transaction blocks selection; fresh prior-runtime acceptance/release settles without service/schema changes. Synthetic maintenance provider only, not owner outside-writer prevention.',flush=True)
             helper.fail=True
             receipt();caller,maintenance=coordinator(helper)
-            try:caller.run(work,project,receiptpath,'activate')
+            try:caller.run(work,project,receiptpath,'activate',baseline=BASELINE)
             except RuntimeError:
                 with state.Journal(work)as journal:
                     if journal.read()['phase']!='restored' or journal.read().get('maintenance_state')!='held' or not helper.accepted:raise
@@ -332,7 +333,7 @@ def fixture_main():
             print('PASS production Docker adapter and setupctl: real exact bfe5d89 -> reviewed additive schema -> new API/ingest/MCP image acceptance -> forced failure -> old API compatibility probe -> exact previous writers restored; additive schema and post-backup data retained. Synthetic only; exact retained-list and synthetic source-config compatibility, not owner activation.',flush=True)
             os.rename(work/'.secure-deployment',work/'.synthetic-restored-evidence');helper.fail=False;helper.accepted=False
             receipt();caller,maintenance=coordinator(helper)
-            result=caller.run(work,project,receiptpath,'activate')
+            result=caller.run(work,project,receiptpath,'activate',baseline=BASELINE)
             if result['state']!='committed' or not helper.accepted or maintenance.events[-1]!='release':raise ValueError('Positive application coordinator not settled')
             if state.selection(work)['config']!=str(helper.new):raise ValueError('Wrong application selector')
             print('PASS production Docker adapter and setupctl: second real disposable application transaction committed exact new API/ingest/MCP images after all-writer stop, unique verified backup, reviewed-schema inspection and authenticated retained-data reads. Not TLS activation, secure Upgrade, full compatibility or physical reading.',flush=True)
@@ -348,7 +349,7 @@ def fixture_main():
                     super().apply_reviewed_schema(value)
                     raise SyntheticProcessLoss('Synthetic loss after production schema operator commit')
             receipt();caller,maintenance=coordinator(helper,LostAcknowledgement)
-            try:caller.run(work,project,receiptpath,'activate')
+            try:caller.run(work,project,receiptpath,'activate',baseline=BASELINE)
             except SyntheticProcessLoss:
                 with state.Journal(work)as journal:value=journal.read()
                 if value['phase']!='changing' or value.get('schema_attempted')!=app.ADDED or value.get('schema_result') or value.get('maintenance_state')!='held':raise ValueError('Interrupted schema acknowledgement not durably blocked')
