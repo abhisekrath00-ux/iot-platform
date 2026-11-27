@@ -15,13 +15,14 @@
 #   bash scripts/setup.sh secure-recovery-review  read-only interrupted-setup review
 #   bash scripts/setup.sh secure-update-review PROJECT RECEIPT  read-only prepared update review
 #   bash scripts/setup.sh secure-update-prepare PROJECT IMAGE BUNDLE  private plan only, no update
+#   bash scripts/setup.sh secure-update-apply PROJECT RECEIPT  apply/recover a reviewed update; disables legacy Upgrade
 #   bash scripts/setup.sh cluster [host]   Patroni view: leader, replicas, lag (HA installs; host defaults to $HEXTHINGS_NODE or localhost)
 # Menu keys: up/down or j/k, Enter, number keys, q. Works without colour (NO_COLOR), on narrow terminals,
 # and without a terminal (subcommands only; the menu refuses with a usage line).
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"; root="$(cd "$here/.." && pwd)"
 cd "$root"
-usage() { sed -n 2,18p "$0"; }
+usage() { sed -n 2,19p "$0"; }
 if [ "${1:-}" = -h ] || [ "${1:-}" = --help ]; then usage; exit 0; fi
 LOG=/dev/null
 # shellcheck source=hx-ui.sh
@@ -205,6 +206,27 @@ guided_secure_update_prepare() {
   [ "$answer" = PREPARE ] || { echo "  Cancelled. No plan or update requested.";return 0; }
   cmd_secure_update_prepare "$project" "$image" "$bundle"
 }
+cmd_secure_update_apply() {
+  command -v python3 >/dev/null 2>&1 || { echo "  Update apply needs Python3. Nothing changed.";return 1; }
+  local project=${1:-} receipt=${2:-}
+  if [ -z "$project" ] || [ -z "$receipt" ]; then
+    [ -t 0 ] || { echo "  Supply the existing project and exact prepared preflight.json path. Nothing changed.";return 2; }
+    read -r -p "  Existing Compose project name: " project || return 1
+    [ -n "$project" ] || { echo "  Cancelled. Nothing changed.";return 0; }
+    read -r -p "  Exact prepared application preflight.json path: " receipt || return 1
+    [ -n "$receipt" ] || { echo "  Cancelled. Nothing changed.";return 0; }
+  fi
+  python3 "$here/secure-update-apply.py" --root "$root" --project "$project" --receipt "$receipt"
+}
+guided_secure_update_apply() {
+  echo "  Apply or recover the exact reviewed server update plan through the journal-managed path."
+  echo "  This is the only supported update execution: it stops writers, proves retained data live,"
+  echo "  and never replays the database during rollback."
+  echo "  After the first successful secure update, the legacy Upgrade entry permanently refuses"
+  echo "  this installation; only this journal-managed path can change it afterwards."
+  echo "  Fresh TLS activation is not covered here and stays with Prepare private TLS setup."
+  cmd_secure_update_apply "${1:-}" "${2:-}"
+}
 cmd_secure_update_prepare() {
   command -v python3 >/dev/null 2>&1 || { echo "  Update preparation needs Python3. Nothing changed.";return 1; }
   [ "$#" = 3 ] && [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] || { echo "  Supply exact existing project, already-local sha256 image ID and new private bundle path. No update requested.";return 2; }
@@ -261,6 +283,7 @@ dispatch() {
     multi) shift; if [ $# -eq 0 ]; then if [ -t 0 ]; then guided_multi; else echo "multi node: bash scripts/setup.sh multi plan|render|check|drill --nodes n1=IP,n2=IP,n3=IP --vip IP"; echo "details: docs/ha-multi-node.md"; fi; else bash "$here/install-ha.sh" "$@"; fi ;;
     secure-update-gui) python3 "$here/secure-update-gui.py" ;;
     secure-update-prepare) shift;cmd_secure_update_prepare "$@" ;;
+    secure-update-apply) shift;cmd_secure_update_apply "${1:-}" "${2:-}" ;;
     secure-update-review) shift;cmd_secure_update_review "${1:-}" "${2:-}" ;;
     secure-readiness) shift;cmd_secure_readiness "${1:-}" ;;
     secure-prepare) cmd_secure_prepare ;;
@@ -279,9 +302,9 @@ if [ $# -gt 0 ]; then dispatch "$@"; exit $?; fi
 [ -t 0 ] && [ -t 1 ] || { echo "usage: setup.sh single|multi|status|health|logs|backup|verify|restore|upgrade|cluster|start|stop|restart|doctor|open|version|ai [args]  (the interactive menu needs a terminal)" >&2; exit 2; }
 
 # ---- interactive menu -------------------------------------------------------------------------
-labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Start" "Stop" "Restart" "Doctor" "AI status" "Open in browser" "Prepare private TLS setup" "Check secure setup readiness" "Review interrupted setup" "Review prepared server update" "Prepare server update plan" "Quit")
-hints=("one-machine Docker setup" "plan automatic DB failover" "services and their state" "live probes and latency" "pick service; Ctrl-C stops" "Postgres dump to backups" "verify, confirm, restore" "legacy only; no secure upgrade" "HA leader, replicas and lag" "start; include saved AI model" "stop; keep data" "restart services" "Docker, disk, service checks" "local model status" "show/open web address" "prepare only; no activation" "check only; no changes" "review only; no recovery" "read-only; not update approval" "private plan; no update" "")
-keys=(single multi status health logs backup restore upgrade cluster start stop restart doctor ai open secure-prepare secure-readiness secure-recovery-review secure-update-review secure-update-prepare quit)
+labels=("Install single node" "Install multi node (3-node HA)" "Status" "Health check" "Follow logs" "Backup now" "Restore a backup" "Upgrade" "Cluster view" "Start" "Stop" "Restart" "Doctor" "AI status" "Open in browser" "Prepare private TLS setup" "Check secure setup readiness" "Review interrupted setup" "Review prepared server update" "Prepare server update plan" "Apply reviewed server update" "Quit")
+hints=("one-machine Docker setup" "plan automatic DB failover" "services and their state" "live probes and latency" "pick service; Ctrl-C stops" "Postgres dump to backups" "verify, confirm, restore" "legacy only; no secure upgrade" "HA leader, replicas and lag" "start; include saved AI model" "stop; keep data" "restart services" "Docker, disk, service checks" "local model status" "show/open web address" "prepare only; no activation" "check only; no changes" "review only; no recovery" "read-only; not update approval" "private plan; no update" "apply/recover; blocks legacy Upgrade" "")
+keys=(single multi status health logs backup restore upgrade cluster start stop restart doctor ai open secure-prepare secure-readiness secure-recovery-review secure-update-review secure-update-prepare secure-update-apply quit)
 sel=0; n=${#labels[@]}
 cleanup() { [ "$COLOR" = 1 ] && printf '\033[?25h'; }
 trap 'cleanup; echo; exit 130' INT TERM
@@ -324,6 +347,7 @@ while :; do
   k=${keys[$sel]}
   case "$k" in
     secure-update-prepare) guided_secure_update_prepare;pause ;;
+    secure-update-apply) guided_secure_update_apply;pause ;;
     secure-update-review) cmd_secure_update_review;pause ;;
     secure-readiness) cmd_secure_readiness;pause ;;
     secure-prepare) cmd_secure_prepare;pause ;;
