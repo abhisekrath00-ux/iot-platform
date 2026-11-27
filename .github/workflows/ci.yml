@@ -67,7 +67,7 @@ jobs:
         working-directory: server
         run: |
           set -o pipefail
-          { go vet ./... && go test ./... && go build ./...; } 2>&1 | tee /tmp/server-ci.log
+          { (cd ../edge && CGO_ENABLED=0 go build -o /tmp/edge-agent-review ./cmd/edge-agent) && go vet ./... && HEX_CLAIM_REVIEW_AGENT_BIN=/tmp/edge-agent-review go test ./... && go build ./...; } 2>&1 | tee /tmp/server-ci.log
       - name: MQTT ingest to dashboard API smoke (synthetic local broker)
         working-directory: server
         run: |
