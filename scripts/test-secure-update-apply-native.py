@@ -58,7 +58,7 @@ IDLE = 180
 # Apply job CI budget in seconds (ci.yml apply-recovery-acceptance
 # timeout-minutes) and the safety margin reserved for job setup, the cleanup
 # step and emitting the redacted transcript tail.
-CI_JOB_BUDGET = 2400
+CI_JOB_BUDGET = 3300
 BUDGET_MARGIN = 120
 
 

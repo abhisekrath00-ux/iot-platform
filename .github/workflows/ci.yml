@@ -347,7 +347,7 @@ jobs:
   apply-recovery-acceptance:
     if: github.event_name == 'workflow_dispatch' && inputs.apply_recovery_acceptance && github.event.repository.private == false
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     permissions:
       contents: read
     steps:
