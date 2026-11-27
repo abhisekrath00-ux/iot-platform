@@ -55,6 +55,11 @@ USER = 'retain-user'
 SECRET = fixture.FIXTURE_JWT
 DEADLINE = 900
 IDLE = 180
+# Apply job CI budget in seconds (ci.yml apply-recovery-acceptance
+# timeout-minutes) and the safety margin reserved for job setup, the cleanup
+# step and emitting the redacted transcript tail.
+CI_JOB_BUDGET = 2400
+BUDGET_MARGIN = 120
 
 
 def stage(name, **fields):
@@ -202,6 +207,7 @@ def fixture_main():
     if (os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'Linux'
             or os.geteuid() != 0):
         raise SystemExit('Disposable standard Ubuntu runner only.')
+    started = time.monotonic()
     owner = cleanup.current()
     if owner is None:
         raise SystemExit('Private cleanup ledger required before setup.')
@@ -434,7 +440,14 @@ def fixture_main():
             else:
                 raise ValueError('Interrupted apply allowed ordinary selection.')
             stage('apply3 interrupted mid-maintenance; selection blocked')
-            code, out = pty_run(work, project, receipt3, answers('RECOVER', 'RECOVER'))
+            # The recover pty deadline must fire inside the apply job's CI
+            # budget so a hung recover emits its redacted transcript tail
+            # instead of a bare job-timeout cancellation. Run 1720 lost the
+            # tail by 48s when the 40-minute job timeout beat the 900s
+            # fixture deadline after earlier stages consumed 25m49s.
+            remaining = CI_JOB_BUDGET - (time.monotonic() - started) - BUDGET_MARGIN
+            code, out = pty_run(work, project, receipt3, answers('RECOVER', 'RECOVER'),
+                                deadline=max(120, min(DEADLINE, int(remaining))))
             if code != 0 or 'settled: ' not in out:
                 raise ValueError('Typed recovery did not settle: ' + redact(out)[-2000:])
             checked_output(out, ['RECOVERY of an interrupted maintenance session'])
@@ -489,6 +502,20 @@ def self_test():
         raise AssertionError('caller typed-confirmation phrase construction drifted')
     if "prompt('  Type ' + phrase + ' to start" not in caller_text:
         raise AssertionError('caller typed-confirmation prompt construction drifted')
+
+    # Deadline-versus-budget arithmetic: the recover pty deadline must always
+    # fire inside the apply job's CI budget, so a hung recover yields the
+    # redacted transcript tail instead of a bare job-timeout cancellation
+    # (run 1720 lost the tail by 48s). Pin the harness constants to ci.yml.
+    workflow = (HERE.parent / '.github/workflows/ci.yml').read_text()
+    budget = re.search(r'apply-recovery-acceptance:.*?timeout-minutes:\s*(\d+)', workflow, re.S)
+    if not budget or int(budget.group(1)) * 60 != CI_JOB_BUDGET:
+        raise AssertionError('apply job CI budget drifted from the harness deadline arithmetic')
+    if BUDGET_MARGIN < 90 or DEADLINE > 900 or CI_JOB_BUDGET < 600:
+        raise AssertionError('recover deadline budget arithmetic drifted')
+    harness_text = (HERE / 'test-secure-update-apply-native.py').read_text()
+    if 'deadline=max(120, min(DEADLINE, int(remaining)))' not in harness_text:
+        raise AssertionError('recover pty deadline is not budget-bounded')
 
     # Failure-line contract: the caller prints the exact ValueError refusal
     # from the reviewed transaction path and suppresses every other error
